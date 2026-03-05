@@ -1,0 +1,1489 @@
+-- BasePlacementSystem.lua - ServerScriptService (ModuleScript)
+-- Places creature orbs on DefensePoints, IncomePoints, AND BattlePoints in each plot.
+-- Supports multi-floor bases where points live inside Floor folders.
+--
+-- ═══════════════════════════════════════════════════════════════════════════
+-- BASE STRUCTURE CONTRACT (for custom bases / skin changes / agent updates)
+-- ═══════════════════════════════════════════════════════════════════════════
+-- All updates MUST preserve:
+--   1. FLOOR FOLDERS: Plot must have Floor1, Floor2, Floor3 (Model or Folder).
+--      Floor2 and Floor3 may be hidden until purchased; do not reparent or rename.
+--   2. FLOOR ACCESS: Stairs (or equivalent) live inside Floor2 and Floor3.
+--      setFloorVisibility toggles visibility/collision only; do not remove Stairs.
+--   3. POINT NAMES & CONTINUITY: DefensePoint1..6 (Floor1), 7..12 (Floor2), 13..18 (Floor3);
+--      IncomePoint same numbering; BattlePoint1..9 inside Floor2 (e.g. Floor2/BattleTeam/).
+--      Do NOT reparent or rename point parts; discovery uses GetDescendants + name match.
+--   4. PLOT ANCHORS: Point parts and floor structure parts are anchored in code when
+--      visibility is set; custom bases should keep parts anchored to avoid fall-through.
+--
+-- Expected plot structure (multi-floor):
+--   Plot1/
+--     Floor1/
+--       DefensePoints/  DefensePoint1..6
+--       IncomePoints/   IncomePoint1..6
+--     Floor2/           (invisible until purchased)
+--       BattleTeam/     BattlePoint1..9 (INSIDE Floor2)
+--       DefensePoints/  DefensePoint7..12
+--       IncomePoints/   IncomePoint7..12
+--       Stairs
+--       [Glass parts: name contains "Glass" or attribute IsGlass = true → stay transparent]
+--     Floor3/           (invisible until purchased)
+--       DefensePoints/  DefensePoint13..18
+--       IncomePoints/   IncomePoint13..18
+--       Stairs
+--     PlotCenter
+--     SignPart
+--
+-- CRITICAL: BattleTeam is INSIDE Floor2. setFloorVisibility handles ALL
+-- descendants of Floor2 including BattleTeam. There is NO separate
+-- setBattleTeamVisibility function.
+--
+-- getPointsByPrefix uses GetDescendants() so it auto-discovers points in any sub-folder.
+
+local Players = game:GetService("Players")
+local CollectionService = game:GetService("CollectionService")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+
+local CreatureData = require(game.ReplicatedStorage.Modules.CreatureData)
+local GameConfig = require(game.ReplicatedStorage.Modules.GameConfig)
+local CreatureModelLoader = require(game.ReplicatedStorage.Modules.CreatureModelLoader)
+
+local RaidSystem = nil
+pcall(function()
+	RaidSystem = require(game:GetService("ServerScriptService"):FindFirstChild("RaidSystem") or game:GetService("ServerScriptService"):WaitForChild("RaidSystem", 2))
+end)
+local CreatureAnimation = require(game.ReplicatedStorage.Modules.CreatureAnimation)
+
+local PlayerDataManager
+local CreatureAI
+
+local BasePlacementSystem = {}
+
+local DEFENSE_TAG = "BaseDefenseCreature"
+local INCOME_TAG = "BaseIncomeCreature"
+local BATTLE_TAG = "BaseBattleCreature"
+local PLOTS_FOLDER = nil
+local placementLocks = {} -- userId -> true if placement in progress
+
+-- -- HELPERS --
+
+local function getPointsByPrefix(plotModel, prefix)
+	local points = {}
+	for _, child in ipairs(plotModel:GetDescendants()) do
+		if child:IsA("BasePart") then
+			local num = child.Name:match("^" .. prefix .. "(%d+)$")
+			if num then
+				table.insert(points, { part = child, index = tonumber(num) })
+			end
+		end
+	end
+	table.sort(points, function(a, b) return a.index < b.index end)
+	return points
+end
+
+-- Returns { [index] = part } for BattlePoints (BattlePoint1..9 inside Floor2).
+-- CONTINUITY: Do not reparent/rename; slot index 1-9 maps to BattlePoint1-9.
+local function getBattlePointMap(plotModel)
+	local map = {}
+	for _, child in ipairs(plotModel:GetDescendants()) do
+		if child:IsA("BasePart") then
+			local num = child.Name:match("^BattlePoint(%d+)$")
+			if num then map[tonumber(num)] = child end
+		end
+	end
+	return map
+end
+
+-- Set BattlePoint part colors: black neon when team inactive, green neon when active
+local function setBattlePointColors(plotModel, battleTeamActive)
+	local battlePointMap = getBattlePointMap(plotModel)
+	local color = battleTeamActive and Color3.fromRGB(0, 255, 80) or Color3.fromRGB(15, 15, 15)  -- green neon / black neon
+	for _, part in pairs(battlePointMap) do
+		if part and part:IsA("BasePart") then
+			part.Color = color
+			part.Material = Enum.Material.Neon
+		end
+	end
+end
+
+local function findPlotModel(plotId)
+	if not PLOTS_FOLDER then return nil end
+	return PLOTS_FOLDER:FindFirstChild("Plot" .. plotId)
+		or PLOTS_FOLDER:FindFirstChild("Part" .. plotId)
+end
+
+-- Get plot model and plotId from any descendant part (e.g. PlotCenter, walls)
+local function getPlotFromPart(part)
+	if not part or not PLOTS_FOLDER then return nil, nil end
+	local current = part
+	while current and current ~= workspace do
+		if current.Parent == PLOTS_FOLDER then
+			local id = current.Name:match("^Plot(%d+)$") or current.Name:match("^Part(%d+)$")
+			if id then return current, tonumber(id) end
+		end
+		current = current.Parent
+	end
+	return nil, nil
+end
+
+-- Track players who touched plot center/walls but don't own and aren't on access list (physical invaders)
+local activeInvaders = {} -- [plotId] = { [userId] = lastTouchTime }
+local INVADER_TIMEOUT = 45
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- FLOOR-GATED POINT DISCOVERY
+-- FIX #1 / FIX #3: Only returns points that live inside OWNED floor folders.
+-- Without this, getPointsByPrefix returns ALL points from ALL floors, causing
+-- creatures to be placed on Floor 2/3 points before those floors are purchased.
+-- ══════════════════════════════════════════════════════════════════════════
+
+-- Walk up ancestors of a part to find which FloorX folder it lives in.
+-- Returns the floor number (1, 2, 3) or nil if not inside any floor folder.
+-- FIX #5: Defined BEFORE getPointsForOwnedFloors which calls it.
+local function getFloorForPart(part)
+	local current = part.Parent
+	while current do
+		local floorNum = current.Name:match("^Floor(%d+)$")
+		if floorNum then return tonumber(floorNum) end
+		current = current.Parent
+	end
+	return nil
+end
+
+-- Returns true if part is inside a folder with this name (e.g. "DefensePoints", "IncomePoints").
+local function isPartInFolderNamed(part, folderName)
+	local current = part.Parent
+	while current do
+		if current.Name == folderName then return true end
+		current = current.Parent
+	end
+	return false
+end
+
+-- Returns points matching prefix but ONLY from owned floors.
+-- excludeFolder: if set (e.g. "DefensePoints"), skip parts inside that folder so income/defense stay separate.
+-- CONTINUITY: Slot index maps to array position (1-based). Point names DefensePoint1..6 (Floor1),
+-- 7..12 (Floor2), 13..18 (Floor3) must be preserved for correct defense/income slot mapping.
+-- @param plotModel Model - the plot to search
+-- @param prefix string - e.g. "DefensePoint" or "IncomePoint"
+-- @param ownedFloors table - array of floor numbers player owns, e.g. {1} or {1,2}
+-- @param excludeFolder string|nil - optional, e.g. "DefensePoints" so income creatures never spawn on defense points
+-- @return array of {part, index} sorted by index
+local function getPointsForOwnedFloors(plotModel, prefix, ownedFloors, excludeFolder)
+	local ownedSet = {}
+	for _, f in ipairs(ownedFloors) do ownedSet[f] = true end
+
+	local points = {}
+	local skippedFloor = 0
+	local skippedNoFloor = 0
+	local skippedExclude = 0
+	for _, child in ipairs(plotModel:GetDescendants()) do
+		if child:IsA("BasePart") then
+			local num = child.Name:match("^" .. prefix .. "(%d+)$")
+			if num then
+				if excludeFolder and isPartInFolderNamed(child, excludeFolder) then
+					skippedExclude = skippedExclude + 1
+				else
+					local floor = getFloorForPart(child)
+					if not floor then
+						skippedNoFloor = skippedNoFloor + 1
+						-- DEBUG: Print full path of any point not inside a FloorX folder
+						warn("[BasePlacement] " .. prefix .. num .. " has NO FloorX ancestor! Path: " .. child:GetFullName())
+					elseif not ownedSet[floor] then
+						skippedFloor = skippedFloor + 1
+					else
+						table.insert(points, { part = child, index = tonumber(num) })
+					end
+				end
+			end
+		end
+	end
+	table.sort(points, function(a, b) return a.index < b.index end)
+	return points
+end
+
+-- -- SPAWN CREATURE ORB --
+
+local function spawnBaseOrb(creatureId, pointPart, uid, plotModel, slotType, slotLabel, creatureLevel, ownerUserId, isEgg, hatchAt, pointIndex, slotIndex, creatureVariant)
+	isEgg = isEgg == true
+	creatureVariant = creatureVariant or "Normal"
+	local info = CreatureData.GetById(creatureId)
+	if not info then return nil end
+
+	local rarityInfo = CreatureData.Rarities[info.rarity]
+	local rarityColor = rarityInfo and rarityInfo.color or Color3.fromRGB(180, 180, 180)
+
+	local isDefense = (slotType == "defense")
+	local isBattle = (slotType == "battle")
+	local tag = isDefense and DEFENSE_TAG or (isBattle and BATTLE_TAG or INCOME_TAG)
+
+	local model = Instance.new("Model")
+	model.Name = slotType .. "_" .. info.id .. "_" .. uid
+	model:SetAttribute("UID", uid)
+	model:SetAttribute("CreatureId", creatureId)
+	model:SetAttribute("SlotType", slotType)
+	model:SetAttribute("CreatureLevel", creatureLevel or 1)
+	model:SetAttribute("CreatureVariant", creatureVariant)
+	if slotIndex then model:SetAttribute("SlotIndex", slotIndex) end
+	CollectionService:AddTag(model, tag)
+
+	-- Body size varies by type (used for placeholder orb or for scaling)
+	-- TEST: Set to true to use uniform scale for income/defense (no slot-based size difference)
+	local UNIFORM_CREATURE_SCALE = true
+	local bodySize
+	if UNIFORM_CREATURE_SCALE then
+		bodySize = Vector3.new(4.5, 4.5, 4.5)
+	else
+		if isDefense then bodySize = Vector3.new(5, 5, 5)
+		elseif isBattle then bodySize = Vector3.new(4.5, 4.5, 4.5)
+		else bodySize = Vector3.new(4, 4, 4)
+		end
+	end
+
+	-- Position on top of the point part (avoids clipping through Floor 2/3)
+	-- Per-creature Y offset (modelPlacementYOffset) for models whose limbs extend below base (defense, income, battle)
+	local placementYOffset = (slotType == "defense" or slotType == "income" or slotType == "battle") and CreatureData.GetModelPlacementYOffset(info) or 0
+	local placementOffset = (slotType == "defense" or slotType == "income" or slotType == "battle") and CreatureData.GetModelPlacementOffset(info) or Vector3.zero
+	local pointPartTopY = pointPart.Position.Y + (pointPart.Size.Y * 0.5)
+	local spawnPos = Vector3.new(
+		pointPart.Position.X + placementOffset.X,
+		pointPartTopY + (bodySize.Y * 0.5) + placementYOffset + placementOffset.Y,
+		pointPart.Position.Z + placementOffset.Z
+	)
+	local body, core
+
+	-- CreatureModelLoader: prefers Model type, then legacy mesh. Scale/orient Model to match mesh.
+	-- When a real 3D model loads, we skip the Core sphere entirely — no orb auras on models.
+	-- Only the rarity Highlight outline is kept for visual polish.
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+	local hasCustomModel = false -- tracks whether a real model loaded (vs placeholder orb)
+	if not isEgg and info.modelName then
+		local options = { targetSize = bodySize.X, creatureId = creatureId }
+		body, core = CreatureModelLoader.LoadAndIntegrate(model, info.modelName, info.displayName, spawnPos, options)
+		if body then
+			hasCustomModel = true
+			-- Income monsters: rotate 90 degrees around vertical axis
+			if slotType == "income" then
+				body.CFrame = CFrame.new(body.Position) * CFrame.Angles(0, math.rad(90), 0)
+			end
+			-- Apply creature model rotation (crawling, modelStandUpAngles, modelRotationY)
+			local rotOffset = CreatureData.GetModelRotationOffset(info)
+			if rotOffset ~= CFrame.identity then
+				model:PivotTo(model:GetPivot() * rotOffset)
+			end
+			-- Floor 1 defense points 4, 5, 6: 180° Y to face room center, 180° X to correct upside-down
+			if isDefense and pointIndex and pointIndex >= 4 and pointIndex <= 6 then
+				model:PivotTo(model:GetPivot() * CFrame.Angles(0, math.rad(180), 0) * CFrame.Angles(math.rad(180), 0, 0))
+			end
+			-- FIX: No Core sphere for custom models. If LoadAndIntegrate returned a
+			-- core, or the model already has one from the asset, remove it.
+			-- Custom models show the 3D creature — no orb/sphere overlay needed.
+			core = core or model:FindFirstChild("Core")
+			if core and core.Parent then
+				core:Destroy()
+			end
+			core = nil
+		end
+	end
+
+	if not body or not body.Parent then
+		-- Fallback: placeholder orb if custom model failed or had no Body
+		body = Instance.new("Part")
+		body.Name = "Body"
+		body.Shape = Enum.PartType.Ball
+		body.Size = bodySize
+		body.Color = info.primaryColor
+		body.Material = Enum.Material.Neon
+		body.Anchored = true
+		body.CanCollide = false
+		body.CastShadow = true
+		body.Position = spawnPos
+		body.Parent = model
+		core = model:FindFirstChild("Core")
+		if not core then
+			core = Instance.new("Part")
+			core.Name = "Core"
+			core.Shape = Enum.PartType.Ball
+			core.Size = bodySize * 0.5
+			core.Color = rarityColor
+			core.Material = Enum.Material.Neon
+			core.Transparency = 0.3
+			core.Anchored = true
+			core.CanCollide = false
+			core.CastShadow = false
+			core.Position = spawnPos
+			core.Parent = model
+		end
+	end
+
+	local light = Instance.new("PointLight")
+	light.Color = rarityColor
+	light.Brightness = info.rarity == "Legendary" and 4 or (info.rarity == "Epic" and 3 or 2)
+	light.Range = info.rarity == "Legendary" and 20 or 12
+	light.Parent = body
+
+	local highlight = Instance.new("Highlight")
+	highlight.OutlineColor = rarityColor
+	highlight.OutlineTransparency = 0.2
+	if hasCustomModel then
+		-- Custom 3D model: outline only, no color fill wash over the model
+		highlight.FillTransparency = 1
+	else
+		-- Placeholder orb: slight rarity color fill to tint the orb
+		highlight.FillColor = rarityColor
+		highlight.FillTransparency = 0.75
+	end
+	highlight.Parent = model
+
+	-- Name tag
+	local billboard = Instance.new("BillboardGui")
+	billboard.Adornee = body
+	billboard.Size = UDim2.new(0, 160, 0, 50)
+	billboard.StudsOffset = Vector3.new(0, 4.5, 0)
+	billboard.AlwaysOnTop = true
+	billboard.Parent = model
+
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Size = UDim2.new(1, 0, 0.55, 0)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Text = info.displayName
+	nameLabel.TextColor3 = Color3.new(1, 1, 1)
+	nameLabel.TextScaled = true
+	nameLabel.Font = Enum.Font.GothamBold
+	nameLabel.Parent = billboard
+
+	-- Type label
+	local typeColor, typeText
+	if isEgg then
+		local remaining = (hatchAt or 0) - (os.time() or 0)
+		local mins = math.max(0, math.floor(remaining / 60))
+		typeColor = Color3.fromRGB(255, 200, 80)
+		typeText = "EGG | " .. (mins > 0 and (mins .. "m to hatch") or "Hatching...")
+	elseif isDefense then
+		typeColor = Color3.fromRGB(220, 60, 70)
+		typeText = "DEFENSE | " .. info.rarity
+	elseif isBattle then
+		typeColor = Color3.fromRGB(130, 100, 255)
+		typeText = "BATTLE [" .. (slotLabel or "?") .. "] | " .. info.rarity
+	else
+		typeColor = Color3.fromRGB(50, 220, 120)
+		typeText = "INCOME | " .. info.rarity
+	end
+
+	local typeLabel = Instance.new("TextLabel")
+	typeLabel.Size = UDim2.new(1, 0, 0.35, 0)
+	typeLabel.Position = UDim2.new(0, 0, 0.55, 0)
+	typeLabel.BackgroundTransparency = 1
+	typeLabel.Text = typeText
+	typeLabel.TextColor3 = typeColor
+	typeLabel.TextScaled = true
+	typeLabel.Font = Enum.Font.GothamMedium
+	typeLabel.Parent = billboard
+
+	-- Ground ring
+	local ringColor
+	if isEgg then ringColor = Color3.fromRGB(255, 200, 80)
+	elseif isDefense then ringColor = Color3.fromRGB(220, 60, 70)
+	elseif isBattle then ringColor = Color3.fromRGB(130, 100, 255)
+	else ringColor = Color3.fromRGB(50, 220, 120)
+	end
+
+	local ringSize = isDefense and 7 or (isBattle and 6.5 or 5.5)
+	local ring = Instance.new("Part")
+	ring.Name = "BaseRing"
+	ring.Shape = Enum.PartType.Cylinder
+	ring.Size = Vector3.new(0.3, ringSize, ringSize)
+	ring.Color = ringColor
+	ring.Material = Enum.Material.Neon
+	ring.Transparency = 0.6
+	ring.Anchored = true
+	ring.CanCollide = false
+	ring.CastShadow = false
+	ring.CFrame = CFrame.new(pointPart.Position.X, pointPartTopY + 0.2, pointPart.Position.Z) * CFrame.Angles(0, 0, math.rad(90))
+	ring.Parent = model
+
+	-- HP bar (between type label and ground ring area)
+	local hpBg = Instance.new("Frame")
+	hpBg.Name = "HPBar"; hpBg.Size = UDim2.new(0.8, 0, 0, 5)
+	hpBg.Position = UDim2.new(0.1, 0, 0, 46); hpBg.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+	hpBg.BorderSizePixel = 0; hpBg.Parent = billboard
+	Instance.new("UICorner", hpBg).CornerRadius = UDim.new(0, 3)
+
+	local hpFill = Instance.new("Frame")
+	hpFill.Name = "Fill"; hpFill.Size = UDim2.new(1, 0, 1, 0)
+	hpFill.BackgroundColor3 = Color3.fromRGB(80, 255, 120); hpFill.BorderSizePixel = 0; hpFill.Parent = hpBg
+	Instance.new("UICorner", hpFill).CornerRadius = UDim.new(0, 3)
+
+	-- Expand billboard to fit HP bar
+	billboard.Size = UDim2.new(0, 160, 0, 55)
+
+	model.PrimaryPart = body
+	model.Parent = plotModel
+
+	-- Place custom models so bottom sits on point top (avoids clipping on Floor 2/3)
+	-- Add placementYOffset and placementOffset for creatures that need to align with their green circle
+	-- Clamp lift to prevent extreme floating from bad GetBoundingBox (rigged models can return wrong bbox)
+	local MAX_PLACEMENT_LIFT = 12  -- studs; prevents creatures floating high in the sky
+	if body and not isEgg and info.modelName and model.GetBoundingBox then
+		local success, bboxCf, bboxSize = pcall(function() return model:GetBoundingBox() end)
+		if success and bboxCf and bboxSize and bboxSize.Y > 0 and bboxSize.Y < 100 then
+			local modelBottomY = bboxCf.Position.Y - (bboxSize.Y * 0.5)
+			local lift = math.max(0, pointPartTopY - modelBottomY) + placementYOffset
+			lift = math.min(lift, MAX_PLACEMENT_LIFT)  -- prevent excessive floating
+			if lift ~= 0 then
+				model:PivotTo(model:GetPivot() + Vector3.new(0, lift, 0))
+			end
+		end
+	end
+
+	-- Default animation: Income on income points, Idle on defense/battle
+	local defaultAnim = (slotType == "income" and not isEgg) and "Income" or "Idle"
+	CreatureAnimation.Setup(model, creatureId, defaultAnim)
+
+	-- Set owner attribute for steal system
+	if ownerUserId then
+		model:SetAttribute("OwnerUserId", ownerUserId)
+	end
+
+	-- Register with CreatureAI so base creatures are damageable / faintable (eggs are not registered)
+	if not isEgg and CreatureAI and CreatureAI.RegisterCreature then
+		CreatureAI.RegisterCreature(model, creatureId, body.Position, nil)
+		local aiState = CreatureAI.GetState(model)
+		if aiState and PlayerDataManager and PlayerDataManager.GetEffectiveStats then
+			local lvl = creatureLevel or 1
+			local stats = PlayerDataManager.GetEffectiveStats(creatureId, lvl, creatureVariant)
+			local maxHp = stats and stats.health or math.floor(info.health * (1 + (GameConfig.StatGainPerLevel or 0.08) * (lvl - 1)))
+			aiState.hp = maxHp
+			aiState.maxHp = maxHp
+			aiState.behavior = "stationary"
+			aiState.state = "idle"
+		elseif aiState then
+			local lvl = creatureLevel or 1
+			local lvlMult = 1 + GameConfig.StatGainPerLevel * (lvl - 1)
+			aiState.hp = math.floor(info.health * lvlMult)
+			aiState.maxHp = aiState.hp
+			aiState.behavior = "stationary"
+			aiState.state = "idle"
+		end
+	end
+
+	-- HP bar updater — reads from CreatureAI
+	task.spawn(function()
+		while model.Parent and body.Parent do
+			task.wait(0.5)
+			if CreatureAI and CreatureAI.GetHP then
+				local hp, maxHp = CreatureAI.GetHP(model)
+				if maxHp and maxHp > 0 then
+					local ratio = math.clamp(hp / maxHp, 0, 1)
+					local fill = hpBg:FindFirstChild("Fill")
+					if fill then
+						fill.Size = UDim2.new(ratio, 0, 1, 0)
+						if ratio > 0.5 then fill.BackgroundColor3 = Color3.fromRGB(80, 255, 120)
+						elseif ratio > 0.25 then fill.BackgroundColor3 = Color3.fromRGB(255, 200, 50)
+						else fill.BackgroundColor3 = Color3.fromRGB(255, 60, 40) end
+					end
+				end
+			end
+		end
+	end)
+
+	-- Hover animation (bob up and down)
+	-- For custom models: only bobs the body, no core pulse.
+	-- For placeholder orbs: bobs both body and core with transparency pulse.
+	task.spawn(function()
+		local startY = body.Position.Y
+		local coreStartY = core and core.Parent and core.Position.Y or nil
+		local t = math.random() * math.pi * 2
+		local bobSpeed = isDefense and 1.5 or (isBattle and 1.8 or 1.2)
+		local bobHeight = isDefense and 0.8 or (isBattle and 0.6 or 0.5)
+
+		while model.Parent and body.Parent do
+			local dt = RunService.Heartbeat:Wait()
+			t = t + dt * bobSpeed * math.pi * 2
+			local bob = math.sin(t) * bobHeight
+			body.Position = Vector3.new(body.Position.X, startY + bob, body.Position.Z)
+			if core and core.Parent and coreStartY then
+				core.Position = Vector3.new(core.Position.X, coreStartY + bob, core.Position.Z)
+				core.Transparency = 0.3 + math.sin(t * 2) * 0.15
+			end
+		end
+	end)
+
+	return model
+end
+
+-- -- FLOOR VISIBILITY --
+-- Show/hide a floor's parts based on ownership.
+-- Glass/window parts stay transparent and use Material.Glass when floor is visible.
+
+local GLASS_TRANSPARENCY_VISIBLE = 0.35  -- 0 = opaque, 1 = invisible; ~0.3-0.5 = see-through glass
+
+local function isGlassPart(part)
+	if part:GetAttribute("IsGlass") then return true end
+	local nameLower = part.Name:lower()
+	if nameLower:find("glass") then return true end
+	if nameLower:find("window") then return true end
+	if nameLower:find("pane") then return true end
+	if nameLower:find("panel") and not nameLower:find("defense") and not nameLower:find("income") and not nameLower:find("battle") then return true end
+	if nameLower:find("battlepointwall") then return true end
+	return false
+end
+
+local function setFloorVisibility(plotModel, floorNum, visible)
+	local floorFolder = plotModel:FindFirstChild("Floor" .. floorNum)
+	if not floorFolder then
+		warn("[BasePlacement] Floor" .. floorNum .. " folder not found in " .. plotModel.Name)
+		return
+	end
+	local partCount = 0
+	local defCount = 0
+	local incCount = 0
+	local btlCount = 0
+	local glassCount = 0
+	for _, desc in ipairs(floorFolder:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			-- FIX #12: ALWAYS anchor parts BEFORE changing CanCollide.
+			-- If a part is unanchored and we set CanCollide=false, it falls through
+			-- the world and gets destroyed by FallenPartsDestroyHeight.
+			-- This was killing DefensePoint and BattlePoint parts on Floor2 while
+			-- IncomePoints survived (they happened to be anchored already).
+			desc.Anchored = true
+			-- Glass panels: keep transparent when floor is visible (Floor 2/3); when hidden, full invisible.
+			local isGlass = isGlassPart(desc)
+			if isGlass then glassCount = glassCount + 1 end
+			if visible then
+				if isGlass then
+					-- BattlePointWalls on Floor 2: always 100% transparent
+					local nameLower = desc.Name:lower()
+					local isBattlePointWall = floorNum == 2 and nameLower:find("battlepointwall")
+					local transparency
+					if isBattlePointWall then
+						transparency = 1
+					else
+						local custom = desc:GetAttribute("GlassTransparency")
+						transparency = (type(custom) == "number" and math.clamp(custom, 0, 1)) or GLASS_TRANSPARENCY_VISIBLE
+					end
+					desc.Transparency = transparency
+					desc.Material = Enum.Material.Glass  -- so Roblox renders actual transparent glass
+				else
+					desc.Transparency = 0
+				end
+			else
+				desc.Transparency = 1
+			end
+			desc.CanCollide = visible
+			partCount = partCount + 1
+			-- Track what types of points we're toggling
+			if desc.Name:match("^DefensePoint") then defCount = defCount + 1 end
+			if desc.Name:match("^IncomePoint") then incCount = incCount + 1 end
+			if desc.Name:match("^BattlePoint") then btlCount = btlCount + 1 end
+		end
+	end
+	print("[BasePlacement] setFloorVisibility: " .. plotModel.Name .. " Floor" .. floorNum
+		.. " visible=" .. tostring(visible) .. " | " .. partCount .. " parts total"
+		.. " (inc=" .. incCount .. " def=" .. defCount .. " btl=" .. btlCount .. " glass=" .. glassCount .. ")")
+end
+
+-- FIX #11: setBattleTeamVisibility REMOVED. BattleTeam is now INSIDE Floor2.
+-- setFloorVisibility handles ALL descendants of FloorX including BattleTeam.
+-- There is NO separate visibility function. Everything in FloorX toggles together.
+
+-- -- CLEAR + PLACE --
+-- Only removes creature orb Models (Defense/Income/Battle tags). Never modifies point parts or floor structure.
+
+local function clearTaggedCreatures(plotModel, tag)
+	for _, child in ipairs(plotModel:GetDescendants()) do
+		if child:IsA("Model") and CollectionService:HasTag(child, tag) then
+			if CreatureAI and CreatureAI.UnregisterCreature then
+				CreatureAI.UnregisterCreature(child)
+			end
+			child:Destroy()
+		end
+	end
+end
+
+-- Clear a single creature at slot (defense/income). Does not touch other slots.
+local function clearCreatureAtSlot(plotModel, tag, slotIndex)
+	for _, child in ipairs(plotModel:GetDescendants()) do
+		if child:IsA("Model") and CollectionService:HasTag(child, tag) then
+			if child:GetAttribute("SlotIndex") == slotIndex then
+				if CreatureAI and CreatureAI.UnregisterCreature then
+					CreatureAI.UnregisterCreature(child)
+				end
+				child:Destroy()
+				return
+			end
+		end
+	end
+end
+
+-- Place one creature at slot (incremental - no full refresh). Clears any existing model at that slot first.
+function BasePlacementSystem.PlaceCreatureInSlot(player, slotType, slotIndex, uid)
+	local data = PlayerDataManager.GetData(player)
+	if not data or not data.plotId or data.plotId == 0 then return nil end
+	local plotModel = findPlotModel(data.plotId)
+	if not plotModel then return nil end
+
+	local tag = (slotType == "defense") and DEFENSE_TAG or INCOME_TAG
+	clearCreatureAtSlot(plotModel, tag, slotIndex)
+
+	local ownedFloors = data.ownedFloors or {1}
+	local points
+	if slotType == "defense" then
+		points = getPointsForOwnedFloors(plotModel, "DefensePoint", ownedFloors, "IncomePoints")
+		if #points == 0 then
+			local raw = getPointsByPrefix(plotModel, "DefensePoint")
+			points = {}
+			for _, p in ipairs(raw) do
+				if not isPartInFolderNamed(p.part, "IncomePoints") then table.insert(points, p) end
+			end
+		end
+	else
+		points = getPointsForOwnedFloors(plotModel, "IncomePoint", ownedFloors, "DefensePoints")
+		if #points == 0 then
+			local raw = getPointsByPrefix(plotModel, "IncomePoint")
+			points = {}
+			for _, p in ipairs(raw) do
+				if not isPartInFolderNamed(p.part, "DefensePoints") then table.insert(points, p) end
+			end
+		end
+	end
+	-- Ensure slotIndex is within owned points (avoids nil access on move/place)
+	if not points or #points == 0 or type(slotIndex) ~= "number" or slotIndex < 1 or slotIndex > #points then
+		return nil
+	end
+	local pt = points[slotIndex]
+	if not pt then return nil end
+
+	local egg = PlayerDataManager.GetEggByUid(player, uid)
+	if egg then
+		local hatchAt = egg.createdAt + egg.hatchMinutes * 60
+		if (os.time() or 0) < hatchAt then
+			return spawnBaseOrb(egg.creatureId, pt.part, uid, plotModel, slotType, nil, egg.level, player.UserId, true, hatchAt, pt.index, slotIndex, "Normal")
+		end
+	end
+	for _, entry in ipairs(data.inventory) do
+		if entry.uid == uid then
+			return spawnBaseOrb(entry.id, pt.part, uid, plotModel, slotType, nil, entry.level, player.UserId, nil, nil, pt.index, slotIndex, entry.variant)
+		end
+	end
+	return nil
+end
+
+-- Clear one slot (creature died). Removes model and marks slot available.
+function BasePlacementSystem.ClearCreatureAtSlot(player, slotType, slotIndex)
+	PlayerDataManager.ClearSlotAt(player, slotType, slotIndex)
+	local data = PlayerDataManager.GetData(player)
+	if not data or not data.plotId or data.plotId == 0 then return end
+	local plotModel = findPlotModel(data.plotId)
+	if plotModel then
+		local tag = (slotType == "defense") and DEFENSE_TAG or INCOME_TAG
+		clearCreatureAtSlot(plotModel, tag, slotIndex)
+	end
+end
+
+-- Refresh the orb model at a slot (defense/income/battle) when creature evolves. Replaces old model with new evolved form.
+-- Call after PlayerDataManager.EvolveCreature succeeds and inventory entry.id has been updated.
+function BasePlacementSystem.RefreshOrbByUid(player, uid)
+	if not uid or uid == "" then return end
+	local data = PlayerDataManager.GetData(player)
+	if not data or not data.plotId or data.plotId == 0 then return end
+	local plotModel = findPlotModel(data.plotId)
+	if not plotModel then return end
+
+	-- Defense slots
+	if data.defenseSlots then
+		for slotIndex, slotUid in ipairs(data.defenseSlots) do
+			if slotUid == uid then
+				BasePlacementSystem.PlaceCreatureInSlot(player, "defense", slotIndex, uid)
+				return
+			end
+		end
+	end
+
+	-- Income slots (baseSlots)
+	if data.baseSlots then
+		for slotIndex, slotUid in ipairs(data.baseSlots) do
+			if slotUid == uid then
+				BasePlacementSystem.PlaceCreatureInSlot(player, "income", slotIndex, uid)
+				return
+			end
+		end
+	end
+
+	-- Battle team
+	if data.battleTeam then
+		for slotIndex, slotUid in pairs(data.battleTeam) do
+			if slotUid == uid then
+				local battlePointMap = getBattlePointMap(plotModel)
+				local pointPart = battlePointMap[tonumber(slotIndex) or slotIndex]
+				if pointPart then
+					-- Clear old model
+					for _, child in ipairs(plotModel:GetDescendants()) do
+						if child:IsA("Model") and CollectionService:HasTag(child, BATTLE_TAG) and child:GetAttribute("UID") == uid then
+							if CreatureAI and CreatureAI.UnregisterCreature then
+								CreatureAI.UnregisterCreature(child)
+							end
+							child:Destroy()
+							break
+						end
+					end
+					-- Spawn new model with evolved form
+					for _, entry in ipairs(data.inventory) do
+						if entry.uid == uid then
+							spawnBaseOrb(entry.id, pointPart, uid, plotModel, "battle", tostring(slotIndex), entry.level, player.UserId, nil, nil, nil, slotIndex, entry.variant)
+							break
+						end
+					end
+				end
+				return
+			end
+		end
+	end
+end
+
+-- Remove only the orb with this UID from the plot (defense/income/battle). Does not respawn others.
+-- Used when creature becomes favorite and must disappear from its point without touching other placements.
+function BasePlacementSystem.ClearOrbByUid(player, uid)
+	if not uid or uid == "" then return end
+	local data = PlayerDataManager.GetData(player)
+	if not data or not data.plotId or data.plotId == 0 then return end
+	local plotModel = findPlotModel(data.plotId)
+	if not plotModel then return end
+	local tags = { DEFENSE_TAG, INCOME_TAG, BATTLE_TAG }
+	for _, tag in ipairs(tags) do
+		for _, child in ipairs(plotModel:GetDescendants()) do
+			if child:IsA("Model") and CollectionService:HasTag(child, tag) then
+				if child:GetAttribute("UID") == uid then
+					if CreatureAI and CreatureAI.UnregisterCreature then
+						CreatureAI.UnregisterCreature(child)
+					end
+					child:Destroy()
+					return
+				end
+			end
+		end
+	end
+end
+
+--- Map a point number (e.g. 7 from "IncomePoint7") to its slot array index.
+-- The slot index is the position of that point in the sorted owned-floors points array.
+-- @param player Player
+-- @param slotType string "income" or "defense"
+-- @param pointIndex number the numeric suffix from the point name (e.g. 7)
+-- @return slotIndex number|nil the array index in baseSlots/defenseSlots, or nil if not found
+function BasePlacementSystem.GetSlotIndexForPoint(player, slotType, pointIndex)
+	local data = PlayerDataManager.GetData(player)
+	if not data or not data.plotId or data.plotId == 0 then return nil end
+	local plotModel = findPlotModel(data.plotId)
+	if not plotModel then return nil end
+	local ownedFloors = data.ownedFloors or {1}
+	local points
+	if slotType == "defense" then
+		points = getPointsForOwnedFloors(plotModel, "DefensePoint", ownedFloors, "IncomePoints")
+		if #points == 0 then
+			local raw = getPointsByPrefix(plotModel, "DefensePoint")
+			points = {}
+			for _, p in ipairs(raw) do
+				if not isPartInFolderNamed(p.part, "IncomePoints") then table.insert(points, p) end
+			end
+		end
+	else
+		points = getPointsForOwnedFloors(plotModel, "IncomePoint", ownedFloors, "DefensePoints")
+		if #points == 0 then
+			local raw = getPointsByPrefix(plotModel, "IncomePoint")
+			points = {}
+			for _, p in ipairs(raw) do
+				if not isPartInFolderNamed(p.part, "DefensePoints") then table.insert(points, p) end
+			end
+		end
+	end
+	-- Points are sorted by their numeric index. Find which array position matches pointIndex.
+	local maxSlots = PlayerDataManager.GetMaxSlots and PlayerDataManager.GetMaxSlots(player, slotType) or #points
+	for arrayPos, entry in ipairs(points) do
+		if entry.index == pointIndex then
+			-- Only allow slot indices the player is allowed to use (owned floors)
+			if arrayPos > maxSlots then return nil end
+			return arrayPos
+		end
+	end
+	return nil
+end
+
+function BasePlacementSystem.PlaceCreatures(player)
+	local userId = player.UserId
+	-- Prevent concurrent placement calls from racing
+	if placementLocks[userId] then return end
+	placementLocks[userId] = true
+
+	local data = PlayerDataManager.GetData(player)
+	if not data then placementLocks[userId] = nil; return end
+
+	local plotId = data.plotId
+	if not plotId or plotId == 0 then placementLocks[userId] = nil; return end
+
+	local plotModel = findPlotModel(plotId)
+	if not plotModel then
+		warn("[BasePlacement] Plot " .. plotId .. " not found for " .. player.Name)
+		placementLocks[userId] = nil
+		return
+	end
+
+	-- Set floor visibility based on owned floors
+	local ownedFloors = data.ownedFloors or {1}
+	local function ownsFloor(n)
+		for _, f in ipairs(ownedFloors) do if f == n then return true end end
+		return false
+	end
+	for _, floorNum in ipairs({1, 2, 3}) do
+		setFloorVisibility(plotModel, floorNum, ownsFloor(floorNum))
+	end
+	-- FIX #11: BattleTeam is INSIDE Floor2, so setFloorVisibility(plotModel, 2, ...)
+	-- already handles BattleTeam visibility. No separate call needed.
+	local ownsBattle = ownsFloor(2)
+
+	-- Apply equipped base exterior theme (colors + shell) so base cosmetic always shows
+	-- Wrapped in pcall so exterior bugs don't block creature placement
+	do
+		local ok, err = pcall(function()
+			local BES = require(game:GetService("ServerScriptService"):FindFirstChild("BaseExteriorSystem") or game:GetService("ServerScriptService"):WaitForChild("BaseExteriorSystem", 3))
+			if BES then
+				local ext = data.exterior
+				local equippedExt = ext and ext.equipped
+				if equippedExt and equippedExt ~= "" and BES.ApplyThemeToPlot then
+					BES.ApplyThemeToPlot(plotModel, equippedExt)
+				else
+					if BES.ApplyThemeToPlot then BES.ApplyThemeToPlot(plotModel, nil) end
+				end
+				local bc = data.baseColor
+				local equippedColor = bc and bc.equipped
+				if equippedColor and equippedColor ~= "" and BES.ApplyBaseColorToPlot then
+					BES.ApplyBaseColorToPlot(plotModel, equippedColor)
+				end
+			end
+		end)
+		if not ok then
+			warn("[BasePlacement] BaseExteriorSystem.ApplyTheme failed:", tostring(err))
+		end
+	end
+
+	-- Clear all existing placed creatures
+	clearTaggedCreatures(plotModel, DEFENSE_TAG)
+	clearTaggedCreatures(plotModel, INCOME_TAG)
+	clearTaggedCreatures(plotModel, BATTLE_TAG)
+
+	-- -- Defense creatures --
+	-- FIX #1/#3: Use getPointsForOwnedFloors to only place on OWNED floor points.
+	-- Exclude IncomePoints folder so defense creatures never spawn on income points.
+	-- Fallback: if no points found (e.g. plot has points outside Floor1/2/3 folders), use getPointsByPrefix so orbs still appear.
+	local defensePoints = getPointsForOwnedFloors(plotModel, "DefensePoint", ownedFloors, "IncomePoints")
+	if #defensePoints == 0 then
+		local raw = getPointsByPrefix(plotModel, "DefensePoint")
+		defensePoints = {}
+		for _, p in ipairs(raw) do
+			if not isPartInFolderNamed(p.part, "IncomePoints") then
+				table.insert(defensePoints, p)
+			end
+		end
+		local maxSlots = (GameConfig and GameConfig.MaxDefenseSlots) or (#ownedFloors * 6)
+		while #defensePoints > maxSlots do table.remove(defensePoints) end
+		if #defensePoints > 0 then
+			print("[BasePlacement] Fallback: using getPointsByPrefix for DefensePoint on " .. plotModel.Name .. " (" .. #defensePoints .. " points)")
+		end
+	end
+	local defPlaced = 0
+	local maxDefSlots = PlayerDataManager.GetMaxSlots and PlayerDataManager.GetMaxSlots(player, "defense") or #defensePoints
+	for i = 1, maxDefSlots do
+		if i > #defensePoints then break end
+		local uid = data.defenseSlots and data.defenseSlots[i]
+		if not uid or uid == "" then continue end
+		local egg = PlayerDataManager.GetEggByUid(player, uid)
+		if egg then
+			local hatchAt = egg.createdAt + egg.hatchMinutes * 60
+			if (os.time() or 0) < hatchAt then
+				spawnBaseOrb(egg.creatureId, defensePoints[i].part, uid, plotModel, "defense", nil, egg.level, player.UserId, true, hatchAt, defensePoints[i].index, i, "Normal")
+				defPlaced = defPlaced + 1
+			end
+		else
+			for _, entry in ipairs(data.inventory) do
+				if entry.uid == uid then
+					spawnBaseOrb(entry.id, defensePoints[i].part, uid, plotModel, "defense", nil, entry.level, player.UserId, nil, nil, defensePoints[i].index, i, entry.variant)
+					defPlaced = defPlaced + 1
+					break
+				end
+			end
+		end
+	end
+
+	-- -- Income creatures --
+	-- FIX #1: Use getPointsForOwnedFloors for income points too.
+	-- Exclude DefensePoints folder so income creatures never spawn on defense points.
+	-- Fallback to getPointsByPrefix if none found.
+	local incomePoints = getPointsForOwnedFloors(plotModel, "IncomePoint", ownedFloors, "DefensePoints")
+	if #incomePoints == 0 then
+		local raw = getPointsByPrefix(plotModel, "IncomePoint")
+		incomePoints = {}
+		for _, p in ipairs(raw) do
+			if not isPartInFolderNamed(p.part, "DefensePoints") then
+				table.insert(incomePoints, p)
+			end
+		end
+		local maxSlots = (GameConfig and GameConfig.MaxIncomeSlots) or (#ownedFloors * 6)
+		while #incomePoints > maxSlots do table.remove(incomePoints) end
+		if #incomePoints > 0 then
+			print("[BasePlacement] Fallback: using getPointsByPrefix for IncomePoint on " .. plotModel.Name .. " (" .. #incomePoints .. " points)")
+		end
+	end
+	local incPlaced = 0
+	local maxIncSlots = PlayerDataManager.GetMaxSlots and PlayerDataManager.GetMaxSlots(player, "income") or #incomePoints
+	for i = 1, maxIncSlots do
+		if i > #incomePoints then break end
+		local uid = data.baseSlots and data.baseSlots[i]
+		if not uid or uid == "" then continue end
+		local egg = PlayerDataManager.GetEggByUid(player, uid)
+		if egg then
+			local hatchAt = egg.createdAt + egg.hatchMinutes * 60
+			if (os.time() or 0) < hatchAt then
+				spawnBaseOrb(egg.creatureId, incomePoints[i].part, uid, plotModel, "income", nil, egg.level, player.UserId, true, hatchAt, nil, i, "Normal")
+				incPlaced = incPlaced + 1
+			end
+		else
+			for _, entry in ipairs(data.inventory) do
+				if entry.uid == uid then
+					spawnBaseOrb(entry.id, incomePoints[i].part, uid, plotModel, "income", nil, entry.level, player.UserId, nil, nil, nil, i, entry.variant)
+					incPlaced = incPlaced + 1
+					break
+				end
+			end
+		end
+	end
+
+	-- -- Battle team creatures (always show on BattlePoints; skip if arena in progress or Floor 2 not owned) --
+	local battlePointMap = getBattlePointMap(plotModel)
+	local btlPlaced = 0
+	local arenaBusy = workspace:GetAttribute("ArenaBattleInProgress")
+	if data.battleTeam and not arenaBusy and ownsBattle then
+		for slotIndex, uid in pairs(data.battleTeam) do
+			local pointPart = battlePointMap[tonumber(slotIndex) or slotIndex]
+			if pointPart and uid then
+				for _, entry in ipairs(data.inventory) do
+					if entry.uid == uid then
+						spawnBaseOrb(entry.id, pointPart, uid, plotModel, "battle", tostring(slotIndex), entry.level, player.UserId, nil, nil, nil, slotIndex, entry.variant)
+						btlPlaced = btlPlaced + 1
+						break
+					end
+				end
+			end
+		end
+	end
+	-- BattlePoint colors: green neon when team active, black neon when inactive (only when Floor 2 owned)
+	if ownsBattle then
+		setBattlePointColors(plotModel, data.battleTeamEnabled ~= false)
+	end
+
+	print("[BasePlacement] " .. player.Name .. ": " ..
+		defPlaced .. " defense, " ..
+		incPlaced .. " income, " ..
+		btlPlaced .. " battle on " .. plotModel.Name)
+
+	-- Set up MCombiner / MRecycler ProximityPrompts on this plot (only when Floor 3 is owned; parts live in Floor3 folder)
+	do
+		local ok, err = pcall(function()
+			local SSS = game:GetService("ServerScriptService")
+			local CombinerRecyclerSystem = require(SSS:FindFirstChild("CombinerRecyclerSystem") or SSS:WaitForChild("CombinerRecyclerSystem", 5))
+			if CombinerRecyclerSystem and CombinerRecyclerSystem.SetupPlotPrompts then
+				CombinerRecyclerSystem.SetupPlotPrompts(plotModel, ownedFloors)
+			end
+		end)
+		if not ok then
+			warn("[BasePlacement] CombinerRecycler SetupPlotPrompts failed:", tostring(err))
+		end
+	end
+
+	placementLocks[userId] = nil
+end
+
+function BasePlacementSystem.ClearBattleCreatures(player)
+	local data = PlayerDataManager.GetData(player)
+	if not data or not data.plotId or data.plotId == 0 then return end
+	local plotModel = findPlotModel(data.plotId)
+	if plotModel then clearTaggedCreatures(plotModel, BATTLE_TAG) end
+end
+
+function BasePlacementSystem.RespawnBattleCreatures(player)
+	local data = PlayerDataManager.GetData(player)
+	if not data or not data.plotId or data.plotId == 0 then return end
+	local plotModel = findPlotModel(data.plotId)
+	if not plotModel then return end
+
+	local ownedFloors = data.ownedFloors or {1}
+	local ownsBattle = false
+	for _, f in ipairs(ownedFloors) do if f == 2 then ownsBattle = true break end end
+
+	clearTaggedCreatures(plotModel, BATTLE_TAG)
+	local battlePointMap = getBattlePointMap(plotModel)
+	if data.battleTeam and ownsBattle then
+		for slotIndex, uid in pairs(data.battleTeam) do
+			local pointPart = battlePointMap[tonumber(slotIndex) or slotIndex]
+			if pointPart and uid then
+				for _, entry in ipairs(data.inventory) do
+					if entry.uid == uid then
+						spawnBaseOrb(entry.id, pointPart, uid, plotModel, "battle", tostring(slotIndex), entry.level, player.UserId, nil, nil, nil, slotIndex, entry.variant)
+						break
+					end
+				end
+			end
+		end
+	end
+	if ownsBattle then
+		setBattlePointColors(plotModel, data.battleTeamEnabled ~= false)
+	end
+end
+
+-- -- INVADER TRACKING (touch PlotCenter or walls) --
+-- When a player who does NOT own the base and is NOT on the access list touches plot center or walls,
+-- they become an "invader" and defense creatures will target them and their companion.
+
+local function isPlotTouchPart(part)
+	if not part or not part:IsA("BasePart") then return false end
+	local name = part.Name:lower()
+	if part.Name == "PlotCenter" then return true end
+	if name:find("wall") then return true end
+	-- Floor parts (PlotCenter has CanCollide=false; floors trigger when walking on base)
+	if name:find("floor") then return true end
+	return false
+end
+
+local function getPlotOwnerUserId(plotId)
+	for _, p in ipairs(Players:GetPlayers()) do
+		local pd = PlayerDataManager.GetData(p)
+		if pd and pd.plotId and pd.plotId == plotId then return p.UserId end
+	end
+	return nil
+end
+
+local function isPlayerAllowedOnPlot(plotOwnerUserId, visitorUserId)
+	if not plotOwnerUserId or visitorUserId == plotOwnerUserId then return true end
+	local ownerPlayer = Players:GetPlayerByUserId(plotOwnerUserId)
+	if not ownerPlayer then return false end
+	return PlayerDataManager.IsFriend(ownerPlayer, visitorUserId)
+end
+
+local function markInvader(plotId, userId)
+	if not activeInvaders[plotId] then activeInvaders[plotId] = {} end
+	activeInvaders[plotId][userId] = tick()
+end
+
+function BasePlacementSystem.IsPlayerInvader(plotId, plotOwnerUserId, userId)
+	if not plotId or not userId or userId == plotOwnerUserId then return false end
+	if isPlayerAllowedOnPlot(plotOwnerUserId, userId) then return false end
+	local invs = activeInvaders[plotId]
+	if not invs then return false end
+	local lastTouch = invs[userId]
+	if not lastTouch then return false end
+	if tick() - lastTouch > INVADER_TIMEOUT then invs[userId] = nil; return false end
+	return true
+end
+
+local function setupPlotTouchDetection(plotModel, plotId)
+	local function onTouched(_touchedPart, otherPart)
+		if not otherPart or not otherPart.Parent then return end
+		local character = otherPart.Parent
+		if not character:IsA("Model") or not character:FindFirstChild("Humanoid") then return end
+		local hum = character:FindFirstChild("Humanoid")
+		if not hum or hum.Health <= 0 then return end
+		local player = Players:GetPlayerFromCharacter(character)
+		if not player then return end
+
+		local ownerUserId = getPlotOwnerUserId(plotId)
+		if not ownerUserId then return end
+		if isPlayerAllowedOnPlot(ownerUserId, player.UserId) then return end
+		markInvader(plotId, player.UserId)
+	end
+
+	for _, desc in ipairs(plotModel:GetDescendants()) do
+		if desc:IsA("BasePart") and isPlotTouchPart(desc) then
+			desc.Touched:Connect(function(other) onTouched(desc, other) end)
+		end
+	end
+end
+
+-- Clean stale invaders (called periodically)
+local function pruneStaleInvaders()
+	local now = tick()
+	for plotId, invs in pairs(activeInvaders) do
+		for userId, lastTouch in pairs(invs) do
+			if now - lastTouch > INVADER_TIMEOUT then invs[userId] = nil end
+		end
+		if next(invs) == nil then activeInvaders[plotId] = nil end
+	end
+end
+
+-- -- DEFENSE TURRET AI --
+-- Defense creatures attack hostile world creatures and enemy companions within their plot area.
+
+local WORLD_CREATURE_TAG = "WorldCreature"
+local COMPANION_TAG = "FavoriteCreature"
+
+local function defenseAttackEffect(fromPos, toPos, color)
+	task.spawn(function()
+		local bolt = Instance.new("Part")
+		bolt.Size = Vector3.new(1.2, 1.2, 1.2); bolt.Shape = Enum.PartType.Ball
+		bolt.Color = color; bolt.Material = Enum.Material.Neon
+		bolt.Anchored = true; bolt.CanCollide = false; bolt.CastShadow = false
+		bolt.Parent = Workspace
+		local dur = 0.15; local s = tick()
+		while tick() - s < dur do
+			bolt.Position = fromPos:Lerp(toPos, (tick() - s) / dur)
+			RunService.Heartbeat:Wait()
+		end
+		bolt.Transparency = 0.3; task.wait(0.08); bolt:Destroy()
+	end)
+end
+
+local function defenseShowDamage(pos, dmg)
+	local att = Instance.new("Part")
+	att.Size = Vector3.new(0.1,0.1,0.1); att.Position = pos + Vector3.new(0,2,0)
+	att.Anchored = true; att.CanCollide = false; att.Transparency = 1; att.Parent = Workspace
+	local bb = Instance.new("BillboardGui")
+	bb.Size = UDim2.new(0,60,0,24); bb.StudsOffset = Vector3.new(0,2,0)
+	bb.AlwaysOnTop = true; bb.Adornee = att; bb.Parent = att
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(1,0,1,0); lbl.BackgroundTransparency = 1
+	lbl.Text = "-"..math.floor(dmg); lbl.TextColor3 = Color3.fromRGB(220, 60, 70)
+	lbl.Font = Enum.Font.GothamBlack; lbl.TextSize = 14
+	lbl.TextStrokeColor3 = Color3.new(0,0,0); lbl.TextStrokeTransparency = 0.3; lbl.Parent = bb
+	task.spawn(function()
+		for i = 1, 12 do
+			att.Position = att.Position + Vector3.new(0, 0.1, 0)
+			lbl.TextTransparency = i/12; lbl.TextStrokeTransparency = 0.3 + (i/12)*0.7
+			RunService.Heartbeat:Wait()
+		end; att:Destroy()
+	end)
+end
+
+local defenseLastAttack = {} -- [model] = tick
+
+local function awardDefenseKillXP(killerModel)
+	if not killerModel or not killerModel.Parent then return end
+	if not CollectionService:HasTag(killerModel, DEFENSE_TAG) then return end
+	local uid = killerModel:GetAttribute("UID")
+	local ownerUserId = killerModel:GetAttribute("OwnerUserId")
+	if not uid or not ownerUserId then return end
+	local player = Players:GetPlayerByUserId(ownerUserId)
+	if not player or not PlayerDataManager.GetData(player) then return end
+	local killXP = GameConfig.DefenseKillXP or 15
+	PlayerDataManager.AddXP(player, uid, killXP)
+end
+
+local function runDefenseTurretLoop()
+	-- CreatureAI is already set at module level by Init()
+	local loopCount = 0
+	while true do
+		task.wait(0.5)
+		loopCount = loopCount + 1
+		if loopCount % 20 == 0 then pruneStaleInvaders() end
+
+		-- For each defense creature, check for hostile targets
+		for _, defModel in ipairs(CollectionService:GetTagged(DEFENSE_TAG)) do
+			if not defModel.Parent then continue end
+
+			local body = CreatureModelLoader.GetBodyPart(defModel) or defModel:FindFirstChild("Body")
+			if not body then continue end
+
+			local cid = defModel:GetAttribute("CreatureId")
+			local info = cid and CreatureData.GetById(cid)
+			if not info then continue end
+
+			-- Check cooldown (ensure numeric: config could be string from DataStore)
+			local attackCD = tonumber(GameConfig.DefenseAttackCD) or 2.5
+			local lastAtk = defenseLastAttack[defModel] or 0
+			if tick() - lastAtk < attackCD then continue end
+
+			local defPos = body.Position
+			local attackRange = tonumber(GameConfig.DefenseAttackRange) or 40
+			-- Scale damage by creature level, tier, and rarity (GetEffectiveStats)
+			local defLevel = defModel:GetAttribute("CreatureLevel") or 1
+			local defVariant = defModel:GetAttribute("CreatureVariant") or "Normal"
+			local defStats = (PlayerDataManager and PlayerDataManager.GetEffectiveStats) and PlayerDataManager.GetEffectiveStats(info.id, defLevel, defVariant)
+			local atkStat = defStats and defStats.attack or (info.attack * (1 + GameConfig.StatGainPerLevel * (defLevel - 1)))
+			local baseDmg = math.max(3, math.floor(atkStat * GameConfig.DefenseBaseDamage / 10))
+			local attackColor = Color3.fromRGB(220, 60, 70)
+
+			-- Find the plot this defense creature belongs to (walk up hierarchy for robustness)
+			local plotModel, plotId = getPlotFromPart(defModel)
+			if not plotModel then
+				plotModel = defModel.Parent
+				plotId = plotModel and (plotModel.Name:match("^Plot(%d+)$") or plotModel.Name:match("^Part(%d+)$"))
+				plotId = plotId and tonumber(plotId) or nil
+			end
+			if not plotModel then continue end
+			-- Get plot center for range check (recursive - PlotCenter may be nested; support Model or BasePart)
+			local plotCenter = plotModel:FindFirstChild("PlotCenter", true)
+			local plotCenterPos = defPos
+			if plotCenter then
+				if plotCenter:IsA("BasePart") then
+					plotCenterPos = plotCenter.Position
+				else
+					local ok, pivot = pcall(function() return plotCenter:GetPivot().Position end)
+					if ok and pivot then plotCenterPos = pivot end
+				end
+			end
+
+			-- Find nearest hostile within range.
+			-- TARGET PRIORITY: 1) Companion monsters, 2) Players attacking (raiders), 3) World creatures
+			local bestTarget, bestDist = nil, attackRange
+
+			-- Determine who owns this plot (always resolve from plotId first - stable across raids)
+			local plotOwnerUserId = nil
+			if plotModel then
+				if plotId then
+					plotOwnerUserId = getPlotOwnerUserId(plotId)
+				end
+				if not plotOwnerUserId then
+					for _, p in ipairs(Players:GetPlayers()) do
+						local pd = PlayerDataManager.GetData(p)
+						if pd and pd.plotId and pd.plotId > 0 then
+							local pm = findPlotModel(pd.plotId)
+							if pm == plotModel then plotOwnerUserId = p.UserId; break end
+						end
+					end
+				end
+			end
+
+			-- plotId already set from getPlotFromPart above; ensure we have it
+			if not plotId and plotModel then
+				plotId = plotModel.Name:match("^Plot(%d+)$") or plotModel.Name:match("^Part(%d+)$")
+				plotId = plotId and tonumber(plotId) or nil
+			end
+
+			-- Helper: is this player hostile? (formal raider OR physical invader/trespasser)
+			-- Uses BOTH touch-based invader tracking AND proximity: if standing inside plot bounds, treat as hostile
+			local PLOT_INVADE_RADIUS = 55  -- horizontal (XZ) radius; ignore Y so multi-floor works
+			local function isPlayerHostile(userId)
+				if not plotOwnerUserId then return false end
+				if userId == plotOwnerUserId then return false end
+				if isPlayerAllowedOnPlot(plotOwnerUserId, userId) then return false end
+				-- Formal raid (via Raids UI)
+				if RaidSystem and RaidSystem.IsPlayerRaidingVictim and RaidSystem.IsPlayerRaidingVictim(userId, plotOwnerUserId) then
+					return true
+				end
+				-- Touch-based invader (touched plot center/walls/floors)
+				if plotId and BasePlacementSystem.IsPlayerInvader(plotId, plotOwnerUserId, userId) then
+					return true
+				end
+				-- Proximity-based: physically inside plot bounds (XZ distance only - works on any floor)
+				local p = Players:GetPlayerByUserId(userId)
+				if p and p.Character then
+					local root = p.Character:FindFirstChild("HumanoidRootPart")
+					local hum = p.Character:FindFirstChild("Humanoid")
+					if root and hum and hum.Health > 0 then
+						local dxz = (root.Position - plotCenterPos) * Vector3.new(1, 0, 1)
+						if dxz.Magnitude < PLOT_INVADE_RADIUS then
+							return true
+						end
+					end
+				end
+				return false
+			end
+
+			-- 1) Enemy companions first (companions of raiders or invaders attacking this plot)
+			for _, comp in ipairs(CollectionService:GetTagged(COMPANION_TAG)) do
+				if comp.Parent then
+					local ownerIdRaw = comp:GetAttribute("OwnerUserId")
+					local ownerId = (type(ownerIdRaw) == "number") and ownerIdRaw or tonumber(ownerIdRaw)
+					if ownerId and isPlayerHostile(ownerId) then
+						local cb = CreatureModelLoader.GetBodyPart(comp) or comp:FindFirstChild("Body")
+						if cb then
+							local d = (defPos - cb.Position).Magnitude
+							if d < bestDist then bestDist = d; bestTarget = comp end
+						end
+					end
+				end
+			end
+
+			-- 2) Player raiders/invaders (players attacking this plot, when no companion in range)
+			if not bestTarget and plotOwnerUserId then
+				for _, p in ipairs(Players:GetPlayers()) do
+					if not isPlayerHostile(p.UserId) then continue end
+					local char = p.Character
+					if not char then continue end
+					local root = char:FindFirstChild("HumanoidRootPart")
+					if not root then continue end
+					local d = (defPos - root.Position).Magnitude
+					if d < bestDist then bestDist = d; bestTarget = char end
+				end
+			end
+
+			-- 3) World creatures (AI raiders, wild creatures; not arena)
+			if not bestTarget then
+				for _, wc in ipairs(CollectionService:GetTagged(WORLD_CREATURE_TAG)) do
+					if wc.Parent and not wc:GetAttribute("Fainted")
+						and not CollectionService:HasTag(wc, "ArenaCreature") then
+						local wb = wc.PrimaryPart or CreatureModelLoader.GetBodyPart(wc) or wc:FindFirstChild("Body")
+						if wb then
+							local d = (defPos - wb.Position).Magnitude
+							if d < bestDist then bestDist = d; bestTarget = wc end
+						end
+					end
+				end
+			end
+
+			-- Fire at target only with line of sight (walls block attacks — no shooting through base walls)
+			if bestTarget then
+				local tp = bestTarget.PrimaryPart or CreatureModelLoader.GetBodyPart(bestTarget)
+					or bestTarget:FindFirstChild("Body") or bestTarget:FindFirstChild("HumanoidRootPart")
+				if tp and CreatureAI and CreatureAI.HasLineOfSight and CreatureAI.HasLineOfSight(defModel, bestTarget) then
+					-- Only consume cooldown when we actually fire (have valid target position)
+					defenseLastAttack[defModel] = tick()
+					-- Elemental weakness: defense creature (attacker) vs target (defender)
+					local defenderElement = nil
+					if CollectionService:HasTag(bestTarget, WORLD_CREATURE_TAG) then
+						local dcid = bestTarget:GetAttribute("CreatureId")
+						local dinfo = dcid and CreatureData.GetById(dcid)
+						defenderElement = dinfo and dinfo.element
+					elseif CollectionService:HasTag(bestTarget, COMPANION_TAG) then
+						local FavSys = nil
+						pcall(function() FavSys = require(game:GetService("ServerScriptService").FavoriteCreatureSystem) end)
+						if FavSys then
+							local comp = FavSys.GetCompanionForModel(bestTarget)
+							if comp then
+								local dinfo = CreatureData.GetById(comp.creatureId)
+								defenderElement = dinfo and dinfo.element
+							end
+						end
+					end
+					local elemMult = CreatureData.GetElementalDamageMultiplier(info.element, defenderElement)
+					if elemMult > 1 then
+						elemMult = GameConfig.ElementalAdvantageMultiplier or elemMult
+					elseif elemMult < 1 then
+						elemMult = GameConfig.ElementalDisadvantageMultiplier or elemMult
+					end
+					local finalDmg = math.floor(math.max(1, baseDmg * elemMult))
+					defenseAttackEffect(body.Position, tp.Position, attackColor)
+					defenseShowDamage(tp.Position, finalDmg)
+
+					-- Deal damage
+					if CollectionService:HasTag(bestTarget, WORLD_CREATURE_TAG) then
+						if CreatureAI then CreatureAI.DamageCreature(bestTarget, finalDmg, defModel) end
+					elseif CollectionService:HasTag(bestTarget, COMPANION_TAG) then
+						-- Damage enemy companion
+						local FavSys = nil
+						pcall(function() FavSys = require(game:GetService("ServerScriptService").FavoriteCreatureSystem) end)
+						if FavSys then
+							local ownerId2 = bestTarget:GetAttribute("OwnerUserId")
+							local ownerPlayer = ownerId2 and Players:GetPlayerByUserId(ownerId2)
+							if ownerPlayer then FavSys.DamageCompanion(ownerPlayer, finalDmg, defModel) end
+						end
+					elseif bestTarget:IsA("Model") and bestTarget:FindFirstChild("Humanoid") then
+						-- Player raider (Character)
+						local hum = bestTarget:FindFirstChild("Humanoid")
+						if hum and hum.Health > 0 then
+							hum:TakeDamage(finalDmg)
+						end
+					end
+				end
+			end
+		end
+
+		-- Clean up dead entries
+		for model, _ in pairs(defenseLastAttack) do
+			if not model.Parent then defenseLastAttack[model] = nil end
+		end
+	end
+end
+
+-- -- INIT --
+
+function BasePlacementSystem.Init(playerDataMgr, creatureAIRef)
+	PlayerDataManager = playerDataMgr
+	if creatureAIRef then CreatureAI = creatureAIRef end
+
+	PLOTS_FOLDER = Workspace:FindFirstChild("BasePlots")
+	if not PLOTS_FOLDER then
+		PLOTS_FOLDER = Workspace:WaitForChild("BasePlots", 10)
+	end
+	if not PLOTS_FOLDER then
+		warn("[BasePlacement] No BasePlots folder. Disabled.")
+		return
+	end
+
+	for _, plot in ipairs(PLOTS_FOLDER:GetChildren()) do
+		local dp = getPointsByPrefix(plot, "DefensePoint")
+		local ip = getPointsByPrefix(plot, "IncomePoint")
+		local bp = getBattlePointMap(plot)
+		local bpCount = 0; for _ in pairs(bp) do bpCount = bpCount + 1 end
+		print("[BasePlacement] " .. plot.Name .. ": " .. #dp .. " defense, " .. #ip .. " income, " .. bpCount .. " battle points")
+		-- Setup touch detection for invaders (PlotCenter + walls)
+		local plotId = plot.Name:match("^Plot(%d+)$") or plot.Name:match("^Part(%d+)$")
+		if plotId then setupPlotTouchDetection(plot, tonumber(plotId)) end
+	end
+
+	local minDef = 999
+	for _, plot in ipairs(PLOTS_FOLDER:GetChildren()) do
+		local count = #getPointsByPrefix(plot, "DefensePoint")
+		if count > 0 and count < minDef then minDef = count end
+	end
+	if minDef < 999 then GameConfig.MaxDefenseSlots = minDef end
+
+	Players.PlayerAdded:Connect(function(player)
+		player.CharacterAdded:Wait()
+		task.wait(2)
+		-- Wait for player data to load before placing (DataStore may still be loading)
+		for attempt = 1, 15 do
+			if PlayerDataManager.GetData(player) then break end
+			task.wait(1)
+		end
+		BasePlacementSystem.PlaceCreatures(player)
+	end)
+
+	for _, p in ipairs(Players:GetPlayers()) do
+		task.spawn(function()
+			task.wait(2)
+			-- Wait for player data to load (critical for existing players when server starts)
+			for attempt = 1, 15 do
+				if not p.Parent then return end
+				if PlayerDataManager.GetData(p) then break end
+				task.wait(1)
+			end
+			if p.Parent then BasePlacementSystem.PlaceCreatures(p) end
+		end)
+	end
+
+	Players.PlayerRemoving:Connect(function(player)
+		placementLocks[player.UserId] = nil
+		local data = PlayerDataManager.GetData(player)
+		if not data or not data.plotId or data.plotId == 0 then return end
+		local plotModel = findPlotModel(data.plotId)
+		if plotModel then
+			clearTaggedCreatures(plotModel, DEFENSE_TAG)
+			clearTaggedCreatures(plotModel, INCOME_TAG)
+			clearTaggedCreatures(plotModel, BATTLE_TAG)
+		end
+	end)
+
+	-- Start defense turret AI loop
+	task.spawn(runDefenseTurretLoop)
+
+	-- Award defense creature XP when they get a kill (world creature fainted by defense turret)
+	if CreatureAI and CreatureAI.OnCreatureFainted then
+		CreatureAI.OnCreatureFainted.Event:Connect(function(faintedModel, killerModel)
+			awardDefenseKillXP(killerModel)
+			-- Base creatures: do NOT clear/destroy on faint — model stays in faint animation and steal state
+			-- so the attacker can walk up and press E to pick up. Slot is cleared only when stolen (FavoriteCreatureSystem).
+		end)
+	end
+
+	print("[BasePlacement] Initialized with defense turret AI (incremental slot placement)")
+end
+
+-- Called from FavoriteCreatureSystem.Init so defense gets XP when they kill an enemy companion.
+function BasePlacementSystem.RegisterCompanionFaintForDefenseXP(favSys)
+	if not favSys or not favSys.OnCompanionFainted then return end
+	favSys.OnCompanionFainted.Event:Connect(function(_player, killerModel)
+		awardDefenseKillXP(killerModel)
+	end)
+end
+
+return BasePlacementSystem

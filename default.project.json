@@ -1,0 +1,276 @@
+{
+  "name": "Roblox Scripts",
+  "tree": {
+    "$className": "DataModel",
+
+    "ReplicatedStorage": {
+      "GameConfig": {
+        "$path": "GameConfig.lua",
+        "$className": "ModuleScript"
+      },
+      "GameConfigData": {
+        "$path": "GameConfigData.lua",
+        "$className": "ModuleScript"
+      },
+      "CreatureData": {
+        "$path": "CreatureData.lua",
+        "$className": "ModuleScript"
+      },
+      "CreatureAnimation": {
+        "$path": "CreatureAnimation.lua"
+      },
+      "CreatureModelLoader": {
+        "$path": "CreatureModelLoader.lua",
+        "$className": "ModuleScript"
+      }
+    },
+
+    "ServerScriptService": {
+      "MainServer": {
+        "$path": "MainServer.lua",
+        "$className": "Script"
+      },
+      "CaptureSystem": {
+        "$path": "CaptureSystem.lua",
+        "$className": "Script"
+      },
+      "PlayerCombatSystem": {
+        "$path": "PlayerCombatSystem.lua",
+        "$className": "Script"
+      },
+      "PlayerHealthSystem": {
+        "$path": "PlayerHealthSystem.lua",
+        "$className": "Script"
+      },
+      "PlayerDataManager": {
+        "$path": "PlayerDataManager.lua",
+        "$className": "Script"
+      },
+      "CreatureSpawner": {
+        "$path": "CreatureSpawner.lua",
+        "$className": "Script"
+      },
+      "EvolutionCombineSystem": {
+        "$path": "EvolutionCombineSystem.lua",
+        "$className": "Script"
+      },
+      "BaseIncomeSystem": {
+        "$path": "BaseIncomeSystem.lua",
+        "$className": "Script"
+      },
+      "BasePlacementSystem": {
+        "$path": "BasePlacementSystem.lua",
+        "$className": "Script"
+      },
+      "PvPBattleSystem": {
+        "$path": "PvPBattleSystem.lua",
+        "$className": "Script"
+      },
+      "RaidSystem": {
+        "$path": "RaidSystem.lua",
+        "$className": "Script"
+      },
+      "ArenaSystem": {
+        "$path": "ArenaSystem.lua",
+        "$className": "Script"
+      },
+      "BattleTeamSystem": {
+        "$path": "BattleTeamSystem.lua",
+        "$className": "Script"
+      },
+      "TradeSystem": {
+        "$path": "TradeSystem.lua",
+        "$className": "Script"
+      },
+      "EggShopSystem": {
+        "$path": "EggShopSystem.lua",
+        "$className": "Script"
+      },
+      "BuffShopSystem": {
+        "$path": "BuffShopSystem.lua",
+        "$className": "Script"
+      },
+      "CombinerRecyclerSystem": {
+        "$path": "CombinerRecyclerSystem.lua",
+        "$className": "Script"
+      },
+      "CosmeticSystem": {
+        "$path": "CosmeticSystem.lua",
+        "$className": "Script"
+      },
+      "LaserDoorSystem": {
+        "$path": "LaserDoorSystem.lua",
+        "$className": "Script"
+      },
+      "BaseExteriorSystem": {
+        "$path": "BaseExteriorSystem.lua",
+        "$className": "Script"
+      },
+      "AIRaidSystem": {
+        "$path": "AIRaidSystem.lua",
+        "$className": "Script"
+      },
+      "LeaderboardSystem": {
+        "$path": "LeaderboardSystem.lua",
+        "$className": "Script"
+      },
+      "HauntedHouseBaseGenerator": {
+        "$path": "HauntedHouseBaseGenerator.lua",
+        "$className": "Script"
+      },
+      "DungeonSpawner": {
+        "$path": "DungeonSpawner.lua",
+        "$className": "Script"
+      },
+      "CreatureAI": {
+        "$path": "CreatureAI.lua",
+        "$className": "Script"
+      },
+      "DayNightCycle": {
+        "$path": "DayNightCycle.lua",
+        "$className": "Script"
+      },
+      "EvolutionEffects": {
+        "$path": "EvolutionEffects.lua",
+        "$className": "Script"
+      },
+      "FavoriteCreatureSystem": {
+        "$path": "FavoriteCreatureSystem.lua",
+        "$className": "Script"
+      },
+      "LoadingGate": {
+        "$path": "LoadingGate.lua",
+        "$className": "Script"
+      },
+      "WorldCreatureHP": {
+        "$path": "WorldCreatureHP.lua",
+        "$className": "Script"
+      }
+    },
+
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "PlayerCombatClient": {
+          "$path": "PlayerCombatClient.lua",
+          "$className": "LocalScript"
+        },
+        "CaptureClient": {
+          "$path": "CaptureClient.lua",
+          "$className": "LocalScript"
+        },
+        "HUDButtonBar": {
+          "$path": "HUDButtonBar.lua",
+          "$className": "LocalScript"
+        },
+        "HUDClient": {
+          "$path": "HUDClient.lua",
+          "$className": "LocalScript"
+        },
+        "CodexClient": {
+          "$path": "CodexClient.lua",
+          "$className": "LocalScript"
+        },
+        "RebirthUIClient": {
+          "$path": "RebirthUIClient.lua",
+          "$className": "LocalScript"
+        },
+        "PvPBattleClient": {
+          "$path": "PvPBattleClient.lua",
+          "$className": "LocalScript"
+        },
+        "BaseInteractionClient": {
+          "$path": "BaseInteractionClient.lua",
+          "$className": "LocalScript"
+        },
+        "LeaderboardClient": {
+          "$path": "LeaderboardClient.lua",
+          "$className": "LocalScript"
+        },
+        "PlayerProfileClient": {
+          "$path": "PlayerProfileClient.lua",
+          "$className": "LocalScript"
+        },
+        "FriendsListClient": {
+          "$path": "FriendsListClient.lua",
+          "$className": "LocalScript"
+        },
+        "EggShopClient": {
+          "$path": "EggShopClient.lua",
+          "$className": "LocalScript"
+        },
+        "CosmeticShopClient": {
+          "$path": "CosmeticShopClient.lua",
+          "$className": "LocalScript"
+        },
+        "BuffShopClient": {
+          "$path": "BuffShopClient.lua",
+          "$className": "LocalScript"
+        },
+        "CreatureAnimationClient": {
+          "$path": "CreatureAnimationClient.lua",
+          "$className": "LocalScript"
+        },
+        "CombinerRecyclerClient": {
+          "$path": "CombinerRecyclerClient.lua",
+          "$className": "LocalScript"
+        },
+        "ArenaRewardUI": {
+          "$path": "ArenaRewardUI.lua",
+          "$className": "LocalScript"
+        },
+        "LaunchScreen": {
+          "$path": "LaunchScreen.lua",
+          "$className": "LocalScript"
+        },
+        "NotificationManager": {
+          "$path": "NotificationManager.lua",
+          "$className": "LocalScript"
+        },
+        "CodexModelViewer": {
+          "$path": "CodexModelViewer.lua",
+          "$className": "LocalScript"
+        },
+        "InventoryUIManager": {
+          "$path": "InventoryUIManager.lua",
+          "$className": "LocalScript"
+        },
+        "BaseBuildInstructions_HauntedHouse": {
+          "$path": "BaseBuildInstructions_HauntedHouse.lua",
+          "$className": "LocalScript"
+        }
+      }
+    },
+
+    "Workspace": {
+      "$properties": {
+        "FilteringEnabled": true
+      },
+      "Baseplate": {
+        "$className": "Part",
+        "$properties": {
+          "Anchored": true,
+          "Color": [0.38823, 0.37254, 0.38823],
+          "Locked": true,
+          "Position": [0, -10, 0],
+          "Size": [512, 20, 512]
+        }
+      }
+    },
+
+    "Lighting": {
+      "$properties": {
+        "Ambient": [0, 0, 0],
+        "Brightness": 2,
+        "GlobalShadows": true,
+        "Outlines": false,
+        "Technology": "Voxel"
+      }
+    },
+
+    "SoundService": {
+      "$properties": {
+        "RespectFilteringEnabled": true
+      }
+    }
+  }
+}

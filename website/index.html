@@ -1,0 +1,1287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sieglings - Capture. Build. Battle. Reign.</title>
+<meta name="description" content="Sieglings is a creature-collection RPG on Roblox. Capture elemental Siegelings, build your fortress, assemble battle teams, and raid rivals across six biomes.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Rajdhani:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ══════════════════════════════════════════════════════════════
+   CSS VARIABLES & RESET
+   ══════════════════════════════════════════════════════════════ */
+:root {
+  --bg-deep: #06060f;
+  --bg-primary: #0a0a18;
+  --bg-secondary: #0f0f24;
+  --bg-card: #13132e;
+  --bg-card-hover: #1a1a40;
+  --accent-fire: #ff5020;
+  --accent-ice: #64c8ff;
+  --accent-wind: #7aefaa;
+  --accent-earth: #c49a4a;
+  --accent-shadow: #9b59d0;
+  --accent-lightning: #ffe63c;
+  --accent-gold: #ffb800;
+  --accent-purple: #a855f7;
+  --accent-ember: #f97316;
+  --text-primary: #eaeaf2;
+  --text-secondary: #9090b0;
+  --text-muted: #55557a;
+  --border-subtle: rgba(255,255,255,0.06);
+  --glow-purple: rgba(168,85,247,0.25);
+  --glow-fire: rgba(255,80,32,0.2);
+}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; overflow-x: hidden; }
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  line-height: 1.6;
+  overflow-x: hidden;
+  width: 100%;
+}
+
+a { color: inherit; text-decoration: none; }
+img { max-width: 100%; display: block; }
+button { cursor: pointer; border: none; background: none; font-family: inherit; }
+
+/* ══════════════════════════════════════════════════════════════
+   AMBIENT BACKGROUND
+   ══════════════════════════════════════════════════════════════ */
+.ambient {
+  position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden;
+}
+.ambient-orb {
+  position: absolute; border-radius: 50%; filter: blur(120px); opacity: 0.4;
+  animation: ambientDrift 25s ease-in-out infinite alternate;
+}
+.ambient-orb:nth-child(1) {
+  width: 600px; height: 600px; top: -15%; right: -10%;
+  background: radial-gradient(circle, rgba(168,85,247,0.15), transparent 70%);
+}
+.ambient-orb:nth-child(2) {
+  width: 500px; height: 500px; bottom: 10%; left: -8%;
+  background: radial-gradient(circle, rgba(255,80,32,0.12), transparent 70%);
+  animation-delay: -12s;
+}
+.ambient-orb:nth-child(3) {
+  width: 400px; height: 400px; top: 40%; left: 50%;
+  background: radial-gradient(circle, rgba(100,200,255,0.08), transparent 70%);
+  animation-delay: -7s;
+}
+@keyframes ambientDrift {
+  0% { transform: translate(0, 0) scale(1); }
+  100% { transform: translate(30px, -40px) scale(1.1); }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   PARTICLES CANVAS
+   ══════════════════════════════════════════════════════════════ */
+#particles-canvas {
+  position: fixed; inset: 0; pointer-events: none; z-index: 0;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   NAVIGATION
+   ══════════════════════════════════════════════════════════════ */
+.nav {
+  position: fixed; top: 0; left: 0; width: 100%; z-index: 1000;
+  padding: 0 3rem; height: 64px; display: flex; align-items: center; justify-content: space-between;
+  background: rgba(6,6,15,0.85); backdrop-filter: blur(24px) saturate(1.4);
+  border-bottom: 1px solid var(--border-subtle);
+  transition: background 0.3s, box-shadow 0.3s;
+}
+.nav.scrolled {
+  background: rgba(6,6,15,0.95);
+  box-shadow: 0 4px 30px rgba(0,0,0,0.5);
+}
+.nav-logo {
+  font-family: 'Cinzel', serif; font-weight: 900; font-size: 1.2rem;
+  letter-spacing: 3px; text-transform: uppercase;
+  background: linear-gradient(135deg, var(--accent-gold), var(--accent-fire));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.nav-links { display: flex; gap: 2rem; align-items: center; }
+.nav-links a {
+  font-size: 0.82rem; font-weight: 500; color: var(--text-secondary);
+  letter-spacing: 0.5px; transition: color 0.3s; position: relative;
+}
+.nav-links a::after {
+  content: ''; position: absolute; bottom: -4px; left: 0; width: 0; height: 2px;
+  background: var(--accent-purple); transition: width 0.3s;
+}
+.nav-links a:hover { color: #fff; }
+.nav-links a:hover::after { width: 100%; }
+.nav-cta {
+  padding: 0.5rem 1.4rem; border-radius: 8px; font-size: 0.82rem; font-weight: 600;
+  background: linear-gradient(135deg, var(--accent-purple), #7c3aed);
+  color: #fff; transition: transform 0.2s, box-shadow 0.2s;
+}
+.nav-cta:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px var(--glow-purple);
+}
+.mobile-toggle {
+  display: none; flex-direction: column; gap: 5px; padding: 4px;
+}
+.mobile-toggle span {
+  width: 22px; height: 2px; background: var(--text-secondary); border-radius: 2px;
+  transition: all 0.3s;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   HERO SECTION
+   ══════════════════════════════════════════════════════════════ */
+.hero {
+  position: relative; z-index: 1; min-height: 100vh;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; padding: 7rem 2rem 5rem;
+  background: linear-gradient(180deg, var(--bg-deep) 0%, #0d0d22 50%, var(--bg-deep) 100%);
+}
+.hero-badge {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  padding: 0.4rem 1.2rem; border-radius: 100px;
+  background: rgba(168,85,247,0.12); border: 1px solid rgba(168,85,247,0.25);
+  color: var(--accent-purple); font-size: 0.75rem; font-weight: 600;
+  letter-spacing: 2px; text-transform: uppercase; margin-bottom: 2rem;
+  animation: fadeInDown 0.8s ease-out;
+}
+.hero-badge .pulse {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--accent-purple);
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(1.5); }
+}
+.hero h1 {
+  font-family: 'Cinzel', serif; font-size: clamp(3rem, 8vw, 6rem); font-weight: 900;
+  line-height: 1.05; letter-spacing: 4px; text-transform: uppercase;
+  margin-bottom: 0.6rem; animation: fadeInUp 0.8s ease-out;
+  background: linear-gradient(135deg, #ffffff 0%, #d4d4ff 40%, var(--accent-gold) 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text; filter: drop-shadow(0 0 40px rgba(255,184,0,0.15));
+}
+.hero-subtitle {
+  font-family: 'Rajdhani', sans-serif; font-size: clamp(1.1rem, 2.5vw, 1.5rem);
+  font-weight: 500; color: var(--text-secondary); letter-spacing: 6px;
+  text-transform: uppercase; margin-bottom: 1.5rem;
+  animation: fadeInUp 0.8s ease-out 0.15s both;
+}
+.hero-desc {
+  max-width: 640px; margin: 0 auto 3rem; font-size: 1.05rem; color: var(--text-secondary);
+  line-height: 1.8; animation: fadeInUp 0.8s ease-out 0.3s both;
+}
+.hero-buttons {
+  display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;
+  margin-bottom: 4rem; animation: fadeInUp 0.8s ease-out 0.45s both;
+}
+.btn-primary {
+  padding: 0.9rem 2.4rem; border-radius: 12px; font-size: 0.95rem; font-weight: 700;
+  background: linear-gradient(135deg, var(--accent-fire), var(--accent-ember));
+  color: #fff; letter-spacing: 1px; transition: all 0.3s;
+  box-shadow: 0 4px 20px var(--glow-fire);
+}
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px var(--glow-fire);
+}
+.btn-secondary {
+  padding: 0.9rem 2.4rem; border-radius: 12px; font-size: 0.95rem; font-weight: 600;
+  background: rgba(255,255,255,0.05); color: var(--text-primary);
+  border: 1px solid rgba(255,255,255,0.1); letter-spacing: 1px; transition: all 0.3s;
+}
+.btn-secondary:hover {
+  background: rgba(255,255,255,0.1);
+  border-color: rgba(255,255,255,0.2);
+  transform: translateY(-2px);
+}
+.hero-stats {
+  display: flex; gap: 3rem; justify-content: center; flex-wrap: wrap;
+  animation: fadeInUp 0.8s ease-out 0.6s both;
+}
+.hero-stat { text-align: center; }
+.hero-stat-num {
+  font-family: 'Cinzel', serif; font-size: 2.8rem; font-weight: 900;
+  background: linear-gradient(135deg, var(--accent-gold), var(--accent-fire));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.hero-stat-label {
+  font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;
+  letter-spacing: 3px; margin-top: 0.15rem;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   SHARED SECTION STYLES
+   ══════════════════════════════════════════════════════════════ */
+.section {
+  position: relative; z-index: 1; padding: 6rem 3rem;
+  max-width: 1200px; margin: 0 auto;
+}
+.section-label {
+  font-family: 'Cinzel', serif; font-size: 0.72rem; font-weight: 700;
+  color: var(--accent-purple); letter-spacing: 4px; text-transform: uppercase;
+  margin-bottom: 0.6rem;
+}
+.section-title {
+  font-family: 'Cinzel', serif; font-size: clamp(1.6rem, 3vw, 2.4rem); font-weight: 700;
+  color: #fff; margin-bottom: 1rem; line-height: 1.2;
+}
+.section-desc {
+  color: var(--text-secondary); font-size: 1rem; max-width: 680px;
+  line-height: 1.7; margin-bottom: 3.5rem;
+}
+.divider {
+  width: 100%; max-width: 1200px; height: 1px; margin: 0 auto;
+  background: linear-gradient(90deg, transparent 0%, rgba(168,85,247,0.25) 50%, transparent 100%);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   LORE SECTION
+   ══════════════════════════════════════════════════════════════ */
+.lore-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;
+}
+.lore-main {
+  background: linear-gradient(145deg, var(--bg-card), rgba(19,19,46,0.6));
+  border: 1px solid var(--border-subtle); border-radius: 20px; padding: 2.5rem;
+  position: relative; overflow: hidden;
+}
+.lore-main::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg, var(--accent-gold), var(--accent-fire), var(--accent-purple));
+}
+.lore-main h3 {
+  font-family: 'Cinzel', serif; font-size: 1.4rem; font-weight: 700;
+  margin-bottom: 1rem; color: var(--accent-gold);
+}
+.lore-main p {
+  color: var(--text-secondary); line-height: 1.8; margin-bottom: 1rem;
+  font-size: 0.95rem;
+}
+.lore-quote {
+  font-style: italic; color: var(--accent-gold); border-left: 3px solid var(--accent-gold);
+  padding-left: 1rem; margin: 1.5rem 0;
+}
+.lore-sidebar { display: flex; flex-direction: column; gap: 1.5rem; }
+.lore-card {
+  background: var(--bg-card); border: 1px solid var(--border-subtle);
+  border-radius: 16px; padding: 1.8rem; transition: all 0.3s; flex: 1;
+}
+.lore-card:hover {
+  transform: translateY(-3px); border-color: rgba(168,85,247,0.2);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+}
+.lore-card h4 {
+  font-family: 'Cinzel', serif; font-size: 1.05rem; font-weight: 700;
+  margin-bottom: 0.6rem; color: #fff;
+}
+.lore-card p { color: var(--text-secondary); font-size: 0.88rem; line-height: 1.6; }
+
+/* ══════════════════════════════════════════════════════════════
+   FOUR HOUSES
+   ══════════════════════════════════════════════════════════════ */
+.houses-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.5rem;
+}
+.house-card {
+  background: var(--bg-card); border-radius: 16px; padding: 2rem 1.5rem;
+  text-align: center; border: 1px solid var(--border-subtle);
+  transition: all 0.4s; position: relative; overflow: hidden;
+}
+.house-card::before {
+  content: ''; position: absolute; inset: 0; opacity: 0;
+  transition: opacity 0.4s; border-radius: 16px;
+}
+.house-card:hover { transform: translateY(-6px); }
+.house-card:hover::before { opacity: 1; }
+.house-card.fire::before { background: linear-gradient(180deg, rgba(255,80,32,0.1), transparent 60%); }
+.house-card.fire { border-color: rgba(255,80,32,0.15); }
+.house-card.ice::before { background: linear-gradient(180deg, rgba(100,200,255,0.1), transparent 60%); }
+.house-card.ice { border-color: rgba(100,200,255,0.15); }
+.house-card.earth::before { background: linear-gradient(180deg, rgba(196,154,74,0.1), transparent 60%); }
+.house-card.earth { border-color: rgba(196,154,74,0.15); }
+.house-card.wind::before { background: linear-gradient(180deg, rgba(122,239,170,0.1), transparent 60%); }
+.house-card.wind { border-color: rgba(122,239,170,0.15); }
+.house-sigil {
+  font-size: 3rem; margin-bottom: 1rem; display: block;
+  filter: drop-shadow(0 0 12px currentColor);
+}
+.house-name {
+  font-family: 'Cinzel', serif; font-size: 1.1rem; font-weight: 700;
+  margin-bottom: 0.3rem;
+}
+.house-motto {
+  font-style: italic; font-size: 0.8rem; color: var(--text-muted);
+  margin-bottom: 0.8rem;
+}
+.house-desc { font-size: 0.85rem; color: var(--text-secondary); line-height: 1.6; }
+
+/* ══════════════════════════════════════════════════════════════
+   FEATURES / GAMEPLAY
+   ══════════════════════════════════════════════════════════════ */
+.features-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 1.5rem;
+}
+.feature-card {
+  background: var(--bg-card); border-radius: 16px; padding: 2rem;
+  border: 1px solid var(--border-subtle); transition: all 0.3s;
+  position: relative; overflow: hidden;
+}
+.feature-card:hover {
+  transform: translateY(-4px); border-color: rgba(168,85,247,0.2);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3), 0 0 40px rgba(168,85,247,0.05);
+}
+.feature-icon {
+  width: 48px; height: 48px; border-radius: 12px; display: flex;
+  align-items: center; justify-content: center; font-size: 1.5rem;
+  margin-bottom: 1.2rem; background: rgba(168,85,247,0.1);
+  border: 1px solid rgba(168,85,247,0.15);
+}
+.feature-card h3 {
+  font-family: 'Rajdhani', sans-serif; font-size: 1.2rem; font-weight: 700;
+  margin-bottom: 0.6rem; color: #fff;
+}
+.feature-card p { color: var(--text-secondary); font-size: 0.9rem; line-height: 1.7; }
+
+/* ══════════════════════════════════════════════════════════════
+   ELEMENTS SHOWCASE
+   ══════════════════════════════════════════════════════════════ */
+.elements-grid {
+  display: grid; grid-template-columns: repeat(6, 1fr); gap: 1rem;
+}
+.element-card {
+  background: var(--bg-card); border-radius: 16px; padding: 1.8rem 1rem;
+  text-align: center; border: 1px solid var(--border-subtle);
+  transition: all 0.3s; cursor: default;
+}
+.element-card:hover {
+  transform: translateY(-4px) scale(1.03);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+}
+.elem-icon { font-size: 2.8rem; margin-bottom: 0.6rem; display: block; }
+.elem-name {
+  font-family: 'Cinzel', serif; font-size: 0.95rem; font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+.elem-zone {
+  font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;
+  letter-spacing: 1.5px;
+}
+.element-card.fire .elem-name { color: var(--accent-fire); }
+.element-card.ice .elem-name { color: var(--accent-ice); }
+.element-card.wind .elem-name { color: var(--accent-wind); }
+.element-card.earth .elem-name { color: var(--accent-earth); }
+.element-card.shadow .elem-name { color: var(--accent-shadow); }
+.element-card.lightning .elem-name { color: var(--accent-lightning); }
+
+/* Element weakness cycle */
+.weakness-cycle {
+  margin-top: 3rem; background: var(--bg-card); border: 1px solid var(--border-subtle);
+  border-radius: 16px; padding: 2rem; text-align: center;
+}
+.weakness-cycle h3 {
+  font-family: 'Cinzel', serif; font-size: 1.1rem; font-weight: 700;
+  margin-bottom: 1rem; color: #fff;
+}
+.cycle-visual {
+  display: flex; align-items: center; justify-content: center; gap: 0.8rem;
+  flex-wrap: wrap; font-size: 1.5rem;
+}
+.cycle-arrow { color: var(--text-muted); font-size: 1.2rem; }
+
+/* ══════════════════════════════════════════════════════════════
+   RARITY SECTION
+   ══════════════════════════════════════════════════════════════ */
+.rarity-row {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem;
+}
+.rarity-card {
+  border-radius: 16px; padding: 1.8rem 1rem; text-align: center;
+  border: 1px solid var(--border-subtle); transition: all 0.3s;
+  background: var(--bg-card); position: relative; overflow: hidden;
+}
+.rarity-card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+}
+.rarity-card:hover { transform: translateY(-4px); }
+.rarity-card.common::before { background: #b4b4b4; }
+.rarity-card.uncommon::before { background: #4bc84b; }
+.rarity-card.rare::before { background: #3c82ff; }
+.rarity-card.epic::before { background: #b450ff; }
+.rarity-card.legendary::before { background: #ffb800; }
+.rarity-name {
+  font-family: 'Cinzel', serif; font-size: 1rem; font-weight: 700;
+  margin-bottom: 0.4rem;
+}
+.rarity-card.common .rarity-name { color: #b4b4b4; }
+.rarity-card.uncommon .rarity-name { color: #4bc84b; }
+.rarity-card.rare .rarity-name { color: #3c82ff; }
+.rarity-card.epic .rarity-name { color: #b450ff; }
+.rarity-card.legendary .rarity-name { color: #ffb800; }
+.rarity-pct {
+  font-family: 'Cinzel', serif; font-size: 2.2rem; font-weight: 900;
+  margin-bottom: 0.3rem;
+}
+.rarity-card.common .rarity-pct { color: #b4b4b4; }
+.rarity-card.uncommon .rarity-pct { color: #4bc84b; }
+.rarity-card.rare .rarity-pct { color: #3c82ff; }
+.rarity-card.epic .rarity-pct { color: #b450ff; }
+.rarity-card.legendary .rarity-pct { color: #ffb800; }
+.rarity-detail { font-size: 0.75rem; color: var(--text-muted); }
+
+/* ══════════════════════════════════════════════════════════════
+   CLASSES SECTION
+   ══════════════════════════════════════════════════════════════ */
+.classes-grid {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem;
+}
+.class-card {
+  background: var(--bg-card); border-radius: 16px; padding: 1.8rem;
+  text-align: center; border: 1px solid var(--border-subtle); transition: all 0.3s;
+}
+.class-card:hover { transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.3); }
+.class-icon { font-size: 2.2rem; margin-bottom: 0.8rem; }
+.class-name { font-family: 'Cinzel', serif; font-size: 1rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem; }
+.class-desc { font-size: 0.8rem; color: var(--text-secondary); }
+
+/* ══════════════════════════════════════════════════════════════
+   HOW TO PLAY
+   ══════════════════════════════════════════════════════════════ */
+.steps-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.5rem;
+  counter-reset: step;
+}
+.step-card {
+  background: var(--bg-card); border-radius: 16px; padding: 2rem 1.5rem;
+  border: 1px solid var(--border-subtle); transition: all 0.3s;
+  position: relative; counter-increment: step;
+}
+.step-card:hover { transform: translateY(-4px); border-color: rgba(168,85,247,0.2); }
+.step-num {
+  font-family: 'Cinzel', serif; font-size: 3rem; font-weight: 900;
+  color: rgba(168,85,247,0.15); position: absolute; top: 1rem; right: 1.2rem;
+  line-height: 1;
+}
+.step-card h3 {
+  font-family: 'Rajdhani', sans-serif; font-size: 1.15rem; font-weight: 700;
+  margin-bottom: 0.5rem; color: #fff;
+}
+.step-card p { font-size: 0.88rem; color: var(--text-secondary); line-height: 1.6; }
+
+/* ══════════════════════════════════════════════════════════════
+   GLOSSARY / RANKS
+   ══════════════════════════════════════════════════════════════ */
+.glossary-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.2rem;
+}
+.glossary-item {
+  background: var(--bg-card); border-radius: 12px; padding: 1.5rem;
+  border: 1px solid var(--border-subtle);
+}
+.glossary-term {
+  font-family: 'Cinzel', serif; font-size: 0.95rem; font-weight: 700;
+  color: var(--accent-gold); margin-bottom: 0.4rem;
+}
+.glossary-def { font-size: 0.85rem; color: var(--text-secondary); line-height: 1.6; }
+
+/* ══════════════════════════════════════════════════════════════
+   CTA BANNER
+   ══════════════════════════════════════════════════════════════ */
+.cta-section {
+  position: relative; z-index: 1; padding: 6rem 2rem; text-align: center;
+}
+.cta-box {
+  max-width: 800px; margin: 0 auto; padding: 4rem 3rem; border-radius: 24px;
+  background: linear-gradient(135deg, rgba(168,85,247,0.12), rgba(255,80,32,0.08));
+  border: 1px solid rgba(168,85,247,0.2); position: relative; overflow: hidden;
+}
+.cta-box::before {
+  content: ''; position: absolute; inset: -2px; border-radius: 26px;
+  background: linear-gradient(135deg, var(--accent-purple), var(--accent-fire), var(--accent-gold));
+  z-index: -1; opacity: 0.15;
+}
+.cta-box h2 {
+  font-family: 'Cinzel', serif; font-size: clamp(1.8rem, 4vw, 2.5rem); font-weight: 900;
+  color: #fff; margin-bottom: 1rem;
+}
+.cta-box p {
+  color: var(--text-secondary); font-size: 1.05rem; margin-bottom: 2rem;
+  max-width: 500px; margin-left: auto; margin-right: auto; line-height: 1.7;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   FOOTER
+   ══════════════════════════════════════════════════════════════ */
+.footer {
+  position: relative; z-index: 1; text-align: center; padding: 3rem 2rem;
+  border-top: 1px solid var(--border-subtle);
+}
+.footer-logo {
+  font-family: 'Cinzel', serif; font-size: 1rem; font-weight: 700;
+  color: var(--text-secondary); margin-bottom: 0.5rem;
+  letter-spacing: 3px;
+}
+.footer-text { font-size: 0.78rem; color: var(--text-muted); }
+.footer-links {
+  display: flex; gap: 1.5rem; justify-content: center; margin-top: 1rem;
+}
+.footer-links a {
+  font-size: 0.78rem; color: var(--text-muted); transition: color 0.3s;
+}
+.footer-links a:hover { color: var(--accent-purple); }
+
+/* ══════════════════════════════════════════════════════════════
+   SCROLL ANIMATIONS
+   ══════════════════════════════════════════════════════════════ */
+.reveal {
+  opacity: 0; transform: translateY(30px);
+  transition: opacity 0.7s ease-out, transform 0.7s ease-out;
+}
+.reveal.visible { opacity: 1; transform: translateY(0); }
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeInDown {
+  from { opacity: 0; transform: translateY(-16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   MOBILE MENU
+   ══════════════════════════════════════════════════════════════ */
+.mobile-menu {
+  display: none; position: fixed; inset: 0; z-index: 999;
+  background: rgba(6,6,15,0.98); backdrop-filter: blur(20px);
+  flex-direction: column; align-items: center; justify-content: center; gap: 2rem;
+}
+.mobile-menu.open { display: flex; }
+.mobile-menu a {
+  font-family: 'Cinzel', serif; font-size: 1.2rem; color: var(--text-secondary);
+  transition: color 0.3s; letter-spacing: 2px;
+}
+.mobile-menu a:hover { color: #fff; }
+.mobile-close {
+  position: absolute; top: 1.5rem; right: 1.5rem;
+  font-size: 1.5rem; color: var(--text-secondary); background: none; border: none;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   RESPONSIVE
+   ══════════════════════════════════════════════════════════════ */
+@media (max-width: 1024px) {
+  .houses-grid { grid-template-columns: repeat(2, 1fr); }
+  .elements-grid { grid-template-columns: repeat(3, 1fr); }
+  .rarity-row { grid-template-columns: repeat(3, 1fr); }
+  .classes-grid { grid-template-columns: repeat(3, 1fr); }
+  .steps-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 768px) {
+  .nav-links { display: none; }
+  .mobile-toggle { display: flex; }
+  .hero { padding: 6rem 1.5rem 4rem; }
+  .hero h1 { letter-spacing: 2px; }
+  .hero-stats { gap: 1.5rem; }
+  .hero-stat-num { font-size: 2rem; }
+  .section { padding: 4rem 1.5rem; }
+  .section-title { font-size: 1.5rem; }
+  .lore-grid { grid-template-columns: 1fr; }
+  .houses-grid { grid-template-columns: 1fr 1fr; }
+  .features-grid { grid-template-columns: 1fr; }
+  .elements-grid { grid-template-columns: repeat(3, 1fr); }
+  .rarity-row { grid-template-columns: repeat(2, 1fr); }
+  .classes-grid { grid-template-columns: repeat(2, 1fr); }
+  .steps-grid { grid-template-columns: 1fr; }
+  .cta-box { padding: 3rem 1.5rem; }
+}
+@media (max-width: 480px) {
+  .houses-grid { grid-template-columns: 1fr; }
+  .elements-grid { grid-template-columns: repeat(2, 1fr); }
+  .rarity-row { grid-template-columns: 1fr; }
+  .classes-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- AMBIENT BACKGROUND -->
+<div class="ambient">
+  <div class="ambient-orb"></div>
+  <div class="ambient-orb"></div>
+  <div class="ambient-orb"></div>
+</div>
+<canvas id="particles-canvas"></canvas>
+
+<!-- ══════════════════════════════════════════════════════════════
+     NAVIGATION
+     ══════════════════════════════════════════════════════════════ -->
+<nav class="nav" id="nav">
+  <a href="#" class="nav-logo">Sieglings</a>
+  <div class="nav-links">
+    <a href="#lore">Lore</a>
+    <a href="#houses">Houses</a>
+    <a href="#gameplay">Gameplay</a>
+    <a href="#elements">Elements</a>
+    <a href="#creatures">Creatures</a>
+    <a href="#ranks">World</a>
+    <a href="#play" class="nav-cta">Play Now</a>
+  </div>
+  <button class="mobile-toggle" onclick="toggleMobileMenu()" aria-label="Menu">
+    <span></span><span></span><span></span>
+  </button>
+</nav>
+
+<!-- MOBILE MENU -->
+<div class="mobile-menu" id="mobileMenu">
+  <button class="mobile-close" onclick="toggleMobileMenu()">&times;</button>
+  <a href="#lore" onclick="toggleMobileMenu()">Lore</a>
+  <a href="#houses" onclick="toggleMobileMenu()">Houses</a>
+  <a href="#gameplay" onclick="toggleMobileMenu()">Gameplay</a>
+  <a href="#elements" onclick="toggleMobileMenu()">Elements</a>
+  <a href="#creatures" onclick="toggleMobileMenu()">Creatures</a>
+  <a href="#ranks" onclick="toggleMobileMenu()">World</a>
+  <a href="#play" class="btn-primary" onclick="toggleMobileMenu()">Play Now</a>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     HERO
+     ══════════════════════════════════════════════════════════════ -->
+<header class="hero">
+  <div class="hero-badge">
+    <span class="pulse"></span>
+    Roblox Experience &mdash; Coming Soon
+  </div>
+  <h1>Sieglings</h1>
+  <div class="hero-subtitle">Capture &bull; Build &bull; Battle &bull; Reign</div>
+  <p class="hero-desc">
+    Bond with elemental creatures called Siegelings, forge your fortress across
+    three floors, assemble synergy-driven battle teams, and raid your rivals
+    across six wild biomes. Your journey from Squire to Sire begins here.
+  </p>
+  <div class="hero-buttons">
+    <a href="#play" class="btn-primary">Play on Roblox</a>
+    <a href="#lore" class="btn-secondary">Discover the Lore</a>
+  </div>
+  <div class="hero-stats">
+    <div class="hero-stat">
+      <div class="hero-stat-num">90</div>
+      <div class="hero-stat-label">Creatures</div>
+    </div>
+    <div class="hero-stat">
+      <div class="hero-stat-num">6</div>
+      <div class="hero-stat-label">Elements</div>
+    </div>
+    <div class="hero-stat">
+      <div class="hero-stat-num">5</div>
+      <div class="hero-stat-label">Classes</div>
+    </div>
+    <div class="hero-stat">
+      <div class="hero-stat-num">4</div>
+      <div class="hero-stat-label">Houses</div>
+    </div>
+    <div class="hero-stat">
+      <div class="hero-stat-num">3</div>
+      <div class="hero-stat-label">Base Floors</div>
+    </div>
+  </div>
+</header>
+
+<div class="divider"></div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     LORE SECTION
+     ══════════════════════════════════════════════════════════════ -->
+<section class="section" id="lore">
+  <div class="section-label reveal">The Codex of Binding</div>
+  <div class="section-title reveal">A World Forged by Card and Shield</div>
+  <div class="section-desc reveal">
+    Before the wristguard and the Capture Card, the lands were wild. Humans fought the elements
+    and the beasts of the frontier. Then Maestro appeared and changed everything.
+  </div>
+
+  <div class="lore-grid reveal">
+    <div class="lore-main">
+      <h3>The Gift of Maestro</h3>
+      <p>
+        In a time of unending war between humans and Siegelings, a mysterious figure
+        emerged. Whether Siegeling or Eleminion, no record is certain. Maestro offered
+        the first Capture Cards &mdash; not weapons, but instruments of covenant. A card
+        could bind a Siegeling to a human only if the creature chose to accept.
+      </p>
+      <div class="lore-quote">
+        "He gave the knowledge and then withdrew. No grave, no shrine. Only the cards,
+        the shields, and a legend."
+      </div>
+      <p>
+        He taught the crafting of the Shield &mdash; a wristguard with a slot for the card.
+        Place the card, and the creature answers. Withdraw it, and the creature returns.
+        The bond was voluntary. Coercion broke it.
+      </p>
+    </div>
+    <div class="lore-sidebar">
+      <div class="lore-card">
+        <h4>The Eleminions</h4>
+        <p>
+          Rare beings with a third eye hidden between the brows. Through it they
+          see thoughts, translate tongues, and bridge the gap between human and Siegeling.
+          One per elemental region. To meet one is rare; to refuse their counsel, foolish.
+        </p>
+      </div>
+      <div class="lore-card">
+        <h4>The Rite of Thirteen</h4>
+        <p>
+          At age thirteen, every youth receives a Shield and their first Capture Card,
+          then sets off to find and bond their first Siegeling. This ancient ceremony
+          marks the start of the path from Squire to Siege Knight.
+        </p>
+      </div>
+      <div class="lore-card">
+        <h4>Valorous vs. Unvalorous</h4>
+        <p>
+          The Valorous keep the pact: bond by consent, fight with honor, defend the realm.
+          The Unvalorous &mdash; raiders, warlords, outcasts &mdash; stole the craft, force
+          bonds, and lay siege to peaceful lands. The conflict has never ended.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     FOUR HOUSES
+     ══════════════════════════════════════════════════════════════ -->
+<section class="section" id="houses">
+  <div class="section-label reveal">Allegiance</div>
+  <div class="section-title reveal">The Four Great Houses</div>
+  <div class="section-desc reveal">
+    Four houses govern the realm, each tied to an element, an Eleminion,
+    and a philosophy of battle. Choose wisely &mdash; your sigil declares your allegiance.
+  </div>
+
+  <div class="houses-grid reveal">
+    <div class="house-card fire">
+      <span class="house-sigil" style="color: var(--accent-fire);">&#x1F525;</span>
+      <div class="house-name" style="color: var(--accent-fire);">House Emberward</div>
+      <div class="house-motto">"Through flame, we hold."</div>
+      <div class="house-desc">
+        Led by Lord Theron Emberward. Masters of offense and the arena.
+        Fire burns &mdash; they believe strength is proven in combat and glory.
+      </div>
+    </div>
+    <div class="house-card ice">
+      <span class="house-sigil" style="color: var(--accent-ice);">&#x2744;&#xFE0F;</span>
+      <div class="house-name" style="color: var(--accent-ice);">House Frostholm</div>
+      <div class="house-motto">"Cold steel, warm heart."</div>
+      <div class="house-desc">
+        Led by Lady Elara Frostholm. Guardians and strategists.
+        Ice controls &mdash; patience and defense win wars that fire cannot.
+      </div>
+    </div>
+    <div class="house-card earth">
+      <span class="house-sigil" style="color: var(--accent-earth);">&#x1FAA8;</span>
+      <div class="house-name" style="color: var(--accent-earth);">House Cinderthorn</div>
+      <div class="house-motto">"Forge and defend."</div>
+      <div class="house-desc">
+        Led by Lord Marcus Cinderthorn. Keepers of the forges and combiners.
+        Earth endures &mdash; they build, reinforce, and outlast.
+      </div>
+    </div>
+    <div class="house-card wind">
+      <span class="house-sigil" style="color: var(--accent-wind);">&#x1F32A;&#xFE0F;</span>
+      <div class="house-name" style="color: var(--accent-wind);">House Zephyran</div>
+      <div class="house-motto">"Swift as the storm."</div>
+      <div class="house-desc">
+        Led by Lord Kael Zephyran. Scouts and speed fighters.
+        Wind is swiftness &mdash; knowing when to strike and when to vanish.
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     HOW TO PLAY
+     ══════════════════════════════════════════════════════════════ -->
+<section class="section" id="gameplay">
+  <div class="section-label reveal">Your Path</div>
+  <div class="section-title reveal">How to Play</div>
+  <div class="section-desc reveal">
+    Every system feeds into the next. Capture creatures to earn income, upgrade your base
+    to build battle teams, and battle to earn glory and steal from rivals.
+  </div>
+
+  <div class="steps-grid reveal">
+    <div class="step-card">
+      <div class="step-num">01</div>
+      <h3>Capture</h3>
+      <p>Find wild Siegelings across six elemental biomes. Weaken them in combat
+      and use your Capture Card to bind them. Rarer creatures cost more &mdash;
+      from 10 gold for Common up to 400 for Legendary.</p>
+    </div>
+    <div class="step-card">
+      <div class="step-num">02</div>
+      <h3>Companion</h3>
+      <p>Set one creature as your Favorite. Your companion follows you everywhere,
+      fights by your side with scaled stats, and has its own HP and respawn cycle.
+      Choose your battle partner wisely.</p>
+    </div>
+    <div class="step-card">
+      <div class="step-num">03</div>
+      <h3>Build Your Base</h3>
+      <p>Assign creatures to Income slots (earn coins), Defense slots (guard your base),
+      or Battle Team slots (arena fighting). Expand from 1 floor to 3 for maximum
+      power and slots.</p>
+    </div>
+    <div class="step-card">
+      <div class="step-num">04</div>
+      <h3>Battle & Raid</h3>
+      <p>Enter the arena for team battles, challenge players to PvP duels,
+      raid enemy bases to steal creatures, and conquer dungeons for rare loot.
+      Rise from Squire to Sire.</p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     CORE FEATURES
+     ══════════════════════════════════════════════════════════════ -->
+<section class="section">
+  <div class="section-label reveal">Core Systems</div>
+  <div class="section-title reveal">What Makes Sieglings Tick</div>
+  <div class="section-desc reveal">
+    Deep, interconnected systems create emergent gameplay where every decision matters.
+  </div>
+
+  <div class="features-grid reveal">
+    <div class="feature-card">
+      <div class="feature-icon">&#x1F3F0;</div>
+      <h3>Multi-Floor Fortress</h3>
+      <p>Build a three-story base with 6 income + 6 defense slots per floor. Floor 2
+      unlocks the Battle Arena and team system. Floor 3 maximizes your empire.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1F451;</div>
+      <h3>King of the Hill Arena</h3>
+      <p>Automated team battles every 60 seconds. Up to 9 creatures on a 3x3 grid.
+      Winners grow 5% per victory (capped at 300%). Synergy bonuses stack for devastating combos.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1F6E1;&#xFE0F;</div>
+      <h3>Defense Turret AI</h3>
+      <p>Creatures on defense points act as automated turrets, firing at intruders
+      within 40 studs every 2.5 seconds. Your first and last line against raids.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x2694;&#xFE0F;</div>
+      <h3>PvP Duels</h3>
+      <p>Challenge nearby players to 1v1 battles. Winners earn gold and glory,
+      losers can spend coins or gems to instant-revive their fainted team.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1F95A;</div>
+      <h3>Egg Hatching</h3>
+      <p>Five egg tiers from Common to God Egg. Higher tiers guarantee rarer creatures.
+      Hatch times scale with creature level. Every egg is a chance at a Legendary.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1F504;</div>
+      <h3>Evolution & Combining</h3>
+      <p>Evolve creatures to higher forms. Combine three of the same variant tier &mdash;
+      Normal to Silver to Gold to Legend &mdash; for permanent power upgrades.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1F30C;</div>
+      <h3>Day & Night Cycle</h3>
+      <p>A full day cycles every 3 minutes. Night brings 35% Silver spawn chance for common
+      creatures, 25% Gold chance for rares, and wild evolution of base forms.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1F6E1;&#xFE0F;</div>
+      <h3>Laser Door Shield</h3>
+      <p>Activate a protective energy dome over your base. Lasts 50 seconds, blocks all
+      intruders. Whitelist up to 10 friends. Trespassers take damage and get pushed out.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x2728;</div>
+      <h3>Rebirth System</h3>
+      <p>Reset for permanent bonuses: extra gold per tick, world damage multipliers,
+      and max health boosts. Ten rebirth levels for long-term progression.</p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     ELEMENTS
+     ══════════════════════════════════════════════════════════════ -->
+<section class="section" id="elements">
+  <div class="section-label reveal">Elements</div>
+  <div class="section-title reveal">Six Elements, Six Biomes</div>
+  <div class="section-desc reveal">
+    Each element has 15 creatures across 5 rarity tiers. Elements follow a weakness
+    cycle &mdash; master the matchups to dominate the arena.
+  </div>
+
+  <div class="elements-grid reveal">
+    <div class="element-card fire">
+      <span class="elem-icon">&#x1F525;</span>
+      <div class="elem-name">Fire</div>
+      <div class="elem-zone">Volcanic Biome</div>
+    </div>
+    <div class="element-card ice">
+      <span class="elem-icon">&#x2744;&#xFE0F;</span>
+      <div class="elem-name">Ice</div>
+      <div class="elem-zone">Frozen Biome</div>
+    </div>
+    <div class="element-card wind">
+      <span class="elem-icon">&#x1F32A;&#xFE0F;</span>
+      <div class="elem-name">Wind</div>
+      <div class="elem-zone">Highlands</div>
+    </div>
+    <div class="element-card earth">
+      <span class="elem-icon">&#x1FAA8;</span>
+      <div class="elem-name">Earth</div>
+      <div class="elem-zone">Forest Biome</div>
+    </div>
+    <div class="element-card shadow">
+      <span class="elem-icon">&#x1F311;</span>
+      <div class="elem-name">Shadow</div>
+      <div class="elem-zone">Cave Biome</div>
+    </div>
+    <div class="element-card lightning">
+      <span class="elem-icon">&#x26A1;</span>
+      <div class="elem-name">Lightning</div>
+      <div class="elem-zone">Peaks Biome</div>
+    </div>
+  </div>
+
+  <div class="weakness-cycle reveal">
+    <h3>Elemental Weakness Cycle</h3>
+    <div class="cycle-visual">
+      <span>&#x1F525; Fire</span>
+      <span class="cycle-arrow">&rarr;</span>
+      <span>&#x2744;&#xFE0F; Ice</span>
+      <span class="cycle-arrow">&rarr;</span>
+      <span>&#x1FAA8; Earth</span>
+      <span class="cycle-arrow">&rarr;</span>
+      <span>&#x1F32A;&#xFE0F; Wind</span>
+      <span class="cycle-arrow">&rarr;</span>
+      <span>&#x1F525; Fire</span>
+    </div>
+    <p style="margin-top: 1rem; font-size: 0.85rem; color: var(--text-muted);">
+      Advantage deals 1.5x damage &bull; Disadvantage deals 0.5x &bull; Shadow &amp; Lightning are neutral
+    </p>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     CREATURES - RARITY & CLASSES
+     ══════════════════════════════════════════════════════════════ -->
+<section class="section" id="creatures">
+  <div class="section-label reveal">Creature System</div>
+  <div class="section-title reveal">90 Creatures Across 5 Rarities</div>
+  <div class="section-desc reveal">
+    Every creature belongs to one element and one class. Higher rarity means
+    better stats, higher income, and more capture cost.
+  </div>
+
+  <div class="rarity-row reveal">
+    <div class="rarity-card common">
+      <div class="rarity-name">Common</div>
+      <div class="rarity-pct">50%</div>
+      <div class="rarity-detail">Capture: 10 coins</div>
+    </div>
+    <div class="rarity-card uncommon">
+      <div class="rarity-name">Uncommon</div>
+      <div class="rarity-pct">25%</div>
+      <div class="rarity-detail">Capture: 25 coins</div>
+    </div>
+    <div class="rarity-card rare">
+      <div class="rarity-name">Rare</div>
+      <div class="rarity-pct">15%</div>
+      <div class="rarity-detail">Capture: 60 coins</div>
+    </div>
+    <div class="rarity-card epic">
+      <div class="rarity-name">Epic</div>
+      <div class="rarity-pct">7%</div>
+      <div class="rarity-detail">Capture: 150 coins</div>
+    </div>
+    <div class="rarity-card legendary">
+      <div class="rarity-name">Legendary</div>
+      <div class="rarity-pct">3%</div>
+      <div class="rarity-detail">Capture: 400 coins</div>
+    </div>
+  </div>
+
+  <div style="margin-top: 3rem;"></div>
+  <h3 class="reveal" style="font-family: 'Cinzel', serif; font-size: 1.2rem; color: var(--accent-purple); margin-bottom: 1.5rem;">Five Combat Classes</h3>
+
+  <div class="classes-grid reveal">
+    <div class="class-card">
+      <div class="class-icon">&#x1F4AA;</div>
+      <div class="class-name" style="color: #dc503c;">Bruiser</div>
+      <div class="class-desc">High ATK &amp; HP brawlers. Built for the frontline.</div>
+    </div>
+    <div class="class-card">
+      <div class="class-icon">&#x1F52E;</div>
+      <div class="class-name" style="color: #6478ff;">Mage</div>
+      <div class="class-desc">Glass cannons with devastating ranged power.</div>
+    </div>
+    <div class="class-card">
+      <div class="class-icon">&#x1F6E1;&#xFE0F;</div>
+      <div class="class-name" style="color: #50b4dc;">Guardian</div>
+      <div class="class-desc">High DEF &amp; HP tanks. Walls of the arena.</div>
+    </div>
+    <div class="class-card">
+      <div class="class-icon">&#x1F5E1;&#xFE0F;</div>
+      <div class="class-name" style="color: #c83cc8;">Assassin</div>
+      <div class="class-desc">High SPD &amp; ATK. Strike first, strike hard.</div>
+    </div>
+    <div class="class-card">
+      <div class="class-icon">&#x1F49A;</div>
+      <div class="class-name" style="color: #64dc78;">Support</div>
+      <div class="class-desc">Healing and team buffs. Every team needs one.</div>
+    </div>
+  </div>
+
+  <!-- Variant Tiers -->
+  <div style="margin-top: 3rem;"></div>
+  <h3 class="reveal" style="font-family: 'Cinzel', serif; font-size: 1.2rem; color: var(--accent-gold); margin-bottom: 1rem;">Variant Tiers &mdash; Combine to Ascend</h3>
+  <p class="reveal" style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1.5rem; max-width: 600px;">
+    Three of the same creature combine into the next variant tier. Each tier multiplies stats.
+  </p>
+  <div class="reveal" style="display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center;">
+    <div style="background: var(--bg-card); border-radius: 12px; padding: 1rem 1.5rem; text-align: center; border: 1px solid var(--border-subtle); flex: 1; min-width: 140px;">
+      <div style="font-family: 'Cinzel', serif; font-weight: 700; color: #c8c8c8; font-size: 1rem;">Normal</div>
+      <div style="font-size: 0.8rem; color: var(--text-muted);">1.0x stats</div>
+    </div>
+    <div style="display: flex; align-items: center; color: var(--text-muted);">&rarr; x3 &rarr;</div>
+    <div style="background: var(--bg-card); border-radius: 12px; padding: 1rem 1.5rem; text-align: center; border: 1px solid rgba(192,192,192,0.2); flex: 1; min-width: 140px;">
+      <div style="font-family: 'Cinzel', serif; font-weight: 700; color: #c0c0c0; font-size: 1rem;">Silver</div>
+      <div style="font-size: 0.8rem; color: var(--text-muted);">1.15x stats</div>
+    </div>
+    <div style="display: flex; align-items: center; color: var(--text-muted);">&rarr; x3 &rarr;</div>
+    <div style="background: var(--bg-card); border-radius: 12px; padding: 1rem 1.5rem; text-align: center; border: 1px solid rgba(255,215,0,0.2); flex: 1; min-width: 140px;">
+      <div style="font-family: 'Cinzel', serif; font-weight: 700; color: #ffd700; font-size: 1rem;">Gold</div>
+      <div style="font-size: 0.8rem; color: var(--text-muted);">1.35x stats</div>
+    </div>
+    <div style="display: flex; align-items: center; color: var(--text-muted);">&rarr; x3 &rarr;</div>
+    <div style="background: var(--bg-card); border-radius: 12px; padding: 1rem 1.5rem; text-align: center; border: 1px solid rgba(255,100,255,0.2); flex: 1; min-width: 140px;">
+      <div style="font-family: 'Cinzel', serif; font-weight: 700; color: #ff64ff; font-size: 1rem;">Legend</div>
+      <div style="font-size: 0.8rem; color: var(--text-muted);">1.6x stats</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     GLOSSARY / WORLD
+     ══════════════════════════════════════════════════════════════ -->
+<section class="section" id="ranks">
+  <div class="section-label reveal">The Valorous Path</div>
+  <div class="section-title reveal">Ranks & Terminology</div>
+  <div class="section-desc reveal">
+    Know the world before you enter it. Every knight carries a Shield, every bond
+    begins with a Card.
+  </div>
+
+  <div class="glossary-grid reveal">
+    <div class="glossary-item">
+      <div class="glossary-term">Siegeling</div>
+      <div class="glossary-def">Elemental creatures of Fire, Ice, Earth, Wind, Shadow, and Lightning.
+      Bound to humans via Capture Card and Shield.</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">Squire</div>
+      <div class="glossary-def">Apprentice who begins at 13 with the Rite. Learns capture, combat,
+      and base management. Every player starts here.</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">Siege Knight</div>
+      <div class="glossary-def">Full rank earned after proving yourself. Noble defenders of the realm
+      who bond Siegelings and duel in the arena.</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">Siegelord</div>
+      <div class="glossary-def">Elite knights of legendary status. Lead realms, sit on councils,
+      and defend frontiers. The best of the best.</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">Sire</div>
+      <div class="glossary-def">The single highest-ranked knight. Head of the Council of Siegelords.
+      "Everybody is Ser. Only one is Sire."</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">Shield</div>
+      <div class="glossary-def">Wristguard device with a slot for the Siegeling card.
+      Bears a sigil declaring house, order, or personal allegiance.</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">Capture Card</div>
+      <div class="glossary-def">Enchanted card created by Maestro. Binds a Siegeling to a human.
+      The bond requires the creature's consent &mdash; coercion breaks it.</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">Maestro</div>
+      <div class="glossary-def">Mysterious figure who gave humans the first Capture Cards. Believed to be
+      Eleminion or progenitor of their kind. Vanished &mdash; may still watch over the bonded.</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">Eleminion</div>
+      <div class="glossary-def">Rare creatures with a third eye. Understand both humans and Siegelings.
+      One per elemental region. Translators between species.</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     CTA
+     ══════════════════════════════════════════════════════════════ -->
+<section class="cta-section" id="play">
+  <div class="cta-box reveal">
+    <h2>Begin Your Rite</h2>
+    <p>
+      Choose your starter Siegeling. Claim your plot. Capture, assign, and battle.
+      The four houses watch. The arena awaits. Go with honor.
+    </p>
+    <a href="#" class="btn-primary" style="display: inline-block;">Play on Roblox</a>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════
+     FOOTER
+     ══════════════════════════════════════════════════════════════ -->
+<footer class="footer">
+  <div class="footer-logo">SIEGLINGS</div>
+  <div class="footer-text">A creature-collection RPG on Roblox. &copy; 2026 Sieglings. All rights reserved.</div>
+  <div class="footer-links">
+    <a href="#lore">Lore</a>
+    <a href="#houses">Houses</a>
+    <a href="#gameplay">Gameplay</a>
+    <a href="#elements">Elements</a>
+    <a href="#creatures">Creatures</a>
+  </div>
+</footer>
+
+<!-- ══════════════════════════════════════════════════════════════
+     JAVASCRIPT
+     ══════════════════════════════════════════════════════════════ -->
+<script>
+// ─── Particles ─────────────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('particles-canvas');
+  const ctx = canvas.getContext('2d');
+  let particles = [];
+  const PARTICLE_COUNT = 60;
+
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  function createParticle() {
+    return {
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      vx: (Math.random() - 0.5) * 0.3,
+      vy: (Math.random() - 0.5) * 0.3,
+      size: Math.random() * 2 + 0.5,
+      opacity: Math.random() * 0.4 + 0.1,
+      color: ['#a855f7', '#ff5020', '#64c8ff', '#ffb800', '#7aefaa'][Math.floor(Math.random() * 5)]
+    };
+  }
+
+  for (let i = 0; i < PARTICLE_COUNT; i++) particles.push(createParticle());
+
+  function animate() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    particles.forEach(p => {
+      p.x += p.vx;
+      p.y += p.vy;
+      if (p.x < 0) p.x = canvas.width;
+      if (p.x > canvas.width) p.x = 0;
+      if (p.y < 0) p.y = canvas.height;
+      if (p.y > canvas.height) p.y = 0;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = p.opacity;
+      ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+    requestAnimationFrame(animate);
+  }
+  animate();
+})();
+
+// ─── Nav scroll effect ─────────────────────────────────────
+const nav = document.getElementById('nav');
+window.addEventListener('scroll', () => {
+  nav.classList.toggle('scrolled', window.scrollY > 50);
+});
+
+// ─── Scroll reveal ─────────────────────────────────────────
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+    }
+  });
+}, { threshold: 0.1, rootMargin: '0px 0px -50px 0px' });
+
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+// ─── Mobile menu ───────────────────────────────────────────
+function toggleMobileMenu() {
+  document.getElementById('mobileMenu').classList.toggle('open');
+}
+
+// ─── Stat counter animation ────────────────────────────────
+function animateCounters() {
+  document.querySelectorAll('.hero-stat-num').forEach(el => {
+    const target = parseInt(el.textContent);
+    if (isNaN(target)) return;
+    let current = 0;
+    const increment = target / 40;
+    const timer = setInterval(() => {
+      current += increment;
+      if (current >= target) {
+        el.textContent = target;
+        clearInterval(timer);
+      } else {
+        el.textContent = Math.floor(current);
+      }
+    }, 30);
+  });
+}
+
+// Run counter animation after a short delay
+setTimeout(animateCounters, 800);
+</script>
+
+</body>
+</html>

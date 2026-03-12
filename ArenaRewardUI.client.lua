@@ -14,6 +14,8 @@ local Events = ReplicatedStorage:WaitForChild("Events", 15)
 if not Events then return end
 
 local ArenaReward = Events:WaitForChild("ArenaReward", 10)
+local GymArenaReward = Events:FindFirstChild("GymArenaReward")
+local GymReject = Events:FindFirstChild("GymReject")
 
 -- Colors
 local GOLD   = Color3.fromRGB(255, 200, 50)
@@ -23,18 +25,34 @@ local PURPLE = Color3.fromRGB(180, 80, 255)
 local MUTED  = Color3.fromRGB(130, 135, 150)
 
 local function showRewardPopup(data)
+	local isGym = data.gym == true
 	local isMe = (data.winner == player.Name)
 	local isLoser = (data.loser == player.Name)
 
 	if not isMe and not isLoser then
 		-- Spectator toast
-		Notify.Toast(data.winner .. " wins! (Streak: " .. (data.streak or 1) .. ")", GOLD, 4)
+		if isGym then
+			Notify.Toast(data.winner .. " won the Water Gym!", GOLD, 4)
+		else
+			Notify.Toast(data.winner .. " wins! (Streak: " .. (data.streak or 1) .. ")", GOLD, 4)
+		end
 		return
 	end
 
 	local myReward = isMe and data.winnerReward or data.loserReward
-	local titleText = isMe and "?? VICTORY!" or "DEFEATED"
+	local titleText = isGym and (isMe and "WATER GYM VICTORY!" or "GYM DEFEATED") or (isMe and "?? VICTORY!" or "DEFEATED")
 	local titleColor = isMe and GOLD or RED
+
+	-- Badge notification summary for participants
+	local opponentName = isMe and (data.loser or "Opponent") or (data.winner or "Opponent")
+	if myReward and myReward.coins then
+		local resultLabel = isMe and "Arena win vs " or "Arena loss vs "
+		local toastText = resultLabel .. opponentName .. " (+" .. tostring(myReward.coins) .. " coins)"
+		Notify.Toast(toastText, titleColor, 5, nil, "arena")
+	else
+		local fallbackText = (isMe and "Arena battle vs " or "Arena battle vs ") .. opponentName
+		Notify.Toast(fallbackText, titleColor, 4, nil, "arena")
+	end
 
 	local lines = {}
 
@@ -46,14 +64,14 @@ local function showRewardPopup(data)
 		-- Coins
 		table.insert(lines, {text = "+" .. myReward.coins .. " coins", color = GOLD, textSize = 18, size = 24})
 
-		-- Breakdown for winner
-		if isMe and myReward.baseCoins then
+		-- Breakdown for winner (arena only; gym has no streak/bounty)
+		if isMe and not isGym and myReward.baseCoins then
 			local bd = "Base: " .. myReward.baseCoins .. "  |  Bounty: " .. myReward.bountyCoins .. "  |  Streak x" .. string.format("%.1f", myReward.streakMultiplier)
 			table.insert(lines, {text = bd, color = MUTED, font = Enum.Font.GothamMedium, textSize = 10, size = 14})
 		end
 
-		-- Streak
-		if isMe and data.streak and data.streak > 1 then
+		-- Streak (arena only)
+		if isMe and not isGym and data.streak and data.streak > 1 then
 			table.insert(lines, {text = "Win Streak: " .. data.streak, color = Color3.fromRGB(255, 140, 40), textSize = 14, size = 18})
 		end
 
@@ -78,6 +96,17 @@ if ArenaReward then
 	ArenaReward.OnClientEvent:Connect(function(data)
 		task.wait(1.5) -- brief delay after battle end banner
 		showRewardPopup(data)
+	end)
+end
+if GymArenaReward then
+	GymArenaReward.OnClientEvent:Connect(function(data)
+		task.wait(1.5)
+		showRewardPopup(data)
+	end)
+end
+if GymReject then
+	GymReject.OnClientEvent:Connect(function(message)
+		Notify.Toast(message or "Cannot challenge the Gym.", RED, 4)
 	end)
 end
 

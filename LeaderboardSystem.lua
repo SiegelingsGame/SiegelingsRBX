@@ -43,7 +43,7 @@ local BOARD_DEFS = {
 	},
 	{
 		partName = "LeaderboardMonsters",
-		title = "TOP MONSTER COLLECTORS",
+		title = "TOP SIEGLING COLLECTORS",
 		titleColor = Color3.fromRGB(200, 120, 255),
 		getStat = function(data) return #data.inventory end,
 		formatValue = function(v) return tostring(v) .. " owned" end,
@@ -52,7 +52,7 @@ local BOARD_DEFS = {
 
 local boardRefs = {} -- { [partName] = { part = Part } }
 
--- Gather sorted leaderboard data from all online players
+-- Gather sorted leaderboard data from all online playersb
 local function gatherLeaderboardData(statGetter)
 	local entries = {}
 	for _, player in ipairs(Players:GetPlayers()) do

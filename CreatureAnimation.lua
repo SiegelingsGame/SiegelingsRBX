@@ -23,7 +23,7 @@
 	  3. Click "..." menu → "Save to Roblox" / "Export"
 	  4. This creates an Animation instance with a permanent rbxassetid:// ID
 	  5. Place it in the creature's anim folder in RBX_ANIMSAVES with the correct name
-	     (Idle, Move, Attack, Special, or Income)
+	     (Idle, Move, Attack, Special, or Income)dfd
 ]]
 
 local ServerStorage = game:GetService("ServerStorage")
@@ -38,8 +38,6 @@ local CreatureAnimation = {}
 
 local ANIM_SAVES = "RBX_ANIMSAVES"
 local ANIM_TYPES = { "Attack", "Idle", "Income", "Move", "Special", "Faint", "Knocked", "Swimming" }
-local DEBUG = false  -- set true to log when animations are set up and played
-
 -- [model] = { animator, animFolder, tracks = { animType = AnimationTrack } }
 local modelCache = {}
 -- Models that failed setup (no rig or no anim folder) - avoid re-running Setup and log spam
@@ -159,8 +157,6 @@ local function registerKeyframeSequence(kfs, animType, folderPath)
 	end)
 
 	if not ok or not animId or animId == "" then
-		warn("[CreatureAnimation] RegisterKeyframeSequence FAILED for '" .. animType
-			.. "' in " .. folderPath .. ": " .. tostring(animId))
 		return nil
 	end
 
@@ -171,11 +167,6 @@ local function registerKeyframeSequence(kfs, animType, folderPath)
 	anim.AnimationId = animId
 
 	kfsCache[kfs] = anim
-
-	if DEBUG then
-		print("[CreatureAnimation] Registered KFS → Animation: '" .. animType
-			.. "' → " .. animId .. " in " .. folderPath)
-	end
 	return anim
 end
 
@@ -188,9 +179,6 @@ end
 local function resolveAnimObject(animFolder, animType)
 	local child = animFolder:FindFirstChild(animType)
 	if not child then
-		if DEBUG then
-			warn("[CreatureAnimation] No child named '" .. animType .. "' in " .. animFolder:GetFullName())
-		end
 		return nil
 	end
 
@@ -207,11 +195,6 @@ local function resolveAnimObject(animFolder, animType)
 		-- FIX #14: Also search children of the Animation, since the Animation Editor
 		-- commonly nests the KFS inside the Animation object.
 		-- FIX #15: Recursively search descendants — some exports nest Animation → Animation → KeyframeSequence.
-		if DEBUG then
-			warn("[CreatureAnimation] Animation '" .. animType .. "' has invalid AnimationId '"
-				.. tostring(child.AnimationId) .. "' in " .. animFolder:GetFullName()
-				.. " — looking for child or sibling KeyframeSequence to register at runtime")
-		end
 		local function findInDescendants(obj)
 			local kfs, pubAnim
 			for _, desc in ipairs(obj:GetDescendants()) do
@@ -236,11 +219,7 @@ local function resolveAnimObject(animFolder, animType)
 				return registerKeyframeSequence(sibling, animType, animFolder:GetFullName())
 			end
 		end
-		-- No KFS found anywhere — warn with actionable instructions
-		warn("[CreatureAnimation] Animation '" .. animType .. "' has invalid AnimationId '"
-			.. tostring(child.AnimationId) .. "' and no child or sibling KeyframeSequence found in "
-			.. animFolder:GetFullName()
-			.. " — publish via Animation Editor → '...' → 'Save to Roblox', or re-save to create a KeyframeSequence")
+		-- No KFS found anywhere
 		return nil
 	end
 
@@ -253,8 +232,6 @@ local function resolveAnimObject(animFolder, animType)
 	end
 
 	-- ── Path C: Unknown type ──
-	warn("[CreatureAnimation] Child '" .. animType .. "' in " .. animFolder:GetFullName()
-		.. " is a " .. child.ClassName .. " — expected Animation or KeyframeSequence")
 	return nil
 end
 
@@ -270,14 +247,12 @@ function CreatureAnimation.Setup(model, creatureId, defaultAnim)
 	local animator = getAnimator(model)
 	if not animator then
 		failedSetups[model] = true
-		warn("[CreatureAnimation] No Humanoid or AnimationController/Animator found in", model:GetFullName())
 		return
 	end
 
 	local animFolder = getAnimFolder(model, creatureId)
 	if not animFolder then
 		failedSetups[model] = true
-		warn("[CreatureAnimation] No anim folder for", creatureId, "(tried # Model_DisplayName, # TemplateName, Model_DisplayName, etc)")
 		return
 	end
 
@@ -341,8 +316,6 @@ function CreatureAnimation.PlayAnimation(model, animType, creatureId, options)
 	-- local KeyframeSequence objects (registered at runtime via KSP).
 	local animObj = resolveAnimObject(cache.animFolder, animType)
 	if not animObj then
-		warn("[CreatureAnimation] resolveAnimObject returned nil for '" .. animType .. "' on " .. model.Name
-			.. " — check that '" .. animType .. "' exists in " .. cache.animFolder:GetFullName())
 		return
 	end
 
@@ -353,14 +326,9 @@ function CreatureAnimation.PlayAnimation(model, animType, creatureId, options)
 			loaded = cache.animator:LoadAnimation(animObj)
 		end)
 		if not ok then
-			warn("[CreatureAnimation] LoadAnimation FAILED for '" .. animType .. "' on " .. model.Name
-				.. " — animator: " .. tostring(cache.animator) .. " animObj: " .. tostring(animObj)
-				.. " animId: " .. (animObj and animObj:IsA("Animation") and animObj.AnimationId or "N/A")
-				.. " error: " .. tostring(err))
 			return
 		end
 		if not loaded then
-			warn("[CreatureAnimation] LoadAnimation returned nil for '" .. animType .. "' on " .. model.Name)
 			return
 		end
 		track = loaded
@@ -382,9 +350,6 @@ function CreatureAnimation.PlayAnimation(model, animType, creatureId, options)
 	else track.Priority = Enum.AnimationPriority.Idle
 	end
 	track:Play(0.15, 1, playbackSpeed)
-	if DEBUG then
-		print("[CreatureAnimation] Playing:", animType, "on", model.Name)
-	end
 
 	-- Replicate to clients for multiplayer (animations must play on each client for replication)
 	if RunService:IsServer() and model.Parent then

@@ -99,13 +99,19 @@ titleLbl.TextXAlignment = Enum.TextXAlignment.Left; titleLbl.Parent = titleBar
 
 local currLbl = Instance.new("TextLabel")
 currLbl.Name = "CurrLbl"
-currLbl.Size = UDim2.new(0.4, -10, 1, 0); currLbl.Position = UDim2.new(0.6, 0, 0, 0)
+currLbl.Size = UDim2.new(0.45, -48, 1, 0); currLbl.Position = UDim2.new(0.55, 0, 0, 0)
 currLbl.BackgroundTransparency = 1; currLbl.Text = "Coins: 0  |  Gems: 0"
 currLbl.TextColor3 = C.muted; currLbl.Font = Enum.Font.GothamBold; currLbl.TextSize = 12
 currLbl.TextXAlignment = Enum.TextXAlignment.Right; currLbl.Parent = titleBar
 
+local playerCoins = 0
+local playerGems = 0
+local function updateCurrencyLabel()
+	currLbl.Text = "Coins: " .. tostring(playerCoins or 0) .. "  |  Gems: " .. tostring(playerGems or 0)
+end
+
 local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 32, 0, 32); closeBtn.Position = UDim2.new(1, -38, 0, 5)
+closeBtn.Size = UDim2.new(0, 32, 0, 32); closeBtn.Position = UDim2.new(1, -40, 0, 5)
 closeBtn.BackgroundColor3 = C.red; closeBtn.BackgroundTransparency = 0.5
 closeBtn.Text = "X"; closeBtn.TextColor3 = C.white
 closeBtn.Font = Enum.Font.GothamBold; closeBtn.TextSize = 14; closeBtn.Parent = titleBar
@@ -115,7 +121,7 @@ closeBtn.MouseButton1Click:Connect(function() panel.Visible = false end)
 if coinsUpdate then
 	coinsUpdate.OnClientEvent:Connect(function(balance)
 		playerCoins = balance
-		currLbl.Text = "Coins: " .. playerCoins .. "  |  Gems: " .. playerGems
+		updateCurrencyLabel()
 	end)
 end
 
@@ -154,8 +160,6 @@ layout.Padding = UDim.new(0, 6); layout.Parent = scroll
 local playerCosmetics = {owned = {}, equipped = {}}
 local playerExterior = {owned = {}, equipped = nil}
 local playerBaseColor = {owned = {}, equipped = nil}
-local playerCoins = 0
-local playerGems = 0
 
 local function refreshData()
 	if not getInventory then return end
@@ -182,7 +186,7 @@ local function refreshData()
 		if not playerExterior.owned then playerExterior.owned = {} end
 		playerBaseColor = data.baseColor or {owned = {}, equipped = nil}
 		if not playerBaseColor.owned then playerBaseColor.owned = {} end
-		currLbl.Text = "Coins: " .. playerCoins .. "  |  Gems: " .. playerGems
+		updateCurrencyLabel()
 	end
 end
 

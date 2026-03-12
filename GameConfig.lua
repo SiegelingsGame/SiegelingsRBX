@@ -10,7 +10,13 @@ local cached
 
 local function get()
 	if not cached then
-		cached = require(script.Parent:WaitForChild("GameConfigData"))
+		local gcd = script.Parent:WaitForChild("GameConfigData", 10)
+		if not gcd then
+			warn("[GameConfig] GameConfigData module not found after 10s! Check Rojo sync.")
+			cached = {}
+			return cached
+		end
+		cached = require(gcd)
 	end
 	return cached
 end

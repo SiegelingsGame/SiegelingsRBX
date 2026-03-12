@@ -12,7 +12,7 @@ A Roblox creature-collection and base-defense game. Players capture creatures in
 
 **Core systems:**
 
-- **Creatures:** 90 creatures across 6 elements (Fire, Ice, Wind, Earth, Shadow, Lightning), 5 classes (Bruiser, Mage, Guardian, Assassin, Support), rarities Common→Legendary, variants Normal/Silver/Gold/Legend (combine 3→1).
+- **Creatures:** 105 creatures across 7 elements (Fire, Ice, Wind, Earth, Shadow, Lightning, Water), 5 classes (Bruiser, Mage, Guardian, Assassin, Support), rarities Common→Legendary, variants Normal/Silver/Gold/Legend (combine 3→1).
 - **Base:** Plot with income slots (coins per tick), defense slots (turrets), battle team (3×3 grid, max 5 for arena/PvP). Up to 3 floors (buy Floor 2/3 with coins + level).
 - **Combat:** Arena (periodic king-of-the-hill), PvP 1v1 (challenge nearby player), focus bar and special attacks (burn, earth debuff, wind focus drain).
 - **World:** Biomes with SpawnPoints, DungeonPoints, BossPoints; creature AI (pack, lone, gentle, aggressive, skittish); companion (favorite creature) follows and attacks.
@@ -194,7 +194,7 @@ Stored per player (DataStore key `Player_<userId>`). Default shape:
   id           = string,   -- e.g. "firsky"
   displayName  = string,
   rarity       = "Common" | "Uncommon" | "Rare" | "Epic" | "Legendary",
-  element      = "Fire" | "Ice" | "Wind" | "Earth" | "Shadow" | "Lightning",
+  element      = "Fire" | "Ice" | "Wind" | "Earth" | "Shadow" | "Lightning" | "Water",
   class        = "Bruiser" | "Mage" | "Guardian" | "Assassin" | "Support",
   behavior     = "pack" | "lone" | "gentle" | "aggressive" | "skittish" | "raider" | "stationary",
   spawnWeight  = number,

@@ -49,6 +49,10 @@ local CreatureData = require(game.ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(game.ReplicatedStorage.Modules.GameConfig)
 local CreatureModelLoader = require(game.ReplicatedStorage.Modules.CreatureModelLoader)
 
+-- Set true to log placement/slot resolution for troubleshooting
+local PLACEMENT_DEBUG = false
+local function placementLog(...) if PLACEMENT_DEBUG then print("[BasePlacement]", ...) end end
+
 local RaidSystem = nil
 pcall(function()
 	RaidSystem = require(game:GetService("ServerScriptService"):FindFirstChild("RaidSystem") or game:GetService("ServerScriptService"):WaitForChild("RaidSystem", 2))
@@ -67,6 +71,22 @@ local PLOTS_FOLDER = nil
 local placementLocks = {} -- userId -> true if placement in progress
 
 -- -- HELPERS --
+
+local function runWhenPlacementIdle(player, fn)
+	local userId = player and player.UserId
+	if not userId or not placementLocks[userId] then return false end
+	task.spawn(function()
+		for _ = 1, 30 do
+			if not player.Parent then return end
+			if not placementLocks[userId] then
+				fn()
+				return
+			end
+			task.wait(0.1)
+		end
+	end)
+	return true
+end
 
 local function getPointsByPrefix(plotModel, prefix)
 	local points = {}
@@ -130,6 +150,36 @@ end
 -- Track players who touched plot center/walls but don't own and aren't on access list (physical invaders)
 local activeInvaders = {} -- [plotId] = { [userId] = lastTouchTime }
 local INVADER_TIMEOUT = 45
+
+-- Uninhabited plots: not visible, not collidable, not interactable. Only inhabited (claimed) bases appear.
+local function setPlotInhabited(plotModel, inhabited)
+	for _, desc in ipairs(plotModel:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			desc.Anchored = true
+			if inhabited then
+				desc.Transparency = 0
+				desc.CanCollide = true
+				desc.CanQuery = true
+			else
+				desc.Transparency = 1
+				desc.CanCollide = false
+				desc.CanQuery = false
+			end
+		end
+	end
+end
+
+function BasePlacementSystem.RefreshAllPlotVisibility()
+	if not PLOTS_FOLDER or not PlayerDataManager or not PlayerDataManager.GetClaimedPlotIds then return end
+	local claimed = PlayerDataManager.GetClaimedPlotIds()
+	for _, plot in ipairs(PLOTS_FOLDER:GetChildren()) do
+		local plotId = plot.Name:match("^Plot(%d+)$") or plot.Name:match("^Part(%d+)$")
+		if plotId then
+			local id = tonumber(plotId)
+			setPlotInhabited(plot, claimed[id] == true)
+		end
+	end
+end
 
 -- ══════════════════════════════════════════════════════════════════════════
 -- FLOOR-GATED POINT DISCOVERY
@@ -205,6 +255,18 @@ end
 
 -- -- SPAWN CREATURE ORB --
 
+-- Get the lowest Y of any part in the model (more accurate than GetBoundingBox for rigged/Meshy AI skeletons)
+local function getModelBottomY(creatureModel)
+	local minY = math.huge
+	for _, desc in ipairs(creatureModel:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			local bottom = desc.Position.Y - desc.Size.Y * 0.5
+			if bottom < minY then minY = bottom end
+		end
+	end
+	return minY == math.huge and nil or minY
+end
+
 local function spawnBaseOrb(creatureId, pointPart, uid, plotModel, slotType, slotLabel, creatureLevel, ownerUserId, isEgg, hatchAt, pointIndex, slotIndex, creatureVariant)
 	isEgg = isEgg == true
 	creatureVariant = creatureVariant or "Normal"
@@ -263,22 +325,50 @@ local function spawnBaseOrb(creatureId, pointPart, uid, plotModel, slotType, slo
 		body, core = CreatureModelLoader.LoadAndIntegrate(model, info.modelName, info.displayName, spawnPos, options)
 		if body then
 			hasCustomModel = true
-			-- Income monsters: rotate 90 degrees around vertical axis
-			if slotType == "income" then
-				body.CFrame = CFrame.new(body.Position) * CFrame.Angles(0, math.rad(90), 0)
+			-- BasePlot additive rotation: Group A (4,5)=0°, B (2,3)=+180°Y, C (1,7)=-90°Y, D (6,8)=+90°Yes
+			local basePlotId = tonumber(plotModel.Name:match("%d+")) or 1
+			local baseRotation = CFrame.identity
+			if basePlotId == 1 or basePlotId == 7 then
+				baseRotation = CFrame.Angles(0, math.rad(90), 0)
+			elseif basePlotId == 2 or basePlotId == 3 then
+				baseRotation = CFrame.Angles(0, math.rad(180), 0)
+			elseif basePlotId == 6 or basePlotId == 8 then
+				baseRotation = CFrame.Angles(0, math.rad(-90), 0)
 			end
-			-- Apply creature model rotation (crawling, modelStandUpAngles, modelRotationY)
+			-- FIX #18: Income AND Battle monsters share the same rotation pipeline.
+			-- Step 1: rotate body part -90° Y BEFORE any model-level rotation.
+			-- Previously battle skipped this step and tried to compensate with an extra
+			-- -90° Y in the PivotTo (Step 3), but rotating body.CFrame before model offsets
+			-- produces a different result than applying it via PivotTo after — causing
+			-- creatures like Draco to face the wrong direction on battle points.
+			if slotType == "income" or slotType == "battle" then
+				body.CFrame = CFrame.new(body.Position) * CFrame.Angles(0, math.rad(-90), 0)
+			end
+			-- Step 2: Apply creature model rotation (crawling, modelStandUpAngles, modelRotationY)
 			local rotOffset = CreatureData.GetModelRotationOffset(info)
 			if rotOffset ~= CFrame.identity then
 				model:PivotTo(model:GetPivot() * rotOffset)
 			end
-			-- Floor 1 defense points 4, 5, 6: 180° Y to face room center, 180° X to correct upside-down
-			if isDefense and pointIndex and pointIndex >= 4 and pointIndex <= 6 then
-				model:PivotTo(model:GetPivot() * CFrame.Angles(0, math.rad(180), 0) * CFrame.Angles(math.rad(180), 0, 0))
+			-- Step 3: Apply BasePlot additive rotation (income and battle share same facing)
+			if slotType == "income" or slotType == "battle" then
+				model:PivotTo(model:GetPivot() * baseRotation)
 			end
-			-- FIX: No Core sphere for custom models. If LoadAndIntegrate returned a
-			-- core, or the model already has one from the asset, remove it.
-			-- Custom models show the 3D creature — no orb/sphere overlay needed.
+			-- Floor 1 defense points: pointIndex rotation * baseRotation (additive)
+			if isDefense and pointIndex and pointIndex >= 4 and pointIndex <= 6 then
+				model:PivotTo(model:GetPivot() * CFrame.Angles(0, math.rad(0), 0) * baseRotation)
+			end
+			if isDefense and pointIndex and pointIndex >= 0 and pointIndex <= 3 then
+				model:PivotTo(model:GetPivot() * CFrame.Angles(0, math.rad(-180), 0) * baseRotation)
+			end
+			if isDefense and pointIndex and pointIndex >= 8 and pointIndex <= 10 then
+				model:PivotTo(model:GetPivot() * CFrame.Angles(0, math.rad(90), 0) * baseRotation)
+			end
+			if isDefense and pointIndex and (pointIndex == 8 or pointIndex == 17 or pointIndex == 18) then
+				model:PivotTo(model:GetPivot() * CFrame.Angles(0, math.rad(90), 0) * baseRotation)
+			end
+			-- FIX: No Core sphere for custom models. If LoadAndIntegrate returned ac
+			-- core, or the model already has one from the asset, remove it.as
+			-- Custom models show the 3D creature — no orb/sphere overlay needed.z
 			core = core or model:FindFirstChild("Core")
 			if core and core.Parent then
 				core:Destroy()
@@ -336,11 +426,11 @@ local function spawnBaseOrb(creatureId, pointPart, uid, plotModel, slotType, slo
 	end
 	highlight.Parent = model
 
-	-- Name tag
+	-- Name tag (offset to top of bounding box so name isn't blocked)
 	local billboard = Instance.new("BillboardGui")
 	billboard.Adornee = body
 	billboard.Size = UDim2.new(0, 160, 0, 50)
-	billboard.StudsOffset = Vector3.new(0, 4.5, 0)
+	billboard.StudsOffset = Vector3.new(0, CreatureModelLoader.GetBillboardStudsOffsetForTopOfModel(model, body), 0)
 	billboard.AlwaysOnTop = true
 	billboard.Parent = model
 
@@ -422,15 +512,28 @@ local function spawnBaseOrb(creatureId, pointPart, uid, plotModel, slotType, slo
 	model.Parent = plotModel
 
 	-- Place custom models so bottom sits on point top (avoids clipping on Floor 2/3)
-	-- Add placementYOffset and placementOffset for creatures that need to align with their green circle
-	-- Clamp lift to prevent extreme floating from bad GetBoundingBox (rigged models can return wrong bbox)
-	local MAX_PLACEMENT_LIFT = 12  -- studs; prevents creatures floating high in the sky
-	if body and not isEgg and info.modelName and model.GetBoundingBox then
-		local success, bboxCf, bboxSize = pcall(function() return model:GetBoundingBox() end)
-		if success and bboxCf and bboxSize and bboxSize.Y > 0 and bboxSize.Y < 100 then
-			local modelBottomY = bboxCf.Position.Y - (bboxSize.Y * 0.5)
+	-- Meshy AI / rigged: GetBoundingBox can miss mesh extent; use part-based bottom (lowest part bottom)
+	-- Manual fix: modelPlacementYOffset in CreatureData lifts creatures whose limbs extend below base
+	local MAX_PLACEMENT_LIFT = 12  -- studs; prevents extreme floating
+	if body and not isEgg and info.modelName then
+		local partBottom = getModelBottomY(model)
+		local bboxBottom = nil
+		if model.GetBoundingBox then
+			local ok, bboxCf, bboxSize = pcall(function() return model:GetBoundingBox() end)
+			if ok and bboxCf and bboxSize and bboxSize.Y > 0 and bboxSize.Y < 100 then
+				bboxBottom = bboxCf.Position.Y - (bboxSize.Y * 0.5)
+			end
+		end
+		-- Use the LOWER Y (true model bottom) so we lift enough; Meshy/rigged often extend below bbox
+		local modelBottomY = math.min(partBottom or math.huge, bboxBottom or math.huge)
+		if modelBottomY and modelBottomY < math.huge then
 			local lift = math.max(0, pointPartTopY - modelBottomY) + placementYOffset
-			lift = math.min(lift, MAX_PLACEMENT_LIFT)  -- prevent excessive floating
+			-- Rigged/Meshy AI: mesh extends beyond bbox; add floor buffer for Humanoid models
+			local riggedBuffer = GameConfig and GameConfig.RiggedModelFloorBuffer or 2.5
+			if model:FindFirstChildOfClass("Humanoid") and riggedBuffer > 0 then
+				lift = lift + riggedBuffer
+			end
+			lift = math.min(lift, MAX_PLACEMENT_LIFT)
 			if lift ~= 0 then
 				model:PivotTo(model:GetPivot() + Vector3.new(0, lift, 0))
 			end
@@ -605,25 +708,64 @@ end
 
 -- Clear a single creature at slot (defense/income). Does not touch other slots.
 local function clearCreatureAtSlot(plotModel, tag, slotIndex)
+	local toDestroy = {}
 	for _, child in ipairs(plotModel:GetDescendants()) do
 		if child:IsA("Model") and CollectionService:HasTag(child, tag) then
 			if child:GetAttribute("SlotIndex") == slotIndex then
-				if CreatureAI and CreatureAI.UnregisterCreature then
-					CreatureAI.UnregisterCreature(child)
-				end
-				child:Destroy()
-				return
+				table.insert(toDestroy, child)
 			end
+		end
+	end
+	for _, child in ipairs(toDestroy) do
+		if child.Parent then
+			if CreatureAI and CreatureAI.UnregisterCreature then
+				CreatureAI.UnregisterCreature(child)
+			end
+			child:Destroy()
 		end
 	end
 end
 
 -- Place one creature at slot (incremental - no full refresh). Clears any existing model at that slot first.
 function BasePlacementSystem.PlaceCreatureInSlot(player, slotType, slotIndex, uid)
+	if runWhenPlacementIdle(player, function()
+		BasePlacementSystem.PlaceCreatureInSlot(player, slotType, slotIndex, uid)
+	end) then
+		placementLog("PlaceCreatureInSlot deferred: full placement in progress", player and player.Name, slotType, slotIndex, uid)
+		return nil
+	end
 	local data = PlayerDataManager.GetData(player)
-	if not data or not data.plotId or data.plotId == 0 then return nil end
+	if not data or not data.plotId or data.plotId == 0 then
+		placementLog("PlaceCreatureInSlot nil: no data or plotId", player and player.Name, slotType, slotIndex, uid)
+		return nil
+	end
 	local plotModel = findPlotModel(data.plotId)
-	if not plotModel then return nil end
+	if not plotModel then
+		placementLog("PlaceCreatureInSlot nil: no plotModel", data.plotId, player and player.Name)
+		return nil
+	end
+
+	-- Only place if this slot still has this uid in current data (prevents deferred place from re-adding after Rem).sd
+	local su = tostring(uid or "")
+	if slotType == "income" then
+		local slotUid = data.baseSlots and data.baseSlots[slotIndex]
+		if not slotUid or tostring(slotUid) ~= su then
+			placementLog("PlaceCreatureInSlot skip: uid no longer in income slot", slotIndex, player and player.Name, su)
+			return nil
+		end
+	elseif slotType == "defense" then
+		local slotUid = data.defenseSlots and data.defenseSlots[slotIndex]
+		if not slotUid or tostring(slotUid) ~= su then
+			placementLog("PlaceCreatureInSlot skip: uid no longer in defense slot", slotIndex, player and player.Name, su)
+			return nil
+		end
+	elseif slotType == "battle" then
+		local slotUid = data.battleTeam and data.battleTeam[slotIndex]
+		if not slotUid or tostring(slotUid) ~= su then
+			placementLog("PlaceCreatureInSlot skip: uid no longer in battle slot", slotIndex, player and player.Name, su)
+			return nil
+		end
+	end
 
 	local tag = (slotType == "defense") and DEFENSE_TAG or INCOME_TAG
 	clearCreatureAtSlot(plotModel, tag, slotIndex)
@@ -649,12 +791,15 @@ function BasePlacementSystem.PlaceCreatureInSlot(player, slotType, slotIndex, ui
 			end
 		end
 	end
-	-- Ensure slotIndex is within owned points (avoids nil access on move/place)
 	if not points or #points == 0 or type(slotIndex) ~= "number" or slotIndex < 1 or slotIndex > #points then
+		placementLog("PlaceCreatureInSlot nil: slotIndex out of range", "slotIndex=" .. tostring(slotIndex), "#points=" .. (points and #points or 0), player and player.Name)
 		return nil
 	end
 	local pt = points[slotIndex]
-	if not pt then return nil end
+	if not pt then
+		placementLog("PlaceCreatureInSlot nil: points[slotIndex] nil", slotIndex, player and player.Name)
+		return nil
+	end
 
 	local egg = PlayerDataManager.GetEggByUid(player, uid)
 	if egg then
@@ -664,16 +809,22 @@ function BasePlacementSystem.PlaceCreatureInSlot(player, slotType, slotIndex, ui
 		end
 	end
 	for _, entry in ipairs(data.inventory) do
-		if entry.uid == uid then
+		if entry.uid and tostring(entry.uid) == tostring(uid) then
 			return spawnBaseOrb(entry.id, pt.part, uid, plotModel, slotType, nil, entry.level, player.UserId, nil, nil, pt.index, slotIndex, entry.variant)
 		end
 	end
+	placementLog("PlaceCreatureInSlot nil: uid not in inventory or eggs", tostring(uid), player and player.Name, slotType, slotIndex)
 	return nil
 end
 
 -- Clear one slot (creature died). Removes model and marks slot available.
 function BasePlacementSystem.ClearCreatureAtSlot(player, slotType, slotIndex)
 	PlayerDataManager.ClearSlotAt(player, slotType, slotIndex)
+	if runWhenPlacementIdle(player, function()
+		BasePlacementSystem.ClearCreatureAtSlot(player, slotType, slotIndex)
+	end) then
+		return
+	end
 	local data = PlayerDataManager.GetData(player)
 	if not data or not data.plotId or data.plotId == 0 then return end
 	local plotModel = findPlotModel(data.plotId)
@@ -695,7 +846,7 @@ function BasePlacementSystem.RefreshOrbByUid(player, uid)
 	-- Defense slots
 	if data.defenseSlots then
 		for slotIndex, slotUid in ipairs(data.defenseSlots) do
-			if slotUid == uid then
+			if slotUid and tostring(slotUid) == tostring(uid) then
 				BasePlacementSystem.PlaceCreatureInSlot(player, "defense", slotIndex, uid)
 				return
 			end
@@ -705,7 +856,7 @@ function BasePlacementSystem.RefreshOrbByUid(player, uid)
 	-- Income slots (baseSlots)
 	if data.baseSlots then
 		for slotIndex, slotUid in ipairs(data.baseSlots) do
-			if slotUid == uid then
+			if slotUid and tostring(slotUid) == tostring(uid) then
 				BasePlacementSystem.PlaceCreatureInSlot(player, "income", slotIndex, uid)
 				return
 			end
@@ -731,7 +882,7 @@ function BasePlacementSystem.RefreshOrbByUid(player, uid)
 					end
 					-- Spawn new model with evolved form
 					for _, entry in ipairs(data.inventory) do
-						if entry.uid == uid then
+						if entry.uid and tostring(entry.uid) == tostring(uid) then
 							spawnBaseOrb(entry.id, pointPart, uid, plotModel, "battle", tostring(slotIndex), entry.level, player.UserId, nil, nil, nil, slotIndex, entry.variant)
 							break
 						end
@@ -743,26 +894,37 @@ function BasePlacementSystem.RefreshOrbByUid(player, uid)
 	end
 end
 
--- Remove only the orb with this UID from the plot (defense/income/battle). Does not respawn others.
--- Used when creature becomes favorite and must disappear from its point without touching other placements.
-function BasePlacementSystem.ClearOrbByUid(player, uid)
+-- Remove all orbs with this UID from the plot (defense/income/battle). Collect first then destroy so iteration is safe.
+-- When immediate is true (e.g. Rem button), clear synchronously so a concurrent PlaceCreatures doesn't re-place from stale state.
+function BasePlacementSystem.ClearOrbByUid(player, uid, immediate)
 	if not uid or uid == "" then return end
+	if not immediate and runWhenPlacementIdle(player, function()
+		BasePlacementSystem.ClearOrbByUid(player, uid)
+	end) then
+		return
+	end
 	local data = PlayerDataManager.GetData(player)
 	if not data or not data.plotId or data.plotId == 0 then return end
 	local plotModel = findPlotModel(data.plotId)
 	if not plotModel then return end
 	local tags = { DEFENSE_TAG, INCOME_TAG, BATTLE_TAG }
+	local su = tostring(uid or "")
+	local toDestroy = {}
 	for _, tag in ipairs(tags) do
 		for _, child in ipairs(plotModel:GetDescendants()) do
 			if child:IsA("Model") and CollectionService:HasTag(child, tag) then
-				if child:GetAttribute("UID") == uid then
-					if CreatureAI and CreatureAI.UnregisterCreature then
-						CreatureAI.UnregisterCreature(child)
-					end
-					child:Destroy()
-					return
+				if child:GetAttribute("UID") and tostring(child:GetAttribute("UID")) == su then
+					table.insert(toDestroy, child)
 				end
 			end
+		end
+	end
+	for _, child in ipairs(toDestroy) do
+		if child.Parent then
+			if CreatureAI and CreatureAI.UnregisterCreature then
+				CreatureAI.UnregisterCreature(child)
+			end
+			child:Destroy()
 		end
 	end
 end
@@ -775,9 +937,15 @@ end
 -- @return slotIndex number|nil the array index in baseSlots/defenseSlots, or nil if not found
 function BasePlacementSystem.GetSlotIndexForPoint(player, slotType, pointIndex)
 	local data = PlayerDataManager.GetData(player)
-	if not data or not data.plotId or data.plotId == 0 then return nil end
+	if not data or not data.plotId or data.plotId == 0 then
+		placementLog("GetSlotIndexForPoint nil: no data or plotId", player and player.Name, slotType, pointIndex)
+		return nil
+	end
 	local plotModel = findPlotModel(data.plotId)
-	if not plotModel then return nil end
+	if not plotModel then
+		placementLog("GetSlotIndexForPoint nil: no plotModel for plotId", data.plotId, player and player.Name)
+		return nil
+	end
 	local ownedFloors = data.ownedFloors or {1}
 	local points
 	if slotType == "defense" then
@@ -799,15 +967,17 @@ function BasePlacementSystem.GetSlotIndexForPoint(player, slotType, pointIndex)
 			end
 		end
 	end
-	-- Points are sorted by their numeric index. Find which array position matches pointIndex.
 	local maxSlots = PlayerDataManager.GetMaxSlots and PlayerDataManager.GetMaxSlots(player, slotType) or #points
 	for arrayPos, entry in ipairs(points) do
 		if entry.index == pointIndex then
-			-- Only allow slot indices the player is allowed to use (owned floors)
-			if arrayPos > maxSlots then return nil end
+			if arrayPos > maxSlots then
+				placementLog("GetSlotIndexForPoint nil: arrayPos " .. arrayPos .. " > maxSlots " .. maxSlots, player and player.Name, slotType, pointIndex)
+				return nil
+			end
 			return arrayPos
 		end
 	end
+	placementLog("GetSlotIndexForPoint nil: no point with index=" .. tostring(pointIndex), "points count=" .. #points, player and player.Name, slotType)
 	return nil
 end
 
@@ -907,7 +1077,7 @@ function BasePlacementSystem.PlaceCreatures(player)
 			end
 		else
 			for _, entry in ipairs(data.inventory) do
-				if entry.uid == uid then
+				if entry.uid and tostring(entry.uid) == tostring(uid) then
 					spawnBaseOrb(entry.id, defensePoints[i].part, uid, plotModel, "defense", nil, entry.level, player.UserId, nil, nil, defensePoints[i].index, i, entry.variant)
 					defPlaced = defPlaced + 1
 					break
@@ -950,7 +1120,7 @@ function BasePlacementSystem.PlaceCreatures(player)
 			end
 		else
 			for _, entry in ipairs(data.inventory) do
-				if entry.uid == uid then
+				if entry.uid and tostring(entry.uid) == tostring(uid) then
 					spawnBaseOrb(entry.id, incomePoints[i].part, uid, plotModel, "income", nil, entry.level, player.UserId, nil, nil, nil, i, entry.variant)
 					incPlaced = incPlaced + 1
 					break
@@ -968,7 +1138,7 @@ function BasePlacementSystem.PlaceCreatures(player)
 			local pointPart = battlePointMap[tonumber(slotIndex) or slotIndex]
 			if pointPart and uid then
 				for _, entry in ipairs(data.inventory) do
-					if entry.uid == uid then
+					if entry.uid and tostring(entry.uid) == tostring(uid) then
 						spawnBaseOrb(entry.id, pointPart, uid, plotModel, "battle", tostring(slotIndex), entry.level, player.UserId, nil, nil, nil, slotIndex, entry.variant)
 						btlPlaced = btlPlaced + 1
 						break
@@ -1028,7 +1198,7 @@ function BasePlacementSystem.RespawnBattleCreatures(player)
 			local pointPart = battlePointMap[tonumber(slotIndex) or slotIndex]
 			if pointPart and uid then
 				for _, entry in ipairs(data.inventory) do
-					if entry.uid == uid then
+					if entry.uid and tostring(entry.uid) == tostring(uid) then
 						spawnBaseOrb(entry.id, pointPart, uid, plotModel, "battle", tostring(slotIndex), entry.level, player.UserId, nil, nil, nil, slotIndex, entry.variant)
 						break
 					end
@@ -1454,13 +1624,17 @@ function BasePlacementSystem.Init(playerDataMgr, creatureAIRef)
 	Players.PlayerRemoving:Connect(function(player)
 		placementLocks[player.UserId] = nil
 		local data = PlayerDataManager.GetData(player)
-		if not data or not data.plotId or data.plotId == 0 then return end
+		if not data or not data.plotId or data.plotId == 0 then
+			BasePlacementSystem.RefreshAllPlotVisibility()
+			return
+		end
 		local plotModel = findPlotModel(data.plotId)
 		if plotModel then
 			clearTaggedCreatures(plotModel, DEFENSE_TAG)
 			clearTaggedCreatures(plotModel, INCOME_TAG)
 			clearTaggedCreatures(plotModel, BATTLE_TAG)
 		end
+		BasePlacementSystem.RefreshAllPlotVisibility()
 	end)
 
 	-- Start defense turret AI loop
@@ -1475,6 +1649,8 @@ function BasePlacementSystem.Init(playerDataMgr, creatureAIRef)
 		end)
 	end
 
+	-- Uninhabited plots start hidden; they become visible when a player is assigned (MainServer calls RefreshAllPlotVisibility)
+	BasePlacementSystem.RefreshAllPlotVisibility()
 	print("[BasePlacement] Initialized with defense turret AI (incremental slot placement)")
 end
 

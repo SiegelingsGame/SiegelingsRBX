@@ -2,7 +2,7 @@
 	DayNightCycle.lua - ServerScriptService (ModuleScript)
 	Controls Lighting.ClockTime based on GameConfig.
 	- Config: DayNightCycleEnabled, DayNightCycleSeconds (default 30)
-	- One full real-time cycle = 24 in-game hours (dawn → day → dusk → night)
+	- One full real-time cycle = 24 in-game hours (dawn → day → dusk → night)[]gt
 ]]
 
 local RunService = game:GetService("RunService")

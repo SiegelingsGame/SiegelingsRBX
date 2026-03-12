@@ -44,6 +44,7 @@ local companionRecalledDueToWater = {}
 local respawnCooldowns = {}  -- [userId] = tick() when fainted
 local faintedCompanionModels = {}  -- unused: companion destroyed immediately on faint (card flies to player)
 local pvpFaintedPlayers = {} -- [userId] = true when creature fainted in PvP (must revive with coins/gems)
+local spawnLocks = {}  -- [userId] = true while SpawnCompanion is running (prevents double spawn / leftover models)
 
 -- Distance from a point to the closest point on the model's bounding box (so tall creatures can be targeted/attacked from underneath).
 local function getDistanceToModel(point, creatureModel)
@@ -59,7 +60,58 @@ local function getDistanceToModel(point, creatureModel)
 	return (point - closestWorld).Magnitude
 end
 
--- Raycast down from origin to find ground Y (same surface as player would stand on).
+-- True if position is inside any Part tagged as water block (GameConfig.WaterBlockTag). Used to card non-water favorites when player is in water.
+local function isPositionInWaterBlock(worldPos)
+	local tag = GameConfig.WaterBlockTag
+	if not tag or tag == "" then return false end
+	for _, part in ipairs(CollectionService:GetTagged(tag)) do
+		if part and part:IsA("BasePart") and part.Parent then
+			local localPos = part.CFrame:PointToObjectSpace(worldPos)
+			local h = part.Size * 0.5
+			if math.abs(localPos.X) <= h.X and math.abs(localPos.Y) <= h.Y and math.abs(localPos.Z) <= h.Z then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+-- True if player is in water (position inside a Water Block Part or Humanoid Swimming state). Used to card non-water favorites and respawn when they exit.
+local function isPlayerInWater(player)
+	local character = player.Character
+	if not character then return false end
+	local root = character:FindFirstChild("HumanoidRootPart")
+	if not root then return false end
+	if isPositionInWaterBlock(root.Position) then
+		return true
+	end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid and humanoid:GetState() == Enum.HumanoidStateType.Swimming then
+		return true
+	end
+	return false
+end
+
+-- Card non-water companion and return it (turn into card, fly to player). Called when player enters water/swimming. Returns true if recalled.
+local function doWaterRecall(player)
+	local comp = activeCompanions[player.UserId]
+	if not comp or not comp.alive then return false end
+	if CreatureData.IsWaterType(comp.creatureId) then return false end
+	if comp._waterRecallConn then
+		comp._waterRecallConn:Disconnect()
+		comp._waterRecallConn = nil
+	end
+	local bodyForPos = comp.model and (CreatureModelLoader.GetBodyPart(comp.model) or comp.model:FindFirstChild("Body"))
+	local creaturePos = bodyForPos and bodyForPos.Position or comp.model:GetPivot().Position
+	local evt = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("CompanionRecalled")
+	if evt then evt:FireClient(player, creaturePos, comp.creatureId) end
+	if comp.model and comp.model.Parent then comp.model:Destroy() end
+	activeCompanions[player.UserId] = nil
+	companionRecalledDueToWater[player.UserId] = true
+	return true
+end
+
+-- Raycast down from origin to find ground Y (same surface as player would stand on).d
 -- FIX: Exclude ALL creature models (WorldCreature, BaseDefense, BaseIncome, FavoriteCreature) and player
 -- characters. When a stolen creature is dropped near the companion, raycasts were hitting each other
 -- instead of ground, causing both to fly up and oscillate (fly up → respawn → repeat).
@@ -136,8 +188,9 @@ end
 -- WORKING LAYOUT (do not change without testing):
 --   Full Model types (TemplateType="Model"): need 180° X facing correction. Mesh types: no facing correction.
 --   COMPANION_STAND_UP_ANGLES: per-creature overrides for horizontal exports (e.g. cacty = {-90,0,0}).
---   Crawling (Sundile, Abysscrawler): isWalking=true → upright (with CRAWL_UPRIGHT_CORRECTION);
---     isWalking=false (Attack/Idle) → belly-down (COMPANION_ROTATION_DEFAULT only).
+--   Crawling (Sundile, Abysscrawler): isWalking=true → belly-down crawl (COMPANION_ROTATION_DEFAULT only);
+--     isWalking=false (Attack/Idle) → upright (with CRAWL_UPRIGHT_CORRECTION to cancel default pitch).
+--   FIX #17: Stand-up overrides (sundile/raydile/solgator) now add -90° X pitch during Move for crawl.
 --
 -- IMPORTANT: Crawling rotation for world vs companion is handled SEPARATELY:
 --   - World: CreatureData.GetModelRotationOffset (context="world", isWalking) → -90° pitch on walk
@@ -148,26 +201,40 @@ end
 -- COMPANION_ROTATION_DEFAULT: For horizontal-export models (placeholder orbs, rigs that export lying down).
 -- COMPANION_UPRIGHT_DEFAULT: For upright-export models (Breezee, etc.) – stand-up + facing.
 -- COMPANION_STAND_UP_ANGLES: Companion-only overrides for creatures that export horizontal/on-side.
--- COMPANION_FACING_CORRECTION: Full Model types (rigged) need 180° X; legacy Mesh types do not.
--- World spawns use CreatureData; companion rotation is FavoriteCreatureSystem only.
+-- COMPANION_FACING_CORRECTION: Full Model types (rigged) need 180° X; legacy Mesh types do snot.
+-- World spawnfs use CreatureData; companion rotation is FavoriteCreatureSystem only.x
 -- ══════════════════════════════════════════════════════════════════════════════
 local COMPANION_FACING_CORRECTION = CFrame.Angles(math.rad(180), 0, 0)  -- full Model types only
 local COMPANION_ROTATION_DEFAULT = CFrame.Angles(math.rad(90), 0, math.rad(180)) * CFrame.Angles(0, math.rad(180), 0)
 local COMPANION_STAND_UP_ANGLES = {
-	cacty = {-90, 0, 0},  -- exports horizontal (on side); stand upright
-	ceeponee = {-90, 0, -90},
-	chilldoe = {-180, 0, -0},  -- exports horizontal (on side); stand upright
-	spoutyl = {-180, 0, -0},   -- exports horizontal (on side); stand upright
-	droxyl = {-180, 0, -0},  -- exports horizontal (on side); stand upright
-	hydroxyl = {-180, 0, -0},  -- exports horizontal (on side); stand upright
+	ceeponee = {-180, 90, 0},
+	ceehorcee = {0,90, -180},
+	ceesteed = {-180, 0, 0},
+	chilldoe = {-180, 0, -0},
+	spoutyl = {-180, 0, 0},
+	frostag = {-180, 0, 0},
+	droxyl = {-180, 0, 0},
+	hydroxyl = {-180, 0, 0},
+	cacty = {-90, 0, 0},
+	jackedty = {-180, 0, 0},
+	cactyjackedty = {-180, 180, 0},
+	sundile = {-180, 0, 0},
+	raydile = {-180, 0, 0},
+	solgator = {-180, 0, 0},
+	breezee = {-90, 0, 0},
+	gagglestand = {-90, 0, 0},
+	hurricrane = {-90, 0, 0},
+	pylook = {0, 90, -180},
+	pyleer = {0, 180, -180},
+	pylme = {-180, 0, 0},
 }
 
 local function needsFacingCorrection(model)
 	return model and model:GetAttribute("TemplateType") == "Model"
 end
 
--- Crawling: COMPANION_ROTATION_DEFAULT = base; CRAWL_UPRIGHT_CORRECTION = -90° X to stand upright.
--- Ground stand-up: for non-flying, non-crawling companions – models that export horizontal/on-back need this to stand upright.
+-- Crawling: COMPANION_ROTATION_DEFAULT0.0 = base; CRAWL_UPRIGHT_CORRECTION = -90° X to stand upright.
+-- Ground stand-up: for non-flying, non-crawling companions – models that export horizontal/on-back need this to stand upright.d.a
 local COMPANION_CRAWL_UPRIGHT_CORRECTION = CFrame.Angles(math.rad(-90), 0, 0)
 local COMPANION_GROUND_UPRIGHT = COMPANION_CRAWL_UPRIGHT_CORRECTION
 local function getCompanionRotationOffset(creatureId, isWalking, model)
@@ -180,6 +247,13 @@ local function getCompanionRotationOffset(creatureId, isWalking, model)
 			math.rad(companionStandUp[2]),
 			math.rad(companionStandUp[3])
 		)
+		-- FIX #17: Crawling creatures with stand-up overrides (sundile, raydile, solgator):
+		-- The stand-up angles give the correct IDLE (upright) pose. During Move, add -90° X
+		-- pitch to produce belly-crawl orientation. Without this, these creatures used the
+		-- static stand-up angle for ALL states and never crawled as companions.
+		if isWalking and creatureId and CreatureData.IsCrawling(creatureId) then
+			return standUp * CFrame.Angles(math.rad(-90), 0, 0) * facing
+		end
 		return standUp * facing
 	end
 
@@ -197,12 +271,15 @@ local function getCompanionRotationOffset(creatureId, isWalking, model)
 		end
 		return facing
 	end
-	-- Crawling creatures: orientations swapped – Attack/Idle = belly-down, Move = upright.
+	-- Crawling creatures without stand-up overrides (e.g. abysscrawler):
+	-- FIX #17: Branches were swapped — Move was upright, Idle was belly-down (wrong).
+	-- Correct: Move = belly-down (COMPANION_ROTATION_DEFAULT's 90° pitch = crawl naturally).
+	--          Idle/Attack = upright (CRAWL_UPRIGHT_CORRECTION cancels the default's 90° pitch).
 	if creatureId and CreatureData.IsCrawling(creatureId) then
 		if isWalking then
-			return COMPANION_ROTATION_DEFAULT * COMPANION_CRAWL_UPRIGHT_CORRECTION * facing  -- upright when walking
+			return COMPANION_ROTATION_DEFAULT * facing  -- belly-down crawl (default 90° pitch provides this)
 		else
-			return COMPANION_ROTATION_DEFAULT * facing  -- belly-down when attacking/idle
+			return COMPANION_ROTATION_DEFAULT * COMPANION_CRAWL_UPRIGHT_CORRECTION * facing  -- upright (correction cancels 90° pitch)
 		end
 	end
 	return COMPANION_ROTATION_DEFAULT * facing
@@ -250,10 +327,10 @@ local function createCompanionModel(creatureId, player, entry)
 		hl.OutlineColor = rarityColor; hl.OutlineTransparency = 0; hl.Parent = model
 	end
 
-	-- Billboard: name + mode + HP bar
+	-- Billboard: name + mode + HP bar (offset to top of bounding box so name isn't blocked)
 	local bb = Instance.new("BillboardGui")
 	bb.Name = "CompanionTag"; bb.Size = UDim2.new(0, 160, 0, 55)
-	bb.StudsOffset = Vector3.new(0, 4, 0); bb.AlwaysOnTop = false; bb.MaxDistance = 50
+	bb.StudsOffset = Vector3.new(0, CreatureModelLoader.GetBillboardStudsOffsetForTopOfModel(model, body), 0); bb.AlwaysOnTop = false; bb.MaxDistance = 50
 	bb.Adornee = body; bb.Parent = model
 
 	local nameLbl = Instance.new("TextLabel")
@@ -314,25 +391,13 @@ local function createAttackEffect(fromPos, toPos, color)
 	end)
 end
 
-local function showDamageNumber(position, damage, color)
-	local att = Instance.new("Part")
-	att.Size = Vector3.new(0.1,0.1,0.1); att.Position = position + Vector3.new(0, 2, 0)
-	att.Anchored = true; att.CanCollide = false; att.Transparency = 1; att.Parent = workspace
-	local bb2 = Instance.new("BillboardGui")
-	bb2.Size = UDim2.new(0, 80, 0, 30); bb2.StudsOffset = Vector3.new(0, 3, 0)
-	bb2.AlwaysOnTop = true; bb2.Adornee = att; bb2.Parent = att
-	local lbl = Instance.new("TextLabel")
-	lbl.Size = UDim2.new(1,0,1,0); lbl.BackgroundTransparency = 1
-	lbl.Text = "-" .. damage; lbl.TextColor3 = color or Color3.fromRGB(255, 80, 60)
-	lbl.Font = Enum.Font.GothamBlack; lbl.TextSize = 20
-	lbl.TextStrokeColor3 = Color3.new(0,0,0); lbl.TextStrokeTransparency = 0.3; lbl.Parent = bb2
-	task.spawn(function()
-		for i = 1, 20 do
-			att.Position = att.Position + Vector3.new(0, 0.1, 0)
-			lbl.TextTransparency = i/20; lbl.TextStrokeTransparency = 0.3 + (i/20)*0.7
-			RunService.Heartbeat:Wait()
-		end; att:Destroy()
-	end)
+-- Only show damage number to the relevant player (companion owner), not all players in open world
+local function fireDamageNumberToPlayer(player, position, damage, color)
+	if not player or not player.Parent or not position then return end
+	local evt = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("ShowDamageNumber")
+	if evt and evt:IsA("RemoteEvent") then
+		evt:FireClient(player, position, damage, color)
+	end
 end
 
 -- -- HP BAR --
@@ -766,7 +831,7 @@ function FavoriteCreatureSystem.DamageCompanion(player, damage, attackerModel)
 	updateCompanionHPBar(comp)
 	local body = comp.model and (CreatureModelLoader.GetBodyPart(comp.model) or comp.model:FindFirstChild("Body"))
 	if body then
-		showDamageNumber(body.Position, damage, Color3.fromRGB(255, 120, 80))
+		fireDamageNumberToPlayer(player, body.Position, damage, Color3.fromRGB(255, 120, 80))
 		task.spawn(function()
 			local oc = body.Color; body.Color = Color3.fromRGB(255, 50, 50)
 			task.wait(0.12); if body.Parent then body.Color = oc end
@@ -781,6 +846,10 @@ FavoriteCreatureSystem.OnCompanionFainted = nil
 function FavoriteCreatureSystem.FaintCompanion(player, killerModel)
 	local comp = activeCompanions[player.UserId]
 	if not comp then return end
+	if comp._waterRecallConn then
+		comp._waterRecallConn:Disconnect()
+		comp._waterRecallConn = nil
+	end
 
 	-- Notify so defense turret can get XP for this kill
 	if FavoriteCreatureSystem.OnCompanionFainted then
@@ -852,6 +921,18 @@ local function startCompanionBehavior(player, model, creatureId)
 	local core = model:FindFirstChild("Core")
 	local ring = model:FindFirstChild("Ring")
 	if not body then return end
+	-- When character starts swimming, card non-water companion immediately (StateChanged fires the moment swimming begins)
+	local comp = activeCompanions[player.UserId]
+	if comp and not CreatureData.IsWaterType(creatureId) then
+		local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+		if hum then
+			comp._waterRecallConn = hum.StateChanged:Connect(function(_, newState)
+				if newState == Enum.HumanoidStateType.Swimming then
+					doWaterRecall(player)
+				end
+			end)
+		end
+	end
 	local lastAttackTime = 0; local t = 0
 
 	task.spawn(function()
@@ -882,20 +963,10 @@ local function startCompanionBehavior(player, model, creatureId)
 			local root = character:FindFirstChild("HumanoidRootPart")
 			if not root then continue end
 
-			-- Water recall: non-water creatures cannot be in water; recall and return when player exits
-			local humanoid = character:FindFirstChild("Humanoid")
-			local isPlayerSwimming = humanoid and humanoid:GetState() == Enum.HumanoidStateType.Swimming
-			if isPlayerSwimming and not CreatureData.IsWaterType(creatureId) then
-				-- Non-water creature in water: turn into card at creature position, card flies to player; favorite is carded until player exits water
-				local bodyForPos = comp.model and (CreatureModelLoader.GetBodyPart(comp.model) or comp.model:FindFirstChild("Body"))
-				local creaturePos = bodyForPos and bodyForPos.Position or comp.model:GetPivot().Position
-				-- Fire client first so it can hide model and play card-fly animation; then despawn
-				local evt = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("CompanionRecalled")
-				if evt then evt:FireClient(player, creaturePos, creatureId) end
-				if comp.model and comp.model.Parent then comp.model:Destroy() end
-				activeCompanions[player.UserId] = nil
-				companionRecalledDueToWater[player.UserId] = true
-				-- Explicit: do NOT set respawnCooldowns (unlike FaintCompanion); Heartbeat respawns when player exits water
+			-- Water recall: when player is in water, non-water favorites must be carded (card animation at creature pos, flies to player)
+			local isPlayerInWaterNow = isPlayerInWater(player)
+			if isPlayerInWaterNow and not CreatureData.IsWaterType(creatureId) then
+				doWaterRecall(player)
 				break
 			end
 
@@ -903,13 +974,36 @@ local function startCompanionBehavior(player, model, creatureId)
 			local bodyPart = comp.model and (CreatureModelLoader.GetBodyPart(comp.model) or comp.model:FindFirstChild("Body"))
 			if not bodyPart then break end
 
-			-- Follow target behind player: ground creatures on surface, flying creatures at hover height
-			local followXZ = root.Position + root.CFrame.LookVector * -GameConfig.CompanionFollowDist
-			local groundYAtTarget = getGroundY(Vector3.new(followXZ.X, root.Position.Y, followXZ.Z), { character })
-			local desiredY = CreatureData.IsFlying(creatureId)
-				and (groundYAtTarget + (GameConfig.FlyingHoverHeight or 5))
-				or (groundYAtTarget + getBodyHeightAboveBboxBottom(model, bodyPart))
-			local targetPos = Vector3.new(followXZ.X, desiredY, followXZ.Z)
+			-- Stun (e.g. ElectricBiome ElectroBall): skip movement while StunnedUntil > tick()
+			local su = comp.model:GetAttribute("StunnedUntil")
+			if su and type(su) == "number" and tick() < su then
+				continue
+			end
+
+			-- Follow target behind player. Water + in Ocean: 3D follow (vertical only within Ocean bounds). Else: ground/flying height.
+			local isPlayerInOcean = CreatureAI and CreatureAI.IsPositionInOcean and CreatureAI.IsPositionInOcean(root.Position)
+			local isWaterFollowing = isPlayerInOcean and CreatureData.IsWaterType(creatureId)
+			local targetPos
+			if isWaterFollowing then
+				-- Clamp companion Y to Ocean part bounds so they stay within the water volume
+				local behind = root.Position - root.CFrame.LookVector * GameConfig.CompanionFollowDist
+				local maxY = root.Position.Y + (GameConfig.WaterCompanionMaxSurfaceOffset or 1.5)
+				local ocean = CreatureAI and CreatureAI.GetOceanPart and CreatureAI.GetOceanPart()
+				if ocean then
+					local topY = ocean.Position.Y + ocean.Size.Y * 0.5
+					local bottomY = ocean.Position.Y - ocean.Size.Y * 0.5
+					maxY = math.min(maxY, topY)
+					behind = Vector3.new(behind.X, math.clamp(behind.Y, bottomY, topY), behind.Z)
+				end
+				targetPos = Vector3.new(behind.X, math.min(behind.Y, maxY), behind.Z)
+			else
+				local followXZ = root.Position + root.CFrame.LookVector * -GameConfig.CompanionFollowDist
+				local groundYAtTarget = getGroundY(Vector3.new(followXZ.X, root.Position.Y, followXZ.Z), { character })
+				local desiredY = CreatureData.IsFlying(creatureId)
+					and (groundYAtTarget + (GameConfig.FlyingHoverHeight or 5))
+					or (groundYAtTarget + getBodyHeightAboveBboxBottom(model, bodyPart))
+				targetPos = Vector3.new(followXZ.X, desiredY, followXZ.Z)
+			end
 
 			local currentPos = bodyPart.Position
 			local toTarget = targetPos - currentPos
@@ -956,22 +1050,31 @@ local function startCompanionBehavior(player, model, creatureId)
 					end
 				end
 			end
-			-- Keep companion at correct height: ground creatures on surface, flying at hover height (no vertical bob)
-			local groundYHere = getGroundY(Vector3.new(newPos.X, newPos.Y + 2, newPos.Z), { character, comp.model })
-			local heightHere = CreatureData.IsFlying(creatureId)
-				and (GameConfig.FlyingHoverHeight or 5)
-				or getBodyHeightAboveBboxBottom(model, bodyPart)
-			local targetY = groundYHere + heightHere
-			-- FIX: When carrying, ground AND flying creatures use smoothed Y to prevent fly-up/oscillation from unstable raycasts over bases
-			if comp.carrying then
-				comp._carryFlyingY = comp._carryFlyingY or targetY
-				local smoothSpeed = math.min(1, dt * 4)
-				comp._carryFlyingY = comp._carryFlyingY + (targetY - comp._carryFlyingY) * smoothSpeed
-				targetY = comp._carryFlyingY
+			-- Keep companion at correct height: water (swimming) keeps 3D but clamped below surface; ground on surface; flying at hover
+			if not isWaterFollowing then
+				local groundYHere = getGroundY(Vector3.new(newPos.X, newPos.Y + 2, newPos.Z), { character, comp.model })
+				local heightHere = CreatureData.IsFlying(creatureId)
+					and (GameConfig.FlyingHoverHeight or 5)
+					or getBodyHeightAboveBboxBottom(model, bodyPart)
+				local targetY = groundYHere + heightHere
+				-- FIX: When carrying, ground AND flying creatures use smoothed Y to prevent fly-up/oscillation from unstable raycasts over bases
+				if comp.carrying then
+					comp._carryFlyingY = comp._carryFlyingY or targetY
+					local smoothSpeed = math.min(1, dt * 4)
+					comp._carryFlyingY = comp._carryFlyingY + (targetY - comp._carryFlyingY) * smoothSpeed
+					targetY = comp._carryFlyingY
+				else
+					comp._carryFlyingY = nil
+				end
+				newPos = Vector3.new(newPos.X, targetY, newPos.Z)
 			else
+				-- Water companion: clamp Y so they never break surface (max = player Y + wading offset)
 				comp._carryFlyingY = nil
+				local maxY = root.Position.Y + (GameConfig.WaterCompanionMaxSurfaceOffset or 1.5)
+				if newPos.Y > maxY then
+					newPos = Vector3.new(newPos.X, maxY, newPos.Z)
+				end
 			end
-			newPos = Vector3.new(newPos.X, targetY, newPos.Z)
 			-- Check for attack targets in range FIRST. Attack whenever in range, even when moving (cooldown only affects damage).
 			local hasAttackTargetInRange = false
 			if comp.attackMode and not comp.carrying then
@@ -1024,8 +1127,8 @@ local function startCompanionBehavior(player, model, creatureId)
 			else
 				animType = prevAnim
 			end
-			-- Water types: use Swimming when moving in water, Move when on land
-			if isPlayerSwimming and CreatureData.IsWaterType(creatureId) and animType == "Move" then
+			-- Water types: use Swimming when moving in Ocean, Move when on land
+			if isPlayerInOcean and CreatureData.IsWaterType(creatureId) and animType == "Move" then
 				animType = "Swimming"
 			end
 			comp.lastAnimType = animType
@@ -1076,14 +1179,15 @@ local function startCompanionBehavior(player, model, creatureId)
 					if tp then faceToward = tp.Position end
 				end
 			end
-			-- Move entire model with PivotTo first (so body ends up at newPos; core/ring stay in sync)
-			local rotOffset = getCompanionRotationOffset(comp.creatureId, animType == "Move", comp.model)
+			-- Move entire model with PivotTo first (so body ends up at newPos; core/ring stay in sync). Water swimming: face in 3D.
+			local rotOffset = getCompanionRotationOffset(comp.creatureId, animType == "Move" or animType == "Swimming", comp.model)
 			local pivot = model:GetPivot()
 			local bodyOffsetInPivot = pivot:PointToObjectSpace(bodyPart.Position)
-			local targetFlat = Vector3.new(faceToward.X, newPos.Y, faceToward.Z)
-			local dir = (targetFlat - newPos) * Vector3.new(1, 0, 1)
+			local lookAtPos = isWaterFollowing and faceToward or Vector3.new(faceToward.X, newPos.Y, faceToward.Z)
+			local dir = lookAtPos - newPos
+			if not isWaterFollowing then dir = dir * Vector3.new(1, 0, 1) end
 			local rotCf = (dir.Magnitude > 0.5)
-				and (CFrame.lookAt(newPos, targetFlat) * rotOffset)
+				and (CFrame.lookAt(newPos, lookAtPos) * rotOffset)
 				or (CFrame.new(newPos) * rotOffset)
 			local pivotPos = newPos - rotCf:VectorToWorldSpace(bodyOffsetInPivot)
 			model:PivotTo(CFrame.new(pivotPos) * (rotCf - rotCf.Position))
@@ -1190,7 +1294,7 @@ local function startCompanionBehavior(player, model, creatureId)
 						end
 						local finalDamage = math.floor(math.max(1, baseDamage * elemMult))
 						createAttackEffect(bodyPart.Position, tp.Position, attackColor)
-						showDamageNumber(tp.Position, finalDamage)
+						fireDamageNumberToPlayer(player, tp.Position, finalDamage)
 						-- Route through CreatureAI first (authoritative HP system)
 						if CreatureAI and CreatureAI.DamageCreature then
 							CreatureAI.DamageCreature(targetCreature, finalDamage, model)
@@ -1241,45 +1345,62 @@ function FavoriteCreatureSystem.SetPvPFainted(player, value)
 end
 
 function FavoriteCreatureSystem.SpawnCompanion(player)
+	local userId = player.UserId
+	if spawnLocks[userId] then return end -- prevent double spawn (e.g. SetFavorite + CharacterAdded)
+	spawnLocks[userId] = true
 	FavoriteCreatureSystem.DespawnCompanion(player)
 	-- Clean up any stale fainted companion reference (legacy; companion now destroyed on faint)
-	local fainted = faintedCompanionModels[player.UserId]
+	local fainted = faintedCompanionModels[userId]
 	if fainted and fainted.Parent then
 		fainted:Destroy()
 	end
-	faintedCompanionModels[player.UserId] = nil
-	if pvpFaintedPlayers[player.UserId] then return end -- PvP fainted: must revive via prompt
-	local cd = respawnCooldowns[player.UserId]
-	if cd and (tick() - cd) < GameConfig.CompanionRespawnCD then return end
-	respawnCooldowns[player.UserId] = nil
+	faintedCompanionModels[userId] = nil
+	if pvpFaintedPlayers[userId] then spawnLocks[userId] = nil; return end -- PvP fainted: must revive via prompt
+	local cd = respawnCooldowns[userId]
+	if cd and (tick() - cd) < GameConfig.CompanionRespawnCD then spawnLocks[userId] = nil; return end
+	respawnCooldowns[userId] = nil
 
 	local entry = PlayerDataManager.GetFavorite(player)
-	if not entry then return end
+	if not entry then spawnLocks[userId] = nil; return end
 	local character = player.Character
 	if not character then character = player.CharacterAdded:Wait(); task.wait(1) end
 	local root = character:FindFirstChild("HumanoidRootPart")
-	if not root then return end
+	if not root then spawnLocks[userId] = nil; return end
 	local info = CreatureData.GetById(entry.id)
-	if not info then return end
+	if not info then spawnLocks[userId] = nil; return end
 
-	-- Don't spawn non-water companion if player is already in water (e.g. respawned in water)
-	local humanoid = character:FindFirstChild("Humanoid")
-	local isSwimming = humanoid and humanoid:GetState() == Enum.HumanoidStateType.Swimming
-	if isSwimming and not CreatureData.IsWaterType(entry.id) then
-		companionRecalledDueToWater[player.UserId] = true
+	-- Don't spawn non-water companion if player is in water (e.g. respawned in water or swimming)
+	if isPlayerInWater(player) and not CreatureData.IsWaterType(entry.id) then
+		companionRecalledDueToWater[userId] = true
+		spawnLocks[userId] = nil
 		return
 	end
 
+	local isPlayerInOceanSpawn = CreatureAI and CreatureAI.IsPositionInOcean and CreatureAI.IsPositionInOcean(root.Position)
 	local model = createCompanionModel(entry.id, player, entry)
-	if not model then return end
-	-- Spawn behind player: ground creatures on surface, flying creatures at hover height
-	local followXZ = root.Position + root.CFrame.LookVector * -GameConfig.CompanionFollowDist
-	local groundY = getGroundY(Vector3.new(followXZ.X, root.Position.Y, followXZ.Z), { character })
+	if not model then spawnLocks[userId] = nil; return end
+	-- Spawn behind player. Water + in Ocean: 3D behind, clamped to Ocean bounds; else ground/flying height
 	local bodyPart = model.PrimaryPart or CreatureModelLoader.GetBodyPart(model) or model:FindFirstChild("Body")
-	local desiredY = CreatureData.IsFlying(entry.id)
-		and (groundY + (GameConfig.FlyingHoverHeight or 5))
-		or (groundY + (bodyPart and getBodyHeightAboveBboxBottom(model, bodyPart) or 1.75))
-	local spawnPos = Vector3.new(followXZ.X, desiredY, followXZ.Z)
+	local spawnPos
+	if isPlayerInOceanSpawn and CreatureData.IsWaterType(entry.id) then
+		local behind = root.Position - root.CFrame.LookVector * GameConfig.CompanionFollowDist
+		local maxY = root.Position.Y + (GameConfig.WaterCompanionMaxSurfaceOffset or 1.5)
+		local ocean = CreatureAI and CreatureAI.GetOceanPart and CreatureAI.GetOceanPart()
+		if ocean then
+			local topY = ocean.Position.Y + ocean.Size.Y * 0.5
+			local bottomY = ocean.Position.Y - ocean.Size.Y * 0.5
+			maxY = math.min(maxY, topY)
+			behind = Vector3.new(behind.X, math.clamp(behind.Y, bottomY, topY), behind.Z)
+		end
+		spawnPos = Vector3.new(behind.X, math.min(behind.Y, maxY), behind.Z)
+	else
+		local followXZ = root.Position + root.CFrame.LookVector * -GameConfig.CompanionFollowDist
+		local groundY = getGroundY(Vector3.new(followXZ.X, root.Position.Y, followXZ.Z), { character })
+		local desiredY = CreatureData.IsFlying(entry.id)
+			and (groundY + (GameConfig.FlyingHoverHeight or 5))
+			or (groundY + (bodyPart and getBodyHeightAboveBboxBottom(model, bodyPart) or 1.75))
+		spawnPos = Vector3.new(followXZ.X, desiredY, followXZ.Z)
+	end
 	-- Use PivotTo for initial position (same as behavior loop) so model pivot and body stay in sync from frame 1
 	local pivot = model:GetPivot()
 	local bodyOffsetInPivot = pivot:PointToObjectSpace((bodyPart or model.PrimaryPart).Position)
@@ -1350,17 +1471,30 @@ function FavoriteCreatureSystem.SpawnCompanion(player)
 
 	local evt = getCompanionSpawnedEvent()
 	if evt then evt:FireClient(player, model) end
+	spawnLocks[userId] = nil
 end
 
 function FavoriteCreatureSystem.DespawnCompanion(player)
-	local c = activeCompanions[player.UserId]
+	local userId = player.UserId
+	local c = activeCompanions[userId]
 	if c then
+		if c._waterRecallConn then
+			c._waterRecallConn:Disconnect()
+			c._waterRecallConn = nil
+		end
 		-- Drop stolen creature if carrying
 		if c.carrying then
 			dropStolenCreature(player, c)
 		end
 		if c.model and c.model.Parent then c.model:Destroy() end
-		activeCompanions[player.UserId] = nil
+		activeCompanions[userId] = nil
+	end
+	-- Destroy ALL FavoriteCreature models for this player (fixes leftover/duplicate models when carding or double spawn)
+	local uidStr = tostring(userId)
+	for _, model in ipairs(CollectionService:GetTagged(FAVORITE_TAG)) do
+		if model.Parent and tostring(model:GetAttribute("OwnerUserId") or "") == uidStr then
+			model:Destroy()
+		end
 	end
 end
 
@@ -1387,20 +1521,36 @@ function FavoriteCreatureSystem.TeleportCompanionWithPlayer(player)
 	if not root then return end
 	local entry = PlayerDataManager.GetFavorite(player)
 	if not entry then return end
-	local followXZ = root.Position + root.CFrame.LookVector * -GameConfig.CompanionFollowDist
-	local groundY = getGroundY(Vector3.new(followXZ.X, root.Position.Y, followXZ.Z), { character })
+	local isPlayerInOceanTeleport = CreatureAI and CreatureAI.IsPositionInOcean and CreatureAI.IsPositionInOcean(root.Position)
 	local bodyPart = c.model.PrimaryPart or CreatureModelLoader.GetBodyPart(c.model) or c.model:FindFirstChild("Body")
-	local desiredY = CreatureData.IsFlying(entry.id)
-		and (groundY + (GameConfig.FlyingHoverHeight or 5))
-		or (groundY + (bodyPart and getBodyHeightAboveBboxBottom(c.model, bodyPart) or 1.75))
-	local spawnPos = Vector3.new(followXZ.X, desiredY, followXZ.Z)
+	local spawnPos
+	if isPlayerInOceanTeleport and CreatureData.IsWaterType(entry.id) then
+		local behind = root.Position - root.CFrame.LookVector * GameConfig.CompanionFollowDist
+		local maxY = root.Position.Y + (GameConfig.WaterCompanionMaxSurfaceOffset or 1.5)
+		local ocean = CreatureAI and CreatureAI.GetOceanPart and CreatureAI.GetOceanPart()
+		if ocean then
+			local topY = ocean.Position.Y + ocean.Size.Y * 0.5
+			local bottomY = ocean.Position.Y - ocean.Size.Y * 0.5
+			maxY = math.min(maxY, topY)
+			behind = Vector3.new(behind.X, math.clamp(behind.Y, bottomY, topY), behind.Z)
+		end
+		spawnPos = Vector3.new(behind.X, math.min(behind.Y, maxY), behind.Z)
+	else
+		local followXZ = root.Position + root.CFrame.LookVector * -GameConfig.CompanionFollowDist
+		local groundY = getGroundY(Vector3.new(followXZ.X, root.Position.Y, followXZ.Z), { character })
+		local desiredY = CreatureData.IsFlying(entry.id)
+			and (groundY + (GameConfig.FlyingHoverHeight or 5))
+			or (groundY + (bodyPart and getBodyHeightAboveBboxBottom(c.model, bodyPart) or 1.75))
+		spawnPos = Vector3.new(followXZ.X, desiredY, followXZ.Z)
+	end
 	local pivot = c.model:GetPivot()
 	local bodyOffsetInPivot = pivot:PointToObjectSpace((bodyPart or c.model.PrimaryPart).Position)
 	local rotOffset = getCompanionRotationOffset(entry.id, false, c.model)
-	local targetFlat = Vector3.new(root.Position.X, spawnPos.Y, root.Position.Z)
-	local dir = (targetFlat - spawnPos) * Vector3.new(1, 0, 1)
+	local lookTarget = (isPlayerInOceanTeleport and CreatureData.IsWaterType(entry.id)) and root.Position or Vector3.new(root.Position.X, spawnPos.Y, root.Position.Z)
+	local dir = lookTarget - spawnPos
+	if not (isPlayerInOceanTeleport and CreatureData.IsWaterType(entry.id)) then dir = dir * Vector3.new(1, 0, 1) end
 	local rotCf = (dir.Magnitude > 0.5)
-		and (CFrame.lookAt(spawnPos, targetFlat) * rotOffset)
+		and (CFrame.lookAt(spawnPos, lookTarget) * rotOffset)
 		or (CFrame.new(spawnPos) * rotOffset)
 	local pivotPos = spawnPos - rotCf:VectorToWorldSpace(bodyOffsetInPivot)
 	c.model:PivotTo(CFrame.new(pivotPos) * (rotCf - rotCf.Position))
@@ -1507,11 +1657,17 @@ function FavoriteCreatureSystem.Init(playerDataMgr, creatureSpawnerRef, creature
 		end)
 	end)
 
+	-- Players already in game when Init runs: spawn companion once if they already have a character.
+	-- (CharacterAdded handles spawn when character loads; avoid duplicate spawn from old 3s-delay loop.)
 	for _, p in ipairs(Players:GetPlayers()) do
-		task.spawn(function() task.wait(3)
-			local entry = PlayerDataManager.GetFavorite(p)
-			if entry then FavoriteCreatureSystem.SpawnCompanion(p) end
-		end)
+		if p.Character then
+			task.defer(function()
+				local entry = PlayerDataManager.GetFavorite(p)
+				if entry and not FavoriteCreatureSystem.IsOnCooldown(p) then
+					FavoriteCreatureSystem.SpawnCompanion(p)
+				end
+			end)
+		end
 	end
 
 	Players.PlayerRemoving:Connect(function(player)
@@ -1527,6 +1683,7 @@ function FavoriteCreatureSystem.Init(playerDataMgr, creatureSpawnerRef, creature
 		respawnCooldowns[player.UserId] = nil
 		playerCarryingSteal[player.UserId] = nil
 		companionRecalledDueToWater[player.UserId] = nil
+		spawnLocks[player.UserId] = nil
 	end)
 
 	-- E-interact to pick up fainted base creature (steal)
@@ -1550,16 +1707,14 @@ function FavoriteCreatureSystem.Init(playerDataMgr, creatureSpawnerRef, creature
 
 	-- PERFORMANCE: Single Heartbeat for companion respawn + carry visual (was 2 separate loops)
 	RunService.Heartbeat:Connect(function()
-		-- Respawn companion when player exits water (was recalled due to non-water type)
+		-- Respawn companion when player exits water (was recalled due to non-water type in water)
 		for userId, _ in pairs(companionRecalledDueToWater) do
 			local player = Players:GetPlayerByUserId(userId)
 			if not player then
 				companionRecalledDueToWater[userId] = nil
 			else
-				local char = player.Character
-				local hum = char and char:FindFirstChild("Humanoid")
-				local swimming = hum and hum:GetState() == Enum.HumanoidStateType.Swimming
-				if not swimming then
+				local inWater = isPlayerInWater(player)
+				if not inWater then
 					companionRecalledDueToWater[userId] = nil
 					local entry = PlayerDataManager.GetFavorite(player)
 					if entry and not FavoriteCreatureSystem.IsOnCooldown(player) then

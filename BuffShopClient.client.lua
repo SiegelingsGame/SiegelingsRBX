@@ -32,8 +32,8 @@ local C = {
 	white = Color3.new(1, 1, 1),
 }
 
--- Panel scales with viewport (same pattern as InventoryUIManager)
-local PANEL_DESIGN_W = 440
+-- Panel scales with viewport (same pattern as InventoryUIManager); width +25%
+local PANEL_DESIGN_W = 550
 local PANEL_DESIGN_H = 420
 local PANEL_SCALE_MIN = 0.52
 local PANEL_SCALE_MAX = 1
@@ -50,6 +50,87 @@ local function applyPanelScale(pnl)
 	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
 	pnl.Size = UDim2.new(0, w, 0, h)
 	pnl.Position = UDim2.new(0.5, -w/2, 0.5, -h/2)
+end
+
+-- Simple full-screen FX when a buff activates
+local function playBuffActivatedFX(buffId)
+	local existing = sg:FindFirstChild("BuffFX")
+	if existing then
+		existing:Destroy()
+	end
+
+	local fx = Instance.new("Frame")
+	fx.Name = "BuffFX"
+	fx.Size = UDim2.new(1, 0, 1, 0)
+	fx.Position = UDim2.new(0, 0, 0, 0)
+	fx.BackgroundColor3 = Color3.new(0, 0, 0)
+	fx.BackgroundTransparency = 1
+	fx.ZIndex = 50
+	fx.Parent = sg
+
+	-- Radial badge in the middle of the screen
+	local circle = Instance.new("Frame")
+	circle.Size = UDim2.new(0, 120, 0, 120)
+	circle.Position = UDim2.new(0.5, -60, 0.5, -60)
+	circle.BackgroundColor3 = Color3.fromRGB(30, 220, 120)
+	circle.BackgroundTransparency = 0.1
+	circle.BorderSizePixel = 0
+	circle.ZIndex = 51
+	circle.Parent = fx
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(1, 0)
+	corner.Parent = circle
+
+	local glow = Instance.new("UIStroke")
+	glow.Color = Color3.fromRGB(120, 255, 200)
+	glow.Thickness = 4
+	glow.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	glow.Transparency = 0
+	glow.Parent = circle
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(1, -16, 1, -16)
+	lbl.Position = UDim2.new(0, 8, 0, 8)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = "BUFF ACTIVE"
+	lbl.TextColor3 = Color3.new(1, 1, 1)
+	lbl.Font = Enum.Font.GothamBlack
+	lbl.TextScaled = true
+	lbl.ZIndex = 52
+	lbl.Parent = circle
+
+	-- Pulse + fade out
+	local tweenIn = TweenService:Create(circle, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Size = UDim2.new(0, 160, 0, 160),
+		BackgroundTransparency = 0.05,
+	})
+	local tweenGlow = TweenService:Create(glow, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Thickness = 6,
+	})
+	local tweenOut = TweenService:Create(fx, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		BackgroundTransparency = 1,
+	})
+
+	tweenIn:Play()
+	tweenGlow:Play()
+
+	task.delay(0.25, function()
+		tweenOut:Play()
+		TweenService:Create(circle, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+			Size = UDim2.new(0, 200, 0, 200),
+			BackgroundTransparency = 1,
+		}):Play()
+		TweenService:Create(glow, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+			Transparency = 1,
+		}):Play()
+		TweenService:Create(lbl, TweenInfo.new(0.3), { TextTransparency = 1 }):Play()
+		task.delay(0.45, function()
+			if fx.Parent then
+				fx:Destroy()
+			end
+		end)
+	end)
 end
 
 -- -- SCREEN GUI --
@@ -79,17 +160,17 @@ titleLbl.BackgroundTransparency = 1; titleLbl.Text = "BUFF SHOP"
 titleLbl.TextColor3 = C.coin; titleLbl.Font = Enum.Font.GothamBlack; titleLbl.TextSize = 18
 titleLbl.TextXAlignment = Enum.TextXAlignment.Left; titleLbl.Parent = titleBar
 
--- Currency display
+-- Currency display (ends before close button so X doesn't overlap Gems)
 local currLbl = Instance.new("TextLabel")
 currLbl.Name = "CurrLbl"
-currLbl.Size = UDim2.new(0.4, -10, 1, 0); currLbl.Position = UDim2.new(0.6, 0, 0, 0)
+currLbl.Size = UDim2.new(0.45, -48, 1, 0); currLbl.Position = UDim2.new(0.55, 0, 0, 0)
 currLbl.BackgroundTransparency = 1; currLbl.Text = "Coins: 0  |  Gems: 0"
 currLbl.TextColor3 = C.muted; currLbl.Font = Enum.Font.GothamBold; currLbl.TextSize = 12
 currLbl.TextXAlignment = Enum.TextXAlignment.Right; currLbl.Parent = titleBar
 
--- Close button
+-- Close button (spaced so it doesn't overlap currency)
 local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 32, 0, 32); closeBtn.Position = UDim2.new(1, -38, 0, 5)
+closeBtn.Size = UDim2.new(0, 32, 0, 32); closeBtn.Position = UDim2.new(1, -40, 0, 5)
 closeBtn.BackgroundColor3 = C.red; closeBtn.BackgroundTransparency = 0.5
 closeBtn.Text = "X"; closeBtn.TextColor3 = C.white
 closeBtn.Font = Enum.Font.GothamBold; closeBtn.TextSize = 14; closeBtn.Parent = titleBar
@@ -107,6 +188,140 @@ scroll.Parent = panel
 local layout = Instance.new("UIListLayout")
 layout.SortOrder = Enum.SortOrder.LayoutOrder
 layout.Padding = UDim.new(0, 6); layout.Parent = scroll
+
+-- -- ACTIVE BUFFS HUD (badge style) - defined before buildShopItems so click handlers can call updateActiveBuffsDisplay
+local buffBar = Instance.new("Frame")
+buffBar.Name = "ActiveBuffs"
+buffBar.Size = UDim2.new(0, 400, 0, 52)
+buffBar.AnchorPoint = Vector2.new(0.5, 1)
+buffBar.Position = UDim2.new(0.5, 0, 1, -120)
+buffBar.BackgroundTransparency = 1
+buffBar.Parent = sg
+
+local buffLayout = Instance.new("UIListLayout")
+buffLayout.FillDirection = Enum.FillDirection.Horizontal
+buffLayout.Padding = UDim.new(0, 8)
+buffLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+buffLayout.SortOrder = Enum.SortOrder.LayoutOrder
+buffLayout.Parent = buffBar
+
+local function getBuffShortName(buffId)
+	for _, item in ipairs(GameConfig.BuffShopItems) do
+		if item.id == buffId then
+			local n = item.name or buffId
+			if #n > 8 then n = n:sub(1, 8) end
+			return n
+		end
+	end
+	return buffId:sub(1, 6)
+end
+
+local function updateActiveBuffsDisplay()
+	for _, ch in ipairs(buffBar:GetChildren()) do
+		if not ch:IsA("UIListLayout") then ch:Destroy() end
+	end
+
+	if not getInventory then return end
+	local ok, data = pcall(function() return getInventory:InvokeServer() end)
+	if not ok or not data or not data.activeBuffs then return end
+
+	local now = tick()
+	local order = 0
+	for buffId, info in pairs(data.activeBuffs) do
+		if info.expiresAt and info.expiresAt > now then
+			order = order + 1
+			local remaining = math.ceil(info.expiresAt - now)
+			local shortName = getBuffShortName(buffId)
+
+			local badge = Instance.new("Frame")
+			badge.Name = "BuffBadge_" .. buffId
+			badge.Size = UDim2.new(0, 0, 0, 40)
+			badge.AutomaticSize = Enum.AutomaticSize.X
+			badge.LayoutOrder = order
+			badge.BackgroundColor3 = Color3.fromRGB(28, 34, 52)
+			badge.BorderSizePixel = 0
+			badge.Parent = buffBar
+
+			local corner = Instance.new("UICorner")
+			corner.CornerRadius = UDim.new(0, 20)
+			corner.Parent = badge
+
+			local stroke = Instance.new("UIStroke")
+			stroke.Color = Color3.fromRGB(70, 180, 100)
+			stroke.Thickness = 1.5
+			stroke.Parent = badge
+
+			local padding = Instance.new("UIPadding")
+			padding.PaddingLeft = UDim.new(0, 12)
+			padding.PaddingRight = UDim.new(0, 12)
+			padding.PaddingTop = UDim.new(0, 6)
+			padding.PaddingBottom = UDim.new(0, 6)
+			padding.Parent = badge
+
+			local inner = Instance.new("Frame")
+			inner.Size = UDim2.new(0, 0, 1, 0)
+			inner.AutomaticSize = Enum.AutomaticSize.X
+			inner.BackgroundTransparency = 1
+			inner.Parent = badge
+
+			local innerLayout = Instance.new("UIListLayout")
+			innerLayout.FillDirection = Enum.FillDirection.Horizontal
+			innerLayout.Padding = UDim.new(0, 6)
+			innerLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+			innerLayout.SortOrder = Enum.SortOrder.LayoutOrder
+			innerLayout.Parent = inner
+
+			local nameLbl = Instance.new("TextLabel")
+			nameLbl.Size = UDim2.new(0, 0, 0, 18)
+			nameLbl.AutomaticSize = Enum.AutomaticSize.X
+			nameLbl.LayoutOrder = 1
+			nameLbl.BackgroundTransparency = 1
+			nameLbl.Text = shortName
+			nameLbl.TextColor3 = Color3.fromRGB(180, 230, 180)
+			nameLbl.Font = Enum.Font.GothamBold
+			nameLbl.TextSize = 11
+			nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+			nameLbl.Parent = inner
+
+			local timePill = Instance.new("Frame")
+			timePill.Size = UDim2.new(0, 0, 0, 20)
+			timePill.AutomaticSize = Enum.AutomaticSize.X
+			timePill.LayoutOrder = 2
+			timePill.BackgroundColor3 = Color3.fromRGB(20, 45, 30)
+			timePill.BorderSizePixel = 0
+			timePill.Parent = inner
+
+			local timeCorner = Instance.new("UICorner")
+			timeCorner.CornerRadius = UDim.new(0, 10)
+			timeCorner.Parent = timePill
+
+			local timePad = Instance.new("UIPadding")
+			timePad.PaddingLeft = UDim.new(0, 8)
+			timePad.PaddingRight = UDim.new(0, 8)
+			timePad.PaddingTop = UDim.new(0, 2)
+			timePad.PaddingBottom = UDim.new(0, 2)
+			timePad.Parent = timePill
+
+			local timeLbl = Instance.new("TextLabel")
+			timeLbl.Size = UDim2.new(0, 0, 1, 0)
+			timeLbl.AutomaticSize = Enum.AutomaticSize.X
+			timeLbl.BackgroundTransparency = 1
+			timeLbl.Text = remaining .. "s"
+			timeLbl.TextColor3 = C.green
+			timeLbl.Font = Enum.Font.GothamBold
+			timeLbl.TextSize = 10
+			timeLbl.Parent = timePill
+		end
+	end
+end
+
+-- Update buff display every 2 seconds
+task.spawn(function()
+	while true do
+		task.wait(2)
+		updateActiveBuffsDisplay()
+	end
+end)
 
 -- -- BUILD ITEM CARDS --
 
@@ -166,14 +381,19 @@ local function buildShopItems()
 			Instance.new("UICorner", coinBtn).CornerRadius = UDim.new(0, 6)
 
 			coinBtn.MouseButton1Click:Connect(function()
-				if buyBuff then
-					local ok, msg = buyBuff:InvokeServer(item.id, "coins")
-					if ok then
-						Notify.Toast("Activated " .. item.name .. "!", C.green, 3, "X")
-						refreshCurrency()
-					else
-						Notify.Toast(msg or "Purchase failed", C.red, 3, "X")
-					end
+				if not buyBuff then return end
+				local ok, success, msg = pcall(function() return buyBuff:InvokeServer(item.id, "coins") end)
+				if not ok then
+					Notify.Toast(success and tostring(success):sub(1, 60) or "Connection error", C.red, 3, "X")
+					return
+				end
+				if success then
+					Notify.Toast("Activated " .. item.name .. "!", C.green, 3, "X")
+					refreshCurrency()
+					updateActiveBuffsDisplay()
+					playBuffActivatedFX(item.id)
+				else
+					Notify.Toast(msg or "Purchase failed", C.red, 3, "X")
 				end
 			end)
 			btnX = btnX + 0.22
@@ -188,14 +408,19 @@ local function buildShopItems()
 			Instance.new("UICorner", gemBtn).CornerRadius = UDim.new(0, 6)
 
 			gemBtn.MouseButton1Click:Connect(function()
-				if buyBuff then
-					local ok, msg = buyBuff:InvokeServer(item.id, "gems")
-					if ok then
-						Notify.Toast("Activated " .. item.name .. "!", C.green, 3, "X")
-						refreshCurrency()
-					else
-						Notify.Toast(msg or "Purchase failed", C.red, 3, "X")
-					end
+				if not buyBuff then return end
+				local ok, success, msg = pcall(function() return buyBuff:InvokeServer(item.id, "gems") end)
+				if not ok then
+					Notify.Toast(success and tostring(success):sub(1, 60) or "Connection error", C.red, 3, "X")
+					return
+				end
+				if success then
+					Notify.Toast("Activated " .. item.name .. "!", C.green, 3, "X")
+					refreshCurrency()
+					updateActiveBuffsDisplay()
+					playBuffActivatedFX(item.id)
+				else
+					Notify.Toast(msg or "Purchase failed", C.red, 3, "X")
 				end
 			end)
 		end
@@ -204,65 +429,6 @@ local function buildShopItems()
 	layout:ApplyLayout()
 	scroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 10)
 end
-
--- -- ACTIVE BUFFS HUD --
-
-local buffBar = Instance.new("Frame")
-buffBar.Name = "ActiveBuffs"
-buffBar.Size = UDim2.new(0, 300, 0, 28)
-buffBar.Position = UDim2.new(0, 12, 0, 90)
-buffBar.BackgroundTransparency = 1; buffBar.Parent = sg
-
-local buffLayout = Instance.new("UIListLayout")
-buffLayout.FillDirection = Enum.FillDirection.Horizontal
-buffLayout.Padding = UDim.new(0, 4)
-buffLayout.SortOrder = Enum.SortOrder.LayoutOrder; buffLayout.Parent = buffBar
-
-local function updateActiveBuffsDisplay()
-	for _, ch in ipairs(buffBar:GetChildren()) do
-		if ch:IsA("Frame") then ch:Destroy() end
-	end
-
-	if not getInventory then return end
-	local ok, data = pcall(function() return getInventory:InvokeServer() end)
-	if not ok or not data or not data.activeBuffs then return end
-
-	local now = tick()
-	local order = 0
-	for buffId, info in pairs(data.activeBuffs) do
-		if info.expiresAt and info.expiresAt > now then
-			order = order + 1
-			local remaining = math.ceil(info.expiresAt - now)
-
-			-- Find buff name
-			local buffName = buffId
-			for _, item in ipairs(GameConfig.BuffShopItems) do
-				if item.id == buffId then buffName = item.name:sub(1, 4); break end
-			end
-
-			local tag = Instance.new("Frame")
-			tag.Size = UDim2.new(0, 65, 0, 24); tag.LayoutOrder = order
-			tag.BackgroundColor3 = Color3.fromRGB(30, 35, 55); tag.BorderSizePixel = 0
-			tag.Parent = buffBar
-			Instance.new("UICorner", tag).CornerRadius = UDim.new(0, 6)
-
-			local tagLbl = Instance.new("TextLabel")
-			tagLbl.Size = UDim2.new(1, -4, 1, 0); tagLbl.Position = UDim2.new(0, 2, 0, 0)
-			tagLbl.BackgroundTransparency = 1
-			tagLbl.Text = buffName .. " " .. remaining .. "s"
-			tagLbl.TextColor3 = C.green; tagLbl.Font = Enum.Font.GothamBold; tagLbl.TextSize = 9
-			tagLbl.Parent = tag
-		end
-	end
-end
-
--- Update buff display every 5 seconds
-task.spawn(function()
-	while true do
-		task.wait(5)
-		updateActiveBuffsDisplay()
-	end
-end)
 
 -- Toggle from HUD only (key G and [G] Buffs button both fire HUDToggleMenu from HUDButtonBar)
 local function getHUDToggle()

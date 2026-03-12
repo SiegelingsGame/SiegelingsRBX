@@ -191,7 +191,7 @@ function CosmeticSystem.Init(pdm)
 			timestamp = math.floor(tick() * 1000), hypothesisId = "H3"
 		}))
 	end)
-	-- #endregion
+	-- #endregionkhj
 
 	if buyCosmeticEvt then
 		buyCosmeticEvt.OnServerInvoke = function(player, cosmeticId, currency)

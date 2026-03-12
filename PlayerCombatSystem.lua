@@ -23,9 +23,13 @@ local meleeCooldowns = {}
 
 local function findCreatureByUniqueId(targetId)
 	if type(targetId) ~= "string" or #targetId == 0 then return nil end
+	local targetStr = targetId
 	for _, model in ipairs(CollectionService:GetTagged(WORLD_TAG)) do
-		if model.Parent and (model:GetAttribute("UniqueId") == targetId or model:GetAttribute("UID") == targetId) then
-			return model
+		if model.Parent then
+			local uid = model:GetAttribute("UniqueId") or model:GetAttribute("UID")
+			if uid and tostring(uid) == targetStr then
+				return model
+			end
 		end
 	end
 	return nil

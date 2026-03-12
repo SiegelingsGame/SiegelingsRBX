@@ -62,16 +62,19 @@ local function normalizeBattleTeam(bt)
 	return fixed
 end
 
--- DataStore can serialize array keys as strings; normalize baseSlots/defenseSlots to numeric indices.
+-- DataStore can serialize array keys as strings; normalize baseSlots/defenseSlots to dense 1..MAX_SLOTS array.
+-- ipairs() stops at first nil, so we must return a dense array or only slot 1 is ever used by placement/UI.
 local MAX_SLOTS = 18  -- 3 floors * 6
 local function normalizeSlotArray(slots)
-	if type(slots) ~= "table" then return {} end
+	if type(slots) ~= "table" then
+		local empty = {}
+		for i = 1, MAX_SLOTS do empty[i] = "" end
+		return empty
+	end
 	local fixed = {}
-	for k, v in pairs(slots) do
-		local n = tonumber(k)
-		if n and n >= 1 and n <= MAX_SLOTS and (type(v) == "string" or v == nil or v == "") then
-			fixed[n] = (v and v ~= "") and tostring(v) or ""
-		end
+	for i = 1, MAX_SLOTS do
+		local v = slots[i] or slots[tostring(i)]
+		fixed[i] = (v and v ~= "") and tostring(v) or ""
 	end
 	return fixed
 end
@@ -151,8 +154,10 @@ end
 function PlayerDataManager.AddXP(player, uid, amount)
 	local d = playerCache[player.UserId]
 	if not d then return 0, false end
+	local su = tostring(uid or "")
+	if su == "" then return 0, false end
 	for _, e in ipairs(d.inventory) do
-		if e.uid == uid then
+		if e.uid and tostring(e.uid) == su then
 			e.level = e.level or 1; e.xp = e.xp or 0
 			local maxLvl = CreatureData.GetMaxCreatureLevel(e.id)
 			if e.level >= maxLvl then return e.level, false end
@@ -174,8 +179,10 @@ end
 function PlayerDataManager.GetCreatureByUid(player, uid)
 	local d = playerCache[player.UserId]
 	if not d then return nil end
+	local su = tostring(uid or "")
+	if su == "" then return nil end
 	for _, e in ipairs(d.inventory) do
-		if e.uid == uid then return e end
+		if tostring(e.uid) == su then return e end
 	end
 	return nil
 end
@@ -238,24 +245,24 @@ function PlayerDataManager.GetEffectiveStats(creatureId, level, variant)
 	}
 end
 
--- Remove uid from ALL slot types. Uses slot clear (set to "") to avoid shifting - keeps placement points fixed.
--- Uses numeric loop (not ipairs) since DataStore can give string keys / sparse tables.
+-- Remove uid from ALL slot types (all occurrences, not just first). Uses slot clear (set to "") to avoid shifting.
+-- Clears duplicates so a creature cannot appear in multiple income/defense slots.
 local function removeFromAllSlots(data, uid)
 	local su = tostring(uid or "")
 	if su == "" then return end
 	for i = 1, MAX_SLOTS do
-		if data.baseSlots and tostring(data.baseSlots[i] or "") == su then data.baseSlots[i] = "" break end
+		if data.baseSlots and tostring(data.baseSlots[i] or "") == su then data.baseSlots[i] = "" end
 	end
 	for i = 1, MAX_SLOTS do
-		if data.defenseSlots and tostring(data.defenseSlots[i] or "") == su then data.defenseSlots[i] = "" break end
+		if data.defenseSlots and tostring(data.defenseSlots[i] or "") == su then data.defenseSlots[i] = "" end
 	end
-	if data.favoriteUid == uid then data.favoriteUid = nil end
+	if data.favoriteUid and tostring(data.favoriteUid) == su then data.favoriteUid = nil end
 	-- FIX #10: Use pairs() instead of integer loop for battleTeam.
 	-- DataStore serializes number keys as strings. Even though normalizeBattleTeam
 	-- converts them back on load, pairs() is more robust than for i=1,N.
 	if data.battleTeam then
 		for key, val in pairs(data.battleTeam) do
-			if val == uid then data.battleTeam[key] = nil break end
+			if val and tostring(val) == su then data.battleTeam[key] = nil break end
 		end
 	end
 end
@@ -264,7 +271,7 @@ function PlayerDataManager.RemoveCreature(player, uid)
 	local d = playerCache[player.UserId]
 	if not d then return nil end
 	for i, entry in ipairs(d.inventory) do
-		if entry.uid == uid then
+		if tostring(entry.uid) == tostring(uid) then
 			local removed = table.remove(d.inventory, i)
 			removeFromAllSlots(d, uid)
 			return removed
@@ -280,7 +287,7 @@ function PlayerDataManager.TransferCreature(fromPlayer, toPlayer, uid)
 
 	local entry, idx = nil, nil
 	for i, e in ipairs(fd.inventory) do
-		if e.uid == uid then entry = e; idx = i; break end
+		if tostring(e.uid) == tostring(uid) then entry = e; idx = i; break end
 	end
 	if not entry then return false end
 
@@ -394,8 +401,10 @@ end
 function PlayerDataManager.GetEggByUid(player, uid)
 	local d = playerCache[player.UserId]
 	if not d or not d.eggs then return nil end
+	local su = tostring(uid or "")
+	if su == "" then return nil end
 	for _, egg in ipairs(d.eggs) do
-		if egg.uid == uid then return egg end
+		if egg.uid and tostring(egg.uid) == su then return egg end
 	end
 	return nil
 end
@@ -421,8 +430,9 @@ end
 function PlayerDataManager.RemoveEgg(player, uid)
 	local d = playerCache[player.UserId]
 	if not d or not d.eggs then return nil end
+	local su = tostring(uid or "")
 	for i, egg in ipairs(d.eggs) do
-		if egg.uid == uid then
+		if egg.uid and tostring(egg.uid) == su then
 			table.remove(d.eggs, i)
 			return egg
 		end
@@ -520,24 +530,34 @@ local function countFilledSlots(slots, maxSlots)
 end
 
 -- Build set of UIDs that actually exist (inventory + eggs). Used to avoid counting stale slot refs.
+-- Key by string so slot UIDs (which may be string or number after serialization) match.
 local function getValidUidSet(d)
 	local valid = {}
 	if not d then return valid end
-	for _, e in ipairs(d.inventory or {}) do if e and e.uid then valid[e.uid] = true end end
-	for _, egg in ipairs(d.eggs or {}) do if egg and egg.uid then valid[egg.uid] = true end end
+	for _, e in ipairs(d.inventory or {}) do if e and e.uid then valid[tostring(e.uid)] = true end end
+	for _, egg in ipairs(d.eggs or {}) do if egg and egg.uid then valid[tostring(egg.uid)] = true end end
 	return valid
 end
 
--- Count filled slots that reference a UID still in inventory or eggs. Clears stale refs as it goes.
+-- Count filled slots that reference a UID still in inventory or eggs. Clears stale refs and duplicates.
+-- Duplicates (same UID in multiple slots) cause income creatures to spawn twice; keep first occurrence only.
 local function countValidFilledSlotsAndSanitize(d, slots, maxSlots)
 	if not slots or not d then return 0 end
 	local valid = getValidUidSet(d)
+	local seen = {}
 	local c = 0
 	for i = 1, maxSlots do
 		local v = slots[i]
 		if v and v ~= "" then
-			if valid[v] then
-				c = c + 1
+			local sv = tostring(v)
+			if valid[sv] then
+				if seen[sv] then
+					-- Duplicate UID: clear so we only have one creature per slot type
+					slots[i] = ""
+				else
+					seen[sv] = true
+					c = c + 1
+				end
 			else
 				-- Stale UID: clear so display and next save are correct
 				slots[i] = ""
@@ -556,48 +576,110 @@ local function firstEmptySlot(slots, maxSlots)
 	return nil
 end
 
--- Assign uid to first empty slot. Returns success, slotIndex, added (true=placed, false=toggled off)
-function PlayerDataManager.AssignToBase(player, uid)
+-- Ensure slots table is dense (1..maxSlots all exist) so ipairs()s and placement see every slot.
+local function ensureSlotsDense(slots, maxSlots)
+	if not slots or maxSlots < 1 then return end
+	for i = 1, maxSlots do
+		if slots[i] == nil then slots[i] = "" end
+	end
+end
+
+-- Assign uid to aincome slot. optionalSlotIndex: if given, place at that slot (replacing any creature there; server clears sthat slot first).
+-- optionalSlotIndex == 0 means explicit "remove from base" (client Rem button)... Returns success, slotIndex, added (true=we juast placed in this call; false=removed or already in base—server must not place again).
+function PlayerDataManager.AssignToBase(player, uid, optionalSlotIndex)
 	local d = playerCache[player.UserId]
 	if not d then return false, nil, nil end
 	if not d.baseSlots then d.baseSlots = {} end
 	local maxSlots = PlayerDataManager.GetMaxSlots(player, "income")
-	-- Sanitize stale slot UIDs so "filled" count and capacity match actual inventory
+	ensureSlotsDense(d.baseSlots, maxSlots)
 	countValidFilledSlotsAndSanitize(d, d.baseSlots, maxSlots)
-	-- Toggle off: already in base? (use numeric loop; DataStore can give sparse/string-keyed tables)
+	local su = tostring(uid or "")
+	-- Explicit remove: client sends 0 for "Rem" button. Clear ALL slots with this uid (fixes duplicate reappearing).
+	if optionalSlotIndex == 0 or optionalSlotIndex == "0" then
+		local cleared = false
+		for i = 1, maxSlots do
+			local v = d.baseSlots[i] or d.baseSlots[tostring(i)]
+			if tostring(v or "") == su then
+				d.baseSlots[i] = ""
+				d.baseSlots[tostring(i)] = ""
+				cleared = true
+			end
+		end
+		return cleared, 0, false
+	end
+	-- Already in base? Idempotent: treat as success but do NOT place again (prevents duplicate models on double-fire).
 	for i = 1, maxSlots do
-		if tostring(d.baseSlots[i] or "") == tostring(uid) then
-			d.baseSlots[i] = ""
-			return true, i, false
+		if tostring(d.baseSlots[i] or "") == su then
+			if type(optionalSlotIndex) == "number" and optionalSlotIndex >= 1 and optionalSlotIndex <= maxSlots and optionalSlotIndex ~= i then
+				-- Moving to a different slot: remove from current, will place below
+				d.baseSlots[i] = ""
+				break
+			else
+				return true, i, false
+			end
 		end
 	end
+	-- Assign to specific slot (caller must ClearCreatureAtSlot first for that index)
+	if type(optionalSlotIndex) == "number" and optionalSlotIndex >= 1 and optionalSlotIndex <= maxSlots then
+		if not isCreatureOrEggUid(d, uid) then return false, nil, nil end
+		removeFromAllSlots(d, uid)
+		d.baseSlots[optionalSlotIndex] = tostring(uid)
+		return true, optionalSlotIndex, true
+	end
+	-- First empty slot
 	if countFilledSlots(d.baseSlots, maxSlots) >= maxSlots then return false, nil, nil end
 	if not isCreatureOrEggUid(d, uid) then return false, nil, nil end
 	removeFromAllSlots(d, uid)
 	local slot = firstEmptySlot(d.baseSlots, maxSlots)
-	d.baseSlots[slot] = uid
+	d.baseSlots[slot] = tostring(uid)
 	return true, slot, true
 end
 
--- Assign uid to first empty slot. Returns success, slotIndex, added (true=placed, false=toggled off)
-function PlayerDataManager.AssignToDefense(player, uid)
+-- Assign uid to defense slot. optionalSlotIndex: if given, place at that slot (replacing any creature there; server clears that slot first).
+-- optionalSlotIndex == 0 means explicit "remove from defense" (client Rem button). Returns success, slotIndex, added (true=we just placed in this call; false=removed or already in defense—server must not place again).
+function PlayerDataManager.AssignToDefense(player, uid, optionalSlotIndex)
 	local d = playerCache[player.UserId]
 	if not d then return false, nil, nil end
 	if not d.defenseSlots then d.defenseSlots = {} end
 	local maxSlots = PlayerDataManager.GetMaxSlots(player, "defense")
-	-- Sanitize stale slot UIDs so "filled" count and capacity match actual inventory
+	ensureSlotsDense(d.defenseSlots, maxSlots)
 	countValidFilledSlotsAndSanitize(d, d.defenseSlots, maxSlots)
-	for i = 1, maxSlots do
-		if tostring(d.defenseSlots[i] or "") == tostring(uid) then
-			d.defenseSlots[i] = ""
-			return true, i, false
+	local su = tostring(uid or "")
+	-- Explicit remove: client sends 0 for "Rem" button. Clear ALL slots with this uid (fixes duplicate reappearing).
+	if optionalSlotIndex == 0 or optionalSlotIndex == "0" then
+		local cleared = false
+		for i = 1, maxSlots do
+			local v = d.defenseSlots[i] or d.defenseSlots[tostring(i)]
+			if tostring(v or "") == su then
+				d.defenseSlots[i] = ""
+				d.defenseSlots[tostring(i)] = ""
+				cleared = true
+			end
 		end
+		return cleared, 0, false
+	end
+	-- Already in defense? Idempotent: treat as success but do NOT place again (prevents duplicate models on double-fire).
+	for i = 1, maxSlots do
+		if tostring(d.defenseSlots[i] or "") == su then
+			if type(optionalSlotIndex) == "number" and optionalSlotIndex >= 1 and optionalSlotIndex <= maxSlots and optionalSlotIndex ~= i then
+				d.defenseSlots[i] = ""
+				break
+			else
+				return true, i, false
+			end
+		end
+	end
+	if type(optionalSlotIndex) == "number" and optionalSlotIndex >= 1 and optionalSlotIndex <= maxSlots then
+		if not isCreatureOrEggUid(d, uid) then return false, nil, nil end
+		removeFromAllSlots(d, uid)
+		d.defenseSlots[optionalSlotIndex] = tostring(uid)
+		return true, optionalSlotIndex, true
 	end
 	if countFilledSlots(d.defenseSlots, maxSlots) >= maxSlots then return false, nil, nil end
 	if not isCreatureOrEggUid(d, uid) then return false, nil, nil end
 	removeFromAllSlots(d, uid)
 	local slot = firstEmptySlot(d.defenseSlots, maxSlots)
-	d.defenseSlots[slot] = uid
+	d.defenseSlots[slot] = tostring(uid)
 	return true, slot, true
 end
 
@@ -628,8 +710,10 @@ function PlayerDataManager.GetSlotIndexForUid(player, slotType, uid)
 	local slots = isBase and d.baseSlots or d.defenseSlots
 	if not slots then return nil end
 	local maxSlots = PlayerDataManager.GetMaxSlots(player, isBase and "income" or "defense")
+	local su = tostring(uid or "")
 	for i = 1, maxSlots do
-		if slots[i] == uid then return i end
+		local v = slots[i]
+		if v and tostring(v) == su then return i end
 	end
 	return nil
 end
@@ -657,8 +741,10 @@ function PlayerDataManager.MoveSlotByUid(player, slotType, uid, targetIndex)
 	end
 	-- Find current slot
 	local fromIndex = nil
+	local su = tostring(uid or "")
 	for i = 1, maxSlots do
-		if slots[i] == uid then fromIndex = i; break end
+		local v = slots[i]
+		if v and tostring(v) == su then fromIndex = i; break end
 	end
 	if not fromIndex then return false, "Creature not in slot" end
 	if fromIndex == targetIndex then return false, "Already in that slot" end
@@ -673,12 +759,12 @@ function PlayerDataManager.MoveSlotByUid(player, slotType, uid, targetIndex)
 end
 
 --- Swap two creatures' slot positions within the same type.
--- Both slots must contain creatures (non-empty).
+-- Both slots must contain creatures (non-empty).testt
 -- @param player Player
 -- @param slotType string "income" or "defense"
 -- @param uidA string first creature UID
 -- @param uidB string second creature UID
--- @return ok boolean, indexA number, indexB number
+-- @return ok boolean, indexA number, indexB number t
 function PlayerDataManager.SwapSlotsByUid(player, slotType, uidA, uidB)
 	local d = playerCache[player.UserId]
 	if not d then return false, 0, 0 end
@@ -687,9 +773,11 @@ function PlayerDataManager.SwapSlotsByUid(player, slotType, uidA, uidB)
 	if not slots then return false, 0, 0 end
 	local maxSlots = PlayerDataManager.GetMaxSlots(player, isBase and "income" or "defense")
 	local indexA, indexB = nil, nil
+	local sA, sB = tostring(uidA or ""), tostring(uidB or "")
 	for i = 1, maxSlots do
-		if slots[i] == uidA then indexA = i end
-		if slots[i] == uidB then indexB = i end
+		local v = slots[i]
+		if v and tostring(v) == sA then indexA = i end
+		if v and tostring(v) == sB then indexB = i end
 	end
 	if not indexA then return false, 0, 0 end
 	if not indexB then return false, 0, 0 end
@@ -702,12 +790,14 @@ end
 function PlayerDataManager.SetFavorite(player, uid)
 	local d = playerCache[player.UserId]
 	if not d then return false end
-	if d.favoriteUid == uid then d.favoriteUid = nil; return true end
+	-- Idempotent set: repeated SetFavorite(uid) calls should not clear favorite.
+	-- Unfavorite is handled explicitly via ClearFavorite / empty uid event.
+	if d.favoriteUid and tostring(d.favoriteUid) == tostring(uid) then return true end
 	local found = false
-	for _, e in ipairs(d.inventory) do if e.uid == uid then found = true break end end
+	for _, e in ipairs(d.inventory) do if tostring(e.uid) == tostring(uid) then found = true break end end
 	if not found then return false end
 	removeFromAllSlots(d, uid)
-	d.favoriteUid = uid
+	d.favoriteUid = tostring(uid)
 	return true
 end
 
@@ -719,8 +809,9 @@ end
 function PlayerDataManager.GetFavorite(player)
 	local d = playerCache[player.UserId]
 	if not d or not d.favoriteUid then return nil end
+	local su = tostring(d.favoriteUid)
 	for _, e in ipairs(d.inventory) do
-		if e.uid == d.favoriteUid then return e end
+		if tostring(e.uid) == su then return e end
 	end
 	return nil
 end
@@ -746,13 +837,14 @@ function PlayerDataManager.AssignToBattle(player, uid, slotIndex)
 
 	-- Verify creature exists
 	local found = false
-	for _, e in ipairs(d.inventory) do if e.uid == uid then found = true break end end
+	for _, e in ipairs(d.inventory) do if tostring(e.uid) == tostring(uid) then found = true break end end
 	if not found then return false, "Not in inventory" end
 
 	-- Is this creature already on the battle team? (use pairs so string keys from serialization are found)
 	local existingSlot = nil
+	local su = tostring(uid)
 	for key, val in pairs(d.battleTeam) do
-		if val == uid then
+		if val and tostring(val) == su then
 			existingSlot = tonumber(key) or key
 			break
 		end
@@ -815,8 +907,9 @@ end
 function PlayerDataManager.RemoveFromBattle(player, uid)
 	local d = playerCache[player.UserId]
 	if not d or not d.battleTeam then return false end
+	local su = tostring(uid or "")
 	for key, val in pairs(d.battleTeam) do
-		if val == uid then
+		if val and tostring(val) == su then
 			d.battleTeam[key] = nil
 			return true
 		end
@@ -828,11 +921,11 @@ function PlayerDataManager.GetStealableCreatures(player)
 	local d = playerCache[player.UserId]
 	if not d then return {} end
 	local protected = {}
-	for _, u in ipairs(d.defenseSlots or {}) do if u and u ~= "" then protected[u] = true end end
-	if d.favoriteUid then protected[d.favoriteUid] = true end
+	for _, u in ipairs(d.defenseSlots or {}) do if u and u ~= "" then protected[tostring(u)] = true end end
+	if d.favoriteUid then protected[tostring(d.favoriteUid)] = true end
 	local stealable = {}
 	for _, e in ipairs(d.inventory) do
-		if not protected[e.uid] then table.insert(stealable, e) end
+		if not protected[tostring(e.uid)] then table.insert(stealable, e) end
 	end
 	return stealable
 end
@@ -862,6 +955,34 @@ function PlayerDataManager.CountCreaturesByRarity(player)
 	return counts
 end
 
+-- True if player has at least one of this creature at max level (for rebirth team requirement).
+function PlayerDataManager.HasCreatureAtMaxLevel(player, creatureId)
+	local d = playerCache[player.UserId]
+	if not d or not d.inventory then return false end
+	local maxLvl = CreatureData.GetMaxCreatureLevel(creatureId)
+	for _, e in ipairs(d.inventory) do
+		if e.id == creatureId and (e.level or 1) >= maxLvl then
+			return true
+		end
+	end
+	return false
+end
+
+-- Returns array of { creatureId, displayName, haveAtMaxLevel } for UI. teamArray = req.team from config.
+function PlayerDataManager.GetRebirthTeamProgress(player, teamArray)
+	if not teamArray or type(teamArray) ~= "table" then return {} end
+	local out = {}
+	for _, creatureId in ipairs(teamArray) do
+		local info = CreatureData.GetById(creatureId)
+		out[#out + 1] = {
+			creatureId = creatureId,
+			displayName = (info and info.displayName) or creatureId,
+			haveAtMaxLevel = PlayerDataManager.HasCreatureAtMaxLevel(player, creatureId),
+		}
+	end
+	return out
+end
+
 -- Get requirements for next rebirth (level = current rebirth + 1). Returns nil if max level.
 function PlayerDataManager.GetRebirthRequirements(level)
 	local cfg = GameConfig.RebirthLevels
@@ -871,7 +992,7 @@ function PlayerDataManager.GetRebirthRequirements(level)
 	return cfg[idx]
 end
 
--- Check if player can perform next rebirth (meets gold + creature counts).
+-- Check if player can perform next rebirth (gold + team of 5 at max level, or legacy rarity counts).
 function PlayerDataManager.CanRebirth(player)
 	local lvl = PlayerDataManager.GetRebirthLevel(player)
 	local req = PlayerDataManager.GetRebirthRequirements(lvl)
@@ -881,6 +1002,18 @@ function PlayerDataManager.CanRebirth(player)
 	if (d.coins or 0) < (req.gold or 0) then
 		return false, "Need " .. tostring(req.gold) .. " gold (you have " .. tostring(d.coins or 0) .. ")"
 	end
+	-- Team-based: require each creature in team to be owned at max level
+	if req.team and type(req.team) == "table" and #req.team > 0 then
+		for i, creatureId in ipairs(req.team) do
+			if not PlayerDataManager.HasCreatureAtMaxLevel(player, creatureId) then
+				local info = CreatureData.GetById(creatureId)
+				local name = (info and info.displayName) or creatureId
+				return false, "Need " .. tostring(name) .. " at max level (slot " .. tostring(i) .. ")"
+			end
+		end
+		return true
+	end
+	-- Legacy: rarity counts
 	local counts = PlayerDataManager.CountCreaturesByRarity(player)
 	for rarity, need in pairs(req.creatures or {}) do
 		local have = counts[rarity] or 0
@@ -905,10 +1038,11 @@ function PlayerDataManager.DoRebirth(player)
 		return false, "Not enough gold"
 	end
 	local keepUid = d.favoriteUid  -- keep favorite in inventory; it stays equipped
+	local keepStr = tostring(keepUid or "")
 	-- Build list of UIDs to remove: everything in inventory except favorite
 	local toRemove = {}
 	for _, e in ipairs(d.inventory) do
-		if e.uid ~= keepUid then toRemove[#toRemove + 1] = e.uid end
+		if tostring(e.uid) ~= keepStr then toRemove[#toRemove + 1] = e.uid end
 	end
 	-- Remove each creature (this clears base/defense/battle slots via removeFromAllSlots)
 	for _, uid in ipairs(toRemove) do
@@ -946,27 +1080,19 @@ function PlayerDataManager.GetRebirthBonusesForLevel(level)
 end
 
 -- ====== Plot Assignment ======
+-- Each join: assign a random unoccupied base (no reclaim; spawn at random base every time).
 
 function PlayerDataManager.AssignPlot(player)
 	local d = playerCache[player.UserId]
 	if not d then return 0 end
 
-	-- If player has existing plotId from saved data, reclaim or verify ownership
-	if d.plotId and d.plotId > 0 then
-		local currentOwner = claimedPlotIds[d.plotId]
-		if currentOwner == player.UserId then
-			return d.plotId
-		end
-		if currentOwner == nil then
-			-- Reclaim our saved plot (we loaded before our leave was processed, or fresh server)
-			claimedPlotIds[d.plotId] = player.UserId
-			return d.plotId
-		end
-		-- Plot was taken by another player (e.g. corrupted data) - assign a new one below
-		d.plotId = 0
+	-- Release any previously claimed plot so it can be chosen by others
+	if d.plotId and d.plotId > 0 and claimedPlotIds[d.plotId] == player.UserId then
+		claimedPlotIds[d.plotId] = nil
 	end
+	d.plotId = 0
 
-	-- Build used from atomic claimed table (prevents race when two players assign simultaneously)
+	-- Build list of unoccupied plots and pick one at random
 	local available = {}
 	for i = 1, GameConfig.MaxPlots do
 		if not claimedPlotIds[i] then
@@ -975,10 +1101,18 @@ function PlayerDataManager.AssignPlot(player)
 	end
 	if #available == 0 then return 0 end
 	local pick = available[math.random(1, #available)]
-	-- Claim immediately before returning so concurrent AssignPlot calls see it
 	claimedPlotIds[pick] = player.UserId
 	d.plotId = pick
 	return pick
+end
+
+-- Returns set of plotIds currently claimed by an online player (for plot visibility).
+function PlayerDataManager.GetClaimedPlotIds()
+	local out = {}
+	for plotId, _ in pairs(claimedPlotIds) do
+		out[plotId] = true
+	end
+	return out
 end
 
 -- ====== Lifecycle ======
@@ -1013,18 +1147,26 @@ function PlayerDataManager.OnPlayerJoin(player)
 			if e.xp == nil then e.xp = 0 end
 			if e.variant == nil then e.variant = "Normal" end
 		end
-		-- Clear stale slot UIDs: slots can reference creatures no longer in inventory (e.g. after data loss).
-		-- This fixes the disconnect where "Creatures: 8/50" but capture prompt showed "Income 15/18".
+		-- Clear stale and duplicate slot UIDs. Stale = creature no longer in inventory. Duplicate = same UID in multiple slots (causes income creatures to spawn twice).
 		do
 			local validUids = {}
-			for _, e in ipairs(data.inventory or {}) do if e and e.uid then validUids[e.uid] = true end end
-			for _, egg in ipairs(data.eggs or {}) do if egg and egg.uid then validUids[egg.uid] = true end end
+			for _, e in ipairs(data.inventory or {}) do if e and e.uid then validUids[tostring(e.uid)] = true end end
+			for _, egg in ipairs(data.eggs or {}) do if egg and egg.uid then validUids[tostring(egg.uid)] = true end end
+			local seenBase, seenDef = {}, {}
 			for i = 1, MAX_SLOTS do
-				if data.baseSlots[i] and data.baseSlots[i] ~= "" and not validUids[data.baseSlots[i]] then
-					data.baseSlots[i] = ""
+				local b = data.baseSlots and data.baseSlots[i]
+				if b and b ~= "" then
+					local sb = tostring(b)
+					if not validUids[sb] then data.baseSlots[i] = ""
+					elseif seenBase[sb] then data.baseSlots[i] = ""  -- duplicate
+					else seenBase[sb] = true end
 				end
-				if data.defenseSlots[i] and data.defenseSlots[i] ~= "" and not validUids[data.defenseSlots[i]] then
-					data.defenseSlots[i] = ""
+				local d = data.defenseSlots and data.defenseSlots[i]
+				if d and d ~= "" then
+					local sd = tostring(d)
+					if not validUids[sd] then data.defenseSlots[i] = ""
+					elseif seenDef[sd] then data.defenseSlots[i] = ""  -- duplicate
+					else seenDef[sd] = true end
 				end
 			end
 			for key, uid in pairs(data.battleTeam or {}) do
@@ -1256,6 +1398,10 @@ end
 function PlayerDataManager.AddPlayerXP(player, amount)
 	local d = playerCache[player.UserId]
 	if not d then return 0, false end
+	-- XP boost buff: 2x XP
+	if PlayerDataManager.HasBuff(player, "xpboost") then
+		amount = amount * 2
+	end
 	d.playerLevel = d.playerLevel or 1
 	d.playerXP = d.playerXP or 0
 	if d.playerLevel >= GameConfig.PlayerMaxLevel then return d.playerLevel, false end
@@ -1323,8 +1469,9 @@ function PlayerDataManager.SellCreature(player, uid)
 	local d = playerCache[player.UserId]
 	if not d then return false, 0 end
 	local entry = nil
+	local su = tostring(uid or "")
 	for _, e in ipairs(d.inventory) do
-		if e.uid == uid then entry = e; break end
+		if tostring(e.uid) == su then entry = e; break end
 	end
 	if not entry then return false, 0 end
 	local CreatureData = require(game.ReplicatedStorage.Modules.CreatureData)
@@ -1336,7 +1483,7 @@ function PlayerDataManager.SellCreature(player, uid)
 	local sellPrice = math.floor(baseCost * (entry.level or 1))
 	removeFromAllSlots(d, uid)
 	for i, e in ipairs(d.inventory) do
-		if e.uid == uid then table.remove(d.inventory, i); break end
+		if tostring(e.uid) == su then table.remove(d.inventory, i); break end
 	end
 	d.coins = d.coins + sellPrice
 	return true, sellPrice

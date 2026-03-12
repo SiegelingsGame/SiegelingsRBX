@@ -2,10 +2,15 @@
 -- Inventory, Battle Formation, and Base (layout + raids) UI.
 -- Toggle with 'B' key or on-screen button.
 
+-- Set to true to print base layout / placement debug logs to Output
+local BASE_LAYOUT_DEBUG = false
+local function baseLog(...) if BASE_LAYOUT_DEBUG then print("[BaseLayout]", ...) end end
+
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local CollectionService = game:GetService("CollectionService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -25,6 +30,7 @@ end
 local PLAY_FAV_ANIM_NAME = "PlayFavoriteCardAnimation"
 ensureBindable(PLAY_FAV_ANIM_NAME)
 ensureBindable("ToggleWeaponMode")
+ensureBindable("WeaponModeChanged")  -- so we can connect before PlayerCombatClient fires; combat client finds and fires current modes
 
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
@@ -42,6 +48,7 @@ end
 local getInventory    = safeGet("GetInventory")
 local assignToBase    = safeGet("AssignToBase")
 local assignToDefense = safeGet("AssignToDefense")
+local slotAssignComplete = Events:FindFirstChild("SlotAssignComplete")
 local setFavorite     = safeGet("SetFavorite")
 local captureSuccess  = safeGet("CaptureSuccess")
 local raidRequest     = safeGet("RaidRequest")
@@ -55,6 +62,11 @@ local getBattleInfo   = safeGet("GetBattleInfo")
 local arenaAnnounce   = safeGet("ArenaAnnounce")
 local battleEnd       = safeGet("BattleEnd")
 local battleKill      = safeGet("BattleKill")
+-- Gym battle events (separate system from standard arena battles)
+local gymAnnounce     = Events:FindFirstChild("GymArenaAnnounce")
+local gymBattleEnd    = Events:FindFirstChild("GymBattleEnd")
+local gymBattleKill   = Events:FindFirstChild("GymBattleKill")
+local getBattleTimers = Events:FindFirstChild("GetBattleTimers") -- RemoteFunction for arena/gym timers
 local assignToBattle  = safeGet("AssignToBattle")
 local removeFromBattle = safeGet("RemoveFromBattle")
 local toggleBattleTeam = safeGet("ToggleBattleTeam")
@@ -64,6 +76,9 @@ local evolveCreature  = safeGet("EvolveCreature")
 local evolveResult    = safeGet("EvolveResult")
 local companionSpawnedEvt = safeGet("CompanionSpawned")
 local companionRecalledEvt = Events:FindFirstChild("CompanionRecalled")  -- water recall: favorite carded (non-water in water)
+-- FIX #17: Recall/Summon companion without changing favorite (Y / ReCard button)
+local recallCompanionEvt = safeGet("RecallCompanion")
+local summonCompanionEvt = safeGet("SummonCompanion")
 -- Colors
 local C = {
 	bg = Color3.fromRGB(14, 15, 22),
@@ -91,7 +106,9 @@ local RARITY = {
 local ELEMENT_COLOR = {
 	Fire = Color3.fromRGB(255, 80, 30), Ice = Color3.fromRGB(100, 200, 255),
 	Wind = Color3.fromRGB(150, 255, 180), Earth = Color3.fromRGB(180, 140, 80),
-	Shadow = Color3.fromRGB(120, 50, 180), Lightning = Color3.fromRGB(255, 230, 60),
+	Shadow = Color3.fromRGB(120, 50, 180), Light = Color3.fromRGB(255, 250, 200),
+	Lightning = Color3.fromRGB(255, 230, 60), Water = Color3.fromRGB(50, 150, 255),
+	Psychic = Color3.fromRGB(200, 150, 255),
 }
 local CLASS_COLOR = {
 	Bruiser = Color3.fromRGB(220, 80, 60), Mage = Color3.fromRGB(100, 120, 255),
@@ -99,9 +116,33 @@ local CLASS_COLOR = {
 	Support = Color3.fromRGB(100, 220, 120),
 }
 
+-- Debounce inventory button actions so double-clicks don't duplicate (e.g. assign then unassign).
+
+local INV_BTN_DEBOUNCE = 0.5
+local invBtnLastFire = {}
+local function invButtonDebounce(uid, action, fn)
+	local key = tostring(uid or "") .. ":" .. tostring(action or "")
+	local now = tick()
+	if invBtnLastFire[key] and (now - invBtnLastFire[key]) < INV_BTN_DEBOUNCE then return end
+	invBtnLastFire[key] = now
+	return fn()
+end
+
+-- FIX #20: Persistent optimistic state for Inc/Def buttons.
+-- When the user clicks Inc/Def, we store the *expected* state here. mkCard checks this table
+-- BEFORE server data so that ANY number of refreshInventory rebuilds (with or without override
+-- args, deferred or queued) still show the correct button text ("Rem" vs "Inc"/"Def").
+-- Entries self-clear inside refreshInventory once the server-side data (baseUidSet / defenseUidSet)
+-- matches the optimistic expectation, meaning the server has caught up.
+-- Safety: entries older than 5 seconds are force-cleared to prevent stale state from server errors.
+local pendingOptimistic = {} -- { [uidStr] = { base = bool|nil, def = bool|nil, t = number } }
+
 local pendingBattleUid = nil
-local lastFavoriteUid = nil   -- when user removes favorite, store here; Y or orb can re-equip it
+-- Optimistic battle formation: { [slotIndex] = uid } — show placement instantly before server confirms
+local pendingBattleOptimistic = {}
+local lastFavoriteUid = nil   -- when user removes favorite, store here; Y or orb can re-equip it t
 local lastFavoriteName = nil  -- display name for ReCard label when favorite is unequipped
+local lastFavoriteCreatureId = nil  -- creature id for summon card animation (ReCard)
 local companionOut = false   -- true when companion is spawned in world (for Summon vs ReCard label)
 
 -- Base Layout (Base tab): selected slot for assignment; nil = none selected
@@ -129,12 +170,19 @@ local PANEL_DESIGN_W = 960   -- Wider for sidebar (monster list)
 local PANEL_DESIGN_H = 640
 local PANEL_SCALE_MIN = 0.52   -- minimum scale so panel stays usable on small phones
 local PANEL_SCALE_MAX = 1      -- never larger than design size
+local MOBILE_BREAKPOINT = 620  -- viewport width below this = mobile layout (monster selection as sub-menu)
 
 local function getPanelScale()
 	local camera = workspace.CurrentCamera
 	local vp = (camera and camera.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
 	local scale = math.min(vp.X / PANEL_DESIGN_W, vp.Y / PANEL_DESIGN_H)
 	return math.clamp(scale, PANEL_SCALE_MIN, PANEL_SCALE_MAX)
+end
+
+local function isMobileLayout()
+	local camera = workspace.CurrentCamera
+	local vp = (camera and camera.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
+	return vp.X < MOBILE_BREAKPOINT or vp.Y < 500
 end
 
 -- B toggle button: shield-shaped, "Battle" / "Menu" on two lines. Under smaller HUD (~76px).
@@ -157,7 +205,6 @@ local toggleStroke = Instance.new("UIStroke", toggleBtn)
 toggleStroke.Color = Color3.fromRGB(255, 120, 60)
 toggleStroke.Thickness = 1
 toggleStroke.Transparency = 0.5
---Testing Test test test
 
 -- Favorite card (Y): rectangle/card shape, "Summon [name]" or "ReCard [name]", color by creature type.
 local favOrbBtn = Instance.new("TextButton")
@@ -190,33 +237,47 @@ favOrbYLabel.TextStrokeTransparency = 0.6
 favOrbYLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
 favOrbYLabel.Parent = favOrbBtn
 
--- [F] Swap button: bottom-right, just above Roblox jump button. Shows "Ranged" or "Melee" (opposite of current).
+-- Melee/Ranged swap button: triangle (▲ = switch to Melee) or upside-down triangle (▼ = switch to Ranged). Placed under Battle Menu.
+local TRIANGLE_MELEE = "\u{25B2}"   -- ▲ (click to switch to Melee)
+local TRIANGLE_RANGED = "\u{25BC}"  -- ▼ (click to switch to Ranged)
 local weaponIcon = Instance.new("TextButton")
 weaponIcon.Size = UDim2.new(0, 44, 0, 44)
-weaponIcon.Position = UDim2.new(1, -62, 1, -135)
-weaponIcon.AnchorPoint = Vector2.new(1, 1)
+-- Under Battle Menu button: toggleBtn is at (12, 76), height 54 → bottom at 130; place weapon 6px below
+weaponIcon.Position = UDim2.new(0, 12, 0, 136)
+weaponIcon.AnchorPoint = Vector2.new(0, 0)
 weaponIcon.BackgroundColor3 = Color3.fromRGB(28, 30, 42)
 weaponIcon.BorderSizePixel = 0
-weaponIcon.Text = "[F]"
+weaponIcon.Text = TRIANGLE_MELEE
 weaponIcon.TextColor3 = Color3.new(1, 1, 1)
 weaponIcon.Font = Enum.Font.GothamBold
-weaponIcon.TextSize = 14
+weaponIcon.TextSize = 18
 weaponIcon.Parent = sg
 Instance.new("UICorner", weaponIcon).CornerRadius = UDim.new(1, 0)
+-- Mode label ON the button, below the arrow; white and visible
 local weaponLbl = Instance.new("TextLabel")
-weaponLbl.Size = UDim2.new(0, 50, 0, 12)
-weaponLbl.Position = UDim2.new(1, -40, 1, -88)
+weaponLbl.Size = UDim2.new(1, -6, 0, 12)
+weaponLbl.Position = UDim2.new(0.5, 0, 0.58, 0)
 weaponLbl.AnchorPoint = Vector2.new(0.5, 0)
 weaponLbl.BackgroundTransparency = 1
-weaponLbl.Text = "Ranged"
-weaponLbl.TextColor3 = Color3.fromRGB(180, 185, 200)
+weaponLbl.Text = "Melee"
+weaponLbl.TextColor3 = Color3.new(1, 1, 1)
 weaponLbl.Font = Enum.Font.GothamMedium
 weaponLbl.TextSize = 9
-weaponLbl.Parent = sg
+weaponLbl.TextStrokeTransparency = 0.3
+weaponLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
+weaponLbl.TextXAlignment = Enum.TextXAlignment.Center
+weaponLbl.Parent = weaponIcon
+--
 
--- Label shows OPPOSITE of current mode (what you'll swap TO)
+-- When in Ranged: show ▲ and "Melee" (next mode). When in Melee: show ▼ and "Ranged".
 local function updateWeaponLabel(mode)
-	weaponLbl.Text = (mode == "ranged") and "Melee" or "Ranged"
+	if mode == "ranged" then
+		weaponIcon.Text = TRIANGLE_MELEE   -- ▲ = click to switch to Melee
+		weaponLbl.Text = "Melee"
+	else
+		weaponIcon.Text = TRIANGLE_RANGED  -- ▼ = click to switch to Ranged
+		weaponLbl.Text = "Ranged"
+	end
 end
 updateWeaponLabel("ranged")  -- default; PlayerCombatClient fires WeaponModeChanged on load to sync
 local weaponModeEvt = playerGui:FindFirstChild("WeaponModeChanged")
@@ -224,22 +285,38 @@ if weaponModeEvt and weaponModeEvt:IsA("BindableEvent") then
 	weaponModeEvt.Event:Connect(updateWeaponLabel)
 end
 
--- [F] = Swap weapon (melee/ranged); same as F key
-weaponIcon.MouseButton1Click:Connect(function()
+-- Click/tap triangle = Swap weapon (melee/ranged); same as F key (TouchTap for touch screens)
+local function fireWeaponToggle()
 	local ev = playerGui:FindFirstChild("ToggleWeaponMode") or playerGui:WaitForChild("ToggleWeaponMode", 2)
 	if ev and ev:IsA("BindableEvent") then ev:Fire() end
-end)
+end
+weaponIcon.MouseButton1Click:Connect(fireWeaponToggle)
+weaponIcon.Activated:Connect(fireWeaponToggle)
 
 local function updateFavOrb()
 	if not getInventory then return end
 	local ok, data = pcall(function() return getInventory:InvokeServer() end)
 	if not ok or not data then return end
+	-- Sync companionOut with world: if our companion model exists, it's out (handles missed CompanionSpawned)
+	local ourCompanionInWorld = false
+	for _, model in ipairs(CollectionService:GetTagged("FavoriteCreature")) do
+		if model.Parent and model:GetAttribute("OwnerUserId") == player.UserId then
+			ourCompanionInWorld = true
+			break
+		end
+	end
+	if data.favoriteUid then
+		companionOut = ourCompanionInWorld
+	end
 	local favUid = data.favoriteUid
 	if favUid and data.inventory then
 		for _, e in ipairs(data.inventory) do
-			if e.uid == favUid then
+			if tostring(e.uid) == tostring(favUid) then
 				local cr = CreatureData.GetById(e.id)
 				local displayName = (cr and cr.displayName) or e.id or "Creature"
+				lastFavoriteUid = favUid
+				lastFavoriteName = displayName
+				lastFavoriteCreatureId = e.id
 				favOrbBtn.BackgroundColor3 = (cr and cr.primaryColor) or Color3.fromRGB(180, 180, 180)
 				local variant = e.variant and e.variant ~= "Normal" and e.variant or nil
 				local VARIANT_COLORS = CreatureData.VariantColors or { Silver = Color3.fromRGB(192,192,192), Gold = Color3.fromRGB(255,215,0), Legend = Color3.fromRGB(255,100,255) }
@@ -256,6 +333,8 @@ local function updateFavOrb()
 			end
 		end
 	end
+	-- No current favorite in data; clear companionOut
+	companionOut = false
 	-- No favorite: show "ReCard [last name]" if we can re-equip, else "No favorite"
 	if lastFavoriteUid and lastFavoriteName then
 		favOrbYLabel.Text = "ReCard " .. lastFavoriteName
@@ -269,55 +348,90 @@ local function updateFavOrb()
 	favOrbStroke.Transparency = 0.5
 end
 
+-- FIX #17: toggleFavorite rewritten to RECALL/SUMMON instead of unfavorite/re-equip.
+-- Y button / ReCard card toggles companion between summoned ↔ recalled WITHOUT clearing favoriteUid.
+-- The creature STAYS as favorite throughout. Only the inventory "Unfav" button clears the favorite.
 local function toggleFavorite()
-	if not setFavorite or not getInventory then return end
+	if not getInventory then return end
 	local ok, data = pcall(function() return getInventory:InvokeServer() end)
 	if not ok or not data then return end
 	local favUid = data.favoriteUid
+
+	-- Sync companionOut with world: check if our companion model actually exists right now
+	local ourCompanionInWorld = false
+	for _, model in ipairs(CollectionService:GetTagged("FavoriteCreature")) do
+		if model.Parent and model:GetAttribute("OwnerUserId") == player.UserId then
+			ourCompanionInWorld = true
+			break
+		end
+	end
+	if favUid then companionOut = ourCompanionInWorld end
+
 	if favUid then
+		-- Always keep track of the favorite for label/animation
 		lastFavoriteUid = favUid
-		-- Store display name for ReCard label
 		for _, e in ipairs(data.inventory or {}) do
-			if e.uid == favUid then
+			if tostring(e.uid) == tostring(favUid) then
 				local cr = CreatureData.GetById(e.id)
 				lastFavoriteName = (cr and cr.displayName) or e.id or "Creature"
+				lastFavoriteCreatureId = e.id
 				break
 			end
 		end
-		companionOut = false
-		setFavorite:FireServer("")
-		Notify.Toast("Favorite removed", C.textSec, 2)
-		task.wait(0.4)
-		updateFavOrb()
-		if isVis then refreshCurrentTab() end
+
+		if companionOut then
+			-- RECALL: companion is in the world → card it (despawn model, keep favorite)
+			if recallCompanionEvt then
+				recallCompanionEvt:FireServer()
+			end
+			companionOut = false
+			Notify.Toast("Companion recalled", C.textSec, 2)
+			task.wait(0.3)
+			updateFavOrb()
+			if isVis then refreshCurrentTab() end
+		else
+			-- SUMMON: companion is recalled/carded → bring it back out
+			local playEvt = playerGui:FindFirstChild("PlayFavoriteCardAnimation")
+			if playEvt and playEvt:IsA("BindableEvent") then playEvt:Fire(lastFavoriteCreatureId) end
+			if summonCompanionEvt then
+				summonCompanionEvt:FireServer()
+			end
+			companionOut = true
+			Notify.Toast("Companion summoned", C.favorite, 2)
+			task.wait(0.4)
+			updateFavOrb()
+			if isVis then refreshCurrentTab() end
+		end
 		return
 	elseif lastFavoriteUid then
-		-- Re-equip: only if creature still in inventory
+		-- No current favorite but we remember the last one → re-equip (set as favorite + summon)
 		local stillInInv = false
 		if data.inventory then
 			for _, e in ipairs(data.inventory) do
-				if e.uid == lastFavoriteUid then stillInInv = true; break end
+				if tostring(e.uid) == tostring(lastFavoriteUid) then stillInInv = true; break end
 			end
 		end
 		if not stillInInv then
 			Notify.Toast("Creature no longer in inventory", C.textMut, 2)
 			lastFavoriteUid = nil
 			lastFavoriteName = nil
+			lastFavoriteCreatureId = nil
 			task.wait(0.25)
 			updateFavOrb()
 			if isVis then refreshCurrentTab() end
 			return
 		end
-		-- Re-equip: spawn companion immediately, play animation, hide overlay
-		setFavorite:FireServer(lastFavoriteUid)
-		Notify.Toast("Favorite re-equipped", C.favorite, 2)
+		-- Re-equip: play summon card animation first, then tell server to set favorite + spawn
 		effectOverlay.Visible = true
 		effectOverlay.BackgroundTransparency = 1
 		TweenService:Create(effectOverlay, TweenInfo.new(0.25), { BackgroundTransparency = 0.88 }):Play()
 		local playEvt = playerGui:FindFirstChild("PlayFavoriteCardAnimation")
-		if playEvt and playEvt:IsA("BindableEvent") then playEvt:Fire() end
+		if playEvt and playEvt:IsA("BindableEvent") then playEvt:Fire(lastFavoriteCreatureId) end
+		if setFavorite then setFavorite:FireServer(lastFavoriteUid) end
+		Notify.Toast("Favorite re-equipped", C.favorite, 2)
 		if not isVis then openUI("inventory") end
 		task.wait(0.4)
+		companionOut = true
 		updateFavOrb()
 		if isVis then refreshCurrentTab() end
 		task.delay(0.6, function()
@@ -477,26 +591,44 @@ local function captureScrollPosition()
 	end
 end
 
-local refreshInventory, refreshBattle, refreshRaids
+local refreshInventory, refreshBattle, refreshRaids, refreshCurrentTab
 
 -- --------------------------------------------
 -- INVENTORY CARD (no Battle button)
--- --------------------------------------------sss
+-- --------------------------------------------
 local function mkCard(entry, creature, data, order)
 	local isEgg = entry.isEgg == true
 	local rc = RARITY[entry.rarity or creature.rarity] or C.textMut
 	local isBase, isDef, isFav, isBattle = false, false, false, false
 	local battleSlot = nil
-	for _, u in ipairs(data.baseSlots) do if u == entry.uid then isBase = true break end end
-	for _, u in ipairs(data.defenseSlots) do if u == entry.uid then isDef = true break end end
-	if data.favoriteUid == entry.uid then isFav = true end
+	-- Single source of truth: use precomputed UID sets from refreshInventory (built after slot normalization).
+	local entryUidStr = tostring(entry.uid or "")
+	if data.baseUidSet and data.baseUidSet[entryUidStr] then isBase = true end
+	if data.defenseUidSet and data.defenseUidSet[entryUidStr] then isDef = true end
+	-- FIX #20: Optimistic state overrides server data until the server catches up.
+	-- This ensures that no matter how many refreshInventory cycles run (deferred, queued,
+	-- no-args), the button always reflects the user's last click until confirmed.
+	local optState = pendingOptimistic[entryUidStr]
+	if optState then
+		if optState.base ~= nil then isBase = optState.base end
+		if optState.def  ~= nil then isDef  = optState.def  end
+	end
+	-- #region agent log [InvRem] confirm when Rem should appear (commented after UI fixes verified)
+	-- do
+	-- 	local name = (creature and creature.displayName) or entry.id or "?"
+	-- 	local inBase = not not (data.baseUidSet and data.baseUidSet[entryUidStr])
+	-- 	local inDef = not not (data.defenseUidSet and data.defenseUidSet[entryUidStr])
+	-- 	print("[InvRem] mkCard", name, "uid=" .. tostring(entryUidStr), "hasBaseSet=" .. tostring(data.baseUidSet ~= nil), "hasDefSet=" .. tostring(data.defenseUidSet ~= nil), "inBase=" .. tostring(inBase), "inDef=" .. tostring(inDef), "=> isBase=" .. tostring(isBase), "isDef=" .. tostring(isDef))
+	-- end
+	-- #endregion
+	if data.favoriteUid and tostring(data.favoriteUid) == tostring(entry.uid) then isFav = true end
 	if data.battleTeamSlots and #data.battleTeamSlots > 0 then
 		for _, t in ipairs(data.battleTeamSlots) do
-			if t and t.uid == entry.uid then isBattle = true; battleSlot = t.slot break end
+			if t and t.uid and tostring(t.uid) == tostring(entry.uid) then isBattle = true; battleSlot = t.slot break end
 		end
 	elseif data.battleTeam then
 		for s, bu in pairs(data.battleTeam) do
-			if bu == entry.uid then isBattle = true; battleSlot = tonumber(s) break end
+			if bu and tostring(bu) == tostring(entry.uid) then isBattle = true; battleSlot = tonumber(s) break end
 		end
 	end
 	-- Eggs cannot be favorite or battle
@@ -508,12 +640,12 @@ local function mkCard(entry, creature, data, order)
 	local filledBase = data.filledBaseCount
 	if filledBase == nil then
 		filledBase = 0
-		for _, u in ipairs(data.baseSlots or {}) do if u and u ~= "" then filledBase = filledBase + 1 end end
+		for _, u in pairs(data.baseSlots or {}) do if u and u ~= "" then filledBase = filledBase + 1 end end
 	end
 	local filledDef = data.filledDefenseCount
 	if filledDef == nil then
 		filledDef = 0
-		for _, u in ipairs(data.defenseSlots or {}) do if u and u ~= "" then filledDef = filledDef + 1 end end
+		for _, u in pairs(data.defenseSlots or {}) do if u and u ~= "" then filledDef = filledDef + 1 end end
 	end
 	local baseFull = filledBase >= maxIncome
 	local defFull = filledDef >= maxDefense
@@ -530,6 +662,7 @@ local function mkCard(entry, creature, data, order)
 	local xpPct = (xpNeeded > 0) and math.clamp(xp / xpNeeded, 0, 1) or 1
 
 	local card = Instance.new("Frame")
+	card.ZIndex = 2  -- base for card so children can sit above
 	-- Cell highlight: dark purple = Battle, dark red = Defense, dark green = Income; Favorite = gold tint; default = card
 	local cardBg = C.card
 	if isEgg then cardBg = Color3.fromRGB(38, 35, 25)
@@ -554,6 +687,8 @@ local function mkCard(entry, creature, data, order)
 	orb.Size = UDim2.new(0, 28, 0, 28); orb.Position = UDim2.new(0, 16, 0.5, -14)
 	orb.BackgroundColor3 = creature.primaryColor; orb.BorderSizePixel = 0; orb.Parent = card
 	Instance.new("UICorner", orb).CornerRadius = UDim.new(1, 0)
+	local variant = (not isEgg and entry.variant) and entry.variant ~= "Normal" and entry.variant or nil
+	local VARIANT_COLORS = CreatureData.VariantColors or { Silver = Color3.fromRGB(192,192,192), Gold = Color3.fromRGB(255,215,0), Legend = Color3.fromRGB(255,100,255) }
 	if isEgg then
 		local s = Instance.new("UIStroke"); s.Color = Color3.fromRGB(255, 200, 80); s.Thickness = 2; s.Transparency = 0.3; s.Parent = orb
 	elseif variant and VARIANT_COLORS[variant] then
@@ -563,7 +698,6 @@ local function mkCard(entry, creature, data, order)
 	end
 
 	-- Name (left) and XP bar + label (right) on the same row
-	local variant = (not isEgg and entry.variant) and entry.variant ~= "Normal" and entry.variant or nil
 	local variantSuffix = variant and (" · " .. variant) or ""
 	local displayName = isEgg and ("Egg (" .. (creature.displayName or entry.id) .. ")") or (creature.displayName .. variantSuffix)
 	local nm = Instance.new("TextLabel")
@@ -655,81 +789,137 @@ local function mkCard(entry, creature, data, order)
 		b.BackgroundColor3 = enabled and color or C.divider
 		b.Text = text; b.TextColor3 = enabled and Color3.new(1,1,1) or C.textMut
 		b.Font = Enum.Font.GothamBold; b.TextSize = 9; b.BorderSizePixel = 0
-		b.Active = enabled; b.Parent = card
+		b.Active = enabled
+		b.ZIndex = 10  -- above Codex/overlays so clicks always register
+		b.Parent = card
 		Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
 		return b
 	end
-	-- Right-to-left: Evolve, Def, Inc, Fav, Sell — each left edge = prev left - BTN_W - BTN_GAP
+	-- Right-to-left: Evolve, Def, Inc, Fav, Sell — each left edge = prev left - BTN_W - BTN_GAP t
 	local function btnLeft(index)
 		return RIGHT_MARGIN + (index - 1) * (BTN_W + BTN_GAP)
 	end
 
 	if isEgg then
-		-- Eggs: only Income and Defense (place on point to hatch)
+		-- Eggs: Income and Defense are toggles (Inc/Rem, Def/Rem). When ADDING, pass nil so server u5ses first empty slot (not selected slot).
+		local incLabelEgg = isBase and "Rem" or "Inc"
+		local defLabelEgg = isDef and "Rem" or "Def"
+		-- print("[InvRem] egg buttons: incLabel=" .. incLabelEgg, "defLabel=" .. defLabelEgg, "isBase=" .. tostring(isBase), "isDef=" .. tostring(isDef))
 		local incEnabled = (isBase or (not baseFull and not isDef))
-		local incBtn = mkBtn(isBase and "Rem" or "Inc", btnLeft(2), isBase and Color3.fromRGB(50,55,60) or C.income, incEnabled)
+		local incBtn = mkBtn(incLabelEgg, btnLeft(2), isBase and Color3.fromRGB(50,55,60) or C.income, incEnabled)
 		incBtn.MouseButton1Click:Connect(function()
-			if assignToBase and incEnabled then assignToBase:FireServer(entry.uid); task.wait(0.3); refreshInventory(); if refreshRaids then refreshRaids() end end
+			if not assignToBase or not incEnabled then return end
+			invButtonDebounce(entry.uid, "base", function()
+				assignToBase:FireServer(entry.uid, isBase and 0 or nil)
+				pendingOptimistic[tostring(entry.uid)] = { base = not isBase, t = tick() }
+				isBase = not isBase
+				incBtn.Text = isBase and "Rem" or "Inc"
+				incBtn.BackgroundColor3 = isBase and Color3.fromRGB(50,55,60) or C.income
+				task.delay(0.35, function() if refreshInventory then refreshInventory() end end)
+			end)
 		end)
 		local defEnabled = (isDef or (not defFull and not isBase))
-		local defBtn = mkBtn(isDef and "Rem" or "Def", btnLeft(1), isDef and Color3.fromRGB(55,50,50) or C.defense, defEnabled)
+		local defBtn = mkBtn(defLabelEgg, btnLeft(1), isDef and Color3.fromRGB(55,50,50) or C.defense, defEnabled)
 		defBtn.MouseButton1Click:Connect(function()
-			if assignToDefense and defEnabled then assignToDefense:FireServer(entry.uid); task.wait(0.3); refreshInventory(); if refreshRaids then refreshRaids() end end
+			if not assignToDefense or not defEnabled then return end
+			invButtonDebounce(entry.uid, "defense", function()
+				assignToDefense:FireServer(entry.uid, isDef and 0 or nil)
+				pendingOptimistic[tostring(entry.uid)] = { def = not isDef, t = tick() }
+				isDef = not isDef
+				defBtn.Text = isDef and "Rem" or "Def"
+				defBtn.BackgroundColor3 = isDef and Color3.fromRGB(55,50,50) or C.defense
+				task.delay(0.35, function() if refreshInventory then refreshInventory() end end)
+			end)
 		end)
 	elseif isBattle then
 		-- Battle team creatures: Dismiss + Sell buttons
 		local dismissBtn = mkBtn("Dismiss", btnLeft(2), Color3.fromRGB(120, 60, 60), true)
 		dismissBtn.MouseButton1Click:Connect(function()
-			if removeFromBattle then
+			if not removeFromBattle then return end
+			invButtonDebounce(entry.uid, "dismiss", function()
 				removeFromBattle:FireServer(entry.uid); task.wait(0.3); refreshInventory()
-			end
+			end)
 		end)
 		local sellBtn = mkBtn("Sell", btnLeft(1), Color3.fromRGB(200, 60, 60), true)
 		sellBtn.MouseButton1Click:Connect(function()
-			if sellCreature then
+			if not sellCreature then return end
+			invButtonDebounce(entry.uid, "sell", function()
 				local ok, coins = sellCreature:InvokeServer(entry.uid)
 				if ok then Notify.Toast("Sold for " .. coins .. " coins!", Color3.fromRGB(255, 200, 50), 2) end
 				task.wait(0.3); refreshInventory()
-			end
+			end)
 		end)
 	else
 		-- Normal creatures: Sell, Fav, Inc, Def, Evolve (right-to-left: Evolve nearest right edge, then Def, Inc, Fav, Sell)
 		local sellBtn = mkBtn("Sell", btnLeft(5), Color3.fromRGB(200, 60, 60), not isFav)
 		sellBtn.MouseButton1Click:Connect(function()
 			if not isFav and sellCreature then
-				local ok, coins = sellCreature:InvokeServer(entry.uid)
-				if ok then Notify.Toast("Sold for " .. coins .. " coins!", Color3.fromRGB(255, 200, 50), 2) end
-				task.wait(0.3); refreshInventory()
+				invButtonDebounce(entry.uid, "sell", function()
+					local ok, coins = sellCreature:InvokeServer(entry.uid)
+					if ok then Notify.Toast("Sold for " .. coins .. " coins!", Color3.fromRGB(255, 200, 50), 2) end
+					task.wait(0.3); refreshInventory()
+				end)
 			end
 		end)
 
 		local favBtn = mkBtn(isFav and "Unfav" or "Fav", btnLeft(4), isFav and Color3.fromRGB(60,55,30) or C.favorite, true)
 		favBtn.MouseButton1Click:Connect(function()
 			if not setFavorite then return end
-			if isFav then
-				setFavorite:FireServer("")
+			invButtonDebounce(entry.uid, "fav", function()
+				-- FIX #20: Clear any optimistic Inc/Def state for this creature since
+				-- setFavorite calls removeFromAllSlots on the server (clears base/defense).
+				pendingOptimistic[tostring(entry.uid)] = nil
+				if isFav then
+					setFavorite:FireServer("")
+					task.wait(0.4)
+					refreshInventory()
+					updateFavOrb()
+					return
+				end
+				local playEvt = playerGui:FindFirstChild("PlayFavoriteCardAnimation")
+				if playEvt and playEvt:IsA("BindableEvent") then playEvt:Fire(entry.id) end
+				setFavorite:FireServer(entry.uid)
 				task.wait(0.4)
 				refreshInventory()
+				companionOut = true
 				updateFavOrb()
-				return
-			end
-			-- Setting favorite from inventory: no animation for now, just apply and refresh
-			setFavorite:FireServer(entry.uid)
-			task.wait(0.4)
-			refreshInventory()
-			updateFavOrb()
+				task.delay(0.5, function() refreshInventory(); updateFavOrb() end)
+			end)
 		end)
 
-		local incEnabled = (isBase or (not baseFull and not isFav and not isDef))
-		local incBtn = mkBtn(isBase and "Rem" or "Inc", btnLeft(3), isBase and Color3.fromRGB(50,55,60) or C.income, incEnabled)
+		-- Inc/Def: Rem = remove (send 0), Inc/Def = add to first empty slot (send nil). Server uses 0 as explicit remove.
+		-- Disable Rem when creature is favorited (isFav and in that slot).
+		local incEnabled = (isBase or (not baseFull and not isFav and not isDef)) and not (isFav and isBase)
+		local incLabel = isBase and "Rem" or "Inc"
+		local defLabel = isDef and "Rem" or "Def"
+		-- #region agent log [InvRem] button labels for normal creatures (Rem = grey remove) (commented after UI fixes verified)
+		-- print("[InvRem] normal creature buttons: incLabel=" .. incLabel, "defLabel=" .. defLabel, "isBase=" .. tostring(isBase), "isDef=" .. tostring(isDef))
+		-- #endregion
+		local incBtn = mkBtn(incLabel, btnLeft(3), isBase and Color3.fromRGB(50,55,60) or C.income, incEnabled)
 		incBtn.MouseButton1Click:Connect(function()
-			if assignToBase and incEnabled then assignToBase:FireServer(entry.uid); task.wait(0.3); refreshInventory() end
+			if not assignToBase or not incEnabled then return end
+			invButtonDebounce(entry.uid, "base", function()
+				assignToBase:FireServer(entry.uid, isBase and 0 or nil)
+				pendingOptimistic[tostring(entry.uid)] = { base = not isBase, t = tick() }
+				isBase = not isBase
+				incBtn.Text = isBase and "Rem" or "Inc"
+				incBtn.BackgroundColor3 = isBase and Color3.fromRGB(50,55,60) or C.income
+				task.delay(0.35, function() if refreshInventory then refreshInventory() end end)
+			end)
 		end)
 
-		local defEnabled = (isDef or (not defFull and not isFav and not isBase))
-		local defBtn = mkBtn(isDef and "Rem" or "Def", btnLeft(2), isDef and Color3.fromRGB(55,50,50) or C.defense, defEnabled)
+		local defEnabled = (isDef or (not defFull and not isFav and not isBase)) and not (isFav and isDef)
+		local defBtn = mkBtn(defLabel, btnLeft(2), isDef and Color3.fromRGB(55,50,50) or C.defense, defEnabled)
 		defBtn.MouseButton1Click:Connect(function()
-			if assignToDefense and defEnabled then assignToDefense:FireServer(entry.uid); task.wait(0.3); refreshInventory() end
+			if not assignToDefense or not defEnabled then return end
+			invButtonDebounce(entry.uid, "defense", function()
+				assignToDefense:FireServer(entry.uid, isDef and 0 or nil)
+				pendingOptimistic[tostring(entry.uid)] = { def = not isDef, t = tick() }
+				isDef = not isDef
+				defBtn.Text = isDef and "Rem" or "Def"
+				defBtn.BackgroundColor3 = isDef and Color3.fromRGB(55,50,50) or C.defense
+				task.delay(0.35, function() if refreshInventory then refreshInventory() end end)
+			end)
 		end)
 
 		-- Evolve: only when creature can evolve in-game and meets level requirement (10 for base, 25 for evolved)
@@ -738,7 +928,9 @@ local function mkCard(entry, creature, data, order)
 		local evolveBtn = mkBtn("Evolve", btnLeft(1), Color3.fromRGB(180, 100, 255), canEvolve)
 		evolveBtn.MouseButton1Click:Connect(function()
 			if canEvolve and evolveCreature then
-				evolveCreature:FireServer(entry.uid)
+				invButtonDebounce(entry.uid, "evolve", function()
+					evolveCreature:FireServer(entry.uid)
+				end)
 			end
 		end)
 	end
@@ -823,30 +1015,55 @@ refreshBattle = function()
 		end
 	end
 
+	-- Build merged slot->uid: server data first, then optimistic adds (instant UI update before server confirms)
+	local mergedSlots = {}
 	if #battleTeamSlots > 0 then
 		for _, t in ipairs(battleTeamSlots) do
 			if t and type(t.slot) == "number" and type(t.uid) == "string" and t.uid ~= "" then
-				addSlotEntry(t.slot, t.uid)
+				mergedSlots[t.slot] = t.uid
 			end
 		end
 	else
 		for slotStr, uid in pairs(serverBT) do
 			local slot = tonumber(slotStr)
-			if slot and uid and uid ~= "" then addSlotEntry(slot, uid) end
+			if slot and uid and uid ~= "" then mergedSlots[slot] = uid end
 		end
 	end
+	for slot, uid in pairs(pendingBattleOptimistic) do
+		if type(slot) == "number" and uid and uid ~= "" then
+			mergedSlots[slot] = uid
+		end
+	end
+	-- Clear optimistic when server has confirmed (prevents stale state)
+	local serverHas = {}
+	if #battleTeamSlots > 0 then
+		for _, t in ipairs(battleTeamSlots) do
+			if t and type(t.slot) == "number" and type(t.uid) == "string" and t.uid ~= "" then
+				serverHas[t.slot] = t.uid
+			end
+		end
+	else
+		for slotStr, uid in pairs(serverBT) do
+			local s = tonumber(slotStr)
+			if s and uid and uid ~= "" then serverHas[s] = uid end
+		end
+	end
+	for slot, uid in pairs(pendingBattleOptimistic) do
+		if serverHas[slot] == uid then pendingBattleOptimistic[slot] = nil end
+	end
+	for slot, uid in pairs(mergedSlots) do addSlotEntry(slot, uid) end
 	table.sort(battleTeam, function(a, b) return a.slotIndex < b.slotIndex end)
 
 	-- Find unassigned creatures (use gridData so battle-assigned matches what we displayed)
 	local assigned = {}
-	for _, u in ipairs(invData.baseSlots or {}) do if u and u ~= "" then assigned[u] = true end end
-	for _, u in ipairs(invData.defenseSlots or {}) do if u and u ~= "" then assigned[u] = true end end
-	if invData.favoriteUid then assigned[invData.favoriteUid] = true end
-	for _, entry in ipairs(battleTeam) do assigned[entry.uid] = true end
+	for _, u in ipairs(invData.baseSlots or {}) do if u and u ~= "" then assigned[tostring(u)] = true end end
+	for _, u in ipairs(invData.defenseSlots or {}) do if u and u ~= "" then assigned[tostring(u)] = true end end
+	if invData.favoriteUid then assigned[tostring(invData.favoriteUid)] = true end
+	for _, entry in ipairs(battleTeam) do if entry.uid then assigned[tostring(entry.uid)] = true end end
 
 	local available = {}
 	for _, e in ipairs(invData.inventory) do
-		if not assigned[e.uid] then
+		if not assigned[e.uid] and not assigned[tostring(e.uid)] then
 			local cr = CreatureData.GetById(e.id)
 			if cr then table.insert(available, { uid = e.uid, id = e.id, cr = cr }) end
 		end
@@ -859,8 +1076,9 @@ refreshBattle = function()
 		if ok2 and r2 then arenaInfo = r2 end
 	end
 
-	-- Two-column layout: left = battle formation, right = monster sidebar
-	local SIDEBAR_WIDTH = 190
+	-- Mobile: monster selection is a true sub-menu (modal outside main panel); desktop: sidebar
+	local mobile = isMobileLayout()
+	local SIDEBAR_WIDTH = mobile and 0 or 190
 	local battleLayout = Instance.new("Frame")
 	battleLayout.Size = UDim2.new(1, 0, 0, 0)
 	battleLayout.AutomaticSize = Enum.AutomaticSize.Y
@@ -876,7 +1094,7 @@ refreshBattle = function()
 	layout.Parent = battleLayout
 
 	local leftCol = Instance.new("Frame")
-	leftCol.Size = UDim2.new(1, -SIDEBAR_WIDTH - 10, 0, 0)
+	leftCol.Size = UDim2.new(1, mobile and 0 or (-SIDEBAR_WIDTH - 10), 0, 0)
 	leftCol.AutomaticSize = Enum.AutomaticSize.Y
 	leftCol.BackgroundTransparency = 1
 	leftCol.LayoutOrder = 1
@@ -887,8 +1105,10 @@ refreshBattle = function()
 	leftList.Padding = UDim.new(0, 5)
 	leftList.Parent = leftCol
 
+	-- Monster sidebar: hidden on mobile (use Add Monster modal instead)
 	local rightSidebar = Instance.new("ScrollingFrame")
 	rightSidebar.Size = UDim2.new(0, SIDEBAR_WIDTH, 0, 420)
+	rightSidebar.Visible = not mobile
 	rightSidebar.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
 	rightSidebar.BorderSizePixel = 0
 	rightSidebar.ScrollBarThickness = 4
@@ -903,6 +1123,111 @@ refreshBattle = function()
 	sidebarList.SortOrder = Enum.SortOrder.LayoutOrder
 	sidebarList.Padding = UDim.new(0, 4)
 	sidebarList.Parent = rightSidebar
+
+	-- Open monster selection as sub-menu modal (true sub-menu outside main battle panel)
+	-- targetSlotIndex: if provided, Place assigns directly to that slot (e.g. when tapping empty formation slot)
+	local function openMonsterSelectionModal(targetSlotIndex)
+		local modal = Instance.new("TextButton")
+		modal.Name = "MonsterSelectionModal"
+		modal.Size = UDim2.new(1, 0, 1, 0)
+		modal.Position = UDim2.new(0, 0, 0, 0)
+		modal.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+		modal.BackgroundTransparency = 0.5
+		modal.BorderSizePixel = 0
+		modal.Text = ""
+		modal.AutoButtonColor = false
+		modal.ZIndex = 50
+		modal.Parent = sg
+		local inner = Instance.new("Frame")
+		local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(400, 600)
+		local mw = math.min(340, vp.X - 40)
+		local mh = math.min(450, vp.Y - 80)
+		inner.Size = UDim2.new(0, mw, 0, mh)
+		inner.Position = UDim2.new(0.5, -mw/2, 0.5, -mh/2)
+		inner.BackgroundColor3 = C.bg
+		inner.BorderSizePixel = 0
+		inner.ZIndex = 51
+		inner.Parent = modal
+		Instance.new("UICorner", inner).CornerRadius = UDim.new(0, 12)
+		local closeBtn = Instance.new("TextButton")
+		closeBtn.Size = UDim2.new(0, 36, 0, 36); closeBtn.Position = UDim2.new(1, -42, 0, 6)
+		closeBtn.BackgroundColor3 = C.card; closeBtn.Text = "X"; closeBtn.TextColor3 = C.textSec
+		closeBtn.Font = Enum.Font.GothamBold; closeBtn.TextSize = 14
+		closeBtn.ZIndex = 52; closeBtn.Parent = inner
+		Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 8)
+		local modalTitle = Instance.new("TextLabel")
+		modalTitle.Size = UDim2.new(1, -50, 0, 28); modalTitle.Position = UDim2.new(0, 14, 0, 8)
+		modalTitle.BackgroundTransparency = 1; modalTitle.Text = "Select Monster to Place"
+		modalTitle.TextColor3 = C.accent; modalTitle.Font = Enum.Font.GothamBold; modalTitle.TextSize = 12
+		modalTitle.ZIndex = 52; modalTitle.Parent = inner
+		local scroll = Instance.new("ScrollingFrame")
+		scroll.Size = UDim2.new(1, -16, 1, -50); scroll.Position = UDim2.new(0, 8, 0, 44)
+		scroll.BackgroundTransparency = 1; scroll.BorderSizePixel = 0
+		scroll.ScrollBarThickness = 4; scroll.ZIndex = 52
+		scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+		scroll.Parent = inner
+		local scrollList = Instance.new("UIListLayout")
+		scrollList.SortOrder = Enum.SortOrder.LayoutOrder
+		scrollList.Padding = UDim.new(0, 4)
+		scrollList.Parent = scroll
+		for i, av in ipairs(available) do
+			local cr = av.cr
+			local rc = RARITY[cr.rarity] or C.textMut
+			local row = Instance.new("Frame")
+			row.Size = UDim2.new(1, -8, 0, 52); row.BackgroundColor3 = C.card
+			row.BorderSizePixel = 0; row.LayoutOrder = i; row.Parent = scroll
+			Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
+			local pad = Instance.new("UIPadding", row)
+			pad.PaddingLeft = UDim.new(0, 6); pad.PaddingRight = UDim.new(0, 6)
+			pad.PaddingTop = UDim.new(0, 4); pad.PaddingBottom = UDim.new(0, 4)
+			local mo2 = Instance.new("Frame")
+			mo2.Size = UDim2.new(0, 24, 0, 24); mo2.Position = UDim2.new(0, 4, 0, 0)
+			mo2.BackgroundColor3 = cr.primaryColor; mo2.BorderSizePixel = 0; mo2.Parent = row
+			Instance.new("UICorner", mo2).CornerRadius = UDim.new(1, 0)
+			local nm2 = Instance.new("TextLabel")
+			nm2.Size = UDim2.new(1, -70, 0, 14); nm2.Position = UDim2.new(0, 32, 0, 0)
+			nm2.BackgroundTransparency = 1; nm2.Text = cr.displayName
+			nm2.TextColor3 = C.text; nm2.Font = Enum.Font.GothamBold; nm2.TextSize = 10
+			nm2.TextTruncate = Enum.TextTruncate.AtEnd; nm2.TextXAlignment = Enum.TextXAlignment.Left; nm2.Parent = row
+			local affLbl = Instance.new("TextLabel")
+			affLbl.Size = UDim2.new(1, -70, 0, 10); affLbl.Position = UDim2.new(0, 32, 0, 16)
+			affLbl.BackgroundTransparency = 1
+			affLbl.Text = (cr.element or "?") .. " " .. (cr.class or "?") .. " · " .. cr.rarity
+			affLbl.TextColor3 = ELEMENT_COLOR[cr.element] or C.textMut
+			affLbl.Font = Enum.Font.GothamMedium; affLbl.TextSize = 8
+			affLbl.TextXAlignment = Enum.TextXAlignment.Left; affLbl.Parent = row
+			local st2 = Instance.new("TextLabel")
+			st2.Size = UDim2.new(1, -70, 0, 10); st2.Position = UDim2.new(0, 32, 0, 28)
+			st2.BackgroundTransparency = 1
+			st2.Text = "HP:" .. cr.health .. " ATK:" .. cr.attack .. " DEF:" .. cr.defense .. " SPD:" .. cr.speed
+			st2.TextColor3 = C.textSec; st2.Font = Enum.Font.GothamMedium; st2.TextSize = 8
+			st2.TextXAlignment = Enum.TextXAlignment.Left; st2.Parent = row
+			local placeBtn = Instance.new("TextButton")
+			placeBtn.Size = UDim2.new(0, 52, 0, 24); placeBtn.Position = UDim2.new(1, -56, 0.5, -12)
+			placeBtn.BackgroundColor3 = #battleTeam < (GameConfig.MaxBattleTeamSize or 9) and C.battle or C.divider
+			placeBtn.Text = "Place"; placeBtn.TextColor3 = Color3.new(1,1,1)
+			placeBtn.Font = Enum.Font.GothamBold; placeBtn.TextSize = 10; placeBtn.BorderSizePixel = 0
+			placeBtn.Active = #battleTeam < (GameConfig.MaxBattleTeamSize or 9); placeBtn.Parent = row
+			Instance.new("UICorner", placeBtn).CornerRadius = UDim.new(0, 5)
+			placeBtn.MouseButton1Click:Connect(function()
+				if #battleTeam < (GameConfig.MaxBattleTeamSize or 9) then
+					if targetSlotIndex and assignToBattle then
+						assignToBattle:FireServer(av.uid, targetSlotIndex)
+						pendingBattleOptimistic[targetSlotIndex] = av.uid  -- instant UI update before server confirms
+					else
+						pendingBattleUid = av.uid
+					end
+					modal:Destroy()
+					refreshBattle()
+				end
+			end)
+		end
+		local function closeModal()
+			modal:Destroy()
+		end
+		closeBtn.MouseButton1Click:Connect(closeModal)
+		modal.MouseButton1Click:Connect(closeModal)  -- Click backdrop to close
+	end
 
 	-- Pending placement bar
 	if pendingBattleUid then
@@ -953,6 +1278,78 @@ refreshBattle = function()
 	sLbl.TextColor3 = C.textSec; sLbl.Font = Enum.Font.GothamMedium; sLbl.TextSize = 10
 	sLbl.TextXAlignment = Enum.TextXAlignment.Right; sLbl.Parent = kingFrame
 
+	-- ── BATTLE TIMER BAR: shows arena countdown + gym status side by side ──
+	local timerFrame = Instance.new("Frame")
+	timerFrame.Size = UDim2.new(1, 0, 0, 28)
+	timerFrame.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
+	timerFrame.BorderSizePixel = 0; timerFrame.LayoutOrder = 0.3
+	timerFrame.Parent = leftCol
+	Instance.new("UICorner", timerFrame).CornerRadius = UDim.new(0, 8)
+
+	local arenaTimerLbl = Instance.new("TextLabel")
+	arenaTimerLbl.Size = UDim2.new(0.5, -4, 1, 0)
+	arenaTimerLbl.Position = UDim2.new(0, 8, 0, 0)
+	arenaTimerLbl.BackgroundTransparency = 1
+	arenaTimerLbl.Text = "Arena: --"
+	arenaTimerLbl.TextColor3 = C.blue; arenaTimerLbl.Font = Enum.Font.GothamBold
+	arenaTimerLbl.TextSize = 10; arenaTimerLbl.TextXAlignment = Enum.TextXAlignment.Left
+	arenaTimerLbl.Parent = timerFrame
+
+	local gymTimerLbl = Instance.new("TextLabel")
+	gymTimerLbl.Size = UDim2.new(0.5, -12, 1, 0)
+	gymTimerLbl.Position = UDim2.new(0.5, 4, 0, 0)
+	gymTimerLbl.BackgroundTransparency = 1
+	gymTimerLbl.Text = "Gym: --"
+	gymTimerLbl.TextColor3 = Color3.fromRGB(100, 200, 255); gymTimerLbl.Font = Enum.Font.GothamBold
+	gymTimerLbl.TextSize = 10; gymTimerLbl.TextXAlignment = Enum.TextXAlignment.Right
+	gymTimerLbl.Parent = timerFrame
+
+	-- Live-update loop: polls GetBattleTimers every 2s while this tab is visible
+	task.spawn(function()
+		while timerFrame and timerFrame.Parent do
+			local timers = nil
+			if getBattleTimers then
+				local ok, result = pcall(function() return getBattleTimers:InvokeServer() end)
+				if ok and result then timers = result end
+			end
+			-- Fallback to workspace attributes if remote not available yet
+			if not timers then
+				timers = {
+					arenaCountdown = workspace:GetAttribute("ArenaCountdown") or 0,
+					arenaBattleInProgress = workspace:GetAttribute("ArenaBattleInProgress") or false,
+					gymBattleInProgress = workspace:GetAttribute("GymBattleInProgress") or false,
+					gymCooldownRemaining = 0,
+				}
+			end
+
+			-- Arena timer text
+			if timers.arenaBattleInProgress then
+				arenaTimerLbl.Text = "Arena: FIGHTING"
+				arenaTimerLbl.TextColor3 = C.red
+			elseif timers.arenaCountdown and timers.arenaCountdown > 0 then
+				arenaTimerLbl.Text = "Arena: " .. timers.arenaCountdown .. "s"
+				arenaTimerLbl.TextColor3 = timers.arenaCountdown <= 10 and C.favorite or C.blue
+			else
+				arenaTimerLbl.Text = "Arena: Starting..."
+				arenaTimerLbl.TextColor3 = C.blue
+			end
+
+			-- Gym timer text
+			if timers.gymBattleInProgress then
+				gymTimerLbl.Text = "Gym: FIGHTING"
+				gymTimerLbl.TextColor3 = C.red
+			elseif timers.gymCooldownRemaining and timers.gymCooldownRemaining > 0 then
+				gymTimerLbl.Text = "Gym: Cooldown " .. timers.gymCooldownRemaining .. "s"
+				gymTimerLbl.TextColor3 = C.textMut
+			else
+				gymTimerLbl.Text = "Gym: Ready"
+				gymTimerLbl.TextColor3 = Color3.fromRGB(80, 200, 100)
+			end
+
+			task.wait(2)
+		end
+	end)
+
 	-- Inactive team banner (shown when team is out of arena queue)
 	if not battleTeamEnabled then
 		local inactiveBanner = Instance.new("Frame")
@@ -969,11 +1366,19 @@ refreshBattle = function()
 		inactiveLbl.TextWrapped = true; inactiveLbl.Parent = inactiveBanner
 	end
 
-	-- AFFINITY / SYNERGY DISPLAY
-	local synergyFrame = Instance.new("Frame")
-	synergyFrame.Size = UDim2.new(1, 0, 0, 42); synergyFrame.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
-	synergyFrame.BorderSizePixel = 0; synergyFrame.LayoutOrder = 1; synergyFrame.Parent = leftCol
+	-- AFFINITY / SYNERGY DISPLAY (scrollable on mobile so all elements visible)
+	local synergyFrame = Instance.new(mobile and "ScrollingFrame" or "Frame")
+	synergyFrame.Size = UDim2.new(1, 0, 0, 42)
+	synergyFrame.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
+	synergyFrame.BorderSizePixel = 0
+	synergyFrame.LayoutOrder = 1
+	synergyFrame.Parent = leftCol
 	Instance.new("UICorner", synergyFrame).CornerRadius = UDim.new(0, 8)
+	if mobile then
+		synergyFrame.ScrollBarThickness = 4
+		synergyFrame.ScrollingDirection = Enum.ScrollingDirection.X
+		synergyFrame.CanvasSize = UDim2.new(0, 520, 0, 42)  -- wide enough for elements+classes
+	end
 
 	-- Element counts row
 	local elemX = 8
@@ -1005,18 +1410,37 @@ refreshBattle = function()
 		clsX = clsX + 85
 	end
 
-	-- GRID LABEL + TEAM ACTIVE TOGGLE
+	-- GRID LABEL + SET BATTLE TEAM (mobile) + TEAM ACTIVE TOGGLE
 	local gridLabelRow = Instance.new("Frame")
 	gridLabelRow.Size = UDim2.new(1, 0, 0, 28); gridLabelRow.BackgroundTransparency = 1
 	gridLabelRow.LayoutOrder = 2; gridLabelRow.Parent = leftCol
 
 	local gridLabel = Instance.new("TextLabel")
-	gridLabel.Size = UDim2.new(0.6, -10, 1, 0); gridLabel.Position = UDim2.new(0, 0, 0, 0)
+	-- Shrink when Set Battle Team button is shown (leaves room for both buttons)
+	local hasSetBtn = (#available > 0 and not pendingBattleUid and #battleTeam < (GameConfig.MaxBattleTeamSize or 9))
+	gridLabel.Size = UDim2.new(1, hasSetBtn and -240 or -120, 1, 0)
+	gridLabel.Position = UDim2.new(0, 0, 0, 0)
 	gridLabel.BackgroundTransparency = 1
 	gridLabel.Text = "YOUR BATTLE FORMATION (" .. #battleTeam .. "/" .. (GameConfig.MaxBattleTeamSize or 9) .. ")"
 	gridLabel.TextColor3 = C.battle; gridLabel.Font = Enum.Font.GothamBold
 	gridLabel.TextSize = 11; gridLabel.TextXAlignment = Enum.TextXAlignment.Left
+	gridLabel.TextTruncate = Enum.TextTruncate.AtEnd
 	gridLabel.Parent = gridLabelRow
+
+	-- Set Battle Team button: to the left of Active/Inactive (mobile: opens modal; desktop: also opens modal)
+	local setBattleTeamBtn = nil
+	if #available > 0 and not pendingBattleUid and #battleTeam < (GameConfig.MaxBattleTeamSize or 9) then
+		setBattleTeamBtn = Instance.new("TextButton")
+		setBattleTeamBtn.Size = UDim2.new(0, 105, 0, 24)
+		setBattleTeamBtn.Position = UDim2.new(1, -229, 0, 2)  -- left of Active/Inactive
+		setBattleTeamBtn.BackgroundColor3 = C.battle
+		setBattleTeamBtn.Text = "Set Battle Team"
+		setBattleTeamBtn.TextColor3 = Color3.new(1,1,1)
+		setBattleTeamBtn.Font = Enum.Font.GothamBold; setBattleTeamBtn.TextSize = 9
+		setBattleTeamBtn.BorderSizePixel = 0; setBattleTeamBtn.Parent = gridLabelRow
+		Instance.new("UICorner", setBattleTeamBtn).CornerRadius = UDim.new(0, 6)
+		setBattleTeamBtn.MouseButton1Click:Connect(function() openMonsterSelectionModal() end)
+	end
 
 	local toggleBtn = Instance.new("TextButton")
 	toggleBtn.Size = UDim2.new(0, 110, 0, 24); toggleBtn.Position = UDim2.new(1, -114, 0, 2)
@@ -1045,9 +1469,11 @@ refreshBattle = function()
 		end
 	end)
 
-	-- GRID + STATS PANEL
+	-- GRID + STATS PANEL (mobile: stats stack below grid so monster details visible when placed)
 	local mapFrame = Instance.new("Frame")
-	mapFrame.Size = UDim2.new(1, 0, 0, 195); mapFrame.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
+	local mapH = mobile and 380 or 195  -- mobile: grid + stats stacked
+	mapFrame.Size = UDim2.new(1, 0, 0, mapH)
+	mapFrame.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
 	mapFrame.BorderSizePixel = 0; mapFrame.LayoutOrder = 3; mapFrame.Parent = leftCol
 	Instance.new("UICorner", mapFrame).CornerRadius = UDim.new(0, 10)
 
@@ -1055,6 +1481,7 @@ refreshBattle = function()
 	for row = 0, 2 do
 		for col = 0, 2 do
 			local idx = row * 3 + col + 1
+			local slotIdx = idx  -- capture for closure (avoid Lua loop variable capture bug)
 			local px = col * 58 + 12
 			local py = row * 58 + 8
 
@@ -1107,32 +1534,53 @@ refreshBattle = function()
 				slot.MouseButton1Click:Connect(function()
 					if pendingBattleUid then
 						if assignToBattle then
-							assignToBattle:FireServer(pendingBattleUid, idx)
-							pendingBattleUid = nil; task.wait(0.3); refreshBattle()
+							invButtonDebounce(tostring(pendingBattleUid) .. "_" .. tostring(slotIdx), "assignBattle", function()
+								local uid = pendingBattleUid
+								assignToBattle:FireServer(uid, slotIdx)
+								pendingBattleOptimistic[slotIdx] = uid  -- instant UI update before server confirms
+								pendingBattleUid = nil; task.wait(0.3); refreshBattle()
+							end)
 						end
 					else
 						-- Click on occupied slot = remove from battle
 						if removeFromBattle then
-							removeFromBattle:FireServer(ce.uid); task.wait(0.3); refreshBattle()
+							invButtonDebounce(ce.uid, "dismiss", function()
+								removeFromBattle:FireServer(ce.uid); task.wait(0.3); refreshBattle()
+							end)
 						end
 					end
 				end)
 			else
+				-- Empty slot: place from pending, or tap/click to open monster selection
 				slot.MouseButton1Click:Connect(function()
 					if pendingBattleUid and assignToBattle then
-						assignToBattle:FireServer(pendingBattleUid, idx)
-						pendingBattleUid = nil; task.wait(0.3); refreshBattle()
+						invButtonDebounce(tostring(pendingBattleUid) .. "_" .. tostring(slotIdx), "assignBattle", function()
+							local uid = pendingBattleUid
+							assignToBattle:FireServer(uid, slotIdx)
+							pendingBattleOptimistic[slotIdx] = uid  -- instant UI update before server confirms
+							pendingBattleUid = nil; task.wait(0.3); refreshBattle()
+						end)
+					elseif #available > 0 and #battleTeam < (GameConfig.MaxBattleTeamSize or 9) then
+						-- Tap empty slot to open monster selection; Place assigns directly to this slot (one tap)
+						openMonsterSelectionModal(slotIdx)
 					end
 				end)
 			end
 		end
 	end
 
-	-- Stats panel (right of grid)
+	-- Stats panel: desktop = right of grid; mobile = below grid (so monster details visible when placed)
 	local statsBox = Instance.new("Frame")
-	statsBox.Size = UDim2.new(0, 330, 0, 185); statsBox.Position = UDim2.new(0, 200, 0, 5)
+	if mobile then
+		statsBox.Size = UDim2.new(1, -16, 0, 175)
+		statsBox.Position = UDim2.new(0, 8, 0, 200)
+	else
+		statsBox.Size = UDim2.new(0, 330, 0, 185)
+		statsBox.Position = UDim2.new(0, 200, 0, 5)
+	end
 	statsBox.BackgroundColor3 = Color3.fromRGB(22, 24, 35); statsBox.BorderSizePixel = 0
-	statsBox.Parent = mapFrame; Instance.new("UICorner", statsBox).CornerRadius = UDim.new(0, 8)
+	statsBox.Parent = mapFrame
+	Instance.new("UICorner", statsBox).CornerRadius = UDim.new(0, 8)
 
 	local yOff = 6
 	for i, c in ipairs(battleTeam) do
@@ -1204,13 +1652,15 @@ refreshBattle = function()
 		local emptyLbl = Instance.new("TextLabel")
 		emptyLbl.Size = UDim2.new(1, -12, 0, 60); emptyLbl.Position = UDim2.new(0, 6, 0, 10)
 		emptyLbl.BackgroundTransparency = 1
-		emptyLbl.Text = "No battle team!\nClick Place on creatures below,\nthen click a grid slot."
+		emptyLbl.Text = mobile
+			and "No battle team!\nTap 'Set Battle Team' or an empty slot."
+			or "No battle team!\nTap 'Set Battle Team', an empty slot,\nor Place on creatures at right."
 		emptyLbl.TextColor3 = C.textMut; emptyLbl.Font = Enum.Font.GothamMedium
 		emptyLbl.TextSize = 10; emptyLbl.TextWrapped = true; emptyLbl.Parent = statsBox
 	end
 
-	-- SIDEBAR: AVAILABLE CREATURES (succinct scrollable list)
-	if #available > 0 and not pendingBattleUid then
+	-- SIDEBAR: AVAILABLE CREATURES (desktop only - mobile uses Set Battle Team button + tap empty slot)
+	if not mobile and #available > 0 and not pendingBattleUid then
 		local availHeader = Instance.new("TextLabel")
 		availHeader.Size = UDim2.new(1, -8, 0, 18); availHeader.BackgroundTransparency = 1
 		availHeader.Text = "AVAILABLE (" .. #available .. ")"
@@ -1310,28 +1760,59 @@ refreshBattle = function()
 	restoreScroll()
 end
 
---[[ BASE LAYOUT / SLOT OVERVIEW (Base tab)
-  When GameConfig.ENABLE_BASE_LAYOUT_OVERVIEW is true, the Base tab shows:
-  - Income track ($): slotCountIncome = #ownedFloors * GameConfig.IncomePointsPerFloor
-  - Defense track (D): slotCountDefense = #ownedFloors * GameConfig.DefensePointsPerFloor
-  - Assigned slots: baseSlots[] and defenseSlots[] from GetInventory (ordered UIDs).
-  - Empty slots: placeholder circle + slot number; no errors if array shorter than slot count.
-  - Defense HP bar: sum of CreatureData.health for assigned defense creatures (static Max HP).
-  - Active slot: click a cell to select; sg:GetAttribute("BaseLayoutActiveTrack") and ("BaseLayoutActiveIndex").
-  To adjust max slots for testing: change GameConfig.IncomePointsPerFloor / DefensePointsPerFloor, or give
-  the player more ownedFloors (e.g. unlock Floor 2/3). ]]
+--[[ BASE LAYOUT / SLOT OVERVIEW (Raids tab - secondary to Inventory)
+  Primary assignment: use Inventory tab Inc/Def buttons; server uses first empty slot. Raids tab is view + move.
+  When GameConfig.ENABLE_BASE_LAYOUT_OVERVIEW is true, the Raids tab shows:
+  - Income track ($) and Defense track (D): same baseSlots/defenseSlots as Inventory and world placement.
+  - Assign from Inventory (Inc/Def) or by picking up creatures in-world and placing on points; all stay in sync.
+  - Here: click a creature slot then another slot to move; or view which creatures are on which points.
+  - Defense HP bar: sum of CreatureData.health for assigned defense creatures (static Max HP). ]]
 local function buildBaseLayoutPanel(parent, invData)
 	local floors = invData.ownedFloors or { 1 }
 	local numFloors = #floors
 	local slotCountIncome = numFloors * (GameConfig.IncomePointsPerFloor or 6)
 	local slotCountDefense = numFloors * (GameConfig.DefensePointsPerFloor or 6)
-	local baseSlots = invData.baseSlots or {}
-	local defenseSlots = invData.defenseSlots or {}
-	local uidToEntry = {}
-	for _, e in ipairs(invData.inventory or {}) do uidToEntry[e.uid] = e end
-	for _, egg in ipairs(invData.eggs or {}) do
-		uidToEntry[egg.uid] = { uid = egg.uid, id = egg.creatureId, level = egg.level, isEgg = true, rarity = egg.rarity }
+	-- Normalize slot arrays: replication can send number keys as strings, so ipairs would only see slot 1.
+	local rawBase = invData.baseSlots or {}
+	local rawDef = invData.defenseSlots or {}
+	local function normalizeSlots(raw, slotCount)
+		local out = {}
+		for i = 1, slotCount do
+			local v = raw[i] or raw[tostring(i)]
+			out[i] = (v and v ~= "") and tostring(v) or ""
+		end
+		return out
 	end
+	local baseSlots = normalizeSlots(rawBase, slotCountIncome)
+	local defenseSlots = normalizeSlots(rawDef, slotCountDefense)
+	-- Debug: raw slot key sample (replication can send string keys)
+	local function rawKeySample(raw, name)
+		local keys = {}
+		for k in pairs(raw) do table.insert(keys, tostring(k) .. "(" .. type(k) .. ")") end
+		table.sort(keys)
+		baseLog(name, "keys sample:", #keys > 0 and table.concat(keys, ", ") or "empty")
+	end
+	rawKeySample(rawBase, "rawBase")
+	rawKeySample(rawDef, "rawDef")
+	local filledIncome, filledDef = 0, 0
+	for i = 1, slotCountIncome do if baseSlots[i] and baseSlots[i] ~= "" then filledIncome = filledIncome + 1 end end
+	for i = 1, slotCountDefense do if defenseSlots[i] and defenseSlots[i] ~= "" then filledDef = filledDef + 1 end end
+	baseLog("slotCountIncome=" .. slotCountIncome, "slotCountDefense=" .. slotCountDefense, "filledIncome=" .. filledIncome, "filledDefense=" .. filledDef)
+	local uidToEntry = {}
+	for _, e in ipairs(invData.inventory or {}) do
+		local k = tostring(e.uid)
+		uidToEntry[k] = e
+		if e.uid ~= k then uidToEntry[e.uid] = e end
+	end
+	for _, egg in ipairs(invData.eggs or {}) do
+		local row = { uid = egg.uid, id = egg.creatureId, level = egg.level, isEgg = true, rarity = egg.rarity }
+		local k = tostring(egg.uid)
+		uidToEntry[k] = row
+		if egg.uid ~= k then uidToEntry[egg.uid] = row end
+	end
+	local uidCount = 0
+	for _ in pairs(uidToEntry) do uidCount = uidCount + 1 end
+	baseLog("uidToEntry size:", uidCount, "inventory=" .. #(invData.inventory or {}), "eggs=" .. #(invData.eggs or {}))
 
 	local container = Instance.new("Frame")
 	container.Size = UDim2.new(1, 0, 0, 0)
@@ -1357,14 +1838,15 @@ local function buildBaseLayoutPanel(parent, invData)
 	title.LayoutOrder = 0
 	title.Parent = container
 
-	-- Hint for move: click creature then click target slot
+	-- Hint: select slot for replace, or click creature then another slot to move
 	local hint = Instance.new("TextLabel")
-	hint.Size = UDim2.new(1, 0, 0, 16)
+	hint.Size = UDim2.new(1, 0, 0, 32)
 	hint.BackgroundTransparency = 1
-	hint.Text = "Click a creature, then click another slot to move it."
+	hint.Text = "Assign from Inventory tab (Inc/Def). Here: click a creature slot, then another slot to move. Same data as world placement."
 	hint.TextColor3 = C.textMut
 	hint.Font = Enum.Font.GothamMedium
 	hint.TextSize = 9
+	hint.TextWrapped = true
 	hint.TextXAlignment = Enum.TextXAlignment.Left
 	hint.LayoutOrder = 1
 	hint.Parent = container
@@ -1413,8 +1895,9 @@ local function buildBaseLayoutPanel(parent, invData)
 		numLbl.TextSize = 9
 		numLbl.Parent = cell
 
-		if assignedUid then
-			local entry = uidToEntry[assignedUid]
+		if assignedUid and assignedUid ~= "" then
+			local entry = uidToEntry[tostring(assignedUid)] or uidToEntry[assignedUid]
+			if not entry then baseLog("mkSlotCell no entry for uid", tostring(assignedUid), "track=" .. track, "slotIndex=" .. slotIndex) end
 			local cr = entry and CreatureData.GetById(entry.id)
 			local isEgg = entry and entry.isEgg
 			local variant = (not isEgg and entry and entry.variant and entry.variant ~= "Normal") and entry.variant or nil
@@ -1470,7 +1953,9 @@ local function buildBaseLayoutPanel(parent, invData)
 			if pendingBaseMove and pendingBaseMove.track == track then
 				if pendingBaseMove.slotIndex ~= slotIndex and pendingBaseMove.uid and moveCreatureSlot then
 					-- targetPointIndex: server expects point index; slot index 1-based matches point order
+					baseLog("moveCreatureSlot request: track=" .. tostring(track), "uid=" .. tostring(pendingBaseMove.uid), "targetSlotIndex=" .. tostring(slotIndex))
 					local ok, msg = moveCreatureSlot:InvokeServer(track, pendingBaseMove.uid, slotIndex)
+					baseLog("moveCreatureSlot result: ok=" .. tostring(ok), msg and ("msg=" .. tostring(msg)) or "")
 					if ok then
 						pendingBaseMove = nil
 						if refreshRaids then refreshRaids() end
@@ -1568,7 +2053,7 @@ local function buildBaseLayoutPanel(parent, invData)
 	local totalMaxHP = 0
 	for _, uid in ipairs(defenseSlots or {}) do
 		if not uid or uid == "" then continue end
-		local entry = uidToEntry[uid]
+		local entry = uidToEntry[tostring(uid)]
 		if entry and not entry.isEgg then
 			local cr = CreatureData.GetById(entry.id)
 			if cr and cr.health then totalMaxHP = totalMaxHP + (cr.health or 0) end
@@ -1609,6 +2094,7 @@ end
 -- RAID TAB
 -- --------------------------------------------
 refreshRaids = function()
+	baseLog("refreshRaids called")
 	local restoreScroll = captureScrollPosition()
 	for _, ch in ipairs(content:GetChildren()) do
 		if not ch:IsA("UIListLayout") then ch:Destroy() end
@@ -1618,10 +2104,17 @@ refreshRaids = function()
 
 	if GameConfig.ENABLE_BASE_LAYOUT_OVERVIEW and getInventory then
 		local ok, invData = pcall(function() return getInventory:InvokeServer() end)
+		baseLog("GetInventory: ok=" .. tostring(ok), invData and "has invData" or "invData nil")
 		if ok and invData then
+			baseLog("buildBaseLayoutPanel: baseSlots type=" .. type(invData.baseSlots), "defenseSlots type=" .. type(invData.defenseSlots), "ownedFloors=" .. tostring(invData.ownedFloors and #invData.ownedFloors or "nil"))
 			buildBaseLayoutPanel(content, invData)
 			layoutOrderNext = 10
+		else
+			if not ok then baseLog("GetInventory pcall failed or returned nil") end
 		end
+	else
+		if not GameConfig.ENABLE_BASE_LAYOUT_OVERVIEW then baseLog("ENABLE_BASE_LAYOUT_OVERVIEW is false") end
+		if not getInventory then baseLog("getInventory is nil") end
 	end
 
 	if not getRaidTargets then restoreScroll(); return end
@@ -1683,10 +2176,12 @@ end
 -- --------------------------------------------
 local refreshLock = false
 local refreshQueued = false
+-- Last slot UID strings from SlotAssignComplete; used when refresh runs without overrides (e.g. deferred)
+local lastSlotBaseStr, lastSlotDefStr = nil, nil
 
-refreshInventory = function()
+refreshInventory = function(overrideBaseStr, overrideDefStr)
 	if refreshLock then
-		refreshQueued = true  -- will re-run after current finishes
+		refreshQueued = true
 		return
 	end
 	refreshLock = true
@@ -1697,7 +2192,76 @@ refreshInventory = function()
 	end
 	if not getInventory then refreshLock = false; restoreScroll(); return end
 	local ok, data = pcall(function() return getInventory:InvokeServer() end)
+	baseLog("refreshInventory GetInventory: ok=" .. tostring(ok), ok and data and ("inventory=" .. #(data.inventory or {}) .. " baseSlots=" .. type(data.baseSlots) .. " defenseSlots=" .. type(data.defenseSlots)) or "")
 	if not ok or not data then refreshLock = false; restoreScroll(); return end
+
+	local function normalizeSlots(raw, slotCount)
+		if not raw then return {} end
+		local out = {}
+		local n = math.max(tonumber(slotCount) or 6, 6)
+		for i = 1, n do
+			local v = raw[i] or raw[tostring(i)]
+			out[i] = (v and v ~= "") and tostring(v) or ""
+		end
+		return out
+	end
+	local function csvToUidSet(s)
+		local set = {}
+		if type(s) ~= "string" or s == "" then return set end
+		for part in string.gmatch(s, "[^,]+") do
+			local u = part:gsub("^%s+", ""):gsub("%s+$", "")
+			if u ~= "" then set[u] = true end
+		end
+		return set
+	end
+	local function slotArrayToUidSet(slots)
+		local set = {}
+		if not slots then return set end
+		for i = 1, #slots do local u = slots[i]; if u and u ~= "" then set[tostring(u)] = true end end
+		for _, u in pairs(slots) do if u and u ~= "" then set[tostring(u)] = true end end
+		return set
+	end
+	local numFloors = data.ownedFloors and #data.ownedFloors or 1
+	local maxInc = math.max(data.incomeMax or (numFloors * (GameConfig.IncomePointsPerFloor or 6)), 6)
+	local maxDef = math.max(data.defenseMax or (numFloors * (GameConfig.DefensePointsPerFloor or 6)), 6)
+	data.baseSlots = normalizeSlots(data.baseSlots, maxInc)
+	data.defenseSlots = normalizeSlots(data.defenseSlots, maxDef)
+	-- Rem button: use slot UIDs from event (override or last from SlotAssignComplete), else GetInventory/slots.
+	-- FIX #16b: After consuming lastSlotBaseStr/lastSlotDefStr, clear them. Stale values from a previous
+	-- SlotAssignComplete must not override FRESH data from GetInventory on future refreshes. Without clearing,
+	-- the following sequence breaks: Inc (sets lastSlotBaseStr="X") → Fav (refreshInventory with no args uses
+	-- stale lastSlotBaseStr="X" instead of fresh baseSlotUidsStr="" → Rem stays visible after favoriting).
+	local resolvedBaseStr = overrideBaseStr or lastSlotBaseStr or data.baseSlotUidsStr
+	local resolvedDefStr  = overrideDefStr  or lastSlotDefStr  or data.defenseSlotUidsStr
+	-- Clear after consumption so future refreshes without overrides use fresh GetInventory data
+	lastSlotBaseStr = nil
+	lastSlotDefStr  = nil
+	data.baseUidSet = csvToUidSet(resolvedBaseStr)
+	if next(data.baseUidSet) == nil then data.baseUidSet = slotArrayToUidSet(data.baseSlots) end
+	data.defenseUidSet = csvToUidSet(resolvedDefStr)
+	if next(data.defenseUidSet) == nil then data.defenseUidSet = slotArrayToUidSet(data.defenseSlots) end
+
+	-- FIX #20: Self-clear optimistic entries once server data confirms the expected state.
+	-- If the user clicked Inc (optimistic base=true) and the server now reports that UID in
+	-- baseUidSet, the optimistic entry is no longer needed. Also force-clear entries older
+	-- than 5 seconds as a safety net against server errors / lost events.
+	local now = tick()
+	for uid, opt in pairs(pendingOptimistic) do
+		if (now - (opt.t or 0)) > 5 then
+			pendingOptimistic[uid] = nil
+		else
+			local matched = true
+			if opt.base ~= nil then
+				local serverBase = (data.baseUidSet and data.baseUidSet[uid]) == true
+				if opt.base ~= serverBase then matched = false end
+			end
+			if opt.def ~= nil then
+				local serverDef = (data.defenseUidSet and data.defenseUidSet[uid]) == true
+				if opt.def ~= serverDef then matched = false end
+			end
+			if matched then pendingOptimistic[uid] = nil end
+		end
+	end
 
 	-- Clear again after yield (another refresh may have added cards during InvokeServer)
 	for _, ch in ipairs(content:GetChildren()) do
@@ -1710,14 +2274,17 @@ refreshInventory = function()
 
 	local ipt = 0
 	local eggUids = {}
-	for _, egg in ipairs(data.eggs or {}) do eggUids[egg.uid] = true end
-	for _, uid in ipairs(data.baseSlots or {}) do
+	for _, egg in ipairs(data.eggs or {}) do
+		if egg and egg.uid then eggUids[tostring(egg.uid)] = true end
+	end
+	for _, uid in pairs(data.baseSlots or {}) do
 		if not uid or uid == "" then continue end
-		if not eggUids[uid] then
+		if not eggUids[tostring(uid)] then
 			for _, e in ipairs(data.inventory) do
-				if e.uid == uid then
+				if e.uid and tostring(e.uid) == tostring(uid) then
 					local c = CreatureData.GetById(e.id)
-					if c then ipt = ipt + c.baseIncome end; break
+					if c then ipt = ipt + c.baseIncome end
+					break
 				end
 			end
 		end
@@ -1726,30 +2293,30 @@ refreshInventory = function()
 
 	local ro = { Legendary=1, Epic=2, Rare=3, Uncommon=4, Common=5 }
 
-	-- Build status lookup: category order = Favorite, Battle Team, Defense, Income, Unassigned
+	-- Build status lookup: category order = Favorite, Battle Team, Defense, Income, Unassignedg
 	local statusOf = {} -- uid -> { group }
 	-- Group 0 = Favorite, 1 = Battle Team, 2 = Defense, 3 = Income, 4 = Unassigned
-	if data.favoriteUid then statusOf[data.favoriteUid] = { group = 0 } end
+	if data.favoriteUid then statusOf[tostring(data.favoriteUid)] = { group = 0 } end
 	if data.battleTeamSlots and #data.battleTeamSlots > 0 then
-		for _, t in ipairs(data.battleTeamSlots) do if t and t.uid then statusOf[t.uid] = { group = 1 } end end
+		for _, t in ipairs(data.battleTeamSlots) do if t and t.uid then statusOf[tostring(t.uid)] = { group = 1 } end end
 	elseif data.battleTeam then
-		for _, bu in pairs(data.battleTeam) do statusOf[bu] = { group = 1 } end
+		for _, bu in pairs(data.battleTeam) do statusOf[tostring(bu)] = { group = 1 } end
 	end
-	for _, u in ipairs(data.defenseSlots or {}) do if u and u ~= "" then statusOf[u] = { group = 2 } end end
-	for _, u in ipairs(data.baseSlots or {}) do if u and u ~= "" then statusOf[u] = { group = 3 } end end
+	for _, u in pairs(data.defenseSlots or {}) do if u and u ~= "" then statusOf[tostring(u)] = { group = 2 } end end
+	for _, u in pairs(data.baseSlots or {}) do if u and u ~= "" then statusOf[tostring(u)] = { group = 3 } end end
 
 	local sorted = {}
 	for _, e in ipairs(data.inventory) do table.insert(sorted, e) end
 	for _, egg in ipairs(data.eggs or {}) do
-		if not statusOf[egg.uid] then
+		if not statusOf[tostring(egg.uid)] and not statusOf[egg.uid] then
 			table.insert(sorted, { uid = egg.uid, id = egg.creatureId, level = egg.level, isEgg = true, rarity = egg.rarity })
 		end
 	end
 	table.sort(sorted, function(a, b)
 		local ca, cb = CreatureData.GetById(a.id), CreatureData.GetById(b.id)
 		if not ca or not cb then return false end
-		local sa = statusOf[a.uid] or { group = 4 }
-		local sb = statusOf[b.uid] or { group = 4 }
+		local sa = statusOf[tostring(a.uid)] or statusOf[a.uid] or { group = 4 }
+		local sb = statusOf[tostring(b.uid)] or statusOf[b.uid] or { group = 4 }
 		-- Sort by category first: Favorite, Battle Team, Defense, Income, Unassigned
 		if sa.group ~= sb.group then return sa.group < sb.group end
 		-- Within each category, sort by rarity then name
@@ -1779,6 +2346,18 @@ refreshInventory = function()
 	if refreshQueued then refreshQueued = false; task.defer(refreshInventory) end
 end
 
+-- Refresh inventory as soon as server finishes assign/remove so Inc/Def/Rem buttons update immediately
+task.spawn(function()
+	local evt = slotAssignComplete or Events:WaitForChild("SlotAssignComplete", 10)
+	if evt and evt:IsA("RemoteEvent") then
+		evt.OnClientEvent:Connect(function(baseStr, defStr)
+			lastSlotBaseStr, lastSlotDefStr = baseStr, defStr
+			refreshInventory(baseStr, defStr)
+			if activeTab == "raids" and refreshRaids then refreshRaids() end
+		end)
+	end
+end)
+
 -- --------------------------------------------
 -- TOGGLE (open/close use viewport scale so panel fits on mobile)
 -- --------------------------------------------
@@ -1786,22 +2365,13 @@ local isVis = false
 -- defaultTab: "inventory" (I / HUD Inventory button) or "battle" (B / B button)
 local function openUI(defaultTab)
 	defaultTab = defaultTab or "inventory"
-	-- #region agent log
-	pcall(function()
-		local hs = game:GetService("HttpService")
-		hs:PostAsync("http://127.0.0.1:7242/ingest/29779be3-c77e-4205-a6a3-76f7b6b6f8e7", hs:JSONEncode({
-			location = "InventoryUIManager.lua:openUI", message = "openUI called",
-			data = { defaultTab = defaultTab },
-			timestamp = math.floor(tick() * 1000), hypothesisId = "H4"
-		}))
-	end)
-	-- #endregion
 	local scale = getPanelScale()
 	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
 	main.Size = UDim2.new(0, w, 0, 10)
 	main.Position = UDim2.new(0.5, -w/2, 0.5, -h/2)
 	isVis = true; main.Visible = true
 	task.defer(updateFavOrb)
+	task.delay(0.5, updateFavOrb)  -- refresh again in case GetInventory was stale (e.g. favorite set before UI loaded)
 	TweenService:Create(main, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 		Size = UDim2.new(0, w, 0, h)
 	}):Play()
@@ -1812,16 +2382,6 @@ local function openUI(defaultTab)
 	end
 end
 local function closeUI()
-	-- #region agent log
-	pcall(function()
-		local hs = game:GetService("HttpService")
-		hs:PostAsync("http://127.0.0.1:7242/ingest/29779be3-c77e-4205-a6a3-76f7b6b6f8e7", hs:JSONEncode({
-			location = "InventoryUIManager.lua:closeUI", message = "closeUI called",
-			data = {},
-			timestamp = math.floor(tick() * 1000), hypothesisId = "H4"
-		}))
-	end)
-	-- #endregion
 	local w = main.AbsoluteSize.X
 	TweenService:Create(main, TweenInfo.new(0.12), { Size = UDim2.new(0, w, 0, 10) }):Play()
 	task.delay(0.13, function()
@@ -1867,8 +2427,11 @@ invTab.MouseButton1Click:Connect(function() setTab("inventory"); refreshInventor
 battleTab.MouseButton1Click:Connect(function() setTab("battle"); refreshBattle() end)
 raidTab.MouseButton1Click:Connect(function() setTab("raids"); refreshRaids() end)
 
--- Refresh current tab only (never switch content to Inventory when user is on Battle/Raids)
-local function refreshCurrentTab()
+-- Refresh current tab only (never switch content to Inventory when user is on Battle/Raids).
+-- FIX #19: Forward-declared above (alongside refreshInventory/refreshBattle/refreshRaids) so that
+-- toggleFavorite (line ~324) can call it without getting a nil global. The local function form here
+-- would shadow the forward-declared upvalue; using assignment form populates the shared binding.
+refreshCurrentTab = function()
 	if not isVis then return end
 	if activeTab == "inventory" then refreshInventory()
 	elseif activeTab == "battle" then refreshBattle()
@@ -1903,13 +2466,29 @@ if raidEnd then raidEnd.OnClientEvent:Connect(function()
 if arenaAnnounce then arenaAnnounce.OnClientEvent:Connect(function(msg)
 		Notify.Toast(msg, C.favorite, 4)
 	end) end
+if gymAnnounce then gymAnnounce.OnClientEvent:Connect(function(msg)
+		Notify.Toast(msg, C.favorite, 4)
+	end) end
 
 if battleKill then battleKill.OnClientEvent:Connect(function(aN, dN, team)
 		local color = team == "blue" and C.blue or C.red
 		Notify.KillFeed(aN, dN, color)
 	end) end
+if gymBattleKill then gymBattleKill.OnClientEvent:Connect(function(aN, dN, team)
+		local color = team == "blue" and C.blue or C.red
+		Notify.KillFeed(aN, dN, color)
+	end) end
 
 if battleEnd then battleEnd.OnClientEvent:Connect(function(winName, winTeam)
+		local isWin = (winName == player.Name)
+		Notify.Banner(
+			winName .. " WINS THE BATTLE!",
+			isWin and Color3.fromRGB(80, 255, 120) or (winTeam == "blue" and C.blue or C.red),
+			4
+		)
+		if isVis and activeTab == "battle" then task.wait(1); refreshBattle() end
+	end) end
+if gymBattleEnd then gymBattleEnd.OnClientEvent:Connect(function(winName, winTeam)
 		local isWin = (winName == player.Name)
 		Notify.Banner(
 			winName .. " WINS THE BATTLE!",

@@ -8,6 +8,7 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local CollectionService = game:GetService("CollectionService")
 local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 
 
 local player = Players.LocalPlayer
@@ -40,6 +41,7 @@ local setCompanionTarget = eventsFolder:WaitForChild("SetCompanionTarget", 8)
 local clearCompanionTarget = eventsFolder:WaitForChild("ClearCompanionTarget", 8)
 local companionFainted = eventsFolder:FindFirstChild("CompanionFainted")
 local companionRecalled = eventsFolder:WaitForChild("CompanionRecalled", 8)
+local companionSpawnedEvt = eventsFolder:FindFirstChild("CompanionSpawned")
 local stealInteractRequest = eventsFolder:FindFirstChild("StealInteractRequest")
 local homeRecallStart = eventsFolder:FindFirstChild("HomeRecallStart")
 local homeRecallEnd = eventsFolder:FindFirstChild("HomeRecallEnd")
@@ -110,10 +112,10 @@ recallLabel.Parent = recallFrame
 local TARGET_BAR_ICON_CELL_W = 64  -- cell width (ICON_SIZE + padding); larger for easier selection
 local TARGET_BAR_WIDTH = 12 + 5 * TARGET_BAR_ICON_CELL_W + 4 * 8 + 12  -- left pad + 5 cells + 4 gaps + right pad
 local TARGET_BAR_HEIGHT = 72  -- taller bar for larger clickable area
+local CAPTURE_BAR_MARGIN_PX = 8  -- gap between capture countdown and targeting bar on mobile
 local targetBarFrame = Instance.new("Frame")
 targetBarFrame.Name = "TargetSelectionBar"
 targetBarFrame.Size = UDim2.new(0, TARGET_BAR_WIDTH, 0, TARGET_BAR_HEIGHT)
-targetBarFrame.Position = UDim2.new(0.5, 0, 1, -70)  -- above HUD bar (HUD bar height reduced to give space)
 targetBarFrame.AnchorPoint = Vector2.new(0.5, 1)
 targetBarFrame.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
 targetBarFrame.BorderSizePixel = 0
@@ -123,6 +125,53 @@ Instance.new("UICorner", targetBarFrame).CornerRadius = UDim.new(0, 8)
 local targetBarStroke = Instance.new("UIStroke", targetBarFrame)
 targetBarStroke.Color = Color3.fromRGB(220, 180, 60)
 targetBarStroke.Thickness = 2
+
+-- Position target bar just above hub button bar at all scales (match HUDButtonBar layout: 32/1080 * 1.35 height)
+local TARGET_BAR_SLIVER_PX = 8
+local TARGET_BAR_MOBILE_EXTRA_OFFSET_PX = 12  -- small bar sits just above HUD on mobile
+local function updateTargetBarPosition()
+	local camera = workspace.CurrentCamera
+	if not camera then return end
+	local vh = camera.ViewportSize.Y
+	local hudHeightPx = (32 / 1080) * 1.35 * vh
+	local offsetFromBottom = hudHeightPx + TARGET_BAR_SLIVER_PX
+	local targetBarScale = 1
+	if UserInputService.TouchEnabled then
+		offsetFromBottom = offsetFromBottom + TARGET_BAR_MOBILE_EXTRA_OFFSET_PX
+		local scaleObj = targetBarFrame:FindFirstChildOfClass("UIScale")
+		if scaleObj then
+			targetBarScale = scaleObj.Scale
+		end
+	end
+	targetBarFrame.Position = UDim2.new(0.5, 0, 1, -offsetFromBottom)
+
+	-- On mobile, position the capture countdown bar so it sits a few pixels above the targeting UI,
+	-- regardless of screen aspect ratio.
+	if UserInputService.TouchEnabled then
+		local targetBarHeightPx = TARGET_BAR_HEIGHT * targetBarScale
+		local progressHeightPx = 36
+		local topOfTargetScale = 1 - (offsetFromBottom / vh) - (targetBarHeightPx / vh)
+		local captureYScale = topOfTargetScale - (progressHeightPx + CAPTURE_BAR_MARGIN_PX) / vh
+		progressFrame.Position = UDim2.new(0.5, -150, captureYScale, 0)
+	end
+end
+task.defer(function()
+	local camera = workspace.CurrentCamera
+	if not camera then
+		workspace:GetPropertyChangedSignal("CurrentCamera"):Wait()
+		camera = workspace.CurrentCamera
+	end
+	if camera then
+		updateTargetBarPosition()
+		camera:GetPropertyChangedSignal("ViewportSize"):Connect(updateTargetBarPosition)
+	end
+end)
+
+if UserInputService.TouchEnabled then
+	local targetBarUIScale = Instance.new("UIScale")
+	targetBarUIScale.Scale = 0.4
+	targetBarUIScale.Parent = targetBarFrame
+end
 
 local targetBarList = Instance.new("Frame")
 targetBarList.Name = "IconList"
@@ -142,12 +191,25 @@ targetBarEmptyLabel.Name = "EmptyLabel"
 targetBarEmptyLabel.Size = UDim2.new(1, 0, 1, 0)
 targetBarEmptyLabel.Position = UDim2.new(0, 0, 0, 0)
 targetBarEmptyLabel.BackgroundTransparency = 1
-targetBarEmptyLabel.Text = "No targets in range"
-targetBarEmptyLabel.TextColor3 = Color3.fromRGB(120, 120, 140)
-targetBarEmptyLabel.Font = Enum.Font.GothamMedium
+targetBarEmptyLabel.Text = "Tracking Sieglings"
+targetBarEmptyLabel.TextColor3 = Color3.fromRGB(255, 215, 90)  -- gold so it pops
+targetBarEmptyLabel.Font = Enum.Font.GothamBold
 targetBarEmptyLabel.TextSize = 10
+targetBarEmptyLabel.TextScaled = true  -- always fills target bar when no targets
+targetBarEmptyLabel.TextWrapped = true
 targetBarEmptyLabel.Visible = false
 targetBarEmptyLabel.Parent = targetBarList
+local targetBarEmptyStroke = Instance.new("UIStroke", targetBarEmptyLabel)
+targetBarEmptyStroke.Color = Color3.fromRGB(40, 35, 25)
+targetBarEmptyStroke.Thickness = 1
+targetBarEmptyStroke.Transparency = 0.3
+-- On mobile: 50% larger text (UIScale 1.5); size/position set when shown so scaled label fills the bar
+
+if UserInputService.TouchEnabled then
+	local emptyLabelScale = Instance.new("UIScale")
+	emptyLabelScale.Scale = 1.5
+	emptyLabelScale.Parent = targetBarEmptyLabel
+end
 
 local selectedTargetModel = nil   -- tracks which creature we've targeted (for UI highlight + world highlight)
 local selectedTargetUniqueId = nil -- when set, we target by UniqueId and get the rest of the data from the model
@@ -168,6 +230,13 @@ local function updateCombatTargetStore(uniqueId)
 	local store = ensureTargetStore()
 	store.Value = uniqueId and tostring(uniqueId) or ""
 end
+
+-- Forward declare shared targeting helpers so tap/click handlers defined earlier
+-- still capture the local functions used later by the target bar code.
+local clearTargetHighlight
+local highlightTarget
+local hasCompanionOut
+local getEffectiveTargetRange
 
 -- Tooltip (shows on hover over creatures)
 local tooltip = Instance.new("Frame")
@@ -215,6 +284,16 @@ local function showNotif(text, color, duration)
 	Notify.Toast(text, color or Color3.fromRGB(200, 200, 210), duration or 3)
 end
 
+-- True if this model is the local player's own base creature (income/defense/battle orb).
+local function isOwnBaseCreature(model)
+	if not model then return false end
+	local ownerId = model:GetAttribute("OwnerUserId")
+	if not ownerId or tostring(ownerId) ~= tostring(player.UserId) then return false end
+	return CollectionService:HasTag(model, "BaseIncomeCreature")
+		or CollectionService:HasTag(model, "BaseDefenseCreature")
+		or CollectionService:HasTag(model, "BaseBattleCreature")
+end
+
 -- -- Hover tooltip --
 task.spawn(function()
 	while true do
@@ -232,7 +311,10 @@ task.spawn(function()
 					tipName.TextColor3 = CreatureData.Rarities[info.rarity] and CreatureData.Rarities[info.rarity].color or Color3.new(1,1,1)
 					tipInfo.Text = info.element .. " " .. info.class .. " | " .. (info.behavior or "?")
 
-					if isFainted then
+					if isOwnBaseCreature(model) then
+						tipAction.Text = "Friendly | [E] Manage"
+						tipAction.TextColor3 = Color3.fromRGB(100, 220, 120)
+					elseif isFainted then
 						local cost = CreatureData.GetCaptureCost(cid)
 						tipAction.Text = "FAINTED - Click to capture (" .. cost .. " gold)"
 						tipAction.TextColor3 = Color3.fromRGB(255, 200, 0)
@@ -289,23 +371,121 @@ local function findNearestFainted(worldPos, maxDist)
 	return best
 end
 
--- -- Left click: capture fainted creatures --
-mouse.Button1Down:Connect(function()
-	local target = mouse.Target
-	if not target then return end
+-- Nearest live (non-fainted) creature near a world position, for click-near-to-target fallback.
+local function findNearestCreatureNearPosition(worldPos, maxDist)
+	local best, bestDist = nil, maxDist
+	local function consider(model)
+		if not model or not model.Parent or not model:GetAttribute("CreatureId") then return end
+		if model:GetAttribute("Fainted") then return end
+		-- Never target arena participants or battle-team/base battle slot creatures (friendly / non-attackable).
+		if CollectionService:HasTag(model, "ArenaCreature") then return end
+		if CollectionService:HasTag(model, "GymArenaCreature") then return end
+		if CollectionService:HasTag(model, "BaseBattleCreature") then return end
+		if isOwnBaseCreature(model) then return end
+		local d = getDistanceToModel(worldPos, model)
+		if d < bestDist then bestDist = d; best = model end
+	end
+	for _, model in ipairs(CollectionService:GetTagged("WorldCreature")) do
+		consider(model)
+	end
+	for _, tag in ipairs({ "BaseDefenseCreature", "BaseIncomeCreature" }) do
+		for _, model in ipairs(CollectionService:GetTagged(tag)) do
+			local ownerId = model:GetAttribute("OwnerUserId")
+			if ownerId and ownerId ~= player.UserId then consider(model) end
+		end
+	end
+	return best
+end
+
+-- -- Left click / tap: capture fainted creatures or target live creatures --
+-- Uses raycast from camera (reliable for both mouse and touch; mouse.Target can miss on creature clicks)
+local lastCaptureFireTime = 0
+local CAPTURE_DEBOUNCE = 1.5  -- seconds between capture attempts
+local captureRequestPending = false  -- blocks duplicate fires until we get Success/Fail/Cancelz
+
+local function getCreatureAndHitUnderScreenPos(screenPos)
+	local camera = Workspace.CurrentCamera
+	if not camera then return nil, nil end
+	local unitRay = camera:ScreenPointToRay(screenPos.X, screenPos.Y)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = player.Character and { player.Character } or {}
+	local hit = Workspace:Raycast(unitRay.Origin, unitRay.Direction * 500, params)
+	if not hit then return nil, nil end
+	local model = hit.Instance and hit.Instance:FindFirstAncestorWhichIsA("Model")
+	return model, hit.Position
+end
+
+local function onTapOrClick(inputObject, gameProcessed)
+	-- Do not bail on gameProcessed: clicking the creature's name/HP BillboardGui can mark the event as
+	-- GUI-processed, but we still want click-to-target. We only act when the raycast hits a creature.
+	local screenPos
+	if inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
+		screenPos = Vector2.new(mouse.X, mouse.Y)
+	elseif inputObject.UserInputType == Enum.UserInputType.Touch then
+		screenPos = inputObject.Position
+	else
+		return
+	end
+
+	local creatureModel, hitPos = getCreatureAndHitUnderScreenPos(screenPos)
+	-- Fallback: mouse.Target can work when raycast misses (e.g. custom TargetFilter)
+	if not creatureModel and mouse.Target then
+		creatureModel = mouse.Target:FindFirstAncestorWhichIsA("Model")
+	end
+	-- Fallback: raycast hit terrain/nothing Ã¢â‚¬â€ find nearest creature near the hit point (click-near to target)
+	if not creatureModel and hitPos then
+		creatureModel = findNearestCreatureNearPosition(hitPos, 10)
+	end
 
 	local character = player.Character
 	if not character or not character:FindFirstChild("HumanoidRootPart") then return end
 	local rootPos = character.HumanoidRootPart.Position
 
-	local creatureModel = target:FindFirstAncestorWhichIsA("Model")
+	local function tryFire(model)
+		if not captureRequest or captureRequestPending then return end
+		if (tick() - lastCaptureFireTime) < CAPTURE_DEBOUNCE then return end
+		lastCaptureFireTime = tick()
+		captureRequestPending = true
+		captureRequest:FireServer(model)
+	end
+
+	local function tryTarget(model)
+		if not model or not model.Parent then return false end
+		if not model:GetAttribute("CreatureId") then return false end
+		if model:GetAttribute("Fainted") then return false end
+		-- Never target arena participants or battle-team/base battle slot creatures (friendly / non-attackable).
+		if CollectionService:HasTag(model, "ArenaCreature") then return false end
+		if CollectionService:HasTag(model, "GymArenaCreature") then return false end
+		if CollectionService:HasTag(model, "BaseBattleCreature") then return false end
+		if isOwnBaseCreature(model) then return false end
+		-- Only target if within effective attack/target range (companion range when out; otherwise player attack range)
+		if getDistanceToModel(rootPos, model) > getEffectiveTargetRange() then return false end
+
+		local uid = model:GetAttribute("UniqueId") or model:GetAttribute("UID")
+		if setCompanionTarget then
+			setCompanionTarget:FireServer(uid or model)
+		end
+		selectedTargetModel = model
+		selectedTargetUniqueId = uid
+		updateCombatTargetStore(uid)
+		highlightTarget(model)
+
+		local cid = model:GetAttribute("CreatureId")
+		local info = cid and CreatureData.GetById(cid)
+		showNotif(">> Targeting: " .. (info and info.displayName or "creature") .. " (tap)", Color3.fromRGB(255, 200, 50), 2)
+		return true
+	end
 
 	-- If we clicked a creature model, check if it's fainted
 	if creatureModel and creatureModel:GetAttribute("CreatureId") then
 		if creatureModel:GetAttribute("Fainted") then
-			-- Direct hit on fainted creature — use bbox so tall creatures can be captured from underneath
+			-- Direct hit on fainted creature Ã¢â‚¬â€ use bbox so tall creatures can be captured from underneath
 			if isPlayerInCaptureRange(rootPos, creatureModel) then
-				if captureRequest then captureRequest:FireServer(creatureModel) end
+				-- #region agent log
+				print(string.format("[DEBUG-CAPTURE] Click path=direct hit pending=%s wouldFire=%s", tostring(captureRequestPending), tostring(not captureRequestPending)))
+				-- #endregion
+				tryFire(creatureModel)
 				return
 			else
 				showNotif("Too far away!", Color3.fromRGB(255, 100, 80), 1.5)
@@ -313,38 +493,46 @@ mouse.Button1Down:Connect(function()
 			end
 		end
 
-		-- Clicked a live creature — check if a fainted creature is nearby/behind it
+		-- Clicked a live creature Ã¢â‚¬â€ check if a fainted creature is nearby/behind it
 		-- (creatures overlap in packs, so the click may have been intended for the fainted one)
 		local body = creatureModel.PrimaryPart or creatureModel:FindFirstChild("Body")
 		if body then
 			local fainted = findNearestFainted(body.Position, 12)
 			if fainted then
 				if isPlayerInCaptureRange(rootPos, fainted) then
-					if captureRequest then captureRequest:FireServer(fainted) end
+					tryFire(fainted)
 					return
 				end
 			end
 		end
 
-		-- No nearby fainted creature — show hint (use bbox for range so tall creatures show hint when close)
+		-- No nearby fainted creature: if it's in range, tap-to-target (player combat + favorite companion).
+		if tryTarget(creatureModel) then
+			return
+		end
+
+		-- No nearby fainted creature Ã¢â‚¬â€ show hint (use bbox for range so tall creatures show hint when close)
 		if isPlayerInCaptureRange(rootPos, creatureModel) then
 			showNotif("Creature must be fainted first! Attack it or use your companion.", Color3.fromRGB(255, 180, 80), 2.5)
 		end
 		return
 	end
 
-	-- Clicked terrain/other — check if a fainted creature is near the click point
-	if mouse.Hit then
-		local fainted = findNearestFainted(mouse.Hit.Position, 8)
+	-- Clicked terrain/other Ã¢â‚¬â€ check if a fainted creature is near the click point
+	hitPos = hitPos or (mouse.Hit and mouse.Hit.Position) or (Workspace.CurrentCamera and Workspace.CurrentCamera.CFrame.Position)
+	if hitPos then
+		local fainted = findNearestFainted(hitPos, 8)
 		if fainted then
 			if isPlayerInCaptureRange(rootPos, fainted) then
-				if captureRequest then captureRequest:FireServer(fainted) end
+				tryFire(fainted)
 			else
 				showNotif("Too far away!", Color3.fromRGB(255, 100, 80), 1.5)
 			end
 		end
 	end
-end)
+end
+
+UserInputService.InputBegan:Connect(onTapOrClick)
 
 -- -- E key: target nearest creature (or creature near crosshair) --
 local currentTargetHighlight = nil
@@ -377,23 +565,22 @@ local function isNearArena(position)
 	return flatDist < (GameConfig.ArenaExclusionRadius or 80)
 end
 
+-- Exclude only arena battle participants (ArenaCreature). World monsters near the arena can be targeted and killed.
 local function isValidTarget(model)
 	if not model or not model.Parent then return false end
 	if model:GetAttribute("Fainted") then return false end
 	if CollectionService:HasTag(model, "ArenaCreature") then return false end
-	local body = model.PrimaryPart or model:FindFirstChild("Body")
-	if body and isNearArena(body.Position) then return false end
 	return true
 end
 
-local function clearTargetHighlight()
+clearTargetHighlight = function()
 	if currentTargetHighlight and currentTargetHighlight.Parent then
 		currentTargetHighlight:Destroy()
 	end
 	currentTargetHighlight = nil
 end
 
-local function highlightTarget(model)
+highlightTarget = function(model)
 	clearTargetHighlight()
 	if not model or not model.Parent then return end
 	local hl = Instance.new("Highlight")
@@ -449,7 +636,7 @@ UserInputService.InputBegan:Connect(function(input, gp)
 		if mouseTarget then
 			local hoverModel = mouseTarget:FindFirstAncestorWhichIsA("Model")
 			if hoverModel and hoverModel:GetAttribute("CreatureId") and isValidTarget(hoverModel) then
-				if getDistanceToModel(rootPos, hoverModel) <= GameConfig.TargetScanRange then
+				if getDistanceToModel(rootPos, hoverModel) <= getEffectiveTargetRange() then
 					local uid = hoverModel:GetAttribute("UniqueId") or hoverModel:GetAttribute("UID")
 					if setCompanionTarget then setCompanionTarget:FireServer(uid or hoverModel) end
 					selectedTargetModel = hoverModel
@@ -464,8 +651,8 @@ UserInputService.InputBegan:Connect(function(input, gp)
 			end
 		end
 
-		-- No hover target – find nearest creature (exclude arena zone); target by UniqueId then get rest from model
-		local nearest, nearDist = nil, GameConfig.TargetScanRange
+		-- No hover target Ã¢â‚¬â€œ find nearest creature (exclude arena zone); target by UniqueId then get rest from model
+		local nearest, nearDist = nil, getEffectiveTargetRange()
 		for _, tagged in ipairs(CollectionService:GetTagged("WorldCreature")) do
 			if isValidTarget(tagged) then
 				local d = getDistanceToModel(rootPos, tagged)
@@ -498,8 +685,29 @@ end)
 -- -- Dynamic Target Selection Bar (updates each tick, click to select attack target) --
 local lastInRangeModels = {}
 local lastSelectedTargetModel = nil
+local lastDisplayUniqueIds = {}  -- last shown creature uniqueIds (order) - used to avoid unnecessary rebuilds
 local ICON_SIZE = 56  -- larger icons for easier tap/click (especially on mobile)
 local MAX_TARGET_ICONS = 5  -- show closest 5 creatures
+
+-- Effective target range: companion attack range when companion is out, else player ranged (longer of player options).
+-- Target bar only shows creatures you can actually attack.
+hasCompanionOut = function()
+	for _, model in ipairs(CollectionService:GetTagged("FavoriteCreature")) do
+		if model.Parent and (model:GetAttribute("OwnerUserId") == player.UserId or tostring(model:GetAttribute("OwnerUserId") or "") == tostring(player.UserId)) then
+			return true
+		end
+	end
+	return false
+end
+
+getEffectiveTargetRange = function()
+	if hasCompanionOut() then
+		return GameConfig.CompanionAttackRange or 40
+	end
+	local ranged = GameConfig.PlayerRangedRange or 25
+	local melee = GameConfig.PlayerMeleeRadius or 8
+	return math.max(ranged, melee)
+end
 
 -- Match PlayerCombatClient: only exclude Fainted (no ArenaCreature filter so all attackable creatures show).
 local function isTargetBarValid(model)
@@ -521,15 +729,20 @@ end
 local function collectInRangeCreatures(rootPos)
 	-- One entry per creature MODEL (instance), even if multiple have the same CreatureId.
 	-- We still cap the bar to the closest MAX_TARGET_ICONS creatures after sorting.
+	-- Range matches attack range: companion when out, else player ranged (so bar only shows attackable targets).
 	local list = {}
 	local seen = {} -- avoid duplicates if the same model is discovered via multiple paths
-	local scanRange = GameConfig.TargetScanRange or 50
+	local scanRange = getEffectiveTargetRange()
 
 	local function addModel(model)
 		if not model or not model.Parent then return end
 		if seen[model] then return end
 		if not isTargetBarValid(model) then return end
 		if CollectionService:HasTag(model, "FavoriteCreature") then return end
+		-- Never show arena participants or battle-team/base battle slot creatures in target UI.
+		if CollectionService:HasTag(model, "ArenaCreature") then return end
+		if CollectionService:HasTag(model, "GymArenaCreature") then return end
+		if CollectionService:HasTag(model, "BaseBattleCreature") then return end
 		-- Exclude player-owned base creatures (income, defense, battle)
 		for _, baseTag in ipairs({ "BaseDefenseCreature", "BaseIncomeCreature", "BaseBattleCreature" }) do
 			if CollectionService:HasTag(model, baseTag) then
@@ -558,7 +771,7 @@ local function collectInRangeCreatures(rootPos)
 		addModel(tagged)
 	end
 
-	-- Base creatures (enemy defense/income) – only enemies (OwnerUserId ~= local player)
+	-- Base creatures (enemy defense/income) Ã¢â‚¬â€œ only enemies (OwnerUserId ~= local player)
 	for _, tag in ipairs({ "BaseDefenseCreature", "BaseIncomeCreature" }) do
 		for _, tagged in ipairs(CollectionService:GetTagged(tag)) do
 			local ownerId = tagged:GetAttribute("OwnerUserId")
@@ -627,12 +840,22 @@ local function refreshTargetBar()
 			targetBarEmptyLabel.Parent = targetBarList
 		end
 		targetBarEmptyLabel.Visible = true
-		targetBarEmptyLabel.Size = UDim2.new(1, 0, 1, 0)
+		-- Desktop: full size; mobile: 1/1.5 so UIScale 1.5 fills bar with 50% larger text
+		if UserInputService.TouchEnabled then
+			targetBarEmptyLabel.Size = UDim2.new(1/1.5, 0, 1/1.5, 0)
+			targetBarEmptyLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
+			targetBarEmptyLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+		else
+			targetBarEmptyLabel.Size = UDim2.new(1, 0, 1, 0)
+			targetBarEmptyLabel.Position = UDim2.new(0, 0, 0, 0)
+			targetBarEmptyLabel.AnchorPoint = Vector2.new(0, 0)
+		end
 		-- Clear icon cells only (keep UIListLayout and EmptyLabel)
 		for _, child in ipairs(targetBarList:GetChildren()) do
 			if child:IsA("Frame") then child:Destroy() end
 		end
 		lastInRangeModels = {}
+		lastDisplayUniqueIds = {}
 		lastSelectedTargetModel = selectedTargetModel
 		return
 	end
@@ -640,16 +863,69 @@ local function refreshTargetBar()
 	targetBarEmptyLabel.Parent = nil
 	targetBarEmptyLabel.Visible = false
 
-	-- Take closest MAX_TARGET_ICONS unique creatures for the bar (always rebuild so bar expands when count goes 1→3+).
+	-- Take closest MAX_TARGET_ICONS unique creatures for the bar
 	local displayList = {}
 	for i = 1, math.min(#inRange, MAX_TARGET_ICONS) do displayList[i] = inRange[i] end
+
+	-- Build uniqueId list for comparison (avoid rebuild when list unchanged = keeps buttons stable & clickable)
+	local currentUniqueIds = {}
+	for i, e in ipairs(displayList) do currentUniqueIds[i] = tostring(e.uniqueId or "") end
+	local idsMatch = #currentUniqueIds == #lastDisplayUniqueIds
+	if idsMatch then
+		for i = 1, #currentUniqueIds do
+			if currentUniqueIds[i] ~= lastDisplayUniqueIds[i] then idsMatch = false break end
+		end
+	end
 
 	lastInRangeModels = {}
 	for i, entry in ipairs(displayList) do lastInRangeModels[i] = entry.model end
 	lastSelectedTargetModel = selectedTargetModel
 
-	-- Rebuild icons (bar has fixed width; UIListLayout orders them left to right).
-	-- Only destroy icon Frames – do NOT destroy UIListLayout or layout breaks and icons stack
+	if idsMatch then
+		-- List unchanged: only update selection highlight on existing buttons (don't destroy = clicks stay reliable)
+		local cells = {}
+		for _, child in ipairs(targetBarList:GetChildren()) do
+			if child:IsA("Frame") and child:FindFirstChildOfClass("TextButton") then
+				table.insert(cells, child)
+			end
+		end
+		table.sort(cells, function(a, b) return (a.LayoutOrder or 0) < (b.LayoutOrder or 0) end)
+		for i, entry in ipairs(displayList) do
+			local cell = cells[i]
+			if cell then
+				local btn = cell:FindFirstChildOfClass("TextButton")
+				local stroke = btn and btn:FindFirstChildOfClass("UIStroke")
+				local arrow = cell:FindFirstChild("SelectedArrow")
+				local m = entry.model
+				local isSelected = (m == selectedTargetModel)
+				if stroke then
+					stroke.Color = isSelected and Color3.fromRGB(255, 220, 80) or Color3.fromRGB(80, 80, 100)
+					stroke.Thickness = isSelected and 4 or 2
+				end
+				if isSelected and not arrow then
+					arrow = Instance.new("TextLabel")
+					arrow.Name = "SelectedArrow"
+					arrow.Size = UDim2.new(0, 8, 0, 6)
+					arrow.Position = UDim2.new(0.5, -4, 1, -6)
+					arrow.BackgroundTransparency = 1
+					arrow.Text = "Ã¢â€“Â²"
+					arrow.TextColor3 = Color3.fromRGB(255, 220, 80)
+					arrow.Font = Enum.Font.GothamBold
+					arrow.TextSize = 6
+					arrow.Parent = cell
+				elseif not isSelected and arrow then
+					arrow:Destroy()
+				end
+			end
+		end
+		lastDisplayUniqueIds = currentUniqueIds
+		targetBarFrame.Visible = true
+		return
+	end
+
+	lastDisplayUniqueIds = currentUniqueIds
+
+	-- Rebuild icons when list changed (bar has fixed width; UIListLayout orders them left to right)
 	for _, child in ipairs(targetBarList:GetChildren()) do
 		if child:IsA("Frame") then child:Destroy() end
 	end
@@ -692,10 +968,11 @@ local function refreshTargetBar()
 
 		if isSelected then
 			local arrow = Instance.new("TextLabel")
+			arrow.Name = "SelectedArrow"
 			arrow.Size = UDim2.new(0, 8, 0, 6)
 			arrow.Position = UDim2.new(0.5, -4, 1, -6)
 			arrow.BackgroundTransparency = 1
-			arrow.Text = "▲"
+			arrow.Text = "Ã¢â€“Â²"
 			arrow.TextColor3 = Color3.fromRGB(255, 220, 80)
 			arrow.Font = Enum.Font.GothamBold
 			arrow.TextSize = 6
@@ -705,6 +982,18 @@ local function refreshTargetBar()
 		local captureEntry = entry
 		local captureDisplayName = displayName
 		btn.MouseButton1Click:Connect(function()
+			-- Visual feedback: brief press effect
+			local origSize = btn.Size
+			TweenService:Create(btn, TweenInfo.new(0.06, Enum.EasingStyle.Quad), {
+				Size = UDim2.new(origSize.X.Scale * 0.92, origSize.X.Offset * 0.92, origSize.Y.Scale * 0.92, origSize.Y.Offset * 0.92)
+			}):Play()
+			task.delay(0.06, function()
+				if btn and btn.Parent then
+					TweenService:Create(btn, TweenInfo.new(0.08, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+						Size = UDim2.new(1, 0, 1, 0)
+					}):Play()
+				end
+			end)
 			-- Send UniqueId when present so server picks target by id and gets the rest of the data from the model
 			local uid = captureEntry.uniqueId
 			local targetModel = captureEntry.model
@@ -713,7 +1002,7 @@ local function refreshTargetBar()
 			selectedTargetUniqueId = uid
 			updateCombatTargetStore(uid)
 			highlightTarget(targetModel)
-			showNotif(">> Targeting: " .. captureDisplayName, Color3.fromRGB(255, 200, 50), 1)
+			showNotif(">> Targeting: " .. captureDisplayName .. " (in range)", Color3.fromRGB(255, 200, 50), 2)
 			lastInRangeModels = {}
 			refreshTargetBar()
 		end)
@@ -791,6 +1080,7 @@ local function ensureGraceArea(creatureModel)
 	local cardPos = Vector3.new(center.X, creatureTop + 2, center.Z)
 
 	-- Parent to CurrentCamera so only this player sees it
+	
 	graceAreaFolder = Instance.new("Folder")
 	graceAreaFolder.Name = "CaptureGraceArea"
 	graceAreaFolder.Parent = workspace.CurrentCamera
@@ -835,18 +1125,20 @@ local function ensureGraceArea(creatureModel)
 	addCardParticles(card)
 end
 
-local function addCardParticles(card)
+local function addCardParticles(card, optionalColor)
+	local base = optionalColor or Color3.fromRGB(200, 210, 230)
+	local dark = Color3.new(math.max(0, base.R - 0.15), math.max(0, base.G - 0.1), math.max(0, base.B - 0.05))
 	local pe = Instance.new("ParticleEmitter")
 	pe.Name = "CardGlow"
 	pe.Texture = "rbxassetid://5860841663"
-	pe.Color = ColorSequence.new(Color3.fromRGB(200, 210, 230), Color3.fromRGB(160, 180, 220))
-	pe.Transparency = NumberSequence.new(0.5, 1)
-	pe.Size = NumberSequence.new(0.3, 0.8)
-	pe.Lifetime = NumberRange.new(0.5, 1)
-	pe.Rate = 25
-	pe.Speed = NumberRange.new(1, 3)
+	pe.Color = ColorSequence.new(base, dark)
+	pe.Transparency = NumberSequence.new(0.4, 0.9)
+	pe.Size = NumberSequence.new(0.35, 0.9)
+	pe.Lifetime = NumberRange.new(0.5, 1.1)
+	pe.Rate = 30
+	pe.Speed = NumberRange.new(1.5, 4)
 	pe.SpreadAngle = Vector2.new(180, 180)
-	pe.LightEmission = 0.8
+	pe.LightEmission = 0.9
 	pe.LightInfluence = 0
 	pe.Parent = card
 end
@@ -1050,17 +1342,17 @@ local function runCaptureAnimation(creatureModel, holdTime, captureSessionId)
 		RunService.Heartbeat:Wait()
 	end
 
-	-- Phase 5: Card flash (keep visible — CaptureSuccess will shrink and move into character)
+	-- Phase 5: Card flash (keep visible Ã¢â‚¬â€ CaptureSuccess will shrink and move into character)
 	if card and card.Parent then
 		card.Color = Color3.fromRGB(255, 255, 255)
 		TweenService:Create(card, tweenInfo(0.2, Enum.EasingStyle.Linear), {
 			Color = Color3.fromRGB(255, 220, 100)
 		}):Play()
 	end
-	-- Don't cleanup here — CaptureSuccess will animate card into character, CaptureFail will cleanup
+	-- Don't cleanup here Ã¢â‚¬â€ CaptureSuccess will animate card into character, CaptureFail will cleanup
 end
 
--- Companion faint: creature turns into card at position, card flies to player
+-- Companion faint/recall: creature turns into glowing card at position, card flies to player (same style as CaptureClient)
 local function runCompanionFaintCardAnimation(creaturePos, creatureId)
 	local character = player.Character
 	if not character then return end
@@ -1068,7 +1360,9 @@ local function runCompanionFaintCardAnimation(creaturePos, creatureId)
 	if not root then return end
 
 	local info = CreatureData.GetById(creatureId)
-	local cardColor = info and CreatureData.Rarities[info.rarity] and CreatureData.Rarities[info.rarity].color or Color3.fromRGB(255, 220, 100)
+	-- FIX #18: Use element color for recall/faint card animation (matches summon card color).
+	local elemData = info and CreatureData.Elements and info.element and CreatureData.Elements[info.element]
+	local cardColor = (elemData and elemData.color) or (info and info.primaryColor) or Color3.fromRGB(255, 220, 100)
 
 	local cardWidth = 4
 	local cardHeight = cardWidth * 1.4
@@ -1091,7 +1385,7 @@ local function runCompanionFaintCardAnimation(creaturePos, creatureId)
 	card.Material = Enum.Material.Neon
 	card.Color = cardColor
 	card.Parent = folder
-	addCardParticles(card)
+	addCardParticles(card, cardColor)
 
 	local tweenInfo = TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.In)
 	TweenService:Create(card, tweenInfo, {
@@ -1144,14 +1438,17 @@ local function animateCardIntoCharacter(card, folder)
 	if folder and folder.Parent then folder:Destroy() end
 end
 
--- Reverse of capture: card starts small at body, grows leaving your body with effects; used when setting favorite
+-- Pending summon transform: when card arrives at spawn, we wait for CompanionSpawned to do the transform
+local pendingSummonTransform = nil  -- { card, folder, cardPos, cardColor }
+
+-- Summon animation: small card (element color) at body Ã¢â€ â€™ flies to spawn location Ã¢â€ â€™ card turns into creature model
 local runFavoriteCardAnimation = nil
-runFavoriteCardAnimation = function()
+runFavoriteCardAnimation = function(creatureId)
 	local folder = nil
-	local spinConn = nil
+	local card = nil
 
 	local function cleanup()
-		if spinConn then pcall(function() spinConn:Disconnect() end); spinConn = nil end
+		pendingSummonTransform = nil
 		if folder and folder.Parent then folder:Destroy() end
 	end
 
@@ -1163,7 +1460,16 @@ runFavoriteCardAnimation = function()
 		end
 	end
 
-	task.delay(2.5, cleanup)  -- safety: always cleanup after 2.5s max
+	task.delay(3, cleanup)  -- safety: always cleanup after 3s max
+
+	local cardColor = Color3.fromRGB(255, 220, 100)
+	if creatureId then
+		local info = CreatureData.GetById(creatureId)
+		if info then
+			local elemData = CreatureData.Elements and info.element and CreatureData.Elements[info.element]
+			cardColor = (elemData and elemData.color) or (info.primaryColor) or cardColor
+		end
+	end
 
 	local ok, err = pcall(function()
 		local character = player.Character
@@ -1171,73 +1477,100 @@ runFavoriteCardAnimation = function()
 		local root = character:FindFirstChild("HumanoidRootPart")
 		if not root then return end
 
+		-- Spawn position: behind player (matches FavoriteCreatureSystem)
+		local followDist = (GameConfig and GameConfig.CompanionFollowDist) or 6
+		local followXZ = root.Position + root.CFrame.LookVector * -followDist
+		-- Client raycast for ground (approximate)
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { character }
+		local hit = workspace:Raycast(
+			Vector3.new(followXZ.X, root.Position.Y + 2, followXZ.Z),
+			Vector3.new(0, -50, 0),
+			params
+		)
+		local groundY = hit and hit.Position.Y or (root.Position.Y - 1)
+		local spawnPos = Vector3.new(followXZ.X, groundY + 2, followXZ.Z)
+
 		local bodyPos = root.Position + Vector3.new(0, 1.5, 0)
-		local cardEndPos = root.Position + root.CFrame.LookVector * 4 + Vector3.new(0, 4, 0)
-		local cardWidth = 4
-		local cardHeight = cardWidth * 1.4
+		local flatRot = CFrame.Angles(math.rad(90), 0, 0)
 
 		folder = Instance.new("Folder")
 		folder.Name = "FavoriteCardAnimation"
 		folder.Parent = workspace
 
-		local flatRot = CFrame.Angles(math.rad(90), 0, 0)
-		local card = Instance.new("Part")
+		-- Small card at body (element color)
+		card = Instance.new("Part")
 		card.Name = "FavoriteCard"
-		card.Size = Vector3.new(0.2, 0.28, 0.02)
+		card.Size = Vector3.new(0.5, 0.7, 0.05)
 		card.CFrame = CFrame.new(bodyPos) * flatRot
 		card.Anchored = true
 		card.CanCollide = false
 		card.CanQuery = false
 		card.CanTouch = false
 		card.Material = Enum.Material.Neon
-		card.Color = Color3.fromRGB(200, 210, 230)
+		card.Color = cardColor
 		card.Parent = folder
+		addCardParticles(card, cardColor)
 
-		addCardParticles(card)
-		local vortexHeight = (cardEndPos - bodyPos).Magnitude
-		local vortexPart = createVortexEffect(cardEndPos, bodyPos, math.max(4, vortexHeight), cardWidth, folder)
-		local vortexBaseCF = vortexPart.CFrame
+		-- Card flies to spawn location (0.6s)
+		local flyDuration = 0.6
+		local tweenInfo = TweenInfo.new(flyDuration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		local endCF = CFrame.new(spawnPos) * flatRot
+		local flyTween = TweenService:Create(card, tweenInfo, { CFrame = endCF })
+		flyTween:Play()
+		flyTween.Completed:Wait()
 
-		local tweenInfo = TweenInfo.new
-		local easeIn = Enum.EasingStyle.Back
+		if not folder or not folder.Parent then return end
 
-		local growDuration = 0.5
-		local growStart = tick()
-		spinConn = RunService.Heartbeat:Connect(function()
-			if not folder or not folder.Parent or not vortexPart.Parent then
-				if spinConn then spinConn:Disconnect() end
-				return
+		-- Card arrived at spawn; wait for creature model from server (CompanionSpawned)
+		pendingSummonTransform = { card = card, folder = folder, cardPos = spawnPos, cardColor = cardColor }
+		-- Timeout: if CompanionSpawned doesn't fire in 1.5s, just fade card and cleanup
+		task.delay(1.5, function()
+			if pendingSummonTransform and pendingSummonTransform.folder == folder then
+				-- Server didn't spawn in time; fade card and cleanup
+				if card and card.Parent then
+					TweenService:Create(card, TweenInfo.new(0.3), { Transparency = 1 }):Play()
+				end
+				task.delay(0.35, cleanup)
 			end
-			local t = (tick() - growStart) / growDuration
-			if t >= 1 then
-				if spinConn then spinConn:Disconnect() end
-				return
-			end
-			vortexPart.CFrame = vortexBaseCF * CFrame.Angles(0, t * math.pi * 3, 0)
 		end)
-
-		local endCF = CFrame.new(cardEndPos) * flatRot
-		local growTween = TweenService:Create(card, tweenInfo(growDuration, easeIn, Enum.EasingDirection.Out), {
-			Size = Vector3.new(cardWidth, cardHeight, 0.2),
-			CFrame = endCF
-		})
-		growTween:Play()
-		growTween.Completed:Wait()
-		if spinConn then spinConn:Disconnect(); spinConn = nil end
-
-		task.wait(0.4)
 	end)
 
-	cleanup()
-	if not ok then warn("[CaptureClient] FavoriteCardAnimation error:", err) end
+	if not ok then
+		cleanup()
+		warn("[CaptureClient] FavoriteCardAnimation error:", err)
+	end
 end
 
--- Connect favorite animation event after function is defined
-playFavoriteCardEvt.Event:Connect(function()
-	if runFavoriteCardAnimation then task.spawn(runFavoriteCardAnimation) end
-end)
+-- When companion spawns: if we have a pending summon transform, fade card (creature appears at same spawn pos)
+if companionSpawnedEvt and companionSpawnedEvt:IsA("RemoteEvent") then
+	companionSpawnedEvt.OnClientEvent:Connect(function()
+		local pending = pendingSummonTransform
+		if not pending or not pending.card or not pending.card.Parent or not pending.folder or not pending.folder.Parent then
+			return
+		end
 
--- Companion spawn: CompanionSpawned event kept for future grow effect (currently companion appears at full size)
+		local card = pending.card
+		local folder = pending.folder
+		pendingSummonTransform = nil
+
+		-- Card fades as creature appears at spawn (server spawns creature at same position)
+		TweenService:Create(card, TweenInfo.new(0.35), {
+			Transparency = 1,
+			Size = Vector3.new(0.1, 0.14, 0.01)
+		}):Play()
+
+		task.delay(0.5, function()
+			if folder and folder.Parent then folder:Destroy() end
+		end)
+	end)
+end
+
+-- Connect favorite animation event after function is defined (creatureId optional, for summon card color/effects)
+playFavoriteCardEvt.Event:Connect(function(creatureId)
+	if runFavoriteCardAnimation then task.spawn(function() runFavoriteCardAnimation(creatureId) end) end
+end)
 
 -- Companion faint: creature turns into card, flies to player (triggers respawn cooldown on server)
 if companionFainted then
@@ -1248,7 +1581,7 @@ if companionFainted then
 	end)
 end
 
--- Companion recall: non-water creature in water → turn into card, card flies to player; favorite is carded (no cooldown, respawns when player exits water)
+-- Companion recall: non-water creature in water Ã¢â€ â€™ card at creature position, card flies to player; favorite is carded until player exits water
 if companionRecalled then
 	companionRecalled.OnClientEvent:Connect(function(creaturePos, creatureId)
 		task.spawn(function()
@@ -1267,6 +1600,7 @@ if companionRecalled then
 					end
 				end
 			end
+			-- Always play the card animation: card appears at creature position and flies to player
 			runCompanionFaintCardAnimation(creaturePos, creatureId)
 		end)
 	end)
@@ -1415,6 +1749,7 @@ end
 
 if captureSuccess then
 	captureSuccess.OnClientEvent:Connect(function(creatureId, uid, cost, slotInfo, captureSessionId)
+		captureRequestPending = false
 		captureCancelled = true
 		captureRestoreData = nil
 		if graceAreaFolder then
@@ -1434,6 +1769,7 @@ end
 
 if captureCancel then
 	captureCancel.OnClientEvent:Connect(function()
+		captureRequestPending = false
 		captureCancelled = true
 		restoreCreatureModel()
 		progressFrame.Visible = false
@@ -1451,6 +1787,10 @@ end
 
 if captureFail then
 	captureFail.OnClientEvent:Connect(function(message)
+		-- #region agent log
+		print("[DEBUG-CAPTURE] CaptureFail received message=" .. tostring(message))
+		-- #endregion
+		captureRequestPending = false
 		captureCancelled = true
 		restoreCreatureModel()
 		progressFrame.Visible = false

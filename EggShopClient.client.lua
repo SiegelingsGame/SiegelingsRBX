@@ -1,5 +1,5 @@
 -- EggShopClient.lua - StarterPlayer.StarterPlayerScripts (LocalScript)
--- Press K to open egg shop. Buy and hatch eggs of various rarities.
+-- Press K to open egg shop. Buy and hatch eggs of various rarities.sd
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -115,8 +115,8 @@ titleLbl.Parent = titleBar
 
 local currLbl = Instance.new("TextLabel")
 currLbl.Name = "CurrLbl"
-currLbl.Size = UDim2.new(0.45, -50, 1, 0)
-currLbl.Position = UDim2.new(0.5, 0, 0, 0)
+currLbl.Size = UDim2.new(0.45, -48, 1, 0)
+currLbl.Position = UDim2.new(0.55, 0, 0, 0)
 currLbl.BackgroundTransparency = 1
 currLbl.Text = "Coins: 0  |  Gems: 0"
 currLbl.TextColor3 = C.muted
@@ -127,7 +127,7 @@ currLbl.Parent = titleBar
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 32, 0, 32)
-closeBtn.Position = UDim2.new(1, -38, 0, 5)
+closeBtn.Position = UDim2.new(1, -40, 0, 5)
 closeBtn.BackgroundColor3 = C.red
 closeBtn.BackgroundTransparency = 0.5
 closeBtn.Text = "X"

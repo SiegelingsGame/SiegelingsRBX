@@ -280,6 +280,7 @@ local function refreshUI()
 	local canRebirth = data.canRebirth
 	local errMsg = data.errorMessage or ""
 	local counts = data.creatureCountsByRarity or {}
+	local teamProgress = data.teamProgress or {}
 	local keepFavorite = data.keepFavorite
 	local loseCount = data.loseCreaturesCount or 0
 	local bonuses = data.bonuses or {}
@@ -298,20 +299,29 @@ local function refreshUI()
 		mkRow("World damage", string.format("%.0f%%", (bonuses.damageMultiplier - 1) * 100), C.blue, 4)
 	end
 
-	-- Next rebirth requirements
+	-- Next rebirth requirements (team of 5 at max level, or legacy rarity counts)
 	mkSection("REQUIREMENTS FOR NEXT REBIRTH", 10)
 	if not nextReq then
 		mkRow("Status", "Max rebirth level reached", C.textMut, 11)
 	else
 		mkRow("Gold needed", (nextReq.gold or 0) .. " (you have " .. tostring((data.coins or 0)) .. ")", (data.coins or 0) >= (nextReq.gold or 0) and C.green or C.red, 11)
 		local reqOrder = 12
-		for _, rarity in ipairs({"Common", "Uncommon", "Rare", "Epic", "Legendary"}) do
-			local need = (nextReq.creatures or {})[rarity]
-			if need and need > 0 then
-				local have = counts[rarity] or 0
-				local met = have >= need
-				mkRow(rarity .. " creatures", have .. " / " .. need, met and (RARITY_COLORS[rarity] or C.text) or C.red, reqOrder)
+		if nextReq.team and type(nextReq.team) == "table" and #nextReq.team > 0 and #teamProgress > 0 then
+			for i, slot in ipairs(teamProgress) do
+				local status = slot.haveAtMaxLevel and "✓ Max" or "✗ Need max"
+				local color = slot.haveAtMaxLevel and C.green or C.red
+				mkRow("Slot " .. i .. ": " .. (slot.displayName or slot.creatureId), status, color, reqOrder)
 				reqOrder = reqOrder + 1
+			end
+		else
+			for _, rarity in ipairs({"Common", "Uncommon", "Rare", "Epic", "Legendary"}) do
+				local need = (nextReq.creatures or {})[rarity]
+				if need and need > 0 then
+					local have = counts[rarity] or 0
+					local met = have >= need
+					mkRow(rarity .. " creatures", have .. " / " .. need, met and (RARITY_COLORS[rarity] or C.text) or C.red, reqOrder)
+					reqOrder = reqOrder + 1
+				end
 			end
 		end
 	end
@@ -374,7 +384,11 @@ end
 closeBtn.MouseButton1Click:Connect(closeUI)
 
 rebirthBtn.MouseButton1Click:Connect(function()
-	if not currentData or not currentData.canRebirth then return end
+	if not currentData then return end
+	if not currentData.canRebirth then
+		Notify.Toast(currentData.errorMessage or "Requirements not met", C.red, 3)
+		return
+	end
 	-- First step: show confirmation overlay
 	overlay.Visible = true
 end)
@@ -402,17 +416,27 @@ if rebirthFailed then
 	end)
 end
 
--- Toggle from HUD
-local toggleEvt = playerGui:FindFirstChild("HUDToggleMenu")
-if toggleEvt and toggleEvt:IsA("BindableEvent") then
-	toggleEvt.Event:Connect(function(menuName)
-		if menuName == "RebirthUI" then
-			if main.Visible then closeUI() else openUI() end
-		end
-	end)
+-- Toggle from HUD (reconnect when HUDToggleMenu is re-added, e.g. after respawn)
+local function getHUDToggle()
+	local evt = playerGui:FindFirstChild("HUDToggleMenu")
+	if not evt or not evt:IsA("BindableEvent") then
+		evt = Instance.new("BindableEvent")
+		evt.Name = "HUDToggleMenu"
+		evt.Parent = playerGui
+	end
+	return evt
 end
+local function onHUDToggle(menuName)
+	if menuName == "RebirthUI" then
+		if main.Visible then closeUI() else openUI() end
+	end
+end
+getHUDToggle().Event:Connect(onHUDToggle)
+playerGui.ChildAdded:Connect(function(child)
+	if child.Name == "HUDToggleMenu" and child:IsA("BindableEvent") then child.Event:Connect(onHUDToggle) end
+end)
 
--- Keyboard B for Rebirth (optional)
+-- Keyboard Z for Rebirth (fallback; HUDButtonBar also fires HUDToggleMenu)
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 	if input.KeyCode == Enum.KeyCode.Z then

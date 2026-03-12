@@ -681,7 +681,7 @@ if tradeInvite then
 		if type(payload) ~= "table" then return end
 		local fromName = payload.fromName or "Player"
 		local tid = payload.tradeId
-		Notify.Toast(fromName .. " wants to trade (open Friends to accept)", C.blue, 4)
+		Notify.Toast(fromName .. " wants to trade (open Friends to accept)", C.blue, 4, nil, "trade")
 		-- Simple auto-accept UI: show popup prompt
 		local prompt = Instance.new("Frame")
 		prompt.Size = UDim2.new(0, 320, 0, 120)
@@ -753,7 +753,7 @@ end)
 if pvpChallengeInvite then
 	pvpChallengeInvite.OnClientEvent:Connect(function(fromUserId, fromName)
 		fromName = fromName or ("User#" .. tostring(fromUserId))
-		Notify.Toast(fromName .. " wants to battle you!", Color3.fromRGB(255, 130, 80), 4)
+		Notify.Toast(fromName .. " wants to battle you!", Color3.fromRGB(255, 130, 80), 4, nil, "pvp")
 		local prompt = Instance.new("Frame")
 		prompt.Size = UDim2.new(0, 320, 0, 120)
 		prompt.Position = UDim2.new(0.5, -160, 0.5, -60)

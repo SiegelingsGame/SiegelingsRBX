@@ -65,7 +65,10 @@ local ELEMENT_COLORS = {
 	Earth = Color3.fromRGB(180, 140, 80),
 	Wind = Color3.fromRGB(150, 255, 180),
 	Shadow = Color3.fromRGB(120, 50, 180),
+	Light = Color3.fromRGB(255, 250, 200),
 	Lightning = Color3.fromRGB(255, 230, 60),
+	Water = Color3.fromRGB(50, 150, 255),
+	Psychic = Color3.fromRGB(200, 150, 255),
 }
 
 local function spawnPvPCreature(creatureId, battlePoint, team, parentFolder, sizeMultiplier, faceTowardPos)
@@ -147,7 +150,7 @@ local function spawnPvPCreature(creatureId, battlePoint, team, parentFolder, siz
 	bb.Name = "InfoTag"
 	bb.Adornee = body
 	bb.Size = UDim2.new(0, 160, 0, 65)
-	bb.StudsOffset = Vector3.new(0, baseSize / 2 + 2, 0)
+	bb.StudsOffset = Vector3.new(0, CreatureModelLoader.GetBillboardStudsOffsetForTopOfModel(model, body), 0)
 	bb.AlwaysOnTop = true
 	bb.Parent = model
 
@@ -237,6 +240,12 @@ local function spawnPvPCreature(creatureId, battlePoint, team, parentFolder, siz
 		end
 	end
 	model:PivotTo(faceCf * CFrame.Angles(FACING_X_CORRECTION, 0, 0) * rotOffset)
+
+	-- Billboard at top of bounding box so name isn't blocked (set after placement)
+	local bb = model:FindFirstChild("InfoTag")
+	if bb then
+		bb.StudsOffset = Vector3.new(0, CreatureModelLoader.GetBillboardStudsOffsetForTopOfModel(model, body), 0)
+	end
 
 	CreatureAnimation.Setup(model, creatureId, "Idle")
 	return model
@@ -418,7 +427,7 @@ local function run1v1Battle(battleFolder, blueData, redData, bluePlayer, redPlay
 				dmg = dmg * (1 - (GameConfig.EarthDmgReduction or 0.25))
 				target.dmgReductionRounds = target.dmgReductionRounds - 1
 			end
-			-- Elemental weakness: Fire→Ice→Earth→Wind→Fire
+			-- Elemental weakness: Fire→Ice→Earth→Wind→Fire; Water/Electric/Light/Shadow per chart
 			local elemMult = CreatureData.GetElementalDamageMultiplier(attacker.element or "Fire", target.element or "Fire")
 			if elemMult > 1 then
 				dmg = dmg * (GameConfig.ElementalAdvantageMultiplier or elemMult)
@@ -441,6 +450,11 @@ local function run1v1Battle(battleFolder, blueData, redData, bluePlayer, redPlay
 				elseif elem == "Wind" then
 					target.focus = math.max(0, (target.focus or 0) - (GameConfig.WindFocusDrain or 50))
 					updateFocusBar(target)
+				elseif elem == "Water" then
+					local healPct = GameConfig.WaterHealPercent or 0.20
+					local healAmt = math.floor((attacker.maxHp or attacker.hp) * healPct)
+					attacker.hp = math.min(attacker.maxHp or attacker.hp, (attacker.hp or 0) + healAmt)
+					updateHPBar(attacker)
 				end
 				target.hp = target.hp - dmg
 				updateHPBar(target)

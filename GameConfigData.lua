@@ -3,27 +3,29 @@
 	ReplicatedStorage/Modules/GameConfigData
 	Actual config data. Required lazily by GameConfig to avoid recursive require.
 ]]
+-- lol
 
 local GameConfig = {}
 
 -- Day / Night Cycle (Lighting.ClockTime)
 GameConfig.DayNightCycleEnabled = true   -- true = enable cycle; false = use default Roblox lighting
-GameConfig.DayNightCycleSeconds = 180    -- real seconds per full day (24 in-game hours); changeable
+GameConfig.DayNightCycleSeconds = 300    -- real seconds per full day (24 in-game hours); changeable
 GameConfig.NightStartHour = 18          -- ClockTime >= this = night (6 PM)
 GameConfig.NightEndHour = 6              -- ClockTime < this = night (until 6 AM)
 -- Night spawn variants: Common/Uncommon → Silver chance; Rare+ → Gold chance (0–1)
-GameConfig.NightSpawnSilverChance = 0.35  -- chance for Common/Uncommon at night
-GameConfig.NightSpawnGoldChance = 0.25    -- chance for Rare+ at night
+GameConfig.NightSpawnSilverChance = 0.10  -- chance for Common/Uncommon at night
+GameConfig.NightSpawnGoldChance = 0.05    -- chance for Rare+ at night
 -- World creatures with evolutions: at night randomly evolve (base→evolved), at dawn devolve
-GameConfig.NightWorldEvolutionChance   = 0.35  -- per creature per check (base form with evolvesTo)
-GameConfig.NightWorldEvolutionInterval = 8     -- seconds between evolution checks
+GameConfig.NightWorldEvolutionChance   = 0.20  -- per creature per check (base form with evolvesTo)
+GameConfig.NightWorldEvolutionInterval = 30     -- seconds .between evolution checks
 GameConfig.NightSpawnBonus             = 100   -- extra max world creatures at night (for rare/night spawns)
 
 -- Debug / Dev toggles (set true for testing)
 GameConfig.SpawnOnlyCreaturesWithModels = true  -- true = only spawn creatures that have models in CreatureModels
 GameConfig.DebugCoins1000 = false               -- true = new players start with 1000 coins
-GameConfig.DebugFloor2Level2 = false            -- true = Floor 2 requires player level 2 (instead of 5)
+GameConfig.DebugFloor2Level2 = false            -- true = Floor 2 srequires player level 2 (instead of 5)
 GameConfig.DebugDoubleSpeed = false             -- true = player WalkSpeed is 32 (2x default)
+GameConfig.QuickSpawnDebugMode = true         -- true = bypass loading gate (skip Events/LoadingReady wait) for fast testing
 GameConfig.CombinerRecyclerPromptAllPlots = true -- true = add E prompts to Combiner/Recycler on ALL plots (for testing; set false for release)
 
 -- Economy
@@ -95,15 +97,32 @@ GameConfig.DefensePointsPerFloor  = 6
 -- Loading screen: wait for creatures + models before allowing play
 GameConfig.LoadingSpawnTarget  = 80   -- creatures to spawn before "ready" (initial burst is 50; this ensures good fill)
 GameConfig.LoadingMinWait      = 12   -- minimum seconds loading screen shows (allows model replication)
-GameConfig.LoadingMaxWait      = 60   -- max seconds before allowing play anyway (safety timeout)
+GameConfig.LoadingMaxWait      = 60   -- max seconds before allowing play anyway (safety timeout)a
+
+-- Gameplay music (client-side loop under SoundService)
+GameConfig.GameplayMusic = {
+    Enabled = true,
+    SoundId = "rbxassetid://0", -- replace 0 with the uploaded Sieglings theme asset id
+    Volume = 0.32,
+    PlaybackSpeed = 1,
+    FadeInTime = 2.5,
+    StartDelay = 0.4,
+    MaxScreenWait = 45,
+    ScreenSettleTime = 0.75,
+    WaitForScreens = { "LoadingScreen", "LaunchScreen" },
+    SoundName = "SieglingsGameplayTheme",
+    SoundGroupName = "Music",
+    LoopStartTime = 8.0,
+    LoopEndTime = 72.0,
+}
 
 -- Spawning (SpawnPoints should stay full; common creatures prioritized)
 -- Reduced from 200 to 150 for performance (night bonus +100 still applies)
-GameConfig.MaxWorldCreatures   = 150
+GameConfig.MaxWorldCreatures   = 200
 GameConfig.SpawnIntervalMin    = 0.5   -- faster spawns so SpawnPoints stay full
 GameConfig.SpawnIntervalMax    = 1.5
 GameConfig.SpawnsPerCycle      = 4     -- spawn this many per cycle when under 50% capacity (else 1-2)
-GameConfig.SpawnPointFillTarget = 0.8  -- run dungeon spawns only when creature count is above this fraction of max
+GameConfig.SpawnPointFillTarget = 0.5  -- run dungeon spawns when creature count above this fraction (lower = more dungeon spawns)
 GameConfig.CreatureDespawnTime = 180
 GameConfig.SpawnRadius         = 200
 GameConfig.SpawnHeightOffset   = 3
@@ -111,7 +130,7 @@ GameConfig.FlyingHoverHeight   = 10   -- studs above ground for flying creatures
 GameConfig.SpawnPointSpread    = 25     -- studs radius around a biome SpawnPoint
 GameConfig.DungeonPointSpread  = 15     -- studs radius around a DungeonPoint (tighter for dungeon encounters)
 GameConfig.BossPointSpread     = 10     -- studs radius around a BossPoint (tight cluster for boss arena)
-GameConfig.DungeonSpawnCount   = {1, 2} -- min/max creatures per DungeonPoint per cycle
+GameConfig.DungeonSpawnCount   = {2, 4} -- min/max creatures per DungeonPoint per cycle (guarantee at least 1 rare+ always)
 GameConfig.BossRespawnTime     = 300    -- seconds before a boss can respawn at the same BossPoint
 
 -- Capture (creatures must be fainted first)
@@ -150,10 +169,10 @@ GameConfig.AIRaidAttackInsideRadius = 55    -- raiders must be within this many 
 GameConfig.AIRaidDoorReachRadius     = 10   -- studs; raiders path to door (Ramp/PlotCenter) first; within this = "at door"
 GameConfig.AIRaidCenterReachRadius   = 14   -- studs; after door, raiders path to plot center (up ramp); within this = "at center", then may engage targets
 
--- Dungeon events
-GameConfig.DungeonSpawnInterval = 120  -- seconds between dungeon spawns
-GameConfig.DungeonDuration      = 90   -- seconds before dungeon despawns
-GameConfig.DungeonCreatureCount = {2, 4} -- min/max legendary creatures
+-- Dungeon events (legendary dungeon landmark + DungeonPoint spawners)
+GameConfig.DungeonSpawnInterval = 90   -- seconds between legendary dungeon spawns (more frequent)
+GameConfig.DungeonDuration      = 120  -- seconds before dungeon despawns (longer so overlap possible)
+GameConfig.DungeonCreatureCount = {2, 4} -- min/max legendary creatures per legendary dungeon
 GameConfig.DungeonSpawnRadius   = 250  -- distance from center to spawn dungeons
 
 -- Arena presence buff
@@ -167,6 +186,14 @@ GameConfig.BattleTickSpeed     = 1.2
 GameConfig.GrowthPerWin        = 0.05
 GameConfig.MaxGrowth           = 3.0
 GameConfig.ArenaExclusionRadius = 80  -- studs around arena center where creatures cannot spawn/be targeted
+
+-- WaterGym (OceanBiome): touch ArenaBase for [E] Summon Gym; requires battle team; pay entry fee; fight 5 high-level Water/Ice/Fire
+GameConfig.WaterGymEntryFee       = 100   -- coins to challenge the gym leader
+GameConfig.WaterGymCreatureLevel  = 45    -- level of gym leader's squad (high level)
+GameConfig.WaterGymPromptRange    = 10    -- studs; ProximityPrompt on ArenaBase
+GameConfig.WaterGymWinReward      = 250   -- coins if player wins
+GameConfig.WaterGymWinXP          = 75    -- player XP on gym win
+GameConfig.WaterGymCooldown       = 120   -- seconds; per-player cooldown between gym challenges
 
 -- PvP (player vs player) 1v1 battle
 GameConfig.PvPInteractionRange   = 30   -- studs; must be this close to challenge (server checks HumanoidRoot distance)
@@ -186,8 +213,9 @@ GameConfig.BurnDuration        = 3     -- rounds burn lasts
 GameConfig.EarthDmgReduction   = 0.25  -- 25% damage reduction from Earth special
 GameConfig.EarthDebuffDuration = 3     -- rounds Earth debuff lasts
 GameConfig.WindFocusDrain      = 50    -- focus drained from target by Wind special
+GameConfig.WaterHealPercent    = 0.20  -- Water special: attacker heals 20% of max HP
 
--- Elemental weaknesses (Fire→Ice→Earth→Wind→Fire cycle; Shadow/Lightning neutral)
+-- Elemental weaknesses: Fire→Ice→Earth→Wind→Fire; Water vs Fire/Earth/Ice/Lightning; Light↔Shadow; Psychic neutral
 GameConfig.ElementalAdvantageMultiplier   = 1.5   -- damage when attacker element beats defender
 GameConfig.ElementalDisadvantageMultiplier = 0.5   -- damage when defender element beats attacker
 
@@ -227,8 +255,27 @@ GameConfig.CompanionFollowDist  = 6
 GameConfig.CompanionFollowSpeed = 28   -- used as catch-up speed when companion is far; normal follow matches player WalkSpeed
 GameConfig.CompanionFollowCatchUpDist = 12  -- when distance to follow point exceeds this (studs), companion starts speeding up
 GameConfig.CompanionFollowSpeedSmooth  = 10  -- how fast applied speed lerps toward target (higher = snappier, lower = smoother); avoids choppy speed jumps
+GameConfig.WaterCompanionMaxSurfaceOffset = 1.5  -- water favorite max Y above player root when swimming; keeps companion at wading depth, never breaks surface until player touches ground
+GameConfig.WaterBlockTag = "WaterBlock"  -- tag on Part(s) that define swim water; if player position is inside any tagged part, non-water favorite is carded
+-- Aquatic creatures (spawned from OceanBiome / in WaterBlock): surface to "breathe" for this many seconds
+GameConfig.WaterBreathSurfaceDuration = 10
+GameConfig.WaterBreathUnderwaterBaseSeconds = 30   -- base time underwater before needing to surface (Common); higher rarity = longer
+GameConfig.WaterBreathRarityMultiplier = { Common = 1, Uncommon = 1.25, Rare = 1.5, Epic = 2, Legendary = 2.5 }
+GameConfig.WaterBlockSeekRange = 80     -- max studs from spawn to consider "seek out" nearest WaterBlock (OceanBiome water creatures)
 GameConfig.CompanionTargetRange = 40    -- range for manual target selection
 GameConfig.CompanionRespawnCD   = 30    -- seconds before companion respawns after fainting
+
+-- ElectricBiome hazards (ElectroBall AOE)
+GameConfig.ElectroBallCount          = 50   -- total placed (grid + 1 per SpawnPoint/DungeonPoint/BossPoint)
+GameConfig.ElectroBallSpawnInterval  = 10   -- seconds between activations
+GameConfig.ElectroBallRadius         = 10   -- studs (10 foot) AOE radius
+GameConfig.ElectroBallChargeSeconds  = 3    -- seconds for red fill (FF14-style)
+GameConfig.ElectroBallStunSeconds    = 1    -- stun duration after impact
+GameConfig.ElectroBallDamagePercent  = 0.25 -- 25% max health damage
+
+-- Base creature placement (Meshy AI / rigged models)
+GameConfig.RiggedModelFloorBuffer = 2.5  -- extra studs lift for Humanoid/rigged models; compensates for mesh extent beyond bbox
+GameConfig.PointHeightOffset = 0  -- baseline extra studs when placing on Defense or Income points (all creatures)
 
 -- Defense turrets (base defense creatures)
 GameConfig.DefenseAttackRange   = 40    -- studs - attack range (within plot area)
@@ -258,33 +305,36 @@ GameConfig.PlayerMeleeCooldown  = 1.2
 GameConfig.PlayerMeleeRadius    = 8     -- AOE radius for melee swing
 
 -- Pilot Rebirth System
--- Each level: gold cost, creature requirements by rarity (Common, Uncommon, Rare, Epic, Legendary).
+-- Each level: gold cost + a specific TEAM of 5 creatures (by id). Player must own each creature
+-- at MAX LEVEL (base=10, evolved=25, final=50). Team list is updatable here; order is slot 1..5.
 -- Rewards scale: passive gold per tick, world damage multiplier, max health bonus (cumulative).
 GameConfig.RebirthPassiveGoldPerLevel   = 2   -- extra gold per income tick per rebirth level
 GameConfig.RebirthDamageMultPerLevel    = 0.05 -- +5% world damage per level (1 + level * this)
 GameConfig.RebirthHealthBonusPerLevel  = 15   -- flat +HP to PlayerMaxHealth per rebirth level
 GameConfig.RebirthMaxLevel             = 10   -- max rebirth level (config length can extend this)
+-- RebirthLevels: { gold = number, team = { creatureId1, creatureId2, creatureId3, creatureId4, creatureId5 } }
+-- Each creature must be owned and at max level for that form. Update team arrays to change requirements.
 GameConfig.RebirthLevels = {
-	-- Level 1: 5k gold, 3 Common
-	{ gold = 5000,  creatures = { Common = 3 } },
-	-- Level 2: 15k gold, 5 Common, 2 Uncommon
-	{ gold = 15000, creatures = { Common = 5, Uncommon = 2 } },
-	-- Level 3: 40k gold, 8 Common, 4 Uncommon, 1 Rare
-	{ gold = 40000, creatures = { Common = 8, Uncommon = 4, Rare = 1 } },
-	-- Level 4: 100k gold, 12 Common, 6 Uncommon, 3 Rare
-	{ gold = 100000, creatures = { Common = 12, Uncommon = 6, Rare = 3 } },
-	-- Level 5: 250k gold, 15 Common, 10 Uncommon, 5 Rare, 1 Epic
-	{ gold = 250000, creatures = { Common = 15, Uncommon = 10, Rare = 5, Epic = 1 } },
-	-- Level 6: 500k gold, 20 Common, 12 Uncommon, 8 Rare, 3 Epic
-	{ gold = 500000, creatures = { Common = 20, Uncommon = 12, Rare = 8, Epic = 3 } },
-	-- Level 7: 1M gold, 25 Common, 15 Uncommon, 10 Rare, 5 Epic, 1 Legendary
-	{ gold = 1000000, creatures = { Common = 25, Uncommon = 15, Rare = 10, Epic = 5, Legendary = 1 } },
-	-- Level 8: 2.5M gold, 30 Common, 18 Uncommon, 12 Rare, 7 Epic, 2 Legendary
-	{ gold = 2500000, creatures = { Common = 30, Uncommon = 18, Rare = 12, Epic = 7, Legendary = 2 } },
-	-- Level 9: 5M gold, 35 Common, 22 Uncommon, 15 Rare, 10 Epic, 3 Legendary
-	{ gold = 5000000, creatures = { Common = 35, Uncommon = 22, Rare = 15, Epic = 10, Legendary = 3 } },
-	-- Level 10: 10M gold, 40 Common, 25 Uncommon, 18 Rare, 12 Epic, 5 Legendary
-	{ gold = 10000000, creatures = { Common = 40, Uncommon = 25, Rare = 18, Epic = 12, Legendary = 5 } },
+	-- Level 1: 5k gold, team of 5 commons (starters) max leveled
+	{ gold = 5000,  team = { "cacty", "breezee", "pylme", "sundile", "ceeponee" } },
+	-- Level 2: 15k gold, 5 commons (Fire)
+	{ gold = 15000, team = { "firsky", "pylook", "sundile", "draco", "smoldervine" } },
+	-- Level 3: 40k gold, mix common + uncommon
+	{ gold = 40000, team = { "emberpup", "raydile", "hotty", "sootfang", "fawny" } },
+	-- Level 4: 100k gold
+	{ gold = 100000, team = { "frostfly", "icewee", "snowdrift", "frosty", "chilldoe" } },
+	-- Level 5: 250k gold
+	{ gold = 250000, team = { "ragguette", "blinky", "zephyrpup", "cloudhare", "lofty" } },
+	-- Level 6: 500k gold
+	{ gold = 500000, team = { "applehead", "papap", "squirebud", "jackedty", "mossy" } },
+	-- Level 7: 1M gold
+	{ gold = 1000000, team = { "gloomrat", "duskmoth", "shadeblob", "nightfang", "hexweaver" } },
+	-- Level 8: 2.5M gold
+	{ gold = 2500000, team = { "monkwatt", "boltant", "voltpecker", "sparkwisp", "thundermole" } },
+	-- Level 9: 5M gold
+	{ gold = 5000000, team = { "dracoil", "cinderstag", "glacius", "lumina", "hurricrane" } },
+	-- Level 10: 10M gold
+	{ gold = 10000000, team = { "pyleer", "solgator", "frostag", "ceesteed", "skydon" } },
 }
 
 -- Codex UI (creature detail panel when clicking creature icon/name)
@@ -305,12 +355,24 @@ GameConfig.ShieldDuration       = 50    -- seconds before shield expires and mus
 
 -- Buff Shop
 GameConfig.BuffShopItems = {
-	{id = "shield",     name = "Energy Shield",   desc = "-50% damage for 60s",     duration = 60,  coinCost = 150, gemCost = 0},
-	{id = "highjump",   name = "Super Jump",       desc = "3x jump power for 45s",   duration = 45,  coinCost = 100, gemCost = 0},
-	{id = "speed",      name = "? Super Speed",       desc = "2x walk speed for 60s",   duration = 60,  coinCost = 120, gemCost = 0},
-	{id = "invuln",     name = "Invulnerability",   desc = "Immune to damage for 15s",duration = 15,  coinCost = 0,   gemCost = 5},
-	{id = "invis",      name = "Invisibility",      desc = "Hidden from creatures 30s",duration = 30, coinCost = 0,   gemCost = 3},
-	{id = "swap",       name = "Swap Places",       desc = "Teleport to random player",duration = 0,  coinCost = 200, gemCost = 0},
+	{id = "shield",     name = "Energy Shield",     desc = "-50% damage for 60s",      duration = 60,  coinCost = 150, gemCost = 0},
+	{id = "highjump",   name = "Super Jump",        desc = "Moon-like jump for 45s",   duration = 45,  coinCost = 100, gemCost = 0},
+	{id = "speed",      name = "Super Speed",       desc = "2x walk speed for 60s",    duration = 60,  coinCost = 120, gemCost = 0},
+	{id = "invuln",     name = "Invulnerability",   desc = "Immune to damage for 15s", duration = 15,  coinCost = 0,   gemCost = 5},
+	{id = "invis",      name = "Invisibility",      desc = "Hidden from creatures 30s", duration = 30,  coinCost = 0,   gemCost = 3},
+	{id = "swap",       name = "Swap Places",       desc = "Teleport to random player", duration = 0,  coinCost = 200, gemCost = 0},
+	{id = "lowgrav",    name = "Low Gravity",       desc = "Moon-like float for 40s",   duration = 40,  coinCost = 90,  gemCost = 0},
+	{id = "regen",      name = "Health Regen",      desc = "Regen 2 HP/s for 45s",      duration = 45,  coinCost = 130, gemCost = 0},
+	{id = "doublejump", name = "Double Jump",       desc = "Jump again in mid-air 40s", duration = 40,  coinCost = 110, gemCost = 0},
+	{id = "glide",      name = "Feather Fall",      desc = "Slow fall for 50s",         duration = 50,  coinCost = 95,  gemCost = 0},
+	{id = "xpboost",    name = "XP Boost",          desc = "2x XP gain for 120s",       duration = 120, coinCost = 180, gemCost = 2},
+	{id = "coinboost",  name = "Coin Magnet",       desc = "2x income for 90s",         duration = 90,  coinCost = 160, gemCost = 1},
+	{id = "haste",      name = "Haste",             desc = "1.5x walk speed for 50s",   duration = 50,  coinCost = 80,  gemCost = 0},
+	{id = "giant",      name = "Giant",             desc = "2x size for 30s",           duration = 30,  coinCost = 140, gemCost = 0},
+	{id = "glow",       name = "Radiant",           desc = "Glow aura for 60s",         duration = 60,  coinCost = 0,   gemCost = 4},
+	{id = "antifall",   name = "Featherfeet",       desc = "No fall damage for 45s",    duration = 45,  coinCost = 100, gemCost = 0},
+	{id = "swimspeed",  name = "Dolphin",           desc = "3x swim speed for 45s",     duration = 45,  coinCost = 85,  gemCost = 0},
+	{id = "lucky",      name = "Lucky Charm",       desc = "Better capture odds 90s",   duration = 90,  coinCost = 0,   gemCost = 6},
 }
 
 -- Cosmetic Shop
@@ -453,3 +515,6 @@ GameConfig.EggShopItems = {
 }
 
 return GameConfig
+
+
+

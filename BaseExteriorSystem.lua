@@ -376,6 +376,33 @@ local function createShellPart(name, size, cframe, parent, color, material)
 	return p
 end
 
+--- Check if part should get base color (walls, stairs, floors, points, combiner, recycler - not glass).
+local function shouldApplyBaseColor(part)
+	if isGlassPart(part) then return false end
+	local n = part.Name
+	if n:find("Wall") then return true end
+	if n:find("Stair") then return true end
+	if n:find("Floor") then return true end
+	if n:match("^DefensePoint") then return true end
+	if n:match("^IncomePoint") then return true end
+	if n:match("^BattlePoint") then return true end
+	if n == "MCombiner" or n == "Combiner" then return true end
+	if n == "MRecycler" or n == "Recycler" then return true end
+	return false
+end
+
+--- Reset parts to default grey when unequipping. onlyBaseColorParts = true resets walls/stairs/points/combiner/recycler only.
+local function applyDefaultToPlot(plotModel, onlyBaseColorParts)
+	for _, desc in ipairs(plotModel:GetDescendants()) do
+		if desc:IsA("BasePart") and not isGlassPart(desc) then
+			if onlyBaseColorParts and not shouldApplyBaseColor(desc) then continue end
+			desc.Color = DEFAULT_GREY
+			desc.Material = DEFAULT_MATERIAL
+			desc.Transparency = 0
+		end
+	end
+end
+
 --- Apply theme as skin: recolor non-glass parts and add ExteriorShell (door + window frames). Does not delete plot.
 --- For color-only themes (BaseExteriorItems with .color): apply color to walls & stairs only, no shell.
 function BaseExteriorSystem.ApplyThemeToPlot(plotModel, themeId)
@@ -461,34 +488,6 @@ function BaseExteriorSystem.ApplyThemeToPlot(plotModel, themeId)
 	end
 
 	return true
-end
-
---- Check if part should get base color (walls, stairs, floors, points, combiner, recycler - not glass).
-local function shouldApplyBaseColor(part)
-	if isGlassPart(part) then return false end
-	local n = part.Name
-	if n:find("Wall") then return true end
-	if n:find("Stair") then return true end
-	if n:find("Floor") then return true end
-	if n:match("^DefensePoint") then return true end
-	if n:match("^IncomePoint") then return true end
-	if n:match("^BattlePoint") then return true end
-	if n == "MCombiner" or n == "Combiner" then return true end
-	if n == "MRecycler" or n == "Recycler" then return true end
-	return false
-end
-
---- Reset parts to default grey when unequipping. onlyBaseColorParts = true resets walls/stairs/points/combiner/recycler only.
---- Always restores Color, Material, and Transparency to default spawn look (gray + Concrete + opaque).
-local function applyDefaultToPlot(plotModel, onlyBaseColorParts)
-	for _, desc in ipairs(plotModel:GetDescendants()) do
-		if desc:IsA("BasePart") and not isGlassPart(desc) then
-			if onlyBaseColorParts and not shouldApplyBaseColor(desc) then continue end
-			desc.Color = DEFAULT_GREY
-			desc.Material = DEFAULT_MATERIAL
-			desc.Transparency = 0
-		end
-	end
 end
 
 --- Apply base color to walls, stairs, points, combiner, recycler. Does not affect glass.

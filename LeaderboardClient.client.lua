@@ -1,6 +1,6 @@
 -- LeaderboardClient.lua - StarterPlayer.StarterPlayerScripts (LocalScript)
 -- Full-screen leaderboard panel. Toggle with L key or HUD button.
--- Tabs: Income, Victories, Monsters. Shows top 10 + player's own rank.
+-- Tabs: Income, Victories, Sieglings. Shows top 10 + player's own rank.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -33,24 +33,35 @@ local C = {
 	streak = Color3.fromRGB(255, 140, 40),
 }
 
--- Panel scales with viewport
+-- Panel scales with viewport; on mobile allow smaller scale so it fits on screen
 local PANEL_DESIGN_W = 520
 local PANEL_DESIGN_H = 480
-local PANEL_SCALE_MIN = 0.52
+local PANEL_SCALE_MIN = 0.32
 local PANEL_SCALE_MAX = 1
+local VIEWPORT_PADDING = 24 -- margin so panel stays inside safe area on mobile
 
 local function getPanelScale()
 	local camera = workspace.CurrentCamera
 	local vp = (camera and camera.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
-	local scale = math.min(vp.X / PANEL_DESIGN_W, vp.Y / PANEL_DESIGN_H)
+	local usableW = math.max(PANEL_DESIGN_W * PANEL_SCALE_MIN, vp.X - VIEWPORT_PADDING * 2)
+	local usableH = math.max(PANEL_DESIGN_H * PANEL_SCALE_MIN, vp.Y - VIEWPORT_PADDING * 2)
+	local scale = math.min(usableW / PANEL_DESIGN_W, usableH / PANEL_DESIGN_H)
 	return math.clamp(scale, PANEL_SCALE_MIN, PANEL_SCALE_MAX)
 end
 
 local function applyPanelScale(pnl)
+	local camera = workspace.CurrentCamera
+	local vp = (camera and camera.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
 	local scale = getPanelScale()
 	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
 	pnl.Size = UDim2.new(0, w, 0, h)
-	pnl.Position = UDim2.new(0.5, -w/2, 0.5, -h/2)
+	-- Center horizontally; vertically center but clamp so panel stays fully on screen (fixes mobile "slightly below")
+	local centerX = vp.X * 0.5
+	local centerY = vp.Y * 0.5
+	local yMin = VIEWPORT_PADDING + h * 0.5
+	local yMax = vp.Y - VIEWPORT_PADDING - h * 0.5
+	local clampedY = math.clamp(centerY, yMin, math.max(yMin, yMax))
+	pnl.Position = UDim2.new(0, math.floor(centerX - w * 0.5), 0, math.floor(clampedY - h * 0.5))
 end
 
 -- ScreenGui
@@ -117,7 +128,7 @@ local tabs = {
 	{ key = "income",   label = "Income" },
 	{ key = "battle",   label = "Victories" },
 	{ key = "pvp",      label = "PvP" },
-	{ key = "monsters", label = "Monsters" },
+	{ key = "monsters", label = "Sieglings" },
 }
 
 local currentTab = "income"
@@ -167,12 +178,12 @@ myRankLabel.TextSize = 12
 myRankLabel.TextXAlignment = Enum.TextXAlignment.Left
 myRankLabel.Parent = myRankBar
 
--- Build tab buttons
-local tabWidth = math.floor(480 / #tabs)
+-- Build tab buttons (scale-based so all tabs fit on small/mobile)
+local tabGap = 4
 for i, tab in ipairs(tabs) do
 	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(0, tabWidth, 1, 0)
-	btn.Position = UDim2.new(0, (i - 1) * (tabWidth + 6), 0, 0)
+	btn.Size = UDim2.new(1 / #tabs, -tabGap, 1, 0)
+	btn.Position = UDim2.new((i - 1) / #tabs, tabGap * 0.5, 0, 0)
 	btn.BackgroundColor3 = C.tabInactive
 	btn.Text = tab.label
 	btn.TextColor3 = C.textSec
@@ -190,7 +201,7 @@ local headerLabels = {
 	income = { "Rank", "Player", "Total Income" },
 	battle = { "Rank", "Player", "Wins | Best Streak" },
 	pvp = { "Rank", "Player", "Wins | Losses" },
-	monsters = { "Rank", "Player", "Monsters Owned" },
+	monsters = { "Rank", "Player", "Sieglings Owned" },
 }
 
 -- Create a row Frame for a leaderboard entry

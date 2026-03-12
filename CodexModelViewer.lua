@@ -6,7 +6,7 @@
 	- Auto-rotate option
 	- Safe mount/unmount from ReplicatedStorage.CreatureModels
 	- LoadModelByAssetId(assetId) - load arbitrary models from catalog via InsertService
-	- Placeholder when model missing (no errors)
+	- Placeholder when model missing (no errors)sdfs
 ]]
 
 local RunService = game:GetService("RunService")

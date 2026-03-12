@@ -45,7 +45,7 @@ local function bindHandlers()
 				local pos = nil
 				if FavoriteCreatureSystem then
 					local d = PlayerDataManager.GetData(player)
-					if d and d.favoriteUid == uid and FavoriteCreatureSystem.HasCompanion(player) then
+					if d and d.favoriteUid and tostring(d.favoriteUid) == tostring(uid) and FavoriteCreatureSystem.HasCompanion(player) then
 						pos = FavoriteCreatureSystem.GetCompanionPosition(player)
 					end
 				end
@@ -60,7 +60,7 @@ local function bindHandlers()
 				evolveResult:FireClient(player, true, entry and entry.id or nil)
 				-- If the evolved creature was the player's favorite, refresh companion so the model updates
 				local d = PlayerDataManager.GetData(player)
-				if d and d.favoriteUid == uid and FavoriteCreatureSystem then
+				if d and d.favoriteUid and tostring(d.favoriteUid) == tostring(uid) and FavoriteCreatureSystem then
 					FavoriteCreatureSystem.DespawnCompanion(player)
 					FavoriteCreatureSystem.SpawnCompanion(player)
 				end

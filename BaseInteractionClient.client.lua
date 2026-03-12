@@ -64,6 +64,7 @@ local activeMenuGui = nil
 -- Forward declarations for functions defined later but called from resetState / pickup
 local clearPointPrompts  -- removes temporary [E] prompts from base points (HOLDING state)
 local attachPointPrompts -- attaches [E] prompts to matching-type base points (HOLDING state)
+local isOwnCreature      -- checks if a creature model belongs to this player (FIX: forward ref)
 
 -- Orb prompt tracking (must be declared before resetState which references it)
 local attachedPrompts = {} -- [model] = ProximityPrompt (to avoid duplicates on creature orbs)
@@ -208,6 +209,7 @@ local function createGhost(originalModel)
 		if desc:IsA("BasePart") then
 			desc.Transparency = math.max(desc.Transparency, 0.6)
 			desc.CanCollide = false
+			desc.CanQuery = false  -- FIX: prevent ghost from intercepting mouse raycasts / cursor
 			desc.Anchored = true
 		elseif desc:IsA("BillboardGui") or desc:IsA("PointLight") or desc:IsA("Highlight") then
 			desc:Destroy()
@@ -328,7 +330,7 @@ local function showContextMenu(model)
 		local plotsFolder = workspace:FindFirstChild("BasePlots")
 		if plotsFolder then
 			for _, plot in ipairs(plotsFolder:GetChildren()) do
-				if plot:GetAttribute("OwnerUserId") == player.UserId then
+				if tostring(plot:GetAttribute("OwnerUserId") or "") == tostring(player.UserId) then
 					local prefix = (slotType == "income") and "IncomePoint" or ((slotType == "battle") and "BattlePoint" or "DefensePoint")
 					for _, desc in ipairs(plot:GetDescendants()) do
 						if desc:IsA("BasePart") and desc.Name:match("^" .. prefix .. "%d+$") then
@@ -502,7 +504,7 @@ end
 local function findModelByUid(uid, slotType)
 	local tag = (slotType == "defense") and DEFENSE_TAG or ((slotType == "battle") and BATTLE_TAG or INCOME_TAG)
 	for _, tagged in ipairs(CollectionService:GetTagged(tag)) do
-		if tagged.Parent and tagged:GetAttribute("OwnerUserId") == player.UserId and tagged:GetAttribute("UID") == uid then
+		if tagged.Parent and isOwnCreature(tagged) and tagged:GetAttribute("UID") == uid then
 			return tagged
 		end
 	end
@@ -561,56 +563,56 @@ local function showSwapMenu(targetModel)
 		clearMenu()
 		clearGhost()
 		local swapOk = false
+		local swapMsg = nil
 		if heldData.slotType == "battle" and assignToBattle then
 			assignToBattle:FireServer(heldData.uid, targetSlotIndex)  -- Swap
 			swapOk = true
 		elseif swapCreatureSlots then
 			local ok, msg = swapCreatureSlots:InvokeServer(heldData.slotType, heldData.uid, targetUid)
 			swapOk = ok
+			swapMsg = msg
 		end
 		if swapOk then
-				-- After swap, the creature that was at this point is now at our old slot. Transition to holding that one.
-				local oldSlotIndex, oldPointIndex = heldData.slotIndex, heldData.pointIndex
-				task.wait(0.25) -- allow server to replicate new models
-				local newModel = findModelByUid(targetUid, heldData.slotType)
-				if newModel and newModel.Parent then
-					state = STATE_HOLDING
-					heldData = {
-						uid = targetUid,
-						creatureId = targetCreatureId,
-						slotType = heldData.slotType,
-						slotIndex = oldSlotIndex,
-						level = targetLevel,
-						model = newModel,
-						pointIndex = oldPointIndex,
-					}
-					ghostModel = createGhost(newModel)
-					holdingBanner = createHoldingBanner(targetName, targetLevel)
-					heldData.hiddenParts = {}
-					for _, desc in ipairs(newModel:GetDescendants()) do
-						if desc:IsA("BasePart") then
-							heldData.hiddenParts[desc] = desc.Transparency
-							desc.Transparency = 1
-						elseif desc:IsA("BillboardGui") or desc:IsA("Highlight") or desc:IsA("PointLight") then
-							heldData.hiddenParts[desc] = desc.Enabled
-							desc.Enabled = false
-						end
+			-- After swap, the creature that was at this point is now at our old slot.
+			-- Transition to holding that one.
+			local oldSlotIndex, oldPointIndex = heldData.slotIndex, heldData.pointIndex
+			task.wait(0.25) -- allow server to replicate new models
+			local newModel = findModelByUid(targetUid, heldData.slotType)
+			if newModel and newModel.Parent then
+				state = STATE_HOLDING
+				heldData = {
+					uid = targetUid,
+					creatureId = targetCreatureId,
+					slotType = heldData.slotType,
+					slotIndex = oldSlotIndex,
+					level = targetLevel,
+					model = newModel,
+					pointIndex = oldPointIndex,
+				}
+				ghostModel = createGhost(newModel)
+				holdingBanner = createHoldingBanner(targetName, targetLevel)
+				heldData.hiddenParts = {}
+				for _, desc in ipairs(newModel:GetDescendants()) do
+					if desc:IsA("BasePart") then
+						heldData.hiddenParts[desc] = desc.Transparency
+						desc.Transparency = 1
+					elseif desc:IsA("BillboardGui") or desc:IsA("Highlight") or desc:IsA("PointLight") then
+						heldData.hiddenParts[desc] = desc.Enabled
+						desc.Enabled = false
 					end
-					local prompt = attachedPrompts[newModel]
-					if prompt then prompt.Enabled = false end
-					attachPointPrompts()
-					Notify.Toast("Now holding " .. targetName .. " — walk to a point & press [E]", UI_GREEN, 2.5)
-				else
-					heldData = nil
-			else
-				Notify.Toast("Swap failed: " .. (msg or ""), UI_RED, 2)
-				resetState()
-			end
-					state = STATE_IDLE
-					Notify.Toast("Swapped! (Could not pick up here)", UI_BLUE, 2)
 				end
+				local prompt = attachedPrompts[newModel]
+				if prompt then prompt.Enabled = false end
+				attachPointPrompts()
+				Notify.Toast("Now holding " .. targetName .. " — walk to a point & press [E]", UI_GREEN, 2.5)
+			else
+				-- Swap succeeded on server but model not found client-side yet
+				heldData = nil
+				state = STATE_IDLE
+				Notify.Toast("Swapped! (Could not pick up here)", UI_BLUE, 2)
+			end
 		else
-			Notify.Toast("Swap failed", UI_RED, 2)
+			Notify.Toast("Swap failed: " .. (swapMsg or ""), UI_RED, 2)
 			resetState()
 		end
 		busy = false
@@ -727,7 +729,7 @@ local function findOwnPlot()
 	local plotsFolder = workspace:FindFirstChild("BasePlots")
 	if not plotsFolder then return nil end
 	for _, plot in ipairs(plotsFolder:GetChildren()) do
-		if plot:GetAttribute("OwnerUserId") == player.UserId then
+		if tostring(plot:GetAttribute("OwnerUserId") or "") == tostring(player.UserId) then
 			return plot
 		end
 	end
@@ -766,7 +768,7 @@ end
 local function findCreatureAtPoint(pointPart, slotType)
 	local tag = (slotType == "defense") and DEFENSE_TAG or ((slotType == "battle") and BATTLE_TAG or INCOME_TAG)
 	for _, tagged in ipairs(CollectionService:GetTagged(tag)) do
-		if tagged.Parent and tagged:GetAttribute("OwnerUserId") == player.UserId then
+		if tagged.Parent and isOwnCreature(tagged) then
 			local body = tagged.PrimaryPart or tagged:FindFirstChild("Body")
 			if body and (body.Position - pointPart.Position).Magnitude < 8 then
 				return tagged
@@ -965,15 +967,33 @@ end
 
 -- (attachedPrompts declared at top of file, near other forward declarations)
 
+-- FIX: Assign to forward-declared local (not `local function`) so findModelByUid
+-- and findCreatureAtPoint can reference it before this line is reached at load time.
+isOwnCreature = function(model)
+	local ownerId = model:GetAttribute("OwnerUserId")
+	if ownerId == nil then return false end
+	return tostring(ownerId) == tostring(player.UserId)
+end
+
+--- Get the part to attach the ProximityPrompt to. Replication can delay PrimaryPart; fallback to any BasePart.
+local function getOrbBodyPart(model)
+	if not model then return nil end
+	local body = model.PrimaryPart or model:FindFirstChild("Body") or model:FindFirstChild("HumanoidRootPart")
+	if body and body:IsA("BasePart") then return body end
+	for _, desc in ipairs(model:GetDescendants()) do
+		if desc:IsA("BasePart") then return desc end
+	end
+	return nil
+end
+
 local function attachPromptToOrb(model)
 	if not model or not model.Parent then return end
 	if attachedPrompts[model] then return end
-	-- Only attach to own creatures
-	if model:GetAttribute("OwnerUserId") ~= player.UserId then return end
+	if not isOwnCreature(model) then return end
 	local slotType = model:GetAttribute("SlotType")
 	if slotType ~= "income" and slotType ~= "defense" and slotType ~= "battle" then return end
 
-	local body = model.PrimaryPart or model:FindFirstChild("Body")
+	local body = getOrbBodyPart(model)
 	if not body then return end
 
 	local creatureId = model:GetAttribute("CreatureId")
@@ -993,11 +1013,6 @@ local function attachPromptToOrb(model)
 		print("[BaseInteraction] Manage prompt Triggered on " .. tostring(displayName) .. " by " .. tostring(playerWhoTriggered and playerWhoTriggered.Name))
 		if playerWhoTriggered ~= player then return end
 		if busy then return end
-		-- Check arena
-		if workspace:GetAttribute("ArenaBattleInProgress") then
-			Notify.Toast("Cannot manage base during arena!", UI_RED, 2)
-			return
-		end
 		if state == STATE_IDLE then
 			-- Normal interaction: show context menu
 			showContextMenu(model)
@@ -1026,22 +1041,38 @@ local function attachPromptToOrb(model)
 end
 
 local function scanAndAttachPrompts()
-	for _, tag in ipairs({INCOME_TAG, DEFENSE_TAG}) do
+	for _, tag in ipairs({INCOME_TAG, DEFENSE_TAG, BATTLE_TAG}) do
 		for _, model in ipairs(CollectionService:GetTagged(tag)) do
 			attachPromptToOrb(model)
 		end
 	end
 end
 
--- Auto-attach prompts when new orbs spawn
-CollectionService:GetInstanceAddedSignal(INCOME_TAG):Connect(function(model)
-	task.wait(0.1) -- brief wait for attributes to be set
-	attachPromptToOrb(model)
-end)
-CollectionService:GetInstanceAddedSignal(DEFENSE_TAG):Connect(function(model)
-	task.wait(0.1)
-	attachPromptToOrb(model)
-end)
+-- Wait for OwnerUserId/attributes to replicate, then attach; retry a few times so defense/income orbs always get [E].
+local MAX_ATTACH_RETRIES = 4
+local ATTACH_RETRY_DELAY = 0.8
+
+local function tryAttachWithRetry(model)
+	for attempt = 1, MAX_ATTACH_RETRIES do
+		task.wait(ATTACH_RETRY_DELAY)
+		if not model or not model.Parent then return end
+		if attachedPrompts[model] then return end
+		-- Retry until OwnerUserId replicates (often delayed for defense/income orbs)
+		if isOwnCreature(model) then
+			attachPromptToOrb(model)
+			return
+		end
+	end
+end
+
+-- Auto-attach prompts when new orbs spawn (e.g. defense creatures placed by BasePlacementSystem)
+for _, tag in ipairs({INCOME_TAG, DEFENSE_TAG, BATTLE_TAG}) do
+	CollectionService:GetInstanceAddedSignal(tag):Connect(function(model)
+		task.spawn(function()
+			tryAttachWithRetry(model)
+		end)
+	end)
+end
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- GHOST POSITION UPDATE (every frame while holding)
@@ -1077,6 +1108,11 @@ end)
 -- Attach prompts to existing orbs after a brief delay (let BasePlacementSystem finish spawning)
 task.spawn(function()
 	task.wait(3)
+	scanAndAttachPrompts()
+	-- Re-scan so defense/income orbs that spawn after 3s (e.g. late PlaceCreatures) still get [E]
+	task.wait(5)
+	scanAndAttachPrompts()
+	task.wait(7)
 	scanAndAttachPrompts()
 end)
 

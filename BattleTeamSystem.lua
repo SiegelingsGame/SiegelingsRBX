@@ -21,6 +21,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
+local CreatureModelLoader = require(ReplicatedStorage.Modules.CreatureModelLoader)
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
 
 local PlayerDataManager
@@ -75,11 +76,11 @@ local function getTeamCreatureIds(battleTeam, inventory)
 	local ids = {}
 	local uidToId = {}
 	for _, entry in ipairs(inventory) do
-		uidToId[entry.uid] = entry.id
+		if entry.uid then uidToId[tostring(entry.uid)] = entry.id end
 	end
 	for _, uid in pairs(battleTeam) do
-		if uid and uidToId[uid] then
-			table.insert(ids, uidToId[uid])
+		if uid and uidToId[tostring(uid)] then
+			table.insert(ids, uidToId[tostring(uid)])
 		end
 	end
 	return ids
@@ -155,11 +156,11 @@ local function spawnBattleOrb(creatureId, battlePointPart, uid, slotIndex, plotM
 	highlight.OutlineTransparency = 0.3
 	highlight.Parent = model
 
-	-- Billboard: name + element/class
+	-- Billboard: name + element/class (offset to top of bounding box so name isn't blocked)
 	local billboard = Instance.new("BillboardGui")
 	billboard.Adornee = body
 	billboard.Size = UDim2.new(0, 180, 0, 60)
-	billboard.StudsOffset = Vector3.new(0, 4.5, 0)
+	billboard.StudsOffset = Vector3.new(0, CreatureModelLoader.GetBillboardStudsOffsetForTopOfModel(model, body), 0)
 	billboard.AlwaysOnTop = true
 	billboard.Parent = model
 
@@ -262,9 +263,9 @@ function BattleTeamSystem.PlaceTeam(player)
 	for slotKey, uid in pairs(data.battleTeam) do
 		local slotIndex = tonumber(slotKey) or slotKey
 		if uid and battlePoints[slotIndex] then
-			-- Find creature in inventory
+			local su = tostring(uid)
 			for _, entry in ipairs(data.inventory) do
-				if entry.uid == uid then
+				if entry.uid and tostring(entry.uid) == su then
 					spawnBattleOrb(entry.id, battlePoints[slotIndex], uid, slotIndex, plotModel)
 					placed = placed + 1
 					break
@@ -299,9 +300,10 @@ function BattleTeamSystem.AssignToSlot(player, uid, slotIndex)
 	end
 
 	-- Verify creature exists in inventory
+	local su = tostring(uid or "")
 	local found = false
 	for _, entry in ipairs(data.inventory) do
-		if entry.uid == uid then found = true break end
+		if entry.uid and tostring(entry.uid) == su then found = true break end
 	end
 	if not found then return false, "Not in inventory" end
 
@@ -310,7 +312,7 @@ function BattleTeamSystem.AssignToSlot(player, uid, slotIndex)
 	local alreadyOnTeam = false
 	local currentSlot = nil
 	for key, val in pairs(data.battleTeam) do
-		if val == uid then
+		if val and tostring(val) == su then
 			alreadyOnTeam = true
 			currentSlot = tonumber(key) or key
 			break
@@ -343,9 +345,9 @@ end
 function BattleTeamSystem.RemoveFromTeam(player, uid)
 	local data = PlayerDataManager.GetData(player)
 	if not data or not data.battleTeam then return false end
-
+	local su = tostring(uid or "")
 	for key, val in pairs(data.battleTeam) do
-		if val == uid then
+		if val and tostring(val) == su then
 			data.battleTeam[key] = nil
 			return true
 		end
@@ -369,8 +371,9 @@ function BattleTeamSystem.GetTeamData(player)
 		local slotNum = tonumber(key) or key
 		if uid then
 			local creatureId = nil
+			local su = tostring(uid)
 			for _, entry in ipairs(data.inventory) do
-				if entry.uid == uid then
+				if entry.uid and tostring(entry.uid) == su then
 					creatureId = entry.id
 					break
 				end

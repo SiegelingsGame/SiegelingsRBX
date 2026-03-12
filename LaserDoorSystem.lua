@@ -2,7 +2,7 @@
 -- Dome shield over each player's plot.
 -- Shield must be ACTIVATED by pressing a button inside the base.
 -- Shield lasts 50 seconds then expires. Player must reactivate.
--- Monsters/raiders are blocked by the shield while active.
+-- Monsters/raiders are blocked by the shield while active.s
 -- Owner + friends pass through. Others get pushed out + damaged.
 
 local Players = game:GetService("Players")
@@ -51,11 +51,24 @@ local function findPlotCenter(plotModel)
 	return Vector3.new(0, 5, 0)
 end
 
--- -- FIND GROUND Y AT CENTER --
+-- -- FIND GROUND Y FOR DOME (floor level so dome touches floor and rises over base) --
 
-local function findGroundY(center)
+local function findGroundY(center, plotModel)
+	if not plotModel then return center.Y end
+	-- Use the bottom of the plot so the dome touches the floor and rises over the base
+	local ok, bboxCf, bboxSize = pcall(function()
+		return plotModel:GetBoundingBox()
+	end)
+	if ok and bboxCf and bboxSize then
+		-- GetBoundingBox returns (CFrame, Size); bottom of box = center.Y - size.Y/2
+		return bboxCf.Position.Y - bboxSize.Y / 2
+	end
+	-- Fallback: raycast below plot (exclude plot to hit terrain)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { plotModel }
 	local rayOrigin = Vector3.new(center.X, center.Y + 50, center.Z)
-	local result = workspace:Raycast(rayOrigin, Vector3.new(0, -200, 0), RaycastParams.new())
+	local result = workspace:Raycast(rayOrigin, Vector3.new(0, -500, 0), params)
 	if result then return result.Position.Y end
 	return center.Y
 end
@@ -276,7 +289,7 @@ local function createDome(plotModel, ownerPlayer)
 	if not plotModel then return nil end
 
 	local center = findPlotCenter(plotModel)
-	local groundY = findGroundY(center)
+	local groundY = findGroundY(center, plotModel)
 
 	-- Scale dome to cover highest floor in the plot
 	local maxFloorY = groundY
@@ -296,7 +309,7 @@ local function createDome(plotModel, ownerPlayer)
 	local heightMult = tonumber(GameConfig.DomeHeightMultiplier) or 1.5
 	local radiusY = radiusXZ * heightMult  -- taller ellipse, same horizontal footprint
 
-	local domeCenter = Vector3.new(center.X, groundY + radiusY, center.Z)  -- center so bottom of ellipsoid at groundY
+	local domeCenter = Vector3.new(center.X, center.Y, center.Z)  -- 50% point (equator) at plot center so it appears as a domez
 
 	-- Main dome ellipsoid (Ball with different X/Z vs Y size = taller, same width at base)
 	local dome = Instance.new("Part")

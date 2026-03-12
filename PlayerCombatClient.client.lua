@@ -17,11 +17,25 @@ local playerGui = player:WaitForChild("PlayerGui")
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
 local Notify = require(ReplicatedStorage.Modules.NotificationManager)
 
+-- Wait for Events (don't exit early so weapon toggle and attack loop can run once ready)
 local Events = ReplicatedStorage:WaitForChild("Events", 15)
-if not Events then return end
+if not Events then
+	warn("[PlayerCombatClient] Events not found - retrying periodically")
+	while not Events do
+		task.wait(1)
+		Events = ReplicatedStorage:FindFirstChild("Events")
+	end
+end
 
 local playerAttack = Events:WaitForChild("PlayerAttack", 10)
-local playerAttackFX = Events:WaitForChild("PlayerAttackFX", 10)
+if not playerAttack then
+	warn("[PlayerCombatClient] PlayerAttack remote not found - retrying periodically")
+	while not playerAttack do
+		task.wait(1)
+		playerAttack = Events:FindFirstChild("PlayerAttack")
+	end
+end
+local playerAttackFX = Events:FindFirstChild("PlayerAttackFX")
 
 -- Wait for character
 if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
@@ -41,6 +55,7 @@ end
 -- -- STATE --
 local combatMode = "ranged" -- "ranged" or "melee"
 local lastAutoAttack = 0
+local lastOutOfRangeToast = 0  -- throttle "Target out of range" feedback
 local WORLD_TAG = "WorldCreature"
 
 -- -- HUD --
@@ -50,7 +65,7 @@ sg.ResetOnSpawn = false
 sg.DisplayOrder = 5
 sg.Parent = playerGui
 
--- Target indicator showing which creature auto-attack is targeting
+-- Target indicator (tracker) showing which creature auto-attack is targeting; +10% size
 local targetIndicator = Instance.new("Frame")
 targetIndicator.Size = UDim2.new(0, 200, 0, 20)
 targetIndicator.Position = UDim2.new(0.5, -100, 1, -700)
@@ -60,6 +75,16 @@ targetIndicator.BorderSizePixel = 0
 targetIndicator.Visible = false
 targetIndicator.Parent = sg
 Instance.new("UICorner", targetIndicator).CornerRadius = UDim.new(0, 6)
+local trackerScale = Instance.new("UIScale")
+trackerScale.Scale = 1.1  -- +10% tracker size (all devices)
+trackerScale.Parent = targetIndicator
+-- On mobile: move down and scale 65% (was 50%; +30% larger); tracker scale 1.1 applied above
+if UserInputService.TouchEnabled then
+	targetIndicator.Position = UDim2.new(0.5, -100, 1, -180)
+	local targetUIScale = Instance.new("UIScale")
+	targetUIScale.Scale = 0.65  -- 0.5 * 1.30 for 30% larger on mobile
+	targetUIScale.Parent = targetIndicator
+end
 
 local targetLbl = Instance.new("TextLabel")
 targetLbl.Size = UDim2.new(1, 0, 1, 0)
@@ -182,6 +207,7 @@ task.spawn(function()
 			local info = cid and CreatureData.GetById(cid)
 			targetLbl.Text = "Attacking: " .. (info and info.displayName or "creature")
 			targetIndicator.Visible = true
+			lastOutOfRangeToast = 0 -- reset so next out-of-range shows toast again
 
 			if combatMode == "ranged" then
 				local origin = root.Position + Vector3.new(0, 2, 0)
@@ -191,10 +217,16 @@ task.spawn(function()
 					playerAttack:FireServer("ranged", origin, direction, targetId)
 				end
 			else
-				playerAttack:FireServer("melee", root.Position, targetId)
+				-- Server expects (attackType, origin, direction, targetUniqueId); for melee pass nil as direction so targetId is 5th arg
+				playerAttack:FireServer("melee", root.Position, nil, targetId)
 			end
 		else
 			targetIndicator.Visible = false
+			-- Feedback when target selected but out of range (throttled to avoid spam)
+			if now - lastOutOfRangeToast >= 2.5 then
+				lastOutOfRangeToast = now
+				Notify.Toast("Target out of range! Get closer.", Color3.fromRGB(255, 120, 80), 2)
+			end
 		end
 	end
 end)

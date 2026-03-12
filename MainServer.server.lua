@@ -5,6 +5,9 @@
 print("--------------------------------------")
 print("   MONSTER SIEGE - Server Starting")
 print("--------------------------------------")
+-- #region agent log
+print("[DEBUG-1234af] MainServer: before requires")
+-- #endregion
 
 local ServerScriptService = game:GetService("ServerScriptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -14,11 +17,17 @@ local StarterGui = game:GetService("StarterGui")
 local Workspace = game:GetService("Workspace")
 local TweenService = game:GetService("TweenService")
 
--- Prevent PlayerGui from being cleared on death/respawn so Leaderboard (X), Profile (P), and HUD button bar shortcuts keep working
+-- Prevent PlayerGui from being cleared on death/respawn so Leaderboard (X), Profile (P),f and HUD button bar shortcuts keep working
 StarterGui.ResetPlayerGuiOnSpawn = false
 
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
+-- #region agent log
+print("[DEBUG-1234af] MainServer: CreatureData required OK")
+-- #endregion
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+-- #region agent log
+print("[DEBUG-1234af] MainServer: GameConfig required OK")
+-- #endregion
 
 -- === STEP 1: Create ALL remotes ===
 local eventsFolder = ReplicatedStorage:FindFirstChild("Events")
@@ -27,6 +36,9 @@ if not eventsFolder then
 	eventsFolder.Name = "Events"
 	eventsFolder.Parent = ReplicatedStorage
 end
+-- #region agent log
+print("[DEBUG-1234af] MainServer: Events folder created")
+-- #endregion
 
 local function makeEvent(n)
 	local existing = eventsFolder:FindFirstChild(n)
@@ -43,6 +55,7 @@ end
 local getInventory = makeFunc("GetInventory")
 local assignToBase = makeEvent("AssignToBase")
 local assignToDefense = makeEvent("AssignToDefense")
+local slotAssignComplete = makeEvent("SlotAssignComplete")  -- server -> client: fire after assign/remove so UI can refresh immediately
 local setFavorite = makeEvent("SetFavorite")
 local assignToBattle = makeEvent("AssignToBattle")
 local removeFromBattle = makeEvent("RemoveFromBattle")
@@ -56,10 +69,16 @@ makeEvent("CompanionRecalled")  -- server -> client: creaturePos, creatureId (wa
 local toggleAttackMode = makeEvent("ToggleAttackMode")
 local setCompanionTarget = makeEvent("SetCompanionTarget")
 local clearCompanionTarget = makeEvent("ClearCompanionTarget")
+-- FIX #17: Recall/Summon companion without changing favorite.
+-- RecallCompanion: despawn companion model, fire CompanionRecalled, keep favoriteUid intact.
+-- SummonCompanion: spawn companion model back (requires favoriteUid already set).
+local recallCompanion = makeEvent("RecallCompanion")
+local summonCompanion = makeEvent("SummonCompanion")
 
 -- Economy
 local incomeReceived = makeEvent("IncomeReceived")
 makeEvent("CoinsUpdate")
+makeEvent("GemsUpdate")
 
 -- Capture
 makeEvent("CaptureRequest"); makeEvent("CaptureStart"); makeEvent("CaptureSuccess")
@@ -92,6 +111,7 @@ makeEvent("PvPChallengeInvite"); makeEvent("PvPAcceptChallenge"); makeEvent("PvP
 
 -- Player Combat
 makeEvent("PlayerAttack"); makeEvent("PlayerAttackFX")
+makeEvent("ShowDamageNumber")  -- S->C: (position, damage) only to attacker/companion owner for open-world
 
 -- Buff Shop
 makeFunc("BuyBuff")
@@ -202,6 +222,12 @@ pcall(function() FavoriteCreatureSystem = require(ServerScriptService.FavoriteCr
 local ArenaSystem = nil
 pcall(function() ArenaSystem = require(ServerScriptService.ArenaSystem) end)
 
+local ArenaShieldSystem = nil
+pcall(function() ArenaShieldSystem = require(ServerScriptService.ArenaShieldSystem) end)
+
+local WaterGymSystem = nil
+pcall(function() WaterGymSystem = require(ServerScriptService.WaterGymSystem) end)
+
 local PvPBattleSystem = nil
 pcall(function() PvPBattleSystem = require(ServerScriptService.PvPBattleSystem) end)
 
@@ -213,6 +239,12 @@ pcall(function() AIRaidSystem = require(ServerScriptService.AIRaidSystem) end)
 
 local DungeonSpawner = nil
 pcall(function() DungeonSpawner = require(ServerScriptService.DungeonSpawner) end)
+local ElectricBiomeHazardSystem = nil
+do
+	local ok, mod = pcall(function() return require(ServerScriptService.ElectricBiomeHazardSystem) end)
+	if ok and mod then ElectricBiomeHazardSystem = mod
+	else warn("[MainServer] ElectricBiomeHazardSystem require failed: " .. tostring(mod)) end
+end
 
 local PlayerCombatSystem = nil
 pcall(function() PlayerCombatSystem = require(ServerScriptService.PlayerCombatSystem) end)
@@ -305,6 +337,14 @@ if ArenaSystem then
 	local ok, err = pcall(function() ArenaSystem.Init(PlayerDataManager, BasePlacementSystem) end)
 	if ok then print("[MainServer] ArenaSystem OK") else warn("[MainServer] ArenaSystem failed: " .. tostring(err)) end
 end
+if ArenaShieldSystem then
+	local ok, err = pcall(function() ArenaShieldSystem.Init() end)
+	if ok then print("[MainServer] ArenaShieldSystem OK") else warn("[MainServer] ArenaShieldSystem failed: " .. tostring(err)) end
+end
+if WaterGymSystem then
+	local ok, err = pcall(function() WaterGymSystem.Init(PlayerDataManager) end)
+	if ok then print("[MainServer] WaterGymSystem OK") else warn("[MainServer] WaterGymSystem failed: " .. tostring(err)) end
+end
 if LeaderboardSystem then
 	local ok, err = pcall(function() LeaderboardSystem.Init(PlayerDataManager) end)
 	if ok then print("[MainServer] LeaderboardSystem OK") else warn("[MainServer] LeaderboardSystem failed: " .. tostring(err)) end
@@ -320,6 +360,10 @@ end
 if DungeonSpawner then
 	local ok, err = pcall(function() DungeonSpawner.Init(CreatureSpawner) end)
 	if ok then print("[MainServer] DungeonSpawner OK") else warn("[MainServer] DungeonSpawner failed: " .. tostring(err)) end
+end
+if ElectricBiomeHazardSystem then
+	local ok, err = pcall(function() ElectricBiomeHazardSystem.Init() end)
+	if ok then print("[MainServer] ElectricBiomeHazardSystem OK") else warn("[MainServer] ElectricBiomeHazardSystem failed: " .. tostring(err)) end
 end
 if WorldCreatureHP then
 	local ok, err = pcall(function() WorldCreatureHP.Init() end)
@@ -384,6 +428,9 @@ local function setupPlotForPlayer(plr)
 
 		local pm = plotsFolder:FindFirstChild("Plot" .. d.plotId) or plotsFolder:FindFirstChild("Part" .. d.plotId)
 		if not pm then return end
+
+		-- Set OwnerUserId so client can identify own plot (BaseInteractionClient findOwnPlot)
+		pm:SetAttribute("OwnerUserId", plr.UserId)
 
 		-- Create dome only once (check by plotId in activeDomes table)
 		if LaserDoorSystem and GameConfig.LaserDoorEnabled then
@@ -453,7 +500,7 @@ else
 						if not uid or uid == "" then continue end
 						if PlayerDataManager.GetEggByUid(p, uid) then continue end -- skip eggs
 						for _, e in ipairs(d.inventory or {}) do
-							if e.uid == uid then
+							if e.uid and tostring(e.uid) == tostring(uid) then
 								local info = CreatureData.GetById(e.id)
 								if info then inc = inc + info.baseIncome end; break
 							end
@@ -584,6 +631,23 @@ local function createHomeRecallEffect(rootPart, channelTime)
 	beamLight.Color = Color3.fromRGB(200, 230, 255)
 	beamLight.Parent = beam
 
+	-- Large semi-transparent cylinder tube (surrounds player body); thin beam stays at center
+	local tubeRadius = groundRadius
+	local tube = Instance.new("Part")
+	tube.Name = "HeavenTube"
+	tube.Anchored = true
+	tube.CanCollide = false
+	tube.CanQuery = false
+	tube.CanTouch = false
+	tube.CastShadow = false
+	tube.Material = Enum.Material.ForceField
+	tube.Color = Color3.fromRGB(180, 220, 255)
+	tube.Transparency = 1
+	tube.Shape = Enum.PartType.Cylinder
+	tube.Size = Vector3.new(beamHeight, tubeRadius * 2, tubeRadius * 2)
+	tube.CFrame = CFrame.new(rootPos + Vector3.new(0, skyHeight * 0.5, 0)) * CFrame.Angles(0, 0, math.rad(90))
+	tube.Parent = model
+
 	local ground = Instance.new("Part")
 	ground.Name = "HeavenImpact"
 	ground.Anchored = true
@@ -663,6 +727,7 @@ local function createHomeRecallEffect(rootPart, channelTime)
 		humLoop:Play()
 		beam.Transparency = 0.9
 		ground.Transparency = 0.6
+		tube.Transparency = 0.65  -- semi-transparent tube around player
 
 		safeTween(beam, TweenInfo.new(beamDescendEnd - portalOpenTime, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), {
 			Transparency = 0.1,
@@ -689,6 +754,9 @@ local function createHomeRecallEffect(rootPart, channelTime)
 		if not model or not model.Parent then return end
 		groundPE.Rate = 20
 		safeTween(beam, TweenInfo.new(totalDuration - fadeStart, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+			Transparency = 1,
+		})
+		safeTween(tube, TweenInfo.new(totalDuration - fadeStart, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
 			Transparency = 1,
 		})
 		safeTween(ground, TweenInfo.new(1, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
@@ -804,16 +872,17 @@ local function autoAssignAndSetup(plr)
 		return
 	end
 
-	-- Auto-assign a random available plot if they don't have one
-	if not d.plotId or d.plotId == 0 then
-		local plotId = PlayerDataManager.AssignPlot(plr)
-		if plotId and plotId > 0 then
-			print("[MainServer] Auto-assigned Plot " .. plotId .. " to " .. plr.Name)
-		else
-			warn("[MainServer] No plots available for " .. plr.Name)
-		end
+	-- Assign a random unoccupied base every time (spawn at random base each join)
+	local plotId = PlayerDataManager.AssignPlot(plr)
+	if plotId and plotId > 0 then
+		print("[MainServer] Assigned Plot " .. plotId .. " to " .. plr.Name)
+	else
+		warn("[MainServer] No plots available for " .. plr.Name)
 	end
 
+	if BasePlacementSystem and BasePlacementSystem.RefreshAllPlotVisibility then
+		BasePlacementSystem.RefreshAllPlotVisibility()
+	end
 	refreshPlayerBase(plr)
 
 	-- Teleport to base on initial join
@@ -905,6 +974,31 @@ getInventory.OnServerInvoke = function(plr)
 	local filledDefense = PlayerDataManager.GetFilledSlotCount and PlayerDataManager.GetFilledSlotCount(plr, "defense") or 0
 	local incomeMax = PlayerDataManager.GetMaxSlots and PlayerDataManager.GetMaxSlots(plr, "income") or (GameConfig.MaxIncomeSlots or 6)
 	local defenseMax = PlayerDataManager.GetMaxSlots and PlayerDataManager.GetMaxSlots(plr, "defense") or (GameConfig.MaxDefenseSlots or 6)
+	-- Dense slot arrays so client sees every slot (ipairs stops at first nil; sparse tables broke labels/assignment past slot 1)
+	local function toDense(slots, maxLen)
+		local out = {}
+		for i = 1, maxLen do
+			local v = slots and (slots[i] or slots[tostring(i)])
+			out[i] = (v and v ~= "") and tostring(v) or ""
+		end
+		return out
+	end
+	local baseSlotsDense = toDense(d.baseSlots, incomeMax)
+	local defenseSlotsDense = toDense(d.defenseSlots, defenseMax)
+	-- Explicit UID lists so client Rem button works (Roblox remote serialization can drop/alter keyed tables; simple arrays are reliable)
+	local baseSlotUids = {}
+	for i = 1, incomeMax do
+		local v = d.baseSlots and (d.baseSlots[i] or d.baseSlots[tostring(i)])
+		if v and v ~= "" then table.insert(baseSlotUids, tostring(v)) end
+	end
+	local defenseSlotUids = {}
+	for i = 1, defenseMax do
+		local v = d.defenseSlots and (d.defenseSlots[i] or d.defenseSlots[tostring(i)])
+		if v and v ~= "" then table.insert(defenseSlotUids, tostring(v)) end
+	end
+	-- Send as comma-separated strings so Rem button works (tables in return can be dropped/mangled by remote serialization)
+	local baseSlotUidsStr = table.concat(baseSlotUids, ",")
+	local defenseSlotUidsStr = table.concat(defenseSlotUids, ",")
 	local bt = d.battleTeam or {}
 	-- CRITICAL: Send battle team as an array of { slot, uid }. Roblox remote serialization
 	-- can drop entries for tables with sparse numeric keys (e.g. { [1]=a, [3]=b, [4]=c } becomes
@@ -916,7 +1010,7 @@ getInventory.OnServerInvoke = function(plr)
 			table.insert(battleTeamSlots, { slot = slot, uid = v })
 		end
 	end
-	-- Also send legacy battleTeam table for any code that still uses it (client will prefer battleTeamSlots)
+	-- Also send legacy battleTeam table for any code that still uses it (client will prefer battleTeamSlots)1
 	local battleTeamLegacy = {}
 	for _, entry in ipairs(battleTeamSlots) do
 		battleTeamLegacy[entry.slot] = entry.uid
@@ -926,7 +1020,8 @@ getInventory.OnServerInvoke = function(plr)
 		coins = d.coins, gems = d.gems or 0,
 		inventory = d.inventory,
 		eggs = d.eggs or {},
-		baseSlots = d.baseSlots, defenseSlots = d.defenseSlots,
+		baseSlots = baseSlotsDense, defenseSlots = defenseSlotsDense,
+		baseSlotUidsStr = baseSlotUidsStr, defenseSlotUidsStr = defenseSlotUidsStr,
 		filledBaseCount = filledIncome, filledDefenseCount = filledDefense,
 		incomeMax = incomeMax, defenseMax = defenseMax,
 		battleFilled = #battleTeamSlots, battleMax = battleMax,
@@ -1050,8 +1145,9 @@ getBattleTeam.OnServerInvoke = function(plr)
 	local slots = {}
 	for slotIndex, uid in pairs(bt) do
 		local sNum = tonumber(slotIndex)
+		local su = uid and tostring(uid) or ""
 		for _, e in ipairs(d.inventory) do
-			if e.uid == uid then
+			if e.uid and tostring(e.uid) == su then
 				table.insert(teamCreatureIds, e.id)
 				local info = CreatureData.GetById(e.id)
 				slots[sNum] = {
@@ -1075,36 +1171,63 @@ getBattleTeam.OnServerInvoke = function(plr)
 	}
 end
 
--- ASSIGN TO BASE (income) - incremental: place in first empty slot only
-assignToBase.OnServerEvent:Connect(function(plr, uid)
-	local ok, slotIndex, added = PlayerDataManager.AssignToBase(plr, uid)
+-- ASSIGN TO BASE (income). Optional 3rd arg: slot index (1..max = assign), 0 = remove from income (Rem button).s
+assignToBase.OnServerEvent:Connect(function(plr, uid, toSlotIndex)
+	-- Normalize remove: client sends 0 for Rem; Roblox remotes can sometimes alter 0, so accept 0 or "0"
+	local slotArg = (toSlotIndex == 0 or toSlotIndex == "0") and 0 or toSlotIndex
+	if type(slotArg) == "number" and slotArg >= 1 and BasePlacementSystem then
+		BasePlacementSystem.ClearCreatureAtSlot(plr, "income", slotArg)
+	end
+	local ok, slotIndex, added = PlayerDataManager.AssignToBase(plr, uid, slotArg)
 	if ok then
 		checkDespawnCompanion(plr)
 		if BasePlacementSystem then
 			if added then
 				BasePlacementSystem.PlaceCreatureInSlot(plr, "income", slotIndex, uid)
 			else
-				BasePlacementSystem.ClearCreatureAtSlot(plr, "income", slotIndex)
+				if BasePlacementSystem.ClearOrbByUid then BasePlacementSystem.ClearOrbByUid(plr, uid, true) end
 			end
 		else
 			refreshPlayerBase(plr)
 		end
+		if slotAssignComplete then
+			local d = PlayerDataManager.GetData(plr)
+			local incomeMax = PlayerDataManager.GetMaxSlots and PlayerDataManager.GetMaxSlots(plr, "income") or 6
+			local defenseMax = PlayerDataManager.GetMaxSlots and PlayerDataManager.GetMaxSlots(plr, "defense") or 6
+			local baseList, defList = {}, {}
+			if d and d.baseSlots then for i = 1, incomeMax do local v = d.baseSlots[i] or d.baseSlots[tostring(i)]; if v and v ~= "" then table.insert(baseList, tostring(v)) end end end
+			if d and d.defenseSlots then for i = 1, defenseMax do local v = d.defenseSlots[i] or d.defenseSlots[tostring(i)]; if v and v ~= "" then table.insert(defList, tostring(v)) end end end
+			slotAssignComplete:FireClient(plr, table.concat(baseList, ","), table.concat(defList, ","))
+		end
 	end
 end)
 
--- ASSIGN TO DEFENSE - incremental: place in first empty slot only
-assignToDefense.OnServerEvent:Connect(function(plr, uid)
-	local ok, slotIndex, added = PlayerDataManager.AssignToDefense(plr, uid)
+-- ASSIGN TO DEFENSE. Optional 3rd arg: slot index (1..max = assign), 0 = remove from defense (Rem button).
+assignToDefense.OnServerEvent:Connect(function(plr, uid, toSlotIndex)
+	local slotArg = (toSlotIndex == 0 or toSlotIndex == "0") and 0 or toSlotIndex
+	if type(slotArg) == "number" and slotArg >= 1 and BasePlacementSystem then
+		BasePlacementSystem.ClearCreatureAtSlot(plr, "defense", slotArg)
+	end
+	local ok, slotIndex, added = PlayerDataManager.AssignToDefense(plr, uid, slotArg)
 	if ok then
 		checkDespawnCompanion(plr)
 		if BasePlacementSystem then
 			if added then
 				BasePlacementSystem.PlaceCreatureInSlot(plr, "defense", slotIndex, uid)
 			else
-				BasePlacementSystem.ClearCreatureAtSlot(plr, "defense", slotIndex)
+				if BasePlacementSystem.ClearOrbByUid then BasePlacementSystem.ClearOrbByUid(plr, uid, true) end
 			end
 		else
 			refreshPlayerBase(plr)
+		end
+		if slotAssignComplete then
+			local d = PlayerDataManager.GetData(plr)
+			local incomeMax = PlayerDataManager.GetMaxSlots and PlayerDataManager.GetMaxSlots(plr, "income") or 6
+			local defenseMax = PlayerDataManager.GetMaxSlots and PlayerDataManager.GetMaxSlots(plr, "defense") or 6
+			local baseList, defList = {}, {}
+			if d and d.baseSlots then for i = 1, incomeMax do local v = d.baseSlots[i] or d.baseSlots[tostring(i)]; if v and v ~= "" then table.insert(baseList, tostring(v)) end end end
+			if d and d.defenseSlots then for i = 1, defenseMax do local v = d.defenseSlots[i] or d.defenseSlots[tostring(i)]; if v and v ~= "" then table.insert(defList, tostring(v)) end end end
+			slotAssignComplete:FireClient(plr, table.concat(baseList, ","), table.concat(defList, ","))
 		end
 	end
 end)
@@ -1120,14 +1243,67 @@ setFavorite.OnServerEvent:Connect(function(plr, uid)
 		PlayerDataManager.SetFavorite(plr, uid)
 		if FavoriteCreatureSystem then
 			FavoriteCreatureSystem.DespawnCompanion(plr)
-			FavoriteCreatureSystem.SpawnCompanion(plr)
+			-- Delay spawn so client summon card animation can play first (card grows from body, then creature appears)
+			task.delay(1.05, function()
+				if plr and plr.Parent and PlayerDataManager.GetData(plr) and PlayerDataManager.GetFavorite(plr) then
+					FavoriteCreatureSystem.SpawnCompanion(plr)
+				end
+			end)
 		end
 		-- Remove only this creature's orb from its point (defense/income/battle) - no full respawn
 		if BasePlacementSystem and BasePlacementSystem.ClearOrbByUid then
 			BasePlacementSystem.ClearOrbByUid(plr, uid)
 		end
 	end
+	-- Notify client of current slot state so UI shows Inc/Def again (SetFavorite removes from slots via removeFromAllSlots)
+	if slotAssignComplete then
+		local data = PlayerDataManager.GetData(plr)
+		local incomeMax = PlayerDataManager.GetMaxSlots and PlayerDataManager.GetMaxSlots(plr, "income") or 6
+		local defenseMax = PlayerDataManager.GetMaxSlots and PlayerDataManager.GetMaxSlots(plr, "defense") or 6
+		local baseList, defList = {}, {}
+		if data and data.baseSlots then for i = 1, incomeMax do local v = data.baseSlots[i] or data.baseSlots[tostring(i)]; if v and v ~= "" then table.insert(baseList, tostring(v)) end end end
+		if data and data.defenseSlots then for i = 1, defenseMax do local v = data.defenseSlots[i] or data.defenseSlots[tostring(i)]; if v and v ~= "" then table.insert(defList, tostring(v)) end end end
+		slotAssignComplete:FireClient(plr, table.concat(baseList, ","), table.concat(defList, ","))
+	end
 	setupPlotForPlayer(plr)
+end)
+
+-- FIX #17: RECALL COMPANION (Y / ReCard button). Despawn companion model, keep favoriteUid.
+-- Client fires this when companion is summoned and user presses Y or clicks the ReCard card button.
+-- Unlike setFavorite(""), this does NOT clear favoriteUid — creature stays as favorite, just recalled.
+recallCompanion.OnServerEvent:Connect(function(plr)
+	local d = PlayerDataManager.GetData(plr)
+	if not d or not d.favoriteUid then return end  -- no favorite, nothing to recall
+	if not FavoriteCreatureSystem then return end
+	-- Get companion position for card-fly animation before destroying
+	local creatureId = nil
+	for _, e in ipairs(d.inventory) do
+		if tostring(e.uid) == tostring(d.favoriteUid) then creatureId = e.id; break end
+	end
+	local creaturePos = FavoriteCreatureSystem.GetCompanionPosition(plr)
+	-- Fire CompanionRecalled so client plays the card-fly-to-player animation
+	local recalledEvt = eventsFolder:FindFirstChild("CompanionRecalled")
+	if recalledEvt and creaturePos then
+		recalledEvt:FireClient(plr, creaturePos, creatureId)
+	end
+	-- Despawn the model but do NOT clear favoriteUid
+	FavoriteCreatureSystem.DespawnCompanion(plr)
+end)
+
+-- FIX #17: SUMMON COMPANION (Y / Summon button). Spawn companion model for existing favorite.
+-- Client fires this when creature is favorite but companion is not in the world (recalled/carded).
+summonCompanion.OnServerEvent:Connect(function(plr)
+	local d = PlayerDataManager.GetData(plr)
+	if not d or not d.favoriteUid then return end  -- no favorite, nothing to summon
+	if not FavoriteCreatureSystem then return end
+	-- Don't double-spawn if already out
+	if FavoriteCreatureSystem.HasCompanion(plr) then return end
+	-- Delay spawn so client summon card animation can play first
+	task.delay(1.05, function()
+		if plr and plr.Parent and PlayerDataManager.GetData(plr) and PlayerDataManager.GetFavorite(plr) then
+			FavoriteCreatureSystem.SpawnCompanion(plr)
+		end
+	end)
 end)
 
 -- ASSIGN TO BATTLE (requires Floor 2) - battle team only
@@ -1285,20 +1461,24 @@ sellCreature.OnServerInvoke = function(plr, uid)
 end
 
 -- ── BASE INTERACTION: Move / Swap creature slots ──
+local MOVE_SLOT_DEBUG = false
+local function moveSlotLog(plr, ...) if MOVE_SLOT_DEBUG then print("[MoveSlot]", plr and plr.Name or "?", ...) end end
 
 moveCreatureSlot.OnServerInvoke = function(plr, slotType, uid, targetPointIndex)
-	if not BasePlacementSystem then return false, "Base placement not loaded" end
-	if not slotType or (slotType ~= "income" and slotType ~= "defense") then return false, "Invalid slot type" end
-	if not uid or typeof(uid) ~= "string" then return false, "Invalid UID" end
-	if type(targetPointIndex) ~= "number" then return false, "Invalid target" end
+	moveSlotLog(plr, "invoke: slotType=" .. tostring(slotType), "uid=" .. tostring(uid), "targetPointIndex=" .. tostring(targetPointIndex))
+	if not BasePlacementSystem then moveSlotLog(plr, "fail: Base placement not loaded"); return false, "Base placement not loaded" end
+	if not slotType or (slotType ~= "income" and slotType ~= "defense") then moveSlotLog(plr, "fail: Invalid slot type"); return false, "Invalid slot type" end
+	if not uid or typeof(uid) ~= "string" then moveSlotLog(plr, "fail: Invalid UID type=" .. typeof(uid)); return false, "Invalid UID" end
+	if type(targetPointIndex) ~= "number" then moveSlotLog(plr, "fail: Invalid target type=" .. type(targetPointIndex)); return false, "Invalid target" end
 	-- Resolve the target point index to a slot array index
 	local targetSlotIndex = BasePlacementSystem.GetSlotIndexForPoint(plr, slotType, targetPointIndex)
-	if not targetSlotIndex then return false, "Invalid point" end
+	if not targetSlotIndex then moveSlotLog(plr, "fail: GetSlotIndexForPoint returned nil for pointIndex=" .. tostring(targetPointIndex)); return false, "Invalid point" end
 	-- Get the current slot index for visual clear
 	local fromSlotIndex = PlayerDataManager.GetSlotIndexForUid(plr, slotType, uid)
-	if not fromSlotIndex then return false, "Creature not in slot" end
+	if not fromSlotIndex then moveSlotLog(plr, "fail: Creature not in slot (GetSlotIndexForUid nil)"); return false, "Creature not in slot" end
 	-- Move in data
 	local ok, msg = PlayerDataManager.MoveSlotByUid(plr, slotType, uid, targetSlotIndex)
+	moveSlotLog(plr, "MoveSlotByUid: ok=" .. tostring(ok), msg and ("msg=" .. tostring(msg)) or "", "fromSlot=" .. tostring(fromSlotIndex), "targetSlot=" .. tostring(targetSlotIndex))
 	if ok then
 		-- Clear old visual and spawn at new position
 		BasePlacementSystem.ClearCreatureAtSlot(plr, slotType, fromSlotIndex)
@@ -1310,7 +1490,8 @@ moveCreatureSlot.OnServerInvoke = function(plr, slotType, uid, targetPointIndex)
 			local slots = (slotType == "income") and d.baseSlots or d.defenseSlots
 			if slots then slots[targetSlotIndex] = uid end
 		end
-		BasePlacementSystem.PlaceCreatureInSlot(plr, slotType, targetSlotIndex, uid)
+		local placeOk = BasePlacementSystem.PlaceCreatureInSlot(plr, slotType, targetSlotIndex, uid)
+		moveSlotLog(plr, "PlaceCreatureInSlot result:", placeOk and "ok" or "nil")
 	end
 	return ok, msg or "Moved"
 end
@@ -1418,12 +1599,17 @@ getRebirthInfo.OnServerInvoke = function(plr)
 	for _, uid in pairs(d.battleTeam or {}) do if uid and uid ~= "" then battleCount = battleCount + 1 end end
 	local totalCreatures = #d.inventory
 	local loseCount = totalCreatures - (keepFavorite and 1 or 0)
+	local teamProgress = nil
+	if nextReq and nextReq.team and type(nextReq.team) == "table" and #nextReq.team > 0 then
+		teamProgress = PlayerDataManager.GetRebirthTeamProgress(plr, nextReq.team)
+	end
 	return {
 		rebirthLevel = rebirthLevel,
 		nextRequirements = nextReq,
 		canRebirth = canRebirth,
 		errorMessage = errMsg,
 		creatureCountsByRarity = counts,
+		teamProgress = teamProgress,
 		keepFavorite = keepFavorite,
 		loseCreaturesCount = loseCount,
 		loseBaseCount = baseCount,

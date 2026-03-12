@@ -142,12 +142,12 @@ Instructions.HauntedHouseSpec = {
 		"PlotCenter: logical center of the building or front yard; used for steal-home radius.",
 	},
 
-	-- Don’ts
+	-- Don'ts
 	Restrictions = {
 		"Do not obscure or rename DefensePoint1..18, IncomePoint1..18, or BattlePoint1..9.",
 		"Do not remove or reparent Floor1, Floor2, Floor3, or Stairs inside Floor2/Floor3.",
 		"Do not place point parts inside moving or animated parts that change position.",
-		"Keep collision and anchoring so players and orbs don’t fall through floors.",
+		"Keep collision and anchoring so players and orbs don't fall through floors.",
 	},
 }
 

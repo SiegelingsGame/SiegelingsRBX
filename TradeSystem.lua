@@ -33,8 +33,10 @@ end
 local function invHasUid(plr, uid)
 	local d = PlayerDataManager.GetData(plr)
 	if not d or not d.inventory then return false end
+	local su = tostring(uid or "")
+	if su == "" then return false end
 	for _, e in ipairs(d.inventory) do
-		if e.uid == uid then return true end
+		if e.uid and tostring(e.uid) == su then return true end
 	end
 	return false
 end
@@ -60,8 +62,9 @@ local function getOfferDetails(plr, uidList)
 	if not d or not d.inventory then return {} end
 	local details = {}
 	for _, uid in ipairs(uidList) do
+		local su = tostring(uid or "")
 		for _, e in ipairs(d.inventory) do
-			if e.uid == uid then
+			if e.uid and tostring(e.uid) == su then
 				local info = CreatureData.GetById(e.id)
 				table.insert(details, {
 					uid = uid,
@@ -308,8 +311,9 @@ function TradeSystem.GetPublicProfile(requestingPlayer, targetUserId)
 	local favEntry = nil
 	local favCreatureId = nil
 	if favUid and d.inventory then
+		local favStr = tostring(favUid)
 		for _, e in ipairs(d.inventory) do
-			if e.uid == favUid then favEntry = e; favCreatureId = e.id break end
+			if e.uid and tostring(e.uid) == favStr then favEntry = e; favCreatureId = e.id break end
 		end
 	end
 	local info = favCreatureId and CreatureData.GetById(favCreatureId) or nil
@@ -332,15 +336,18 @@ function TradeSystem.GetPublicProfile(requestingPlayer, targetUserId)
 	local battleTeam = {}
 	if d.battleTeam and type(d.battleTeam) == "table" then
 		local uidToEntry = {}
-		for _, e in ipairs(d.inventory or {}) do uidToEntry[e.uid] = e end
+		for _, e in ipairs(d.inventory or {}) do
+			if e.uid then uidToEntry[tostring(e.uid)] = e end
+		end
 		for slotStr, uid in pairs(d.battleTeam) do
 			local slot = tonumber(slotStr)
-			if slot and uid and uidToEntry[uid] then
-				local c = CreatureData.GetById(uidToEntry[uid].id)
+			if slot and uid and uidToEntry[tostring(uid)] then
+				local entry = uidToEntry[tostring(uid)]
+				local c = CreatureData.GetById(entry.id)
 				table.insert(battleTeam, {
 					slotIndex = slot,
-					creatureId = uidToEntry[uid].id,
-					displayName = c and c.displayName or uidToEntry[uid].id,
+					creatureId = entry.id,
+					displayName = c and c.displayName or entry.id,
 				})
 			end
 		end

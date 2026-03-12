@@ -76,6 +76,10 @@ local redTeamCreatures = {}
 -- Growth tracking per player [UserId] = multiplier
 local growthMultipliers = {}
 
+-- Gym battle state (set by WaterGymSystem / StartGymBattle)
+local isGymBattle = false
+local savedArenaFolder, savedBlueTeamFolder, savedRedTeamFolder
+
 -- Events
 local arenaEvents = {}
 
@@ -95,6 +99,21 @@ local function getPointsSorted(folder)
 	return pts
 end
 
+local function logBattlePointRotations(folder, teamLabel)
+	local pts = getPointsSorted(folder)
+	for _, entry in ipairs(pts) do
+		local o = entry.part.Orientation
+		print(string.format(
+			"[Arena] %s BattlePoint%d rotation (X,Y,Z) = (%.2f, %.2f, %.2f)",
+			teamLabel,
+			entry.index,
+			o.X,
+			o.Y,
+			o.Z
+		))
+	end
+end
+
 local function getPlayerIncome(player)
 	local data = PlayerDataManager.GetData(player)
 	if not data then return 0 end
@@ -102,7 +121,7 @@ local function getPlayerIncome(player)
 	for _, uid in ipairs(data.baseSlots or {}) do
 		if not uid or uid == "" then continue end
 		for _, entry in ipairs(data.inventory) do
-			if entry.uid == uid then
+			if entry.uid and tostring(entry.uid) == tostring(uid) then
 				local info = CreatureData.GetById(entry.id)
 				if info then total = total + info.baseIncome end
 				break
@@ -122,8 +141,9 @@ local function getPlayerBattleTeam(player)
 		for slotIndex, uid in pairs(data.battleTeam) do
 			local sNum = tonumber(slotIndex)
 			if sNum and uid then
+				local su = tostring(uid)
 				for _, entry in ipairs(data.inventory) do
-					if entry.uid == uid then
+					if entry.uid and tostring(entry.uid) == su then
 						table.insert(team, { id = entry.id, uid = entry.uid, slotIndex = sNum, level = entry.level or 1, xp = entry.xp or 0, variant = entry.variant or "Normal" })
 						break
 					end
@@ -244,12 +264,12 @@ local function spawnBattleCreature(creatureId, battlePoint, team, sizeMultiplier
 		hl.Parent = model
 	end
 
-	-- Name + HP billboard
+	-- Name + HP billboard (offset to top of bounding box so name isn't blocked)
 	local bb = Instance.new("BillboardGui")
 	bb.Name = "InfoTag"
 	bb.Adornee = body
 	bb.Size = UDim2.new(0, 160, 0, 65)
-	bb.StudsOffset = Vector3.new(0, baseSize / 2 + 2, 0)
+	bb.StudsOffset = Vector3.new(0, CreatureModelLoader.GetBillboardStudsOffsetForTopOfModel(model, body), 0)
 	bb.AlwaysOnTop = true
 	bb.Parent = model
 
@@ -325,19 +345,14 @@ local function spawnBattleCreature(creatureId, battlePoint, team, sizeMultiplier
 	-- Use same rotation as base BattlePoints (no flying/crawling special handling)
 	local rotOffset = CreatureData.GetModelRotationOffset(info) or CFrame.identity
 
-	-- Billboard stud offset: use model height for custom models so name tag sits above
+	-- Billboard stud offset: ensure name tag stays at top of bounding box (helper already used at creation)
 	local bb = model:FindFirstChild("InfoTag")
 	if bb then
-		local bbStudOffset = baseSize / 2 + 2
-		if isCustomModel then
-			local _, bboxSize = model:GetBoundingBox()
-			bbStudOffset = bboxSize.Y * 0.5 + 2
-		end
-		bb.StudsOffset = Vector3.new(0, bbStudOffset, 0)
+		bb.StudsOffset = Vector3.new(0, CreatureModelLoader.GetBillboardStudsOffsetForTopOfModel(model, body), 0)
 	end
 
-	-- Face toward enemy side (blue toward red, red toward blue)
-	-- 90° Y rotation only for full models (TemplateType="Model"); mesh types need no yaw correction
+	-- Face toward enemy side on a flat XZ plane so models stay upright.
+	-- Mesh templates keep their native forward orientation.
 	local pivotPos = model:GetPivot().Position
 	local faceCf
 	if faceTowardPos then
@@ -345,7 +360,7 @@ local function spawnBattleCreature(creatureId, battlePoint, team, sizeMultiplier
 		if templateType == "Mesh" then
 			faceCf = CFrame.new(pivotPos)  -- Mesh: no 90° Y rotation
 		else
-			faceCf = CFrame.lookAt(pivotPos, Vector3.new(faceTowardPos.X, pivotPos.Y+90, faceTowardPos.Z))
+			faceCf = CFrame.lookAt(pivotPos, Vector3.new(faceTowardPos.X, pivotPos.Y, faceTowardPos.Z))
 		end
 	else
 		local templateType = model:GetAttribute("TemplateType")
@@ -521,7 +536,10 @@ local ELEMENT_COLORS = {
 	Earth = Color3.fromRGB(180, 140, 80),
 	Wind = Color3.fromRGB(150, 255, 180),
 	Shadow = Color3.fromRGB(120, 50, 180),
+	Light = Color3.fromRGB(255, 250, 200),
 	Lightning = Color3.fromRGB(255, 230, 60),
+	Water = Color3.fromRGB(50, 150, 255),
+	Psychic = Color3.fromRGB(200, 150, 255),
 }
 
 local function specialAttackVisual(attackerData, defenderData, element, damage)
@@ -654,8 +672,8 @@ local function specialAttackVisual(attackerData, defenderData, element, damage)
 		end)
 	end
 
-	-- Shadow / Lightning: Generic enhanced projectile
-	if element == "Shadow" or element == "Lightning" or not ELEMENT_COLORS[element] then
+	-- Shadow / Lightning / Water / Light / Psychic: Generic enhanced projectile
+	if element == "Shadow" or element == "Lightning" or element == "Water" or element == "Light" or element == "Psychic" or not ELEMENT_COLORS[element] then
 		task.spawn(function()
 			local bolt = makeOrb(fromPos, 3.5, elemColor)
 			local light = Instance.new("PointLight")
@@ -855,6 +873,43 @@ local function generateAITeam(size)
 	for i = 1, size do
 		local id = CreatureData.GetRandomCreatureId()
 		table.insert(team, { id = id, uid = "ai_" .. i })
+	end
+	return team
+end
+
+-- Gym leader squad: 5 high-level Water, Ice, Fire creatures (high tier = Rare+). Used by WaterGym.
+local function generateGymTeam(level)
+	level = level or (GameConfig.WaterGymCreatureLevel or 45)
+	local elements = { "Water", "Ice", "Fire" }
+	local team = {}
+	local used = {}
+	for i = 1, 5 do
+		local element = elements[(i - 1) % 3 + 1]
+		local list = CreatureData.GetCreaturesByElement(element)
+		if not list or #list == 0 then
+			list = CreatureData.Creatures
+		end
+		-- Prefer Rare, Epic, Legendary
+		local candidates = {}
+		for _, c in ipairs(list) do
+			local r = CreatureData.RarityOrder[c.rarity]
+			if r and r >= 3 then table.insert(candidates, c) end
+		end
+		if #candidates == 0 then
+			for _, c in ipairs(list) do table.insert(candidates, c) end
+		end
+		local pick = candidates[math.random(1, #candidates)]
+		local id = pick and pick.id or (CreatureData.Creatures[1] and CreatureData.Creatures[1].id)
+		if id then
+			table.insert(team, {
+				id = id,
+				uid = "gym_" .. i,
+				level = level,
+				xp = 0,
+				variant = "Normal",
+				slotIndex = i,
+			})
+		end
 	end
 	return team
 end
@@ -1107,7 +1162,7 @@ local function runBattle()
 				dmg = dmg * (1 - (GameConfig.EarthDmgReduction or 0.25))
 				target.dmgReductionRounds = target.dmgReductionRounds - 1
 			end
-			-- Elemental weakness: Fire→Ice→Earth→Wind→Fire
+			-- Elemental weakness: Fire→Ice→Earth→Wind→Fire; Water/Electric/Light/Shadow per chart
 			local elemMult = CreatureData.GetElementalDamageMultiplier(attacker.element or "Fire", target.element or "Fire")
 			if elemMult > 1 then
 				dmg = dmg * (GameConfig.ElementalAdvantageMultiplier or elemMult)
@@ -1137,6 +1192,12 @@ local function runBattle()
 				elseif elem == "Wind" then
 					target.focus = math.max(0, (target.focus or 0) - (GameConfig.WindFocusDrain or 50))
 					updateFocusBar(target)
+				elseif elem == "Water" then
+					-- Water special: attacker gains HP
+					local healPct = GameConfig.WaterHealPercent or 0.20
+					local healAmt = math.floor((attacker.maxHp or attacker.hp) * healPct)
+					attacker.hp = math.min(attacker.maxHp or attacker.hp, (attacker.hp or 0) + healAmt)
+					updateHPBar(attacker)
 				end
 
 				specialAttackVisual(attacker, target, elem, dmg)
@@ -1223,8 +1284,8 @@ local function runBattle()
 	local winnerBounty = calculateTeamBounty(winnerCreatures)
 	local loserBounty = calculateTeamBounty(loserCreatures)
 
-	-- Apply growth to winner's team creatures
-	if winnerPlayer then
+	-- Apply growth to winner's team creatures (skip for gym battles)
+	if not isGymBattle and winnerPlayer then
 		local userId = winnerPlayer.UserId
 		growthMultipliers[userId] = math.min(MAX_GROWTH, (growthMultipliers[userId] or 1) + GROWTH_PER_WIN)
 		kingWinStreak = kingWinStreak + 1
@@ -1243,17 +1304,36 @@ local function runBattle()
 		end
 	end
 
-	-- Reset loser's growth
-	if loserPlayer then
+	-- Reset loser's growth (skip for gym)
+	if not isGymBattle and loserPlayer then
 		growthMultipliers[loserPlayer.UserId] = 1
 	end
 
-	-- Pay rewards
-	local winnerReward = payoutRewards(winnerPlayer, true, winnerBounty, loserBounty, kingWinStreak)
-	local loserReward = payoutRewards(loserPlayer, false, loserBounty, winnerBounty, 0)
+	-- Pay rewards (gym uses fixed reward below)
+	local winnerReward, loserReward
+	if isGymBattle then
+		winnerReward = nil
+		loserReward = nil
+		if winnerTeam == "blue" and currentKing and currentKing.Parent then
+			local gymReward = GameConfig.WaterGymWinReward or 250
+			PlayerDataManager.AddCoins(currentKing, gymReward)
+			winnerReward = { coins = gymReward }
+			if PlayerDataManager.AddPlayerXP then
+				local pLvl, pDidLvl = PlayerDataManager.AddPlayerXP(currentKing, GameConfig.WaterGymWinXP or 75)
+				if pDidLvl then
+					local events = game.ReplicatedStorage:FindFirstChild("Events")
+					local lvlEvt = events and events:FindFirstChild("PlayerLevelUp")
+					if lvlEvt then lvlEvt:FireClient(currentKing, pLvl) end
+				end
+			end
+		end
+	else
+		winnerReward = payoutRewards(winnerPlayer, true, winnerBounty, loserBounty, kingWinStreak)
+		loserReward = payoutRewards(loserPlayer, false, loserBounty, winnerBounty, 0)
+	end
 
-	-- Award win XP: entire team splits a pool based on win streak; smaller teams get more XP per creature
-	if winnerPlayer and winnerPlayer.Parent then
+	-- Award win XP: entire team splits a pool (skip for gym; gym gives player XP above)
+	if not isGymBattle and winnerPlayer and winnerPlayer.Parent then
 		local playerCreatures = {}
 		for _, c in ipairs(winnerCreatures) do
 			if c.uid and not c.uid:match("^ai_") then
@@ -1277,16 +1357,23 @@ local function runBattle()
 	if arenaEvents.ArenaReward then
 		local winName = winnerPlayer and winnerPlayer.Name or "AI"
 		local loseName = loserPlayer and loserPlayer.Name or "AI"
+		local payload = isGymBattle and {
+			gym = true,
+			winner = winName,
+			loser = loseName,
+			winnerReward = winnerReward,
+			loserReward = loserReward,
+		} or {
+			winner = winName,
+			loser = loseName,
+			winnerReward = winnerReward,
+			loserReward = loserReward,
+			streak = kingWinStreak,
+			winnerBounty = winnerBounty,
+			loserBounty = loserBounty,
+		}
 		for _, p in ipairs(Players:GetPlayers()) do
-			arenaEvents.ArenaReward:FireClient(p, {
-				winner = winName,
-				loser = loseName,
-				winnerReward = winnerReward,
-				loserReward = loserReward,
-				streak = kingWinStreak,
-				winnerBounty = winnerBounty,
-				loserBounty = loserBounty,
-			})
+			arenaEvents.ArenaReward:FireClient(p, payload)
 		end
 	end
 
@@ -1314,18 +1401,20 @@ local function runBattle()
 	-- Final safety: nuke everything left in arena
 	clearArena()
 
-	-- Update king
-	if winnerTeam == "red" then
-		-- Challenger becomes new king
-		currentKing = currentChallenger
-		kingWinStreak = 1  -- new king starts fresh at streak 1
-	end
-	currentChallenger = nil
+	-- Update king (skip for gym battles)
+	if not isGymBattle then
+		if winnerTeam == "red" then
+			-- Challenger becomes new king
+			currentKing = currentChallenger
+			kingWinStreak = 1  -- new king starts fresh at streak 1
+		end
+		currentChallenger = nil
 
-	-- Validate king is still in game
-	if currentKing and not currentKing.Parent then
-		currentKing = nil
-		kingWinStreak = 0
+		-- Validate king is still in game
+		if currentKing and not currentKing.Parent then
+			currentKing = nil
+			kingWinStreak = 0
+		end
 	end
 
 	-- Respawn loser's battle team back to their base BattlePoints
@@ -1533,6 +1622,109 @@ function ArenaSystem.GetKingStreak()
 	return kingWinStreak
 end
 
+-- Start a single gym battle in the given arena folder (e.g. OceanBiome/WaterGym).
+-- Player must have an eligible battle team. Entry fee is deducted by caller (WaterGymSystem).
+-- Returns: success (boolean), errorMessage (string if not success)
+function ArenaSystem.StartGymBattle(player, gymFolder)
+	if not player or not player.Parent then return false, "Invalid player" end
+	-- FIX: Accept both Folder and Model containers (gym area may be either in Studio)
+	if not gymFolder or not (gymFolder:IsA("Folder") or gymFolder:IsA("Model")) then return false, "Invalid gym folder" end
+	if battleInProgress then return false, "A battle is already in progress" end
+	if not hasEligibleBattleTeam(player) then
+		return false, "You need a battle team to challenge the Gym. Set one in your inventory!"
+	end
+	local gymBlue = gymFolder:FindFirstChild("BlueTeam")
+	local gymRed = gymFolder:FindFirstChild("RedTeam")
+	if not gymBlue or not gymRed then return false, "Gym arena missing BlueTeam or RedTeam" end
+
+	-- Save current arena context
+	savedArenaFolder = arenaFolder
+	savedBlueTeamFolder = blueTeamFolder
+	savedRedTeamFolder = redTeamFolder
+	arenaFolder = gymFolder
+	blueTeamFolder = gymBlue
+	redTeamFolder = gymRed
+	currentKing = player
+	currentChallenger = nil
+	isGymBattle = true
+	battleInProgress = true
+	workspace:SetAttribute("ArenaBattleInProgress", true)
+
+	-- Clear gym arena and player base battle orbs
+	clearArena()
+	if BasePlacementSystem then
+		pcall(function() BasePlacementSystem.ClearBattleCreatures(player) end)
+	end
+
+	local playerTeam = getPlayerBattleTeam(player)
+	local gymLevel = GameConfig.WaterGymCreatureLevel or 45
+	local gymTeam = generateGymTeam(gymLevel)
+
+	-- Announce
+	if arenaEvents.ArenaAnnounce then
+		arenaEvents.ArenaAnnounce:FireClient(player, "WATER GYM! Battle the Gym Leader's squad!")
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= player then
+				arenaEvents.ArenaAnnounce:FireClient(p, player.Name .. " is challenging the Water Gym!")
+			end
+		end
+	end
+	task.wait(2)
+	clearArena()
+	if BasePlacementSystem then pcall(function() BasePlacementSystem.ClearBattleCreatures(player) end) end
+
+	-- Place teams (player = blue, gym = red)
+	local redCenter = getTeamCenter(redTeamFolder)
+	local blueCenter = getTeamCenter(blueTeamFolder)
+	blueTeamCreatures = placeTeam(playerTeam, blueTeamFolder, "blue", 1, redCenter)
+	redTeamCreatures = placeTeam(gymTeam, redTeamFolder, "red", 1, blueCenter)
+
+	if arenaEvents.BattleTeamsPlaced then
+		local blueData, redData = {}, {}
+		for _, c in ipairs(blueTeamCreatures) do
+			local info = CreatureData.GetById(c.creatureId)
+			table.insert(blueData, {
+				creatureId = c.creatureId,
+				displayName = info and info.displayName or "?",
+				rarity = info and info.rarity or "Common",
+				hp = c.hp, maxHp = c.maxHp, pointIndex = c.pointIndex,
+				primaryColor = info and {info.primaryColor.R*255, info.primaryColor.G*255, info.primaryColor.B*255} or {180,180,180},
+			})
+		end
+		for _, c in ipairs(redTeamCreatures) do
+			local info = CreatureData.GetById(c.creatureId)
+			table.insert(redData, {
+				creatureId = c.creatureId,
+				displayName = info and info.displayName or "?",
+				rarity = info and info.rarity or "Common",
+				hp = c.hp, maxHp = c.maxHp, pointIndex = c.pointIndex,
+				primaryColor = info and {info.primaryColor.R*255, info.primaryColor.G*255, info.primaryColor.B*255} or {180,180,180},
+			})
+		end
+		for _, p in ipairs(Players:GetPlayers()) do
+			arenaEvents.BattleTeamsPlaced:FireClient(p, blueData, redData, player.Name, "Gym Leader")
+		end
+	end
+	task.wait(2)
+
+	local ok, err = pcall(runBattle)
+	if not ok then
+		warn("[Arena] Gym runBattle error: " .. tostring(err))
+		battleInProgress = false
+		workspace:SetAttribute("ArenaBattleInProgress", false)
+		clearArena()
+	end
+
+	-- Restore main arena folders
+	arenaFolder = savedArenaFolder
+	blueTeamFolder = savedBlueTeamFolder
+	redTeamFolder = savedRedTeamFolder
+	isGymBattle = false
+	-- currentKing/currentChallenger left as-is; main arena loop will overwrite when next round runs
+
+	return true
+end
+
 -- --------------------------------------
 -- INIT
 -- --------------------------------------
@@ -1552,6 +1744,10 @@ function ArenaSystem.Init(playerDataMgr, basePlacementSys)
 	if not blueTeamFolder or not redTeamFolder then
 		warn("[Arena] BlueTeam or RedTeam folder missing in Arena!")
 		return
+	end
+	if DEV_MODE then
+		logBattlePointRotations(blueTeamFolder, "BlueTeam")
+		logBattlePointRotations(redTeamFolder, "RedTeam")
 	end
 
 	-- Create arena events
@@ -1623,8 +1819,9 @@ function ArenaSystem.Init(playerDataMgr, basePlacementSys)
 		while true do
 			print("[Arena] Next round in " .. ROUND_INTERVAL .. "s...")
 
-			-- Countdown announcements
+			-- Countdown announcements + ArenaCountdown attribute for client timer UI
 			for countdown = ROUND_INTERVAL, 1, -1 do
+				workspace:SetAttribute("ArenaCountdown", countdown)
 				task.wait(1)
 				if countdown == 30 or countdown == 15 or countdown == 10 or countdown <= 5 then
 					if arenaEvents.ArenaAnnounce then
@@ -1633,6 +1830,13 @@ function ArenaSystem.Init(playerDataMgr, basePlacementSys)
 						end
 					end
 				end
+			end
+			workspace:SetAttribute("ArenaCountdown", 0)
+
+			-- FIX: Skip arena round if a gym battle is currently running (mutual exclusion)
+			if workspace:GetAttribute("GymBattleInProgress") then
+				print("[Arena] Gym battle in progress — skipping this arena round")
+				continue
 			end
 
 			-- Run the round in a protected call so errors never stall the loop

@@ -52,6 +52,11 @@ local function isOnCooldown(player)
 end
 
 function CaptureSystem.TryCapture(player, creatureModel)
+	-- #region agent log
+	local existing = capturesInProgress[creatureModel]
+	local samePlayer = existing and existing == player
+	print(string.format("[DEBUG-CAPTURE] TryCapture player=%s model=%s capturesInProgress=%s samePlayer=%s", player.Name, tostring(creatureModel), tostring(existing and existing.Name or "nil"), tostring(samePlayer)))
+	-- #endregion
 	if not creatureModel or not creatureModel.Parent then
 		return false, "Creature no longer exists"
 	end
@@ -59,6 +64,9 @@ function CaptureSystem.TryCapture(player, creatureModel)
 		return false, "Invalid target"
 	end
 	if capturesInProgress[creatureModel] then
+		-- #region agent log
+		print(string.format("[DEBUG-CAPTURE] TryCapture REJECT alreadyCapturing by=%s requester=%s", tostring(existing and existing.Name), player.Name))
+		-- #endregion
 		return false, "Someone else is capturing this"
 	end
 	if isOnCooldown(player) then
@@ -85,6 +93,10 @@ function CaptureSystem.TryCapture(player, creatureModel)
 	if not creatureInfo then return false, "Invalid creature data" end
 
 	local cost = CreatureData.GetCaptureCost(creatureId)
+	-- Lucky buff: 25% capture cost reduction
+	if PlayerDataManager.HasBuff and PlayerDataManager.HasBuff(player, "lucky") then
+		cost = math.floor(cost * 0.75)
+	end
 	if data.coins < cost then
 		return false, "Need " .. cost .. " gold (you have " .. data.coins .. ")"
 	end
@@ -109,7 +121,7 @@ function CaptureSystem.TryCapture(player, creatureModel)
 			return false, "Creature vanished"
 		end
 
-		-- Grace period: if out of range, notify and count down from 3; if they re-enter, continue
+		-- Grace period: if out of range, notify and count down from 3; if they re-enter, continue.
 		local gracePeriod = GameConfig.CaptureGracePeriod or 3
 		while not isInRange(player, creatureModel) do
 			local warnEvent = events and events:FindFirstChild("CaptureOutOfRange")
@@ -212,8 +224,14 @@ function CaptureSystem.Init(playerDataMgr, creatureSpawnerRef, creatureAIRef, ba
 		captureRequest.OnServerEvent:Connect(function(player, creatureModel)
 			local success, msg = CaptureSystem.TryCapture(player, creatureModel)
 			if not success then
-				local failEvent = events:FindFirstChild("CaptureFail")
-				if failEvent then failEvent:FireClient(player, msg) end
+				local existing = capturesInProgress[creatureModel]
+				local isSamePlayerDuplicate = existing == player
+				-- Don't fire CaptureFail when same player double-clicks: their first request is still in progress.
+				-- Firing CaptureFail would destroy the card animation and show a misleading toast.
+				if not isSamePlayerDuplicate then
+					local failEvent = events:FindFirstChild("CaptureFail")
+					if failEvent then failEvent:FireClient(player, msg) end
+				end
 			end
 		end)
 	end

@@ -45,7 +45,7 @@ function BaseIncomeSystem.CalculateIncome(player: Player): number
 		if not uid or uid == "" then continue end
 		-- Find the creature entry by UID
 		for _, entry in ipairs(data.inventory) do
-			if entry.uid == uid then
+			if entry.uid and tostring(entry.uid) == tostring(uid) then
 				local creatureInfo = CreatureData.GetById(entry.id)
 				if creatureInfo then
 					if isNight and not isNightActiveElement(creatureInfo.element) then
@@ -63,6 +63,11 @@ function BaseIncomeSystem.CalculateIncome(player: Player): number
 	local bonuses = PlayerDataManager.GetRebirthBonuses and PlayerDataManager.GetRebirthBonuses(player)
 	if bonuses and (bonuses.passiveGold or 0) > 0 then
 		totalIncome = totalIncome + bonuses.passiveGold
+	end
+
+	-- Coin boost buff: 2x income
+	if PlayerDataManager.HasBuff and PlayerDataManager.HasBuff(player, "coinboost") then
+		totalIncome = totalIncome * 2
 	end
 
 	return totalIncome
@@ -109,12 +114,12 @@ local function doIncomeTick()
 		local isNight = DayNightCycle and DayNightCycle.IsNight and DayNightCycle.IsNight()
 		if data and data.defenseSlots and PlayerDataManager.GetFilledSlotCount(player, "defense") > 0 then
 			local baseXP = GameConfig.DefensePassiveXP or 3
-			for _, uid in ipairs(data.defenseSlots) do
+			for _, uid in ipairs(data.defenseSlots or {}) do
 				if not uid or uid == "" then continue end
 				local xpToAdd = baseXP
 				if isNight then
 					for _, entry in ipairs(data.inventory or {}) do
-						if entry.uid == uid then
+						if entry.uid and tostring(entry.uid) == tostring(uid) then
 							local info = CreatureData.GetById(entry.id)
 							if not info or not isNightActiveElement(info.element) then
 								xpToAdd = 0  -- Creature sleeps; no XP
@@ -171,7 +176,6 @@ function BaseIncomeSystem.Init(playerDataMgr)
 		end
 	end)
 
-end � income every " .. GameConfig.IncomeTickSeconds .. "s")
 end
 
 -- Add signal for income notifications

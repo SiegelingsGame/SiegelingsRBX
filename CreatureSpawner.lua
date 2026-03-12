@@ -33,6 +33,8 @@ local DayNightCycle = nil
 pcall(function() DayNightCycle = require(ServerScriptService.DayNightCycle) end)
 
 local CreatureAI -- Set in Init
+local ArenaShieldSystem = nil
+pcall(function() ArenaShieldSystem = require(ServerScriptService:FindFirstChild("ArenaShieldSystem")) end)
 
 local CreatureSpawner = {}
 
@@ -51,15 +53,22 @@ local bossSpawnTimers = {}
 
 -- Raycast down from the spawn point to find floor Y at (x, z) (uses surface the spawn point is on)
 -- Returns: ground Y (number) - raw hit position, no offset (use for ground/flying placement)
+-- FIX #16: Extended range to 200 studs + retry from high altitude on miss (consistent with CreatureAI)
 local function raycastGroundY(x, z, fallbackY)
 	local rayOrigin = Vector3.new(x, fallbackY + 2, z)
-	local rayDirection = Vector3.new(0, -100, 0)
+	local rayDirection = Vector3.new(0, -200, 0)
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
 	rayParams.FilterDescendantsInstances = {}
 	local result = workspace:Raycast(rayOrigin, rayDirection, rayParams)
 	if result then
 		return result.Position.Y
+	end
+	-- Retry from high altitude in case spawn point is inside geometry
+	local retryOrigin = Vector3.new(x, 500, z)
+	local retryResult = workspace:Raycast(retryOrigin, Vector3.new(0, -1000, 0), rayParams)
+	if retryResult then
+		return retryResult.Position.Y
 	end
 	return fallbackY
 end
@@ -82,31 +91,70 @@ local function getBodyHeightAboveBboxBottom(creatureModel, bodyPart)
 	return (bodyY - minY) + FLOOR_OFFSET
 end
 
+-- Push position outside arena shield if inside. Uses ArenaShieldSystem when available,
+-- else fallback to ArenaCenter + ArenaExclusionRadius. Re-raycasts for ground Y after push.
+local function applyArenaExclusion(position)
+	if ArenaShieldSystem and ArenaShieldSystem.PushOutsideArenaShield then
+		local pushed = ArenaShieldSystem.PushOutsideArenaShield(position, 5)
+		if pushed ~= position then
+			local y = raycastGroundY(pushed.X, pushed.Z, pushed.Y)
+			return Vector3.new(pushed.X, y, pushed.Z)
+		end
+		return position
+	end
+	-- Fallback: ArenaCenter + radius
+	local arenaFolder = workspace:FindFirstChild("Arena")
+	if arenaFolder then
+		local ac = arenaFolder:FindFirstChild("ArenaCenter")
+		if ac and ac:IsA("BasePart") then
+			local exclusion = GameConfig.ArenaExclusionRadius or 80
+			local flatDist = (Vector3.new(position.X, 0, position.Z) - Vector3.new(ac.Position.X, 0, ac.Position.Z)).Magnitude
+			if flatDist < exclusion then
+				local dir = Vector3.new(position.X - ac.Position.X, 0, position.Z - ac.Position.Z)
+				if dir.Magnitude < 0.1 then dir = Vector3.new(1, 0, 0) else dir = dir.Unit end
+				local x = ac.Position.X + dir.X * (exclusion + 10)
+				local z = ac.Position.Z + dir.Z * (exclusion + 10)
+				local y = raycastGroundY(x, z, position.Y)
+				return Vector3.new(x, y, z)
+			end
+		end
+	end
+	return position
+end
+
 -- Get a position spread around a center point within a given radius
 -- Used by all spawn point types for adding randomness to exact positions.
--- Returns: Vector3 position on the ground
+-- Returns: Vector3 position on the ground (always outside arena shield)
 local function getSpreadPosition(center, spreadRadius)
 	local angle = math.random() * math.pi * 2
 	local dist = math.random() * spreadRadius
 	local x = center.X + math.cos(angle) * dist
 	local z = center.Z + math.sin(angle) * dist
 	local y = raycastGroundY(x, z, center.Y)
-	return Vector3.new(x, y, z)
+	return applyArenaExclusion(Vector3.new(x, y, z))
 end
 
 -- Zone-aware spawn: pick a SpawnPoint from the creature's matching biome
--- Returns: Vector3 position or nil (caller should fallback to random)
+-- Tries primary and alias folder names (e.g. AquaticBiome, WaterBiome, OceanBiome for Water)
+-- Returns: Vector3 position or nil (caller should fallback to random).
 local function getZoneSpawnPosition(creatureId)
 	local info = CreatureData.GetById(creatureId)
 	if not info then return nil end
 
-	local biomeFolderName = CreatureData.GetBiomeFolderForElement(info.element)
-	if not biomeFolderName then return nil end
+	local folderNames = CreatureData.GetBiomeFolderNamesForElement and CreatureData.GetBiomeFolderNamesForElement(info.element)
+		or { CreatureData.GetBiomeFolderForElement(info.element) }
+	if not folderNames or #folderNames == 0 then return nil end
 
 	local biomesFolder = workspace:FindFirstChild("Biomes")
 	if not biomesFolder then return nil end
 
-	local biomeFolder = biomesFolder:FindFirstChild(biomeFolderName)
+	local biomeFolder = nil
+	for _, name in ipairs(folderNames) do
+		if name then
+			local f = biomesFolder:FindFirstChild(name)
+			if f then biomeFolder = f; break end
+		end
+	end
 	if not biomeFolder then return nil end
 
 	-- Collect all SpawnPoint parts in this biome folder
@@ -119,13 +167,13 @@ local function getZoneSpawnPosition(creatureId)
 
 	if #spawnPoints == 0 then return nil end
 
-	-- Pick a random SpawnPoint and spread around it
+	-- Pick a random SpawnPoint and spread around it (getSpreadPosition applies arena exclusion)
 	local chosen = spawnPoints[math.random(1, #spawnPoints)]
 	local spread = GameConfig.SpawnPointSpread or 25
 	return getSpreadPosition(chosen.Position, spread)
 end
 
--- Fallback: random position within SpawnRadius (avoids arena)
+-- Fallback: random position within SpawnRadius (avoids arena shield)
 -- Used when no biome SpawnPoint is found for a creature
 local function getRandomSpawnPosition()
 	local angle = math.random() * math.pi * 2
@@ -133,33 +181,8 @@ local function getRandomSpawnPosition()
 	local x = math.cos(angle) * distance
 	local z = math.sin(angle) * distance
 	local y = GameConfig.SpawnHeightOffset
-
-	-- Arena exclusion: if position is near the arena, push it outward
-	local arenaFolder = workspace:FindFirstChild("Arena")
-	if arenaFolder then
-		local arenaCenter
-		local ac = arenaFolder:FindFirstChild("ArenaCenter")
-		if ac and ac:IsA("BasePart") then
-			arenaCenter = ac.Position
-		end
-		if arenaCenter then
-			local exclusion = GameConfig.ArenaExclusionRadius or 80
-			local flatDist = (Vector3.new(x, 0, z) - Vector3.new(arenaCenter.X, 0, arenaCenter.Z)).Magnitude
-			if flatDist < exclusion then
-				local dir = Vector3.new(x - arenaCenter.X, 0, z - arenaCenter.Z)
-				if dir.Magnitude > 0.1 then
-					dir = dir.Unit
-				else
-					dir = Vector3.new(1, 0, 0)
-				end
-				x = arenaCenter.X + dir.X * (exclusion + 10)
-				z = arenaCenter.Z + dir.Z * (exclusion + 10)
-			end
-		end
-	end
-
 	y = raycastGroundY(x, z, 0)
-	return Vector3.new(x, y, z)
+	return applyArenaExclusion(Vector3.new(x, y, z))
 end
 
 -- Get a spread position near a pack center (for pack members after the first)
@@ -235,11 +258,11 @@ local function createCreatureModel(creatureId, position)
 		highlight.Parent = model
 	end
 
-	-- Billboard: compact layout - name, element/class, rarity, HP bar
+	-- Billboard: compact layout - name, element/class, rarity, HP bar (offset to top of bounding box so name isn't blocked)
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "NameTag"
 	billboard.Size = UDim2.new(0, 160, 0, 52)
-	billboard.StudsOffset = Vector3.new(0, 4, 0)
+	billboard.StudsOffset = Vector3.new(0, CreatureModelLoader.GetBillboardStudsOffsetForTopOfModel(model, body), 0)
 	billboard.AlwaysOnTop = false
 	billboard.MaxDistance = 60
 	billboard.Adornee = body
@@ -721,20 +744,20 @@ function CreatureSpawner.StartSpawning()
 		end
 	end)
 
-	-- Dungeon spawn loop: only when SpawnPoints are already full (creature count above target)
+	-- Dungeon spawn loop: keep each DungeonPoint stocked with at least 1 rare+ creature
 	task.spawn(function()
-		task.wait(20)
+		task.wait(15)
 		while true do
 			local count = #CollectionService:GetTagged(CREATURE_TAG)
 			local maxC = getEffectiveMaxCreatures()
-			local fillTarget = GameConfig.SpawnPointFillTarget or 0.8
+			local fillTarget = GameConfig.SpawnPointFillTarget or 0.5
 			if count >= maxC * fillTarget then
 				local ok, err = pcall(CreatureSpawner.SpawnDungeonCreatures)
 				if not ok then
 					warn("[CreatureSpawner] SpawnDungeonCreatures ERROR:", tostring(err))
 				end
 			end
-			task.wait(45 + math.random() * 30)
+			task.wait(25 + math.random() * 20)  -- check every 25–45s (was 45–75s)
 		end
 	end)
 

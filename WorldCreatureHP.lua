@@ -3,7 +3,7 @@
 -- Both PlayerCombatSystem and FavoriteCreatureSystem call DamageCreature here.
 
 local CollectionService = game:GetService("CollectionService")
-local TweenService = game:GetService("TweenService")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
@@ -57,40 +57,29 @@ local function updateHPBar(model, hpData)
 	end
 end
 
--- Show floating damage number above creature
-local function showDamageNumber(model, damage)
+-- Only show damage number to the player who is attacking (not all players in open world)
+local function fireDamageNumberToAttacker(model, damage, attackerModel)
 	local body = model.PrimaryPart or model:FindFirstChild("Body")
 	if not body then return end
 
-	local bb = Instance.new("BillboardGui")
-	bb.Size = UDim2.new(0, 80, 0, 30)
-	bb.StudsOffset = Vector3.new(math.random(-2, 2), 5 + math.random()*2, 0)
-	bb.Adornee = body
-	bb.AlwaysOnTop = true
-	bb.Parent = model
-
-	local lbl = Instance.new("TextLabel")
-	lbl.Size = UDim2.new(1, 0, 1, 0)
-	lbl.BackgroundTransparency = 1
-	lbl.Text = "-" .. math.floor(damage)
-	lbl.TextColor3 = Color3.fromRGB(255, 80, 60)
-	lbl.Font = Enum.Font.GothamBlack
-	lbl.TextSize = 18
-	lbl.TextStrokeColor3 = Color3.new(0, 0, 0)
-	lbl.TextStrokeTransparency = 0.3
-	lbl.Parent = bb
-
-	-- Float up and fade
-	task.spawn(function()
-		local startOffset = bb.StudsOffset
-		for i = 1, 15 do
-			task.wait(0.06)
-			bb.StudsOffset = startOffset + Vector3.new(0, i * 0.2, 0)
-			lbl.TextTransparency = i / 15
-			lbl.TextStrokeTransparency = 0.3 + (i / 15) * 0.7
+	local player = nil
+	if attackerModel then
+		if attackerModel:IsA("Model") then
+			local char = attackerModel
+			if char:FindFirstChild("Humanoid") then
+				player = Players:GetPlayerFromCharacter(char)
+			else
+				local ownerId = char:GetAttribute("OwnerUserId")
+				if ownerId then player = Players:GetPlayerByUserId(ownerId) end
+			end
 		end
-		if bb.Parent then bb:Destroy() end
-	end)
+	end
+	if player and player.Parent then
+		local evt = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("ShowDamageNumber")
+		if evt and evt:IsA("RemoteEvent") then
+			evt:FireClient(player, body.Position, damage)
+		end
+	end
 end
 
 -- Faint the creature (fallback only - CreatureAI.FaintCreature is preferred)
@@ -123,7 +112,7 @@ function WorldCreatureHP.DamageCreature(model, damage, attackerModel)
 
 	hpData.hp = math.max(0, hpData.hp - damage)
 	updateHPBar(model, hpData)
-	showDamageNumber(model, damage)
+	fireDamageNumberToAttacker(model, damage, attackerModel)
 
 	if hpData.hp <= 0 then
 		faintCreature(model)

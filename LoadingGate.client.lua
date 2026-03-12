@@ -1,6 +1,6 @@
--- LoadingGate.lua - StarterPlayer.StarterPlayerScripts (LocalScript)
+-- LoadingGate.client.lua - StarterPlayer.StarterPlayerScripts (LocalScript)
 -- Name this "!LoadingGate" in Roblox so it runs first.
--- Shows loading screen, freezes player, waits for character + events, done.
+-- Shows loading screen, freezes player, waits for character + events, done.sdfsf
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -27,7 +27,7 @@ bg.BorderSizePixel = 0; bg.Parent = sg
 
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(0.6, 0, 0, 50); title.Position = UDim2.new(0.2, 0, 0.35, 0)
-title.BackgroundTransparency = 1; title.Text = "Welcome Siegknights!"
+title.BackgroundTransparency = 1; title.Text = "Welcome SiegeKnights!"
 title.TextColor3 = FIRE
 title.Font = Enum.Font.GothamBlack; title.TextSize = 36; title.Parent = bg
 
@@ -46,7 +46,7 @@ quoteLbl.Parent = bg
 
 local Random = Random.new()
 
--- Lore-infused loading messages (unique, randomized)
+-- Lore-infused loading messages (unique, randomized).
 local LOADING_MESSAGES = {
 	"Anointing shields at the Rite of Thirteen...",
 	"Forging Capture Cards in Maestro's kiln...",
@@ -138,50 +138,82 @@ player.CharacterAdded:Connect(function(char)
 	end
 end)
 
--- Wait for character to load
-if not player.Character then player.CharacterAdded:Wait() end
-if player.Character then player.Character:WaitForChild("Humanoid", 10) end
+local quickSpawnDebug = GameConfig.QuickSpawnDebugMode == true
 
--- Wait for events folder (server creates this first thing)
-statusLbl.Text = pickRandomLoadingMsg()
-quoteLbl.Text = pickRandomQuote()
-local eventsFolder = ReplicatedStorage:WaitForChild("Events", 15)
-
--- Rotate loading messages and quotes while waiting for creatures
-local loadingDone = false
-task.spawn(function()
-	while not loadingDone do
-		statusLbl.Text = pickRandomLoadingMsg()
-		quoteLbl.Text = pickRandomQuote()
-		task.wait(2)
-	end
-end)
-
--- Wait for server to signal creatures and models are ready (or timeout)
-local loadingReadyEvt = eventsFolder and eventsFolder:FindFirstChild("LoadingReady")
-local maxWait = (GameConfig.LoadingMaxWait or 60) + 5  -- extra buffer for network
-local ready = false
-if loadingReadyEvt then
-	local conn
-	conn = loadingReadyEvt.OnClientEvent:Connect(function()
-		ready = true
-		if conn then conn:Disconnect() end
+-- Wait for character to load (timeout prevents infinite hang if character never spawns)
+local charTimeout = quickSpawnDebug and 5 or 30
+if not player.Character then
+	local startWait = tick()
+	local charConn
+	local charLoaded = false
+	charConn = player.CharacterAdded:Connect(function()
+		charLoaded = true
+		if charConn then charConn:Disconnect() end
 	end)
-	local start = tick()
-	while not ready and (tick() - start) < maxWait do
+	while not charLoaded and (tick() - startWait) < charTimeout do
 		task.wait(0.3)
 	end
-	if conn then conn:Disconnect() end
-else
-	task.wait(8)  -- fallback if event missing
+	if charConn then charConn:Disconnect() end
 end
-loadingDone = true
+if player.Character then player.Character:WaitForChild("Humanoid", quickSpawnDebug and 3 or 10) end
+
+local loadingDone = false
+
+if quickSpawnDebug then
+	-- Quick spawn debug: skip Events + LoadingReady; go straight to play
+	statusLbl.Text = "Quick spawn (debug)"
+	quoteLbl.Text = "Bypassing loading gate for testing"
+	loadingDone = true
+	-- #region agent log
+	print("[DEBUG-1234af] LoadingGate: QuickSpawnDebugMode — bypassing loading gate")
+	-- #endregion
+else
+	-- Wait for events folder (server creates this first thing)
+	statusLbl.Text = pickRandomLoadingMsg()
+	quoteLbl.Text = pickRandomQuote()
+	local eventsFolder = ReplicatedStorage:WaitForChild("Events", 15)
+	-- #region agent log
+	print("[DEBUG-1234af] LoadingGate: Events folder " .. (eventsFolder and "received" or "TIMEOUT"))
+	-- #endregion
+
+	-- Rotate loading messages and quotes while waiting for creatures (2-3 seconds each)
+	task.spawn(function()
+		while not loadingDone do
+			statusLbl.Text = pickRandomLoadingMsg()
+			quoteLbl.Text = pickRandomQuote()
+			task.wait(2 + math.random())  -- 2.0 to 3.0 seconds per message
+		end
+	end)
+
+	-- Wait for server to signal creatures and models are ready (or timeout)
+	local loadingReadyEvt = eventsFolder and eventsFolder:FindFirstChild("LoadingReady")
+	local maxWait = (GameConfig.LoadingMaxWait or 60) + 5  -- extra buffer for network
+	local ready = false
+	if loadingReadyEvt then
+		local conn
+		conn = loadingReadyEvt.OnClientEvent:Connect(function()
+			ready = true
+			if conn then conn:Disconnect() end
+		end)
+		local start = tick()
+		while not ready and (tick() - start) < maxWait do
+			task.wait(0.3)
+		end
+		if conn then conn:Disconnect() end
+	else
+		task.wait(8)  -- fallback if event missing
+	end
+	loadingDone = true
+	-- #region agent log
+	print("[DEBUG-1234af] LoadingGate: LoadingReady received or timeout, proceeding")
+	-- #endregion
+end
 
 -- Done
 statusLbl.Text = "Track 'Em Down!"
 quoteLbl.Text = ""
 statusLbl.TextColor3 = WIND
-task.wait(0.4)
+task.wait(quickSpawnDebug and 0.2 or 0.4)
 
 setFreeze(false)
 

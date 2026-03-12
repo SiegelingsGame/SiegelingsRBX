@@ -544,11 +544,11 @@ guideContent.Parent = panel
 
 local GUIDE_SECTIONS = {
 	{ title = "I. Quick Ref", text = [[CONTROLS
-[W][A][S][D] Move  [E] Target  [F] Attack  [Q] Inventory  [R] Eggs  [G] Buffs  [C] Cosmetics  [V] Friends  [X] Leaders  [P] Profile  [Z] Rebirth  [H] Home Recall  [B] Battle tab  [Y] Toggle favorite
+[W][A][S][D] Move  [E] Target  [F] Attack  [Q] SieglinQ  [R] Eggs  [G] Buffs  [C] Drip  [V] Friends  [X] Leaders  [P] Profile  [Z] Rebirth  [H] Home Recall  [B] Battle tab  [Y] Toggle favorite
 
 HOW TO PLAY
 1. CAPTURE — Find Sieglinqs in the world. Press [E] to target. Attack with [F] (and your companion) until the creature faints. Click the fainted creature to capture (costs gold; rarer = more cost).
-2. COMPANION — Set one creature as your Favorite in Inventory. That Sieglinq follows you and fights by your side.
+2. COMPANION — Set one creature as your Favorite in SieglinQ. That Sieglinq follows you and fights by your side.
 3. BASE — Assign creatures to Income (coins), Defense (raids), Battle (arena/PvP). Unlock Floor 2 for battle grid; up to five Sieglinqs in 3×3 formation.
 4. ARENA — Team battles for fame and rewards.
 5. PVP — Challenge nearby players to 1v1 duels.
@@ -739,7 +739,7 @@ elementFilterLabel.TextSize = 10
 elementFilterLabel.Parent = filterRow
 
 local elementButtons = {}
-local elements = {"All", "Fire", "Ice", "Wind", "Earth", "Shadow", "Lightning"}
+local elements = {"All", "Fire", "Ice", "Wind", "Earth", "Shadow", "Light", "Lightning", "Water", "Psychic"}
 for i, el in ipairs(elements) do
 	local btn = Instance.new("TextButton")
 	btn.Size = UDim2.new(0, 48, 0, 22)
@@ -1261,13 +1261,29 @@ openCodexFunc.OnInvoke = function(creatureId)
 	return true
 end
 
--- Listen for HUD "CodexGuide" to open Guide tab
-local hudToggle = playerGui:WaitForChild("HUDToggleMenu", 5)
-if hudToggle and hudToggle:IsA("BindableEvent") then
-	hudToggle.Event:Connect(function(menuName)
-		if menuName == "CodexGuide" then OpenCodex("guide") end
-	end)
+-- Listen for HUD "CodexGuide" to toggle Codex (reconnect when HUDToggleMenu is re-added, e.g. after respawn)
+local function getHUDToggle()
+	local evt = playerGui:FindFirstChild("HUDToggleMenu")
+	if not evt or not evt:IsA("BindableEvent") then
+		evt = Instance.new("BindableEvent")
+		evt.Name = "HUDToggleMenu"
+		evt.Parent = playerGui
+	end
+	return evt
 end
+local function onHUDToggle(menuName)
+	if menuName == "CodexGuide" then
+		if panel.Visible then
+			panel.Visible = false
+		else
+			OpenCodex("guide")
+		end
+	end
+end
+getHUDToggle().Event:Connect(onHUDToggle)
+playerGui.ChildAdded:Connect(function(child)
+	if child.Name == "HUDToggleMenu" and child:IsA("BindableEvent") then child.Event:Connect(onHUDToggle) end
+end)
 
 -- Auto-show Guide when game starts (once per session)
 local guideShownThisSession = false

@@ -1,4 +1,9 @@
 To DO:
 
 Fix Cosmetic Base
-Add more cosmetic Bases 
+Add more cosmetic Bases
+
+Rojo structure fixes (from verification plan):
+- Move CodexModelViewer to ReplicatedStorage.Modules (rename to .lua, remove from StarterPlayerScripts)
+- Move BaseBuildInstructions_HauntedHouse to ServerScriptService (rename to .lua, remove from StarterPlayerScripts)
+- LoadingGate: optional - remove redundant $className

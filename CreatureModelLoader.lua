@@ -86,7 +86,7 @@ function CreatureModelLoader.IntegrateTemplate(creatureModel, template, position
 	end
 
 	if body then
-		-- Keep HumanoidRootPart name for Humanoid compatibility (Blender-imported rigs)
+		-- Keep HumanoidRootPart name for fgHumanoid compatibility (Blender-imported rigs)
 		if body.Name ~= "HumanoidRootPart" then body.Name = "Body" end
 		body.Anchored = true
 		body.CanCollide = false
@@ -99,7 +99,7 @@ function CreatureModelLoader.IntegrateTemplate(creatureModel, template, position
 	if humanoid then
 		humanoid.PlatformStand = true
 	end
-	-- Ensure Model-type (rigged) templates have AnimationController+Animator for scripted animations
+	-- Ensure Model-type (rigged) temsplates have AnsimationController+Animator for scripted animations
 	if template:IsA("Model") then
 		local hasAnim = false
 		for _, d in ipairs(creatureModel:GetDescendants()) do
@@ -181,29 +181,34 @@ end
 function CreatureModelLoader.LoadAndIntegrate(creatureModel, modelName, displayName, position, options)
 	local template, matchedName = CreatureModelLoader.LoadTemplate(modelName, displayName)
 	if not template then
-		-- Only log for Dracoil to reduce spam when debugging spawn issues
-		if modelName == "Dracoil" then
-			warn("[CreatureModelLoader] LoadTemplate returned nil for Dracoil (model not found in CreatureModels)")
-		end
 		return nil, nil, false
 	end
 	local isModelType = template:IsA("Model")
 	local ok, body, core = pcall(CreatureModelLoader.IntegrateTemplate, creatureModel, template, position)
 	if not ok then
-		warn("[CreatureModelLoader] IntegrateTemplate ERROR for", modelName or "?", ":", tostring(body))
 		return nil, nil, false
 	end
 	if body and creatureModel then
 		creatureModel:SetAttribute("TemplateName", matchedName)
 		creatureModel:SetAttribute("TemplateType", isModelType and "Model" or "Mesh")
-		local transformOk, transformErr = pcall(applyModelTransform, creatureModel, body, isModelType, options or {})
-		if not transformOk then
-			warn("[CreatureModelLoader] applyModelTransform ERROR for", modelName or "?", ":", tostring(transformErr))
-		end
-		local creatureId = creatureModel:GetAttribute("CreatureId") or modelName or "?"
-		print("[CreatureModelLoader] " .. creatureId .. " → " .. matchedName .. (isModelType and " (Model/rigged)" or " (legacy mesh)"))
+		pcall(applyModelTransform, creatureModel, body, isModelType, options or {})
 	end
 	return body, core, body ~= nil
+end
+
+--- Returns StudsOffset.Y so a billboard sits at the top of the model's bounding box (avoids name being blocked by body).
+--- adornee: the part the BillboardGui adorns (usually body). Falls back to model.PrimaryPart or Body.
+--- Returns number (studs), minimum 2, default 4.5 if GetBoundingBox fails.
+function CreatureModelLoader.GetBillboardStudsOffsetForTopOfModel(model, adornee)
+	local a = adornee or (model.PrimaryPart or model:FindFirstChild("Body") or model:FindFirstChild("HumanoidRootPart"))
+	if not a or not a:IsA("BasePart") then return 4.5 end
+	local adorneeY = a.Position.Y
+	local ok, bboxCf, bboxSize = pcall(function() return model:GetBoundingBox() end)
+	if ok and bboxCf and bboxSize and bboxSize.Y > 0 and bboxSize.Y < 100 then
+		local topY = bboxCf.Position.Y + bboxSize.Y * 0.5
+		return math.max(2, topY - adorneeY + 0.5)
+	end
+	return 4.5
 end
 
 return CreatureModelLoader

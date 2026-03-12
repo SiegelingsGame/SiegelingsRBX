@@ -18,9 +18,9 @@ local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "HUD"; screenGui.ResetOnSpawn = false
 screenGui.DisplayOrder = 2; screenGui.Parent = playerGui
 
--- Top HUD: slightly smaller; coins and per-minute in one tight row
+-- Top HUD: slightly smaller; coins and per-minute in one tight row (width cut to end at "0/min")
 local coinFrame = Instance.new("Frame")
-coinFrame.Size = UDim2.new(0, 220, 0, 30)
+coinFrame.Size = UDim2.new(0, 174, 0, 30)
 coinFrame.Position = UDim2.new(0, 12, 0, 10)
 coinFrame.BackgroundColor3 = Color3.fromRGB(20, 22, 35)
 coinFrame.BackgroundTransparency = 0.25
@@ -100,12 +100,14 @@ local function computeIncomePerMin(data)
 	local tickSec = GameConfig.IncomeTickSeconds or 10
 	local ipt = 0
 	local eggUids = {}
-	for _, egg in ipairs(data.eggs or {}) do eggUids[egg.uid] = true end
+	for _, egg in ipairs(data.eggs or {}) do
+		if egg and egg.uid then eggUids[tostring(egg.uid)] = true end
+	end
 	for _, uid in ipairs(data.baseSlots or {}) do
 		if not uid or uid == "" then continue end
-		if not eggUids[uid] then
+		if not eggUids[tostring(uid)] then
 			for _, e in ipairs(data.inventory) do
-				if e.uid == uid then
+				if e.uid and tostring(e.uid) == tostring(uid) then
 					local c = CreatureData.GetById(e.id)
 					if c then ipt = ipt + (c.baseIncome or 0) end
 					break
@@ -166,7 +168,7 @@ end
 
 if RaidStart then
 	RaidStart.OnClientEvent:Connect(function(name, dur)
-		Notify.Toast("RAID: " .. (name or "?"), Color3.fromRGB(255, 60, 40), dur or 5)
+		Notify.Toast("RAID: " .. (name or "?"), Color3.fromRGB(255, 60, 40), dur or 5, nil, "raid")
 	end)
 end
 
@@ -184,9 +186,9 @@ end
 if CreatureStolen then
 	CreatureStolen.OnClientEvent:Connect(function(creatureName, youStoleIt)
 		if youStoleIt then
-			Notify.Toast("Stole " .. creatureName .. "!", Color3.fromRGB(0, 229, 195), 4)
+			Notify.Toast("Stole " .. creatureName .. "!", Color3.fromRGB(0, 229, 195), 4, nil, "raid")
 		else
-			Notify.Toast(creatureName .. " was stolen!", Color3.fromRGB(255, 80, 80), 4)
+			Notify.Toast(creatureName .. " was stolen!", Color3.fromRGB(255, 80, 80), 4, nil, "raid")
 		end
 	end)
 end

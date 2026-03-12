@@ -58,6 +58,140 @@ local function getCachedExcludeList()
 	_cachedExcludeList = list
 	return list
 end
+-- Ocean: only water object in game (Biomes -> OceanBiome -> Ocean -> Ocean). Creatures move vertically only when inside it.
+local _oceanPart = nil
+local function getOceanPart()
+	if _oceanPart and _oceanPart.Parent then return _oceanPart end
+	local biomes = Workspace:FindFirstChild("Biomes")
+	local oceanBiome = biomes and biomes:FindFirstChild("OceanBiome")
+	local oceanFolder = oceanBiome and oceanBiome:FindFirstChild("Ocean")
+	_oceanPart = oceanFolder and oceanFolder:FindFirstChild("Ocean")
+	if _oceanPart and not _oceanPart:IsA("BasePart") then _oceanPart = nil end
+	return _oceanPart
+end
+
+-- True if world position is inside the Ocean part's bounds (creatures can move vertically only there).
+function CreatureAI.IsPositionInOcean(worldPos)
+	local ocean = getOceanPart()
+	if not ocean then return false end
+	local localPos = ocean.CFrame:PointToObjectSpace(worldPos)
+	local h = ocean.Size * 0.5
+	return math.abs(localPos.X) <= h.X and math.abs(localPos.Y) <= h.Y and math.abs(localPos.Z) <= h.Z
+end
+
+-- Returns the Ocean part (Biomes -> OceanBiome -> Ocean -> Ocean) or nil. Used to clamp companion Y to water bounds.
+function CreatureAI.GetOceanPart()
+	return getOceanPart()
+end
+
+-- WaterBlock parts (tagged): aquatic creatures seek these out and wander within bounds; surface to breathe.
+local WATER_BLOCK_TAG = nil
+local function getWaterBlockTag()
+	if WATER_BLOCK_TAG == nil then
+		WATER_BLOCK_TAG = (GameConfig and GameConfig.WaterBlockTag) or "WaterBlock"
+	end
+	return WATER_BLOCK_TAG
+end
+
+function CreatureAI.IsPositionInWaterBlock(worldPos)
+	local tag = getWaterBlockTag()
+	if not tag or tag == "" then return false end
+	for _, part in ipairs(CollectionService:GetTagged(tag)) do
+		if part and part:IsA("BasePart") and part.Parent then
+			local localPos = part.CFrame:PointToObjectSpace(worldPos)
+			local h = part.Size * 0.5
+			if math.abs(localPos.X) <= h.X and math.abs(localPos.Y) <= h.Y and math.abs(localPos.Z) <= h.Z then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+-- Returns the WaterBlock part that contains worldPos, or nil.
+local function getWaterBlockContaining(worldPos)
+	local tag = getWaterBlockTag()
+	if not tag or tag == "" then return nil end
+	for _, part in ipairs(CollectionService:GetTagged(tag)) do
+		if part and part:IsA("BasePart") and part.Parent then
+			local localPos = part.CFrame:PointToObjectSpace(worldPos)
+			local h = part.Size * 0.5
+			if math.abs(localPos.X) <= h.X and math.abs(localPos.Y) <= h.Y and math.abs(localPos.Z) <= h.Z then
+				return part
+			end
+		end
+	end
+	return nil
+end
+
+-- Nearest WaterBlock part within maxDist of worldPos (by distance to part center).
+local function getNearestWaterBlock(worldPos, maxDist)
+	local tag = getWaterBlockTag()
+	if not tag or tag == "" then return nil end
+	local nearest, nearestDist = nil, maxDist or 80
+	for _, part in ipairs(CollectionService:GetTagged(tag)) do
+		if part and part:IsA("BasePart") and part.Parent then
+			local d = (part.Position - worldPos).Magnitude
+			if d < nearestDist then nearestDist = d; nearest = part end
+		end
+	end
+	return nearest
+end
+
+-- Random point inside a WaterBlock part (world position). If belowSurfaceOnly, Y stays below surface (underwater).
+local function getRandomPointInWaterBlock(part, belowSurfaceOnly)
+	if not part or not part:IsA("BasePart") then return part and part.Position or Vector3.zero end
+	local h = part.Size * 0.5
+	local margin = 1
+	local rx = (math.random() * 2 - 1) * (h.X - margin)
+	local rz = (math.random() * 2 - 1) * (h.Z - margin)
+	local ry
+	if belowSurfaceOnly then
+		-- Underwater: from bottom of part up to just below top (surface)
+		ry = -h.Y + margin + math.random() * (h.Y * 2 - margin * 2)
+		if ry > h.Y - 1.5 then ry = h.Y - 1.5 end
+	else
+		ry = (math.random() * 2 - 1) * (h.Y - margin)
+	end
+	local localPt = Vector3.new(rx, ry, rz)
+	return part.CFrame:PointToWorldSpace(localPt)
+end
+
+-- World Y of water surface (top of part) for wading.
+local function getSurfaceYInWaterBlock(part)
+	if not part or not part:IsA("BasePart") then return nil end
+	local topLocal = Vector3.new(0, part.Size.Y * 0.5, 0)
+	return part.CFrame:PointToWorldSpace(topLocal).Y
+end
+
+-- Surface position (at top of part, for breathing).
+local function getSurfacePositionInWaterBlock(part, currentPos)
+	if not part or not part:IsA("BasePart") then return currentPos end
+	local surfaceY = getSurfaceYInWaterBlock(part)
+	return Vector3.new(currentPos.X, surfaceY - 0.5, currentPos.Z)
+end
+
+-- Clamp world position to stay inside part bounds.
+local function clampPositionToWaterBlock(worldPos, part)
+	if not part or not part:IsA("BasePart") then return worldPos end
+	local localPos = part.CFrame:PointToObjectSpace(worldPos)
+	local h = part.Size * 0.5
+	local margin = 0.5
+	local clampX = math.clamp(localPos.X, -h.X + margin, h.X - margin)
+	local clampY = math.clamp(localPos.Y, -h.Y + margin, h.Y - margin)
+	local clampZ = math.clamp(localPos.Z, -h.Z + margin, h.Z - margin)
+	return part.CFrame:PointToWorldSpace(Vector3.new(clampX, clampY, clampZ))
+end
+
+-- FIX #16 Floating creatures: three-part fix.
+--   (a) Raycast extended to 200 studs (was 50) + retry from high altitude on miss.
+--       Prevents misses on hilly terrain or elevated spawn points.
+--   (b) getDesiredBodyY guards against upward drift: if raycast returned the fallback
+--       (fromY), the old formula was groundY + bodyHeight + 0.3 = currentY + bodyHeight + 0.3
+--       which pushed creatures UP every frame. Now we detect the fallback case and return
+--       the current Y unchanged to prevent drift.
+--   (c) Idle ground snap added in updateCreature (see below) — creatures periodically
+--       re-snap to ground even when not moving, so any residual float is corrected.
 local _groundRaycastParams = nil
 local function getGroundY(x, z, fromY, excludeModel)
 	if not _groundRaycastParams then
@@ -65,9 +199,14 @@ local function getGroundY(x, z, fromY, excludeModel)
 		_groundRaycastParams.FilterType = Enum.RaycastFilterType.Exclude
 	end
 	_groundRaycastParams.FilterDescendantsInstances = getCachedExcludeList()
+	-- Primary raycast: from slightly above current Y, down 200 studs
 	local origin = Vector3.new(x, fromY + 2, z)
-	local hit = Workspace:Raycast(origin, Vector3.new(0, -50, 0), _groundRaycastParams)
+	local hit = Workspace:Raycast(origin, Vector3.new(0, -200, 0), _groundRaycastParams)
 	if hit then return hit.Position.Y end
+	-- Retry from high altitude (500 studs) in case creature is inside geometry or at extreme height
+	local retryOrigin = Vector3.new(x, 500, z)
+	local retryHit = Workspace:Raycast(retryOrigin, Vector3.new(0, -1000, 0), _groundRaycastParams)
+	if retryHit then return retryHit.Position.Y end
 	return fromY
 end
 
@@ -79,6 +218,31 @@ local function getDesiredBodyY(body, model, creatureId, posX, posZ)
 	if CreatureData.IsFlying(creatureId) then
 		return groundY + (GameConfig.FlyingHoverHeight or 5)
 	end
+	-- FIX #16b: If raycast returned fallback (groundY == fromY), don't recompute —
+	-- the formula groundY + bodyHeight + offset would push creature UP each frame.
+	-- Instead, keep current Y to prevent upward drift.
+	if groundY == fromY then
+		return fromY
+	end
+	local cf, size = model:GetBoundingBox()
+	local half = size * 0.5
+	local minY = math.huge
+	for sx = -1, 1, 2 do
+		for sy = -1, 1, 2 do
+			for sz = -1, 1, 2 do
+				local corner = cf:PointToWorldSpace(Vector3.new(sx * half.X, sy * half.Y, sz * half.Z))
+				if corner.Y < minY then minY = corner.Y end
+			end
+		end
+	end
+	return groundY + (body.Position.Y - minY) + FLOOR_OFFSET
+end
+
+-- Ground placement Y: where the model's bottom touches the surface (used when flying creatures faint and drop)
+local function getGroundPlacementY(body, model, posX, posZ, fromY)
+	local groundY = getGroundY(posX, posZ, fromY, model)
+	-- FIX #16b: same drift guard as getDesiredBodyY
+	if groundY == fromY then return fromY end
 	local cf, size = model:GetBoundingBox()
 	local half = size * 0.5
 	local minY = math.huge
@@ -121,33 +285,59 @@ local function hasLineOfSight(fromModel, toModel)
 end
 
 local LaserDoorSystem = nil -- Set in Init
+local ArenaShieldSystem = nil
+pcall(function() ArenaShieldSystem = require(game:GetService("ServerScriptService"):FindFirstChild("ArenaShieldSystem")) end)
 
 local function moveTowards(body, target, speed, dt, creatureId)
-	local dir = (target - body.Position) * Vector3.new(1, 0, 1)
+	local model = body and body.Parent and body.Parent:IsA("Model") and body.Parent
+	-- Water creatures move in 3D when inside Ocean or a WaterBlock part; otherwise use ground level.
+	local isWater3D = creatureId and CreatureData.IsWaterType(creatureId)
+		and (CreatureAI.IsPositionInOcean(body.Position) or CreatureAI.IsPositionInWaterBlock(body.Position))
+	local dir
+	if isWater3D then
+		dir = target - body.Position
+	else
+		dir = (target - body.Position) * Vector3.new(1, 0, 1)
+	end
 	if dir.Magnitude < 0.5 then return end
 	local newPos = body.Position + dir.Unit * math.min(speed * dt, dir.Magnitude)
 
-	-- Ground/flying: set Y so ground creatures sit on surface, flying hover at player height
-	local model = body and body.Parent and body.Parent:IsA("Model") and body.Parent
-	if model and creatureId then
+	-- Water creatures: move on all axes (no ground snap). Ground/flying: set Y from surface or hover.
+	if not isWater3D and model and creatureId then
 		newPos = Vector3.new(newPos.X, getDesiredBodyY(body, model, creatureId, newPos.X, newPos.Z), newPos.Z)
 	end
 
-	-- Face movement direction (horizontal only). Apply model rotation offset (crawl only when walking).
+	-- Face movement direction. Water: full 3D look; others: horizontal.
 	local pos = body.Position
-	local targetFlat = Vector3.new(target.X, newPos.Y, target.Z)
+	local lookTarget = isWater3D and (pos + dir.Unit) or Vector3.new(target.X, newPos.Y, target.Z)
 	local rotOffset = creatureId and CreatureData.GetModelRotationOffset(creatureId, "world", true) or CFrame.identity
-	body.CFrame = CFrame.lookAt(pos, targetFlat) * rotOffset
+	body.CFrame = CFrame.lookAt(pos, lookTarget) * rotOffset
 
-	-- Block movement into active dome shields
+	-- Block movement into active dome shields (base plots)
 	if LaserDoorSystem and LaserDoorSystem.IsInsideActiveShield then
 		local inside, shieldCenter, shieldRadius = LaserDoorSystem.IsInsideActiveShield(newPos)
 		if inside then
-			-- Push position to just outside the shield
 			local awayDir = (newPos - shieldCenter) * Vector3.new(1, 0, 1)
 			if awayDir.Magnitude < 0.5 then awayDir = Vector3.new(1, 0, 0) end
 			local pushPos = shieldCenter + awayDir.Unit * (shieldRadius + 1)
-			pushPos = Vector3.new(pushPos.X, getDesiredBodyY(body, model, creatureId, pushPos.X, pushPos.Z), pushPos.Z)
+			if not isWater3D and model and creatureId then
+				pushPos = Vector3.new(pushPos.X, getDesiredBodyY(body, model, creatureId, pushPos.X, pushPos.Z), pushPos.Z)
+			end
+			body.Position = pushPos
+			return
+		end
+	end
+
+	-- Block movement into arena shield (golden dome)
+	if ArenaShieldSystem and ArenaShieldSystem.IsInsideArenaShield then
+		local inside, shieldCenter, shieldRadius = ArenaShieldSystem.IsInsideArenaShield(newPos)
+		if inside then
+			local awayDir = (newPos - shieldCenter) * Vector3.new(1, 0, 1)
+			if awayDir.Magnitude < 0.5 then awayDir = Vector3.new(1, 0, 0) end
+			local pushPos = shieldCenter + awayDir.Unit * (shieldRadius + 1)
+			if not isWater3D and model and creatureId then
+				pushPos = Vector3.new(pushPos.X, getDesiredBodyY(body, model, creatureId, pushPos.X, pushPos.Z), pushPos.Z)
+			end
 			body.Position = pushPos
 			return
 		end
@@ -156,13 +346,18 @@ local function moveTowards(body, target, speed, dt, creatureId)
 	body.Position = newPos
 end
 
-local function getRandomWanderPoint(center, radius)
+-- center: Vector3, radius: number, creatureId: optional — Water type gets 3D wander (random Y) only when center is inside Ocean
+local function getRandomWanderPoint(center, radius, creatureId)
 	local angle = math.random() * math.pi * 2
 	local dist = math.random() * radius
-	return center + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist)
+	local offset = Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist)
+	if creatureId and CreatureData.IsWaterType(creatureId) and CreatureAI.IsPositionInOcean(center) then
+		offset = Vector3.new(offset.X, (math.random() * 2 - 1) * radius * 0.4, offset.Z)
+	end
+	return center + offset
 end
 
-local function findNearestCompanion(pos, range)
+	local function findNearestCompanion(pos, range)
 	local nearest, nearDist = nil, range
 	for _, tagged in ipairs(CollectionService:GetTagged(COMPANION_TAG)) do
 		if tagged.Parent then
@@ -285,6 +480,44 @@ local function fireCreatureProjectile(fromPos, toPos, color, onHit)
 	end)
 end
 
+-- Billboard behavior label helper: show current behavior (pack vs skittish) next to element/class
+local function refreshBehaviorLabel(model, state)
+	if not model or not state then return end
+	local bb = model:FindFirstChild("NameTag")
+	if not bb then return end
+	local infoLabel = bb:FindFirstChild("BehaviorLabel")
+	if not infoLabel then return end
+
+	local creatureId = model:GetAttribute("CreatureId") or state.id
+	local info = creatureId and CreatureData.GetById(creatureId) or nil
+	if not info then return end
+
+	local behaviorForLabel = info.behavior or state.behavior or "gentle"
+	-- Pack creatures that are in fear mode act skittish — surface this in the label
+	if state.behavior == "pack" and state.fearUntil and tick() < state.fearUntil then
+		behaviorForLabel = "skittish"
+	elseif state.behavior == "pack" then
+		behaviorForLabel = "pack"
+	elseif state.behavior == "aggressive" then
+		behaviorForLabel = "aggressive"
+	elseif state.behavior == "skittish" then
+		behaviorForLabel = "skittish"
+	end
+
+	local behaviorTag = ""
+	if behaviorForLabel == "aggressive" then
+		behaviorTag = " | aggressive"
+	elseif behaviorForLabel == "pack" then
+		behaviorTag = " | pack"
+	elseif behaviorForLabel == "skittish" then
+		behaviorTag = " | skittish"
+	end
+
+	local elementText = info.element or "?"
+	local classText = info.class or "?"
+	infoLabel.Text = elementText .. " " .. classText .. behaviorTag
+end
+
 -- Pack alerting: when one pack member is attacked, alert nearby pack members
 local function alertPack(attackedModel, attacker)
 	local state = creatureStates[attackedModel]
@@ -302,32 +535,63 @@ local function alertPack(attackedModel, attacker)
 	end
 end
 
--- ------ DAMAGE / FAINT ------
+-- When a pack member faints, nearby pack mates become skittish briefly (fear), or 10% chance to become aggressive and chase the killer
+local PACK_REVENGE_CHANCE = 0.10
 
-local function showWorldDamage(pos, damage)
-	local att = Instance.new("Part")
-	att.Size = Vector3.new(0.1, 0.1, 0.1); att.Position = pos + Vector3.new(math.random(-1,1), 2, math.random(-1,1))
-	att.Anchored = true; att.CanCollide = false; att.Transparency = 1; att.Parent = workspace
+local function notifyPackMemberDied(faintedModel, killerModel)
+	local state = creatureStates[faintedModel]
+	if not state or state.behavior ~= "pack" or not state.packId then return end
 
-	local bb = Instance.new("BillboardGui")
-	bb.Size = UDim2.new(0, 60, 0, 24); bb.StudsOffset = Vector3.new(0, 2, 0)
-	bb.AlwaysOnTop = true; bb.Adornee = att; bb.Parent = att
+	-- Pack fear lasts at least 10 seconds so skittish behavior is noticeable
+	local duration = math.max(10, GameConfig.AI_PackFearDuration or 10)
+	local fearUntil = tick() + duration
+	local faintedBody = getBody(faintedModel)
+	local faintedPos = faintedBody and faintedBody.Position or nil
 
-	local lbl = Instance.new("TextLabel")
-	lbl.Size = UDim2.new(1, 0, 1, 0); lbl.BackgroundTransparency = 1
-	lbl.Text = "-" .. math.floor(damage); lbl.TextColor3 = Color3.fromRGB(255, 100, 60)
-	lbl.Font = Enum.Font.GothamBlack; lbl.TextSize = 16
-	lbl.TextStrokeColor3 = Color3.new(0, 0, 0); lbl.TextStrokeTransparency = 0.3
-	lbl.Parent = bb
+	for model, s in pairs(creatureStates) do
+		if model ~= faintedModel and model.Parent and s.packId == state.packId and s.state ~= "faint" then
+			local inRange = not faintedPos
+			if faintedPos then
+				local b = getBody(model)
+				inRange = b and (b.Position - faintedPos).Magnitude < GameConfig.AI_PackCallRange
+			end
+			if not inRange then continue end
 
-	task.spawn(function()
-		for i = 1, 15 do
-			att.Position = att.Position + Vector3.new(0, 0.1, 0)
-			lbl.TextTransparency = i / 15; lbl.TextStrokeTransparency = 0.3 + (i / 15) * 0.7
-			RunService.Heartbeat:Wait()
+			-- 10% chance per eligible packmate: become aggressive and chase killer until one dies
+			if killerModel and killerModel.Parent and math.random() < PACK_REVENGE_CHANCE then
+				s.revengeTarget = killerModel
+				s.target = killerModel
+				s.state = "chase"
+			else
+				s.fearUntil = fearUntil
+				s.target = killerModel
+				s.state = "flee"
+			end
+			refreshBehaviorLabel(model, s)
 		end
-		att:Destroy()
-	end)
+	end
+end
+
+-- ------ DAMAGE / FAINT ------
+-- Only show damage number to the attacking player (player or companion owner), not all players in open world
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local function fireDamageNumberToAttacker(pos, damage, attackerModel)
+	if not attackerModel or not pos then return end
+	local player = nil
+	if attackerModel:IsA("Model") then
+		if attackerModel:FindFirstChild("Humanoid") then
+			player = Players:GetPlayerFromCharacter(attackerModel)
+		else
+			local ownerId = attackerModel:GetAttribute("OwnerUserId")
+			if ownerId then player = Players:GetPlayerByUserId(ownerId) end
+		end
+	end
+	if player and player.Parent then
+		local evt = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("ShowDamageNumber")
+		if evt and evt:IsA("RemoteEvent") then
+			evt:FireClient(player, pos, damage)
+		end
+	end
 end
 
 local WorldCreatureHP = nil
@@ -359,7 +623,7 @@ function CreatureAI.DamageCreature(model, damage, attackerModel)
 
 	local body = getBody(model)
 	if body then
-		showWorldDamage(body.Position, damage)
+		fireDamageNumberToAttacker(body.Position, damage, attackerModel)
 		-- Flash red
 		task.spawn(function()
 			local oc = body.Color; body.Color = Color3.fromRGB(255, 50, 50)
@@ -373,11 +637,15 @@ function CreatureAI.DamageCreature(model, damage, attackerModel)
 	end
 
 	-- Engage attacker: set target so creature chases/flees the player who hit it
-	-- Raiders keep their own targeting (base creatures), don't redirect
-	if attackerModel and state.behavior ~= "raider" then
-		if state.behavior == "skittish" then
+	-- Raiders and pack revenge keep their current target, don't redirect
+	if attackerModel and state.behavior ~= "raider" and not state.revengeTarget then
+		local effectiveBehavior = state.behavior
+		if state.behavior == "pack" and state.fearUntil and tick() < state.fearUntil then
+			effectiveBehavior = "skittish"
+		end
+		if effectiveBehavior == "skittish" then
 			state.target = attackerModel; state.state = "flee"
-		elseif state.behavior == "gentle" or state.behavior == "aggressive" or state.behavior == "pack" or state.behavior == "lone" then
+		elseif effectiveBehavior == "gentle" or effectiveBehavior == "aggressive" or effectiveBehavior == "pack" or effectiveBehavior == "lone" then
 			state.target = attackerModel; state.state = "chase"
 		end
 	end
@@ -430,6 +698,34 @@ function CreatureAI.FaintCreature(model, killerModel)
 	-- Faint animation: play once and freeze on final frame (model stays until despawn/capture)
 	CreatureAnimation.PlayAnimation(model, "Faint", state.id)
 
+	-- Faint pose: walk/stand creatures roll forward on belly; crawling stay as-is; flying drop to surface
+	if body then
+		local creatureId = state.id
+		local pos = body.Position
+		local isCrawling = CreatureData.IsCrawling(creatureId)
+		local isFlying = CreatureData.IsFlying(creatureId)
+		if not isCrawling then
+			-- Walk/stand and flying: roll forward onto belly (tween over animation)
+			local startRot = (body.CFrame - body.CFrame.Position)
+			local uprightRot = CreatureData.GetModelRotationOffset(creatureId, "world", false)
+			local bellyPitch = CFrame.Angles(math.rad(-90), 0, 0)
+			local bellyRot = uprightRot * bellyPitch
+			local flatLook = body.CFrame.LookVector * Vector3.new(1, 0, 1)
+			if flatLook.Magnitude < 0.1 then flatLook = Vector3.new(0, 0, -1) end
+			flatLook = flatLook.Unit
+			local FAINT_ROLL_DURATION = 0.35
+			state.faintRollEndTime = tick() + FAINT_ROLL_DURATION
+			state.faintRollStartRot = startRot
+			state.faintBellyRot = bellyRot
+			state.faintFlatLook = flatLook
+		end
+		if isFlying then
+			-- Flying: drop to surface (lose hover height)
+			local targetY = getGroundPlacementY(body, model, pos.X, pos.Z, pos.Y)
+			state.faintDropTargetY = targetY
+		end
+	end
+
 	if isBaseCreature then
 		-- Base creature: add steal tag instead of capture tag, no despawn timer
 		CollectionService:AddTag(model, "FaintedBaseCreature")
@@ -449,6 +745,9 @@ function CreatureAI.FaintCreature(model, killerModel)
 		CollectionService:AddTag(model, FAINTED_TAG)
 	end
 
+	-- Pack survivors become skittish briefly when a packmate faints
+	notifyPackMemberDied(model, killerModel)
+
 	-- Notify listeners (e.g. defense turret gets XP for this kill)
 	if CreatureAI.OnCreatureFainted then
 		task.spawn(function()
@@ -461,6 +760,37 @@ end
 
 local function updateCreature(model, state, dt)
 	if state.state == "faint" then
+		local body = getBody(model)
+		if body then
+			-- Flying: drop to surface until touching ground
+			if state.faintDropTargetY then
+				local currentY = body.Position.Y
+				if currentY > state.faintDropTargetY + 0.05 then
+					local dropSpeed = 18
+					local newY = math.max(state.faintDropTargetY, currentY - dropSpeed * dt)
+					body.Position = Vector3.new(body.Position.X, newY, body.Position.Z)
+				else
+					state.faintDropTargetY = nil
+				end
+			end
+			-- Roll forward on belly: lerp rotation during faint animation (walk/stand and flying only)
+			if state.faintRollEndTime and state.faintRollStartRot and state.faintBellyRot and state.faintFlatLook then
+				local now = tick()
+				if now < state.faintRollEndTime then
+					local duration = 0.35
+					local elapsed = now - (state.faintRollEndTime - duration)
+					local alpha = math.clamp(elapsed / duration, 0, 1)
+					local targetRot = CFrame.lookAt(Vector3.zero, state.faintFlatLook) * state.faintBellyRot
+					local rot = state.faintRollStartRot:Lerp(targetRot, alpha)
+					body.CFrame = CFrame.new(body.Position) * rot
+				else
+					state.faintRollEndTime = nil
+					state.faintRollStartRot = nil
+					state.faintBellyRot = nil
+					state.faintFlatLook = nil
+				end
+			end
+		end
 		-- Despawn after FaintDuration (skip for base creatures - they stay until stolen or refreshed)
 		if state.behavior ~= "stationary" then
 			if tick() - (state.faintTime or 0) > GameConfig.FaintDuration then
@@ -470,12 +800,35 @@ local function updateCreature(model, state, dt)
 		return
 	end
 
+	-- Stun (e.g. ElectricBiome ElectroBall): skip AI while StunnedUntil > tick()
+	local stunnedUntil = model:GetAttribute("StunnedUntil")
+	if stunnedUntil and type(stunnedUntil) == "number" and tick() < stunnedUntil then
+		return
+	end
+	if stunnedUntil and tick() >= stunnedUntil then
+		model:SetAttribute("StunnedUntil", nil)
+	end
+
 	local body = getBody(model)
 	if not body then return end
 	local pos = body.Position
 
 	local info = CreatureData.GetById(state.id)
 	if not info then return end
+
+	-- FIX #16c Idle ground snap: every frame, correct body Y to ground level.
+	-- Without this, creatures can float when idle (moveTowards not called).
+	-- Water creatures in water are exempt (3D movement). Stationary base creatures skip
+	-- only if behavior is "stationary" AND currently at income/defense (they're placed by BasePlacementSystem).
+	local isWaterSwimming = CreatureData.IsWaterType(state.id)
+		and (CreatureAI.IsPositionInOcean(pos) or CreatureAI.IsPositionInWaterBlock(pos))
+	if not isWaterSwimming and state.behavior ~= "stationary" then
+		local desiredY = getDesiredBodyY(body, model, state.id, pos.X, pos.Z)
+		if math.abs(body.Position.Y - desiredY) > 0.1 then
+			body.Position = Vector3.new(pos.X, desiredY, pos.Z)
+			pos = body.Position
+		end
+	end
 
 	local speedMult = info.speed / 10
 
@@ -488,10 +841,11 @@ local function updateCreature(model, state, dt)
 	local idleDelay = 2
 	local stationaryFor2s = (tick() - (state.lastAnimPosTime or tick())) >= idleDelay
 
-	-- Animation: Attack when attacking, Move when chasing/wandering (unless stationary 2s), Income on income slots, Idle otherwise
+	-- Animation: Attack when attacking, Move when chasing/wandering/fleeing (unless stationary 2s), Income on income slots, Idle otherwise. Water: Swimming when moving.
 	local animType
 	if state.state == "attack" then animType = "Attack"
-	elseif (state.state == "chase" or state.state == "wander") and not stationaryFor2s then animType = "Move"
+	elseif (state.state == "chase" or state.state == "wander" or state.state == "flee") and not stationaryFor2s then
+		animType = (CreatureData.IsWaterType(state.id) and "Swimming") or "Move"
 	elseif state.behavior == "stationary" and model:GetAttribute("SlotType") == "income" then animType = "Income"
 	else animType = "Idle"
 	end
@@ -535,8 +889,65 @@ local function updateCreature(model, state, dt)
 		state._lastAnimType = animType
 	end
 
+	-- Aquatic WaterBlock AI: seek water, wander within bounds, surface to breathe 10s (underwater time scales by rarity)
+	if state.aquaticWaterBlock and state.waterBlockPart and state.waterBlockPart.Parent and (state.state == "idle" or state.state == "wander") then
+		local wb = state.waterBlockPart
+		local now = tick()
+		local surfaceDuration = GameConfig.WaterBreathSurfaceDuration or 10
+		local surfaceY = getSurfaceYInWaterBlock(wb)
+
+		if state.breathState == "seeking" then
+			local targetPos = wb.Position
+			if CreatureAI.IsPositionInWaterBlock(pos) then
+				state.breathState = "underwater"
+				state.underwaterSince = now
+				state.wanderTarget = getRandomPointInWaterBlock(wb, true)
+			else
+				state.wanderTarget = targetPos
+			end
+			moveTowards(body, state.wanderTarget or targetPos, GameConfig.AI_WanderSpeed * speedMult * 1.2, dt, state.id)
+			body.Position = clampPositionToWaterBlock(body.Position, wb)
+		elseif state.breathState == "underwater" then
+			if (now - state.underwaterSince) >= (state.maxUnderwaterTime or 30) then
+				state.breathState = "surfacing"
+				state.surfaceTarget = getSurfacePositionInWaterBlock(wb, pos)
+			else
+				if not state.wanderTarget or (body.Position - state.wanderTarget).Magnitude < 3 then
+					state.wanderTarget = getRandomPointInWaterBlock(wb, true)
+				end
+				moveTowards(body, state.wanderTarget, GameConfig.AI_WanderSpeed * speedMult, dt, state.id)
+			end
+			body.Position = clampPositionToWaterBlock(body.Position, wb)
+		elseif state.breathState == "surfacing" then
+			state.surfaceTarget = state.surfaceTarget or getSurfacePositionInWaterBlock(wb, pos)
+			moveTowards(body, state.surfaceTarget, GameConfig.AI_WanderSpeed * speedMult * 1.2, dt, state.id)
+			body.Position = clampPositionToWaterBlock(body.Position, wb)
+			if surfaceY and body.Position.Y >= surfaceY - 1.5 then
+				state.breathState = "surface"
+				state.surfaceUntil = now + surfaceDuration
+			end
+		elseif state.breathState == "surface" then
+			-- Wading at surface for 10 seconds
+			local holdPos = Vector3.new(body.Position.X, surfaceY - 0.5, body.Position.Z)
+			body.Position = clampPositionToWaterBlock(holdPos, wb)
+			if now >= state.surfaceUntil then
+				state.breathState = "diving"
+				state.diveTarget = getRandomPointInWaterBlock(wb, true)
+			end
+		elseif state.breathState == "diving" then
+			state.diveTarget = state.diveTarget or getRandomPointInWaterBlock(wb, true)
+			moveTowards(body, state.diveTarget, GameConfig.AI_WanderSpeed * speedMult * 1.2, dt, state.id)
+			body.Position = clampPositionToWaterBlock(body.Position, wb)
+			if (body.Position - state.diveTarget).Magnitude < 3 then
+				state.breathState = "underwater"
+				state.underwaterSince = now
+				state.diveTarget = nil
+			end
+		end
+		state.lastAnimPos = body.Position
+		state.lastAnimPosTime = now
 	-- Behavior-specific AI
-	if state.behavior == "aggressive" then
+	elseif state.behavior == "aggressive" then
 		-- Look for targets: companions first, then player (if no companion out), then other creatures
 		if state.state == "idle" or state.state == "wander" then
 			local comp, compDist = findNearestCompanion(pos, GameConfig.AI_AggroRange)
@@ -560,7 +971,7 @@ local function updateCreature(model, state, dt)
 				else
 					-- Wander
 					if state.state ~= "wander" or not state.wanderTarget then
-						state.wanderTarget = getRandomWanderPoint(state.spawnPos, GameConfig.AI_WanderRadius)
+						state.wanderTarget = getRandomWanderPoint(state.spawnPos, GameConfig.AI_WanderRadius, state.id)
 						state.state = "wander"
 					end
 					moveTowards(body, state.wanderTarget, GameConfig.AI_WanderSpeed * speedMult, dt, state.id)
@@ -574,16 +985,53 @@ local function updateCreature(model, state, dt)
 		end
 
 	elseif state.behavior == "pack" then
-		-- Similar to aggressive but only engages when provoked or a packmate calls
-		if state.state == "idle" or state.state == "wander" then
-			if state.state ~= "wander" or not state.wanderTarget then
-				state.wanderTarget = getRandomWanderPoint(state.spawnPos, GameConfig.AI_WanderRadius * 0.6)
-				state.state = "wander"
+		local now = tick()
+		-- Revenge: chasing killer (handled by shared chase/attack logic; don't overwrite with fear or wander)
+		if state.revengeTarget then
+			-- Nothing to do here; chase/attack block below drives movement
+		elseif state.fearUntil then
+			-- Fear: after a packmate faints, act skittish briefly then return to pack
+			if now >= state.fearUntil then
+				state.fearUntil = nil
+				state.target = nil
+				state.state = "idle"
+				state.wanderTarget = nil
+				refreshBehaviorLabel(model, state)
+			else
+				-- Act skittish: flee from threats or wander
+				if state.state == "idle" or state.state == "wander" then
+					local comp, compDist = findNearestCompanion(pos, GameConfig.AI_AggroRange * 0.8)
+					local plr, plrDist = findNearestPlayer(pos, GameConfig.AI_AggroRange * 0.5)
+					if comp or plr then
+						state.target = comp or plr
+						state.state = "flee"
+					else
+						if state.state ~= "wander" or not state.wanderTarget then
+							state.wanderTarget = getRandomWanderPoint(state.spawnPos, GameConfig.AI_WanderRadius * 0.8, state.id)
+							state.state = "wander"
+						end
+						moveTowards(body, state.wanderTarget, GameConfig.AI_WanderSpeed * speedMult, dt, state.id)
+						if (body.Position - state.wanderTarget).Magnitude < 3 then
+							state.state = "idle"
+							state.wanderTarget = nil
+							state.idleUntil = tick() + math.random(2, 4)
+						end
+					end
+				end
 			end
-			moveTowards(body, state.wanderTarget, GameConfig.AI_WanderSpeed * speedMult * 0.8, dt, state.id)
-			if (body.Position - state.wanderTarget).Magnitude < 3 then
-				state.state = "idle"; state.wanderTarget = nil
-				state.idleUntil = tick() + math.random(3, 8)
+		end
+		if not state.fearUntil and not state.revengeTarget then
+			-- Normal pack: only engages when provoked or a packmate calls
+			if state.state == "idle" or state.state == "wander" then
+				if state.state ~= "wander" or not state.wanderTarget then
+					state.wanderTarget = getRandomWanderPoint(state.spawnPos, GameConfig.AI_WanderRadius * 0.6, state.id)
+					state.state = "wander"
+				end
+				moveTowards(body, state.wanderTarget, GameConfig.AI_WanderSpeed * speedMult * 0.8, dt, state.id)
+				if (body.Position - state.wanderTarget).Magnitude < 3 then
+					state.state = "idle"; state.wanderTarget = nil
+					state.idleUntil = tick() + math.random(3, 8)
+				end
 			end
 		end
 
@@ -591,7 +1039,7 @@ local function updateCreature(model, state, dt)
 		-- Peaceful wander, only fights back
 		if state.state == "idle" or state.state == "wander" then
 			if state.state ~= "wander" or not state.wanderTarget then
-				state.wanderTarget = getRandomWanderPoint(state.spawnPos, GameConfig.AI_WanderRadius * 0.4)
+				state.wanderTarget = getRandomWanderPoint(state.spawnPos, GameConfig.AI_WanderRadius * 0.4, state.id)
 				state.state = "wander"
 			end
 			moveTowards(body, state.wanderTarget, GameConfig.AI_WanderSpeed * speedMult * 0.5, dt, state.id)
@@ -620,7 +1068,7 @@ local function updateCreature(model, state, dt)
 					state.target = plr; state.state = "chase"
 				else
 				if state.state ~= "wander" or not state.wanderTarget then
-					state.wanderTarget = getRandomWanderPoint(state.spawnPos, GameConfig.AI_WanderRadius * 0.5)
+					state.wanderTarget = getRandomWanderPoint(state.spawnPos, GameConfig.AI_WanderRadius * 0.5, state.id)
 					state.state = "wander"
 				end
 				moveTowards(body, state.wanderTarget, GameConfig.AI_WanderSpeed * speedMult * 0.7, dt, state.id)
@@ -641,7 +1089,7 @@ local function updateCreature(model, state, dt)
 				state.target = comp or plr; state.state = "flee"
 			else
 				if state.state ~= "wander" or not state.wanderTarget then
-					state.wanderTarget = getRandomWanderPoint(state.spawnPos, GameConfig.AI_WanderRadius * 0.8)
+					state.wanderTarget = getRandomWanderPoint(state.spawnPos, GameConfig.AI_WanderRadius * 0.8, state.id)
 					state.state = "wander"
 				end
 				moveTowards(body, state.wanderTarget, GameConfig.AI_WanderSpeed * speedMult, dt, state.id)
@@ -667,7 +1115,7 @@ local function updateCreature(model, state, dt)
 			else
 				-- No targets left, wander toward plot center
 				if state.state ~= "wander" or not state.wanderTarget then
-					state.wanderTarget = getRandomWanderPoint(raidCenter, 15)
+					state.wanderTarget = getRandomWanderPoint(raidCenter, 15, state.id)
 					state.state = "wander"
 				end
 				moveTowards(body, state.wanderTarget, GameConfig.AI_WanderSpeed * speedMult * 1.2, dt, state.id)
@@ -687,6 +1135,12 @@ local function updateCreature(model, state, dt)
 			if math.abs(body.Position.Y - desiredY) > 0.1 then
 				body.Position = Vector3.new(body.Position.X, desiredY, body.Position.Z)
 			end
+		elseif CreatureData.IsWaterType(state.id) and not CreatureAI.IsPositionInOcean(body.Position) then
+			-- Water creatures outside Ocean: snap to ground level (revert to old movement)
+			local desiredY = getDesiredBodyY(body, model, state.id, pos.X, pos.Z)
+			if math.abs(body.Position.Y - desiredY) > 0.1 then
+				body.Position = Vector3.new(body.Position.X, desiredY, body.Position.Z)
+			end
 		end
 		if not state.idleUntil then
 			state.idleUntil = tick() + math.random(1, 3)
@@ -699,7 +1153,7 @@ local function updateCreature(model, state, dt)
 	if state.state == "chase" and state.target then
 		-- Don't chase fainted targets (world creatures shouldn't attack monsters that are already fainted)
 		if typeof(state.target) == "Instance" and state.target:GetAttribute("Fainted") then
-			state.state = "wander"; state.target = nil; state.wanderTarget = nil; return
+			state.state = "wander"; state.target = nil; state.revengeTarget = nil; state.wanderTarget = nil; return
 		end
 		local targetBody = nil
 		if typeof(state.target) == "Instance" and state.target.Parent then
@@ -707,14 +1161,14 @@ local function updateCreature(model, state, dt)
 		end
 		if not targetBody then
 			-- Target lost — return to wander (not bare idle which can get stuck)
-			state.state = "wander"; state.target = nil; state.wanderTarget = nil; return
+			state.state = "wander"; state.target = nil; state.revengeTarget = nil; state.wanderTarget = nil; return
 		end
 
 		local tdist = (pos - targetBody.Position).Magnitude
-		local maxChaseRange = state.behavior == "raider" and 200 or (GameConfig.AI_AggroRange * 1.5)
+		local maxChaseRange = state.revengeTarget and 800 or (state.behavior == "raider" and 200 or (GameConfig.AI_AggroRange * 1.5))
 		if tdist > maxChaseRange then
 			-- Lost target, return
-			state.state = "wander"; state.target = nil; state.wanderTarget = nil
+			state.state = "wander"; state.target = nil; state.revengeTarget = nil; state.wanderTarget = nil
 		elseif tdist > GameConfig.AI_AttackRange then
 			-- Raiders: waypoint sequence — door → plot center (up ramp) → then chase target (or path to door if no LOS)
 			local moveTarget = targetBody.Position
@@ -768,14 +1222,14 @@ local function updateCreature(model, state, dt)
 	if state.state == "attack" and state.target then
 		-- Don't attack fainted targets (world creatures shouldn't attack monsters that are already fainted)
 		if typeof(state.target) == "Instance" and state.target:GetAttribute("Fainted") then
-			state.state = "wander"; state.target = nil; state.wanderTarget = nil; return
+			state.state = "wander"; state.target = nil; state.revengeTarget = nil; state.wanderTarget = nil; return
 		end
 		local targetBody = nil
 		if typeof(state.target) == "Instance" and state.target.Parent then
 			targetBody = CreatureModelLoader.GetBodyPart(state.target) or state.target:FindFirstChild("Body") or state.target:FindFirstChild("HumanoidRootPart")
 		end
 		if not targetBody then
-			state.state = "wander"; state.target = nil; state.wanderTarget = nil; return
+			state.state = "wander"; state.target = nil; state.revengeTarget = nil; state.wanderTarget = nil; return
 		end
 
 		-- Face target while attacking (apply model rotation offset for crawling/facing)
@@ -853,8 +1307,6 @@ local function updateCreature(model, state, dt)
 					if ownerPlayer then
 						if CreatureAI._FavoriteSystem then
 							CreatureAI._FavoriteSystem.DamageCompanion(ownerPlayer, damage, model)
-						else
-							showWorldDamage(hitPos, damage)
 						end
 					else
 						local player = Players:GetPlayerFromCharacter(target)
@@ -862,10 +1314,7 @@ local function updateCreature(model, state, dt)
 							local hum = target:FindFirstChild("Humanoid")
 							if hum and hum.Health > 0 then
 								hum:TakeDamage(damage)
-								showWorldDamage(hitPos, damage)
 							end
-						else
-							showWorldDamage(hitPos, damage)
 						end
 					end
 				end
@@ -884,13 +1333,25 @@ local function updateCreature(model, state, dt)
 			fleeFrom = CreatureModelLoader.GetBodyPart(state.target) or state.target:FindFirstChild("Body") or state.target:FindFirstChild("HumanoidRootPart")
 		end
 		if fleeFrom then
-			local away = (pos - fleeFrom.Position) * Vector3.new(1, 0, 1)
+			local isWater3D = CreatureData.IsWaterType(state.id) and CreatureAI.IsPositionInOcean(body.Position)
+			local away = isWater3D and (pos - fleeFrom.Position) or (pos - fleeFrom.Position) * Vector3.new(1, 0, 1)
 			if away.Magnitude > 0.1 then
 				local newPos = body.Position + away.Unit * GameConfig.AI_FleeSpeed * speedMult * dt
-				newPos = Vector3.new(newPos.X, getDesiredBodyY(body, model, state.id, newPos.X, newPos.Z), newPos.Z)
+				if not isWater3D then
+					newPos = Vector3.new(newPos.X, getDesiredBodyY(body, model, state.id, newPos.X, newPos.Z), newPos.Z)
+				end
 				body.Position = newPos
+				-- Face away from the threat (direction of movement) so skittish creatures run with their backs to the player
+				local lookTarget = isWater3D and (newPos + away.Unit) or Vector3.new(newPos.X + away.Unit.X, newPos.Y, newPos.Z + away.Unit.Z)
+				local rotOffset = CreatureData.GetModelRotationOffset(state.id, "world", true) or CFrame.identity
+				body.CFrame = CFrame.lookAt(newPos, lookTarget) * rotOffset
 			end
-			if away.Magnitude > GameConfig.AI_FleeRange then
+			-- Pack creatures in skittish (fear) mode flee farther — up to at least 60 studs
+			local fleeRange = GameConfig.AI_FleeRange
+			if state.behavior == "pack" and state.fearUntil and tick() < (state.fearUntil or 0) then
+				fleeRange = math.max(fleeRange or 0, 60)
+			end
+			if away.Magnitude > (fleeRange or GameConfig.AI_FleeRange) then
 				state.state = "wander"; state.target = nil; state.wanderTarget = nil
 			end
 		else
@@ -920,6 +1381,22 @@ function CreatureAI.RegisterCreature(model, creatureId, spawnPos, packId)
 		idleUntil = tick() + math.random(1, 4),
 		wanderTarget = nil,
 	}
+
+	-- Aquatic WaterBlock behavior: water creatures spawned near OceanBiome seek out WaterBlock and wander within it, surfacing to breathe.
+	if CreatureData.IsWaterType(creatureId) then
+		local wb = getWaterBlockContaining(spawnPos) or getNearestWaterBlock(spawnPos, GameConfig.WaterBlockSeekRange or 80)
+		if wb then
+			local state = creatureStates[model]
+			state.waterBlockPart = wb
+			state.aquaticWaterBlock = true
+			state.breathState = "seeking"
+			state.underwaterSince = tick()
+			state.surfaceUntil = nil
+			local baseSec = GameConfig.WaterBreathUnderwaterBaseSeconds or 30
+			local mult = (GameConfig.WaterBreathRarityMultiplier and GameConfig.WaterBreathRarityMultiplier[info.rarity]) or 1
+			state.maxUnderwaterTime = baseSec * mult
+		end
+	end
 end
 
 function CreatureAI.UnregisterCreature(model)

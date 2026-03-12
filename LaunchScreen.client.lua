@@ -38,7 +38,9 @@ local MUTED = Color3.fromRGB(140, 170, 220)
 local ELEMENT_COLOR = {
 	Fire = FIRE, Ice = ICE,
 	Wind = WIND, Earth = Color3.fromRGB(180, 140, 80),
-	Shadow = Color3.fromRGB(120, 50, 180), Lightning = Color3.fromRGB(255, 230, 60),
+	Shadow = Color3.fromRGB(120, 50, 180), Light = Color3.fromRGB(255, 250, 200),
+	Lightning = Color3.fromRGB(255, 230, 60), Water = Color3.fromRGB(50, 150, 255),
+	Psychic = Color3.fromRGB(200, 150, 255),
 }
 local RARITY = {
 	Common = Color3.fromRGB(120, 125, 140), Uncommon = Color3.fromRGB(50, 200, 90),

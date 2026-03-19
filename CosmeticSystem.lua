@@ -28,6 +28,12 @@ local trailColors = {
 	trail_ice     = {Color3.fromRGB(100, 200, 255), Color3.fromRGB(220, 240, 255)},
 	trail_rainbow = {Color3.fromRGB(255, 50, 50), Color3.fromRGB(255, 255, 50), Color3.fromRGB(50, 255, 50), Color3.fromRGB(50, 50, 255)},
 	trail_shadow  = {Color3.fromRGB(30, 10, 40),   Color3.fromRGB(80, 20, 100)},
+	trail_nature  = {Color3.fromRGB(60, 180, 80),  Color3.fromRGB(140, 220, 120)},
+	trail_poison  = {Color3.fromRGB(100, 255, 80), Color3.fromRGB(120, 60, 180)},
+	trail_void    = {Color3.fromRGB(40, 20, 80),   Color3.fromRGB(140, 60, 200)},
+	trail_sunset  = {Color3.fromRGB(255, 100, 60), Color3.fromRGB(255, 80, 180)},
+	trail_candy   = {Color3.fromRGB(255, 120, 200), Color3.fromRGB(180, 100, 255)},
+	trail_galaxy  = {Color3.fromRGB(40, 60, 140),  Color3.fromRGB(160, 80, 220)},
 }
 
 local function applyTrail(character, trailId)
@@ -80,6 +86,12 @@ local auraConfigs = {
 	aura_flame    = {color = Color3.fromRGB(255, 100, 30),  rate = 25, speed = 4, size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.8), NumberSequenceKeypoint.new(1, 0)})},
 	aura_electric = {color = Color3.fromRGB(80, 180, 255),  rate = 30, speed = 5, size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 0)})},
 	aura_divine   = {color = Color3.fromRGB(255, 220, 100), rate = 20, speed = 3, size = NumberSequence.new({NumberSequenceKeypoint.new(0, 1.0), NumberSequenceKeypoint.new(1, 0)})},
+	aura_nature   = {color = Color3.fromRGB(80, 200, 100),  rate = 22, speed = 3.5, size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.7), NumberSequenceKeypoint.new(1, 0)})},
+	aura_void     = {color = Color3.fromRGB(100, 40, 180),  rate = 28, speed = 4, size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.6), NumberSequenceKeypoint.new(1, 0)})},
+	aura_ice      = {color = Color3.fromRGB(160, 220, 255),  rate = 24, speed = 3, size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.65), NumberSequenceKeypoint.new(1, 0)})},
+	aura_poison   = {color = Color3.fromRGB(120, 255, 80),  rate = 26, speed = 4.5, size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.55), NumberSequenceKeypoint.new(1, 0)})},
+	aura_sakura   = {color = Color3.fromRGB(255, 180, 200), rate = 18, speed = 2.5, size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.85), NumberSequenceKeypoint.new(1, 0)})},
+	aura_star     = {color = Color3.fromRGB(255, 240, 150), rate = 32, speed = 5, size = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.45), NumberSequenceKeypoint.new(1, 0)})},
 }
 
 local function applyAura(character, auraId)
@@ -116,6 +128,15 @@ local nameColors = {
 	name_gold    = Color3.fromRGB(255, 200, 50),
 	name_red     = Color3.fromRGB(255, 60, 60),
 	name_rainbow = nil, -- special handling
+	name_blue    = Color3.fromRGB(80, 160, 255),
+	name_green   = Color3.fromRGB(80, 220, 100),
+	name_purple  = Color3.fromRGB(180, 100, 255),
+	name_cyan    = Color3.fromRGB(60, 220, 255),
+	name_pink    = Color3.fromRGB(255, 120, 200),
+	name_orange  = Color3.fromRGB(255, 160, 50),
+	name_white   = Color3.fromRGB(240, 240, 255),
+	name_lime    = Color3.fromRGB(180, 255, 80),
+	name_coral   = Color3.fromRGB(255, 120, 100),
 }
 
 local function applyNameColor(character, humanoid, nameColorId)

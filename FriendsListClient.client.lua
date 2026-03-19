@@ -5,6 +5,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local MobileWindowLayout = require(ReplicatedStorage.Modules:WaitForChild("MobileWindowLayout"))
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -853,10 +854,23 @@ local function getPanelScale()
 end
 
 local function applyPanelScale(pnl)
+	if MobileWindowLayout.IsMobile() then
+		MobileWindowLayout.ApplyWindow(pnl, {
+			leftInset = 14,
+			rightInset = 14,
+			topInset = 10,
+			bottomInset = 14,
+			bottomMobileExtra = 20,
+		})
+		pnl.Draggable = true
+		return
+	end
+
 	local scale = getPanelScale()
 	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
 	pnl.Size = UDim2.new(0, w, 0, h)
 	pnl.Position = UDim2.new(0.5, -w/2, 0.5, -h/2)
+	MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
 end
 
 -- ── FRIENDS PANEL (same sg as profile popup) ──
@@ -881,7 +895,10 @@ closeBtn.BackgroundColor3 = C.red; closeBtn.BackgroundTransparency = 0.5
 closeBtn.Text = "✕"; closeBtn.TextColor3 = C.white
 closeBtn.Font = Enum.Font.GothamBold; closeBtn.TextSize = 12; closeBtn.Parent = panel
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
-closeBtn.MouseButton1Click:Connect(function() panel.Visible = false end)
+closeBtn.MouseButton1Click:Connect(function()
+	panel.Visible = false
+	MobileWindowLayout.NotifyMenuClosed()
+end)
 
 -- Info
 local infoLbl = Instance.new("TextLabel")
@@ -923,6 +940,19 @@ Instance.new("UICorner", friendScroll).CornerRadius = UDim.new(0, 8)
 
 local friendLayout = Instance.new("UIListLayout")
 friendLayout.Padding = UDim.new(0, 2); friendLayout.Parent = friendScroll
+
+local function applyResponsiveContentLayout()
+	local mobile = MobileWindowLayout.IsMobile()
+	addFrame.Size = mobile and UDim2.new(1, -16, 0, 132) or UDim2.new(1, -20, 0, 34)
+	addFrame.Position = mobile and UDim2.new(0, 8, 0, 62) or UDim2.new(0, 10, 0, 62)
+	onlineScroll.Size = mobile and UDim2.new(1, 0, 1, 0) or UDim2.new(1, 0, 0, 90)
+	listTitle.Position = mobile and UDim2.new(0, 10, 0, 200) or UDim2.new(0, 10, 0, 160)
+	friendScroll.Position = mobile and UDim2.new(0, 10, 0, 224) or UDim2.new(0, 10, 0, 185)
+	friendScroll.Size = mobile and UDim2.new(1, -20, 1, -236) or UDim2.new(1, -20, 0, 170)
+	closeBtn.Size = mobile and UDim2.new(0, 38, 0, 38) or UDim2.new(0, 30, 0, 30)
+	closeBtn.Position = mobile and UDim2.new(1, -46, 0, 4) or UDim2.new(1, -36, 0, 4)
+	closeBtn.TextSize = mobile and 16 or 12
+end
 
 -- ── REFRESH FUNCTIONS ──
 
@@ -1041,7 +1071,13 @@ end
 local function onHUDToggle(menuName)
 	if menuName == "FriendsListGUI" then
 		if not panel.Visible then applyPanelScale(panel) end
+		applyResponsiveContentLayout()
 		panel.Visible = not panel.Visible
+		if panel.Visible then
+			MobileWindowLayout.NotifyMenuOpened()
+		else
+			MobileWindowLayout.NotifyMenuClosed()
+		end
 		if panel.Visible then refreshFriendsList(); refreshOnlinePlayers() end
 	end
 end
@@ -1050,11 +1086,14 @@ playerGui.ChildAdded:Connect(function(child)
 	if child.Name == "HUDToggleMenu" and child:IsA("BindableEvent") then child.Event:Connect(onHUDToggle) end
 end)
 
--- V key: open/close friends list (client-side fallback)
-UserInputService.InputBegan:Connect(function(input)
-	if UserInputService:GetFocusedTextBox() then return end
-	if input.UserInputType ~= Enum.UserInputType.Keyboard or input.KeyCode ~= Enum.KeyCode.V then return end
-	onHUDToggle("FriendsListGUI")
+MobileWindowLayout.BindViewportUpdate(function()
+	if panel.Visible then
+		applyPanelScale(panel)
+		applyResponsiveContentLayout()
+	end
 end)
+
+-- FIX #18: Removed fallback V key handler — HUDButtonBar is the sole keyboard handler.
+-- Having both caused double-toggle (open then immediately close).
 
 print("[FriendsListClient] Loaded - press V or click [V] Friends on HUD to open")

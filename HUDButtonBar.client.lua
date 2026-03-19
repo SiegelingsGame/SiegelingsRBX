@@ -31,15 +31,23 @@ local GOLD_GLOW_TRANSPARENCY = 0.85
 local buttonDefs = {
 	{ label = "[K] Codex",      key = "K", menuName = "CodexGuide",     color = Color3.fromRGB(180, 140, 255), desc = "Guide, Lore, creatures" },
 	{ label = "[Q] SieglinQ",   key = "Q", menuName = "InventoryUI",    color = Color3.fromRGB(60, 160, 255), desc = "Manage creatures" },
-	{ label = "[R] Eggs",       key = "R", menuName = "EggShopGUI",     color = Color3.fromRGB(255, 200, 50), desc = "Buy & hatch eggs" },
-	{ label = "[G] Buffs",      key = "G", menuName = "BuffShopGUI",    color = Color3.fromRGB(80, 220, 120), desc = "Buy power-ups" },
-	{ label = "[C] Drip",       key = "C", menuName = "CosmeticShopGUI", color = Color3.fromRGB(200, 120, 255), desc = "Trails & auras" },
+	-- FIX #34: Sigils & Rebirth moved into Profile tabs (removed standalone buttons)
+	{ label = "[G] Shop",       key = "G", menuName = "ShopHubGUI",     color = Color3.fromRGB(120, 220, 170), desc = "Eggs, swag, and cosmetics" },
 	{ label = "[V] Friends",    key = "V", menuName = "FriendsListGUI", color = Color3.fromRGB(255, 130, 80), desc = "Base access list" },
 	{ label = "[X] Leaders",    key = "X", menuName = "LeaderboardGUI", color = Color3.fromRGB(100, 220, 160), desc = "Leaderboards" },
-	{ label = "[P] Profile",    key = "P", menuName = "ProfileGUI",     color = Color3.fromRGB(200, 180, 255), desc = "Player profile" },
-	{ label = "[Z] Rebirth",    key = "Z", menuName = "RebirthUI",      color = Color3.fromRGB(255, 180, 80),  desc = "Pilot rebirth - reset for permanent bonuses" },
+	{ label = "[P] Profile",    key = "P", menuName = "ProfileGUI",     color = Color3.fromRGB(200, 180, 255), desc = "Player profile, sigils & rebirth" },
 	{ label = "[H] Recall", key = "H", menuName = "GoHome",  color = Color3.fromRGB(255, 220, 100), desc = "Channel 5s to return to base (interrupt on damage)" },
 }
+
+local indicatorMenuAliases = {
+	EggShopGUI = "ShopHubGUI",
+	BuffShopGUI = "ShopHubGUI",
+	CosmeticShopGUI = "ShopHubGUI",
+}
+
+local function normalizeIndicatorMenuName(menuName)
+	return indicatorMenuAliases[menuName] or menuName
+end
 
 -- Create or reuse shared BindableEvent for menu toggling (so menu scripts can connect before we run)
 local function ensureToggleEvent()
@@ -87,7 +95,7 @@ end
 local textScale = getTextScale()
 
 
--- BAR LAYOUT (scale-based, design reference 1920x1080)
+-- BAR LAYOUT (scale-based, design reference 1920x1080)sd
 -- Container sits at bottom-center; BAR_HEIGHT_SCALE = bar height (reduced to give more space for target UI above)
 local BAR_HEIGHT_SCALE = 32/1080
 -- Button height +50% (selectable buttons around the text)
@@ -250,11 +258,12 @@ list.SortOrder = Enum.SortOrder.LayoutOrder
 		local btnPos = btn.AbsolutePosition
 		local btnSize = btn.AbsoluteSize
 		local toolPos = toolbar.AbsolutePosition
-		-- Exact dimensions of button for perfect outline; offset left for alignment
-		local INDICATOR_OFFSET_LEFT = 6
-		local x = (btnPos.X - toolPos.X) + btnSize.X / 2 - INDICATOR_OFFSET_LEFT
-		local y = (btnPos.Y - toolPos.Y) + btnSize.Y / 2
-		indicator.Size = UDim2.new(0, btnSize.X, 0, btnSize.Y)
+		-- FIX #19: Indicator position must subtract toolbar UIPadding (Left=12, Top=6)
+		-- because indicator.Position is relative to the padded content area, but
+		-- AbsolutePosition differences are relative to toolbar's outer edge.
+		local x = (btnPos.X - toolPos.X) + btnSize.X / 2 - 12
+		local y = (btnPos.Y - toolPos.Y) + btnSize.Y / 2 - 4
+		indicator.Size = UDim2.new(0, btnSize.X + 4, 0, btnSize.Y + 4)
 		indGlow.Size = UDim2.new(1, 0, 1, 0)
 		local targetPos = UDim2.new(0, x, 0, y)
 		if animate then
@@ -460,7 +469,7 @@ end
 
 	-- Keyboard shortcuts fire HUDToggleMenu; sync active indicator
 	toggleEvent.Event:Connect(function(menuName)
-		setActiveAndMove(menuName, true)
+		setActiveAndMove(normalizeIndicatorMenuName(menuName), true)
 	end)
 
 	-- Combat hint (top center; recreated on restore so it survives respawn)
@@ -479,7 +488,7 @@ end
 	local hintLbl = Instance.new("TextLabel")
 	hintLbl.Size = UDim2.new(1, 0, 1, 0)
 	hintLbl.BackgroundTransparency = 1
-	hintLbl.Text = "Select target to attack | [F] Ranged/Melee | [E] Target nearest"
+	hintLbl.Text = "Select target to attack | [F] Ranged/Melee | [E] Target nearest | [Shift] Sprint"
 	hintLbl.TextColor3 = Color3.fromRGB(140, 150, 180)
 	hintLbl.Font = Enum.Font.GothamMedium
 	hintLbl.TextSize = math.max(10, math.floor(10 * textScale))

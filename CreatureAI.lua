@@ -59,6 +59,7 @@ local function getCachedExcludeList()
 	return list
 end
 -- Ocean: only water object in game (Biomes -> OceanBiome -> Ocean -> Ocean). Creatures move vertically only when inside it.
+-- Fallback: if that hierarchy is missing, use first tagged WaterBlock under Biomes -> Ocean or Biomes -> OceanBiome.
 local _oceanPart = nil
 local function getOceanPart()
 	if _oceanPart and _oceanPart.Parent then return _oceanPart end
@@ -67,6 +68,18 @@ local function getOceanPart()
 	local oceanFolder = oceanBiome and oceanBiome:FindFirstChild("Ocean")
 	_oceanPart = oceanFolder and oceanFolder:FindFirstChild("Ocean")
 	if _oceanPart and not _oceanPart:IsA("BasePart") then _oceanPart = nil end
+	if not _oceanPart and biomes then
+		local oceanContainer = biomes:FindFirstChild("Ocean") or biomes:FindFirstChild("OceanBiome")
+		if oceanContainer then
+			local tag = (GameConfig and GameConfig.WaterBlockTag) or "WaterBlock"
+			for _, part in ipairs(CollectionService:GetTagged(tag)) do
+				if part and part:IsA("BasePart") and part.Parent and part:IsDescendantOf(oceanContainer) then
+					_oceanPart = part
+					break
+				end
+			end
+		end
+	end
 	return _oceanPart
 end
 
@@ -82,6 +95,11 @@ end
 -- Returns the Ocean part (Biomes -> OceanBiome -> Ocean -> Ocean) or nil. Used to clamp companion Y to water bounds.
 function CreatureAI.GetOceanPart()
 	return getOceanPart()
+end
+
+-- Returns the WaterBlock part containing worldPos, or nil. Used by companion system to clamp Y to water volume bounds.
+function CreatureAI.GetWaterBlockContaining(worldPos)
+	return getWaterBlockContaining(worldPos)
 end
 
 -- WaterBlock parts (tagged): aquatic creatures seek these out and wander within bounds; surface to breathe.
@@ -343,15 +361,35 @@ local function moveTowards(body, target, speed, dt, creatureId)
 		end
 	end
 
+	-- Block movement through walls/terrain: raycast path; if blocked, stop at obstruction
+	local toNew = newPos - pos
+	local moveDist = toNew.Magnitude
+	if moveDist > 0.01 then
+		local rayParams = RaycastParams.new()
+		rayParams.FilterType = Enum.RaycastFilterType.Exclude
+		rayParams.FilterDescendantsInstances = getCachedExcludeList()
+		local rayDir = toNew.Unit
+		local bodyRadius = math.max(body.Size.X, body.Size.Y, body.Size.Z) * 0.5
+		local hit = Workspace:Raycast(pos, rayDir * (moveDist + bodyRadius * 0.5), rayParams)
+		if hit and hit.Distance < moveDist + 0.1 then
+			-- Stop short of wall; stay just outside surface
+			newPos = hit.Position - hit.Normal * (bodyRadius + 0.2)
+			if not isWater3D and model and creatureId then
+				newPos = Vector3.new(newPos.X, getDesiredBodyY(body, model, creatureId, newPos.X, newPos.Z), newPos.Z)
+			end
+		end
+	end
+
 	body.Position = newPos
 end
 
--- center: Vector3, radius: number, creatureId: optional — Water type gets 3D wander (random Y) only when center is inside Ocean
+-- center: Vector3, radius: number, creatureId: optional — Water type gets 3D wander (random Y) when center is inside Ocean or WaterBlock
 local function getRandomWanderPoint(center, radius, creatureId)
 	local angle = math.random() * math.pi * 2
 	local dist = math.random() * radius
 	local offset = Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist)
-	if creatureId and CreatureData.IsWaterType(creatureId) and CreatureAI.IsPositionInOcean(center) then
+	-- FIX #20: Water creatures get vertical wander in both Ocean AND WaterBlock volumes
+	if creatureId and CreatureData.IsWaterType(creatureId) and (CreatureAI.IsPositionInOcean(center) or CreatureAI.IsPositionInWaterBlock(center)) then
 		offset = Vector3.new(offset.X, (math.random() * 2 - 1) * radius * 0.4, offset.Z)
 	end
 	return center + offset
@@ -830,6 +868,20 @@ local function updateCreature(model, state, dt)
 		end
 	end
 
+	-- Runtime: if water creature is inside a WaterBlock but wasn't registered with aquaticWaterBlock, assign it so they get full-bounds wander and vertical swimming
+	if CreatureData.IsWaterType(state.id) and not (state.aquaticWaterBlock and state.waterBlockPart) then
+		local wb = getWaterBlockContaining(pos)
+		if wb then
+			state.waterBlockPart = wb
+			state.aquaticWaterBlock = true
+			state.breathState = "underwater"
+			state.underwaterSince = tick()
+			local baseSec = GameConfig.WaterBreathUnderwaterBaseSeconds or 30
+			local mult = (GameConfig.WaterBreathRarityMultiplier and GameConfig.WaterBreathRarityMultiplier[info.rarity]) or 1
+			state.maxUnderwaterTime = baseSec * mult
+		end
+	end
+
 	local speedMult = info.speed / 10
 
 	-- Idle delay: if model hasn't moved for 2 seconds, prefer Idle over Move
@@ -901,7 +953,7 @@ local function updateCreature(model, state, dt)
 			if CreatureAI.IsPositionInWaterBlock(pos) then
 				state.breathState = "underwater"
 				state.underwaterSince = now
-				state.wanderTarget = getRandomPointInWaterBlock(wb, true)
+				state.wanderTarget = getRandomPointInWaterBlock(wb, false)
 			else
 				state.wanderTarget = targetPos
 			end
@@ -913,7 +965,7 @@ local function updateCreature(model, state, dt)
 				state.surfaceTarget = getSurfacePositionInWaterBlock(wb, pos)
 			else
 				if not state.wanderTarget or (body.Position - state.wanderTarget).Magnitude < 3 then
-					state.wanderTarget = getRandomPointInWaterBlock(wb, true)
+					state.wanderTarget = getRandomPointInWaterBlock(wb, false)
 				end
 				moveTowards(body, state.wanderTarget, GameConfig.AI_WanderSpeed * speedMult, dt, state.id)
 			end
@@ -932,10 +984,10 @@ local function updateCreature(model, state, dt)
 			body.Position = clampPositionToWaterBlock(holdPos, wb)
 			if now >= state.surfaceUntil then
 				state.breathState = "diving"
-				state.diveTarget = getRandomPointInWaterBlock(wb, true)
+				state.diveTarget = getRandomPointInWaterBlock(wb, false)
 			end
 		elseif state.breathState == "diving" then
-			state.diveTarget = state.diveTarget or getRandomPointInWaterBlock(wb, true)
+			state.diveTarget = state.diveTarget or getRandomPointInWaterBlock(wb, false)
 			moveTowards(body, state.diveTarget, GameConfig.AI_WanderSpeed * speedMult * 1.2, dt, state.id)
 			body.Position = clampPositionToWaterBlock(body.Position, wb)
 			if (body.Position - state.diveTarget).Magnitude < 3 then
@@ -1135,8 +1187,8 @@ local function updateCreature(model, state, dt)
 			if math.abs(body.Position.Y - desiredY) > 0.1 then
 				body.Position = Vector3.new(body.Position.X, desiredY, body.Position.Z)
 			end
-		elseif CreatureData.IsWaterType(state.id) and not CreatureAI.IsPositionInOcean(body.Position) then
-			-- Water creatures outside Ocean: snap to ground level (revert to old movement)
+		elseif CreatureData.IsWaterType(state.id) and not (CreatureAI.IsPositionInOcean(body.Position) or CreatureAI.IsPositionInWaterBlock(body.Position)) then
+			-- Water creatures outside Ocean and outside WaterBlock: snap to ground level (revert to old movement)
 			local desiredY = getDesiredBodyY(body, model, state.id, pos.X, pos.Z)
 			if math.abs(body.Position.Y - desiredY) > 0.1 then
 				body.Position = Vector3.new(body.Position.X, desiredY, body.Position.Z)
@@ -1333,7 +1385,8 @@ local function updateCreature(model, state, dt)
 			fleeFrom = CreatureModelLoader.GetBodyPart(state.target) or state.target:FindFirstChild("Body") or state.target:FindFirstChild("HumanoidRootPart")
 		end
 		if fleeFrom then
-			local isWater3D = CreatureData.IsWaterType(state.id) and CreatureAI.IsPositionInOcean(body.Position)
+			-- FIX #20: Water creatures flee in 3D in both Ocean and WaterBlock volumes
+			local isWater3D = CreatureData.IsWaterType(state.id) and (CreatureAI.IsPositionInOcean(body.Position) or CreatureAI.IsPositionInWaterBlock(body.Position))
 			local away = isWater3D and (pos - fleeFrom.Position) or (pos - fleeFrom.Position) * Vector3.new(1, 0, 1)
 			if away.Magnitude > 0.1 then
 				local newPos = body.Position + away.Unit * GameConfig.AI_FleeSpeed * speedMult * dt

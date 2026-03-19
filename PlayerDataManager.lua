@@ -13,13 +13,39 @@ local PlayerDataManager = {}
 local DATA_STORE_NAME = "MonsterSiege_PlayerData_v1"
 local AUTO_SAVE_INTERVAL = 120
 local MAX_RETRIES = 3
-local MAX_BATTLE_TEAM = GameConfig.MaxBattleTeamSize or 9
+-- FIX #22: MaxBattleTeamSize is the GRID size (9 slots in 3x3 layout).
+-- MaxBattleTeamCreatures is the actual creature limit (default 5).
+-- Previously used grid size as creature limit, allowing 9 creatures on a 5-creature team.
+local MAX_BATTLE_TEAM = GameConfig.MaxBattleTeamCreatures or 5
 local GRID_SLOTS = 9
 
 local dataStore = DataStoreService:GetDataStore(DATA_STORE_NAME)
 local playerCache = {}
+local AchievementObserver = nil
 -- plotId -> userId: atomic source of truth to prevent two players claiming same base
 local claimedPlotIds = {}
+
+function PlayerDataManager.BindAchievementObserver(observer)
+	AchievementObserver = observer
+end
+
+function PlayerDataManager.NotifyAchievement(eventName, ...)
+	local observer = AchievementObserver
+	local handler = observer and observer[eventName]
+	if type(handler) ~= "function" then
+		return
+	end
+
+	local args = table.pack(...)
+	task.defer(function()
+		local ok, err = pcall(function()
+			handler(observer, table.unpack(args, 1, args.n))
+		end)
+		if not ok then
+			warn("[PlayerDataManager] Achievement event failed:", tostring(eventName), tostring(err))
+		end
+	end)
+end
 
 local function getDefaultData()
 	local startingCoins = (GameConfig.DebugCoins1000 and 1000) or GameConfig.StartingCoins
@@ -32,7 +58,7 @@ local function getDefaultData()
 		favoriteUid  = nil,
 		battleTeam   = {},  -- { [1]=uid, [3]=uid, ... } number keys only, max 5 of 9
 		battleTeamEnabled = true,  -- when false, team is not active for arena/raids (toggle without clearing)
-		stats        = { totalCaptured = 0, totalRaids = 0, arenaWins = 0, arenaLosses = 0, arenaWinStreak = 0, arenaMaxStreak = 0, totalIncome = 0 },
+		stats        = { totalCaptured = 0, totalRaids = 0, defenseKills = 0, arenaWins = 0, arenaLosses = 0, arenaWinStreak = 0, arenaMaxStreak = 0, totalIncome = 0 },
 		settings     = {},
 		plotId       = 0,
 		baseCreaturePositions = {},
@@ -46,6 +72,16 @@ local function getDefaultData()
 		ownedFloors  = {1},  -- array of floor numbers owned; starts with Floor 1
 		eggs         = {},   -- { { uid, creatureId, level, rarity, hatchMinutes, createdAt }, ... }; place on base/defense to hatch
 		rebirthLevel = 0,    -- pilot rebirth level (0 = never rebirthed); bonuses apply to passive gold, damage, health
+		-- Zone doors / sigils: 4 boss sieglings (Ocean, Desert, Electric, Cave); 4 sigils open one door; gym win grants key for another
+		sigils             = {},  -- { Ocean = true, Desert = true, ... } when that boss is defeated
+		firstZoneDoorOpened = nil, -- zoneId opened with "4 sigils" choice, or nil
+		zoneKeysFromGyms   = {},  -- { Ocean = true, ... } key earned by winning that zone's gym
+		doorsUnlocked      = {},  -- { Ocean = true, ... } which ZoneDoors are open
+
+		-- Achievements: { [achievementId] = { progress = number, unlocked = boolean, unlockedAt = unixTime? }, ... }
+		-- Some achievements are derived from existing stats/inventory; others are driven by systems via AchievementsSystem.
+		achievements = {},
+		achievementMetrics = { counters = {}, best = {}, sets = {} },
 	}
 end
 
@@ -86,6 +122,53 @@ local function countBattleTeam(bt)
 		if uid and uid ~= "" then c = c + 1 end
 	end
 	return c
+end
+
+local function trimString(s)
+	return (s:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+-- Nickname safety filter:
+-- - common curse words
+-- - common sexual terms
+-- - common racist slur stems
+-- Uses both raw lowercase text and a compacted/leet-normalized form to catch simple bypasses.
+local BANNED_NICKNAME_TERMS = {
+	-- Curse words
+	"fuck", "shit", "bitch", "asshole", "bastard", "dick", "pussy", "cunt",
+	"motherfucker", "mf", "wtf", "fuk", "fck", "sh1t", "biatch",
+	-- Sexual content
+	"sex", "sexy", "porn", "porno", "nude", "naked", "boobs", "tits", "penis",
+	"vagina", "blowjob", "handjob", "cum", "orgasm", "fetish", "bdsm", "onlyfans",
+	-- Racist slur stems (stems used to catch inflections/plurals)
+	"nigg", "fagg", "chink", "gook", "kike", "spic", "wetback", "paki", "coon",
+}
+
+local function normalizeNicknameForFilter(s)
+	local t = string.lower(tostring(s or ""))
+	-- Basic leetspeak substitutions.
+	t = t:gsub("0", "o")
+		:gsub("1", "i")
+		:gsub("3", "e")
+		:gsub("4", "a")
+		:gsub("5", "s")
+		:gsub("7", "t")
+		:gsub("@", "a")
+		:gsub("%$", "s")
+	-- Keep alphanumeric only for compact matching.
+	t = t:gsub("[^%a%d]", "")
+	return t
+end
+
+local function nicknameHasBannedContent(name)
+	local raw = string.lower(tostring(name or ""))
+	local compact = normalizeNicknameForFilter(name)
+	for _, term in ipairs(BANNED_NICKNAME_TERMS) do
+		if string.find(raw, term, 1, true) or string.find(compact, term, 1, true) then
+			return true
+		end
+	end
+	return false
 end
 
 function PlayerDataManager.GenerateUID()
@@ -133,14 +216,93 @@ function PlayerDataManager.SpendCoins(player, amount)
 	return false
 end
 
-function PlayerDataManager.AddCreature(player, creatureId, level, xp, variant, existingUid)
+-- -------- Sigils / Zone doors --------
+local ZONE_IDS = GameConfig.ZoneDoorZoneIds or { "Ocean", "Desert", "Electric", "Cave" }
+
+function PlayerDataManager.AddSigil(player, zoneId)
+	local d = playerCache[player.UserId]
+	if not d then return end
+	if not d.sigils then d.sigils = {} end
+	d.sigils[zoneId] = true
+	PlayerDataManager.NotifyAchievement("OnSigilEarned", player, zoneId)
+end
+
+function PlayerDataManager.HasSigil(player, zoneId)
+	local d = playerCache[player.UserId]
+	return d and d.sigils and (d.sigils[zoneId] == true or d.sigils[zoneId] == "true")
+end
+
+function PlayerDataManager.GetSigilCount(player)
+	local d = playerCache[player.UserId]
+	if not d or not d.sigils then return 0 end
+	local n = 0
+	for _, zid in ipairs(ZONE_IDS) do
+		if d.sigils[zid] == true or d.sigils[zid] == "true" then n = n + 1 end
+	end
+	return n
+end
+
+function PlayerDataManager.CanSpendFourSigils(player)
+	local d = playerCache[player.UserId]
+	return d and (d.firstZoneDoorOpened == nil or d.firstZoneDoorOpened == "") and PlayerDataManager.GetSigilCount(player) >= 4
+end
+
+function PlayerDataManager.SpendFourSigilsOpenDoor(player, zoneId)
+	if not PlayerDataManager.CanSpendFourSigils(player) then return false end
+	local valid = false
+	for _, zid in ipairs(ZONE_IDS) do
+		if zid == zoneId then valid = true; break end
+	end
+	if not valid then return false end
+	local d = playerCache[player.UserId]
+	d.firstZoneDoorOpened = zoneId
+	if not d.doorsUnlocked then d.doorsUnlocked = {} end
+	d.doorsUnlocked[zoneId] = true
+	PlayerDataManager.NotifyAchievement("OnDoorUnlocked", player, zoneId, "sigils")
+	return true
+end
+
+function PlayerDataManager.AddZoneKeyFromGym(player, zoneId)
+	local d = playerCache[player.UserId]
+	if not d then return end
+	if not d.zoneKeysFromGyms then d.zoneKeysFromGyms = {} end
+	d.zoneKeysFromGyms[zoneId] = true
+	PlayerDataManager.NotifyAchievement("OnGymWin", player, zoneId)
+end
+
+function PlayerDataManager.HasZoneKey(player, zoneId)
+	local d = playerCache[player.UserId]
+	return d and d.zoneKeysFromGyms and (d.zoneKeysFromGyms[zoneId] == true or d.zoneKeysFromGyms[zoneId] == "true")
+end
+
+function PlayerDataManager.UnlockDoorWithKey(player, zoneId)
+	local d = playerCache[player.UserId]
+	if not d or not PlayerDataManager.HasZoneKey(player, zoneId) then return false end
+	if PlayerDataManager.IsDoorUnlocked(player, zoneId) then return true end
+	if not d.doorsUnlocked then d.doorsUnlocked = {} end
+	d.doorsUnlocked[zoneId] = true
+	PlayerDataManager.NotifyAchievement("OnDoorUnlocked", player, zoneId, "key")
+	return true
+end
+
+function PlayerDataManager.IsDoorUnlocked(player, zoneId)
+	local d = playerCache[player.UserId]
+	return d and d.doorsUnlocked and (d.doorsUnlocked[zoneId] == true or d.doorsUnlocked[zoneId] == "true")
+end
+
+function PlayerDataManager.AddCreature(player, creatureId, level, xp, variant, existingUid, context)
 	local d = playerCache[player.UserId]
 	if not d or #d.inventory >= GameConfig.MaxInventorySize then return nil end
 	-- Use existing unique id when provided (e.g. from captured world creature) so creature data is maintained
 	local uid = (type(existingUid) == "string" and #existingUid > 0) and existingUid or PlayerDataManager.GenerateUID()
 	variant = variant or "Normal"
 	table.insert(d.inventory, { id = creatureId, uid = uid, level = level or 1, xp = xp or 0, variant = variant })
-	d.stats.totalCaptured = d.stats.totalCaptured + 1
+	local source = context and context.source
+	if source == "capture" then
+		PlayerDataManager.NotifyAchievement("OnCapture", player, creatureId, context)
+	else
+		PlayerDataManager.NotifyAchievement("OnAcquireCreature", player, creatureId, context)
+	end
 	return uid
 end
 
@@ -280,7 +442,7 @@ function PlayerDataManager.RemoveCreature(player, uid)
 	return nil
 end
 
-function PlayerDataManager.TransferCreature(fromPlayer, toPlayer, uid)
+function PlayerDataManager.TransferCreature(fromPlayer, toPlayer, uid, context)
 	local fd = playerCache[fromPlayer.UserId]
 	local td = playerCache[toPlayer.UserId]
 	if not fd or not td or #td.inventory >= GameConfig.MaxInventorySize then return false end
@@ -300,8 +462,48 @@ function PlayerDataManager.TransferCreature(fromPlayer, toPlayer, uid)
 		level = entry.level or 1,
 		xp = entry.xp or 0,
 		variant = entry.variant or "Normal",
+		nickname = entry.nickname,
+		nicknameEverSet = entry.nicknameEverSet == true,
 	})
+	PlayerDataManager.NotifyAchievement("OnAcquireCreature", toPlayer, entry.id, context)
 	return true
+end
+
+-- Set or rename a creature nickname.
+-- First naming is free; later changes cost gems ("diamonds").
+-- Returns: success, message, gemCostApplied, finalNickname
+function PlayerDataManager.SetCreatureNickname(player, uid, nickname)
+	local d = playerCache[player.UserId]
+	if not d then return false, "No data", 0, nil end
+	local entry = PlayerDataManager.GetCreatureByUid(player, uid)
+	if not entry then return false, "Creature not found", 0, nil end
+	if type(nickname) ~= "string" then return false, "Invalid name", 0, nil end
+	local cleaned = trimString(nickname)
+	local maxLen = tonumber(GameConfig.CreatureNicknameMaxLength) or 20
+	if cleaned == "" then return false, "Name cannot be empty", 0, nil end
+	if #cleaned > maxLen then
+		return false, ("Name too long (max %d)"):format(maxLen), 0, nil
+	end
+	if nicknameHasBannedContent(cleaned) then
+		return false, "Name not allowed by content filter", 0, nil
+	end
+
+	local oldName = trimString(entry.nickname or "")
+	if oldName ~= "" and oldName == cleaned then
+		return true, "Name unchanged", 0, cleaned
+	end
+
+	local gemCost = 0
+	if entry.nicknameEverSet == true then
+		gemCost = tonumber(GameConfig.CreatureRenameGemCost) or 5
+		if gemCost > 0 and not PlayerDataManager.SpendGems(player, gemCost) then
+			return false, ("Need %d diamonds to rename"):format(gemCost), 0, nil
+		end
+	end
+
+	entry.nickname = cleaned
+	entry.nicknameEverSet = true
+	return true, (gemCost > 0 and "Renamed!" or "Nickname set!"), gemCost, cleaned
 end
 
 -- ====== COMBINE (3 same creature + same variant → 1 of next variant) ======
@@ -373,6 +575,7 @@ function PlayerDataManager.EvolveCreature(player, uid)
 	local entry = PlayerDataManager.GetCreatureByUid(player, uid)
 	if not entry then return false, "Creature not found" end
 
+	local previousId = entry.id
 	local nextId = CreatureData.GetEvolvesTo(entry.id)
 	if not nextId then return false, "This creature cannot evolve" end
 	-- Block if evolution isn't available in-game (no model yet or marked coming soon)
@@ -387,6 +590,7 @@ function PlayerDataManager.EvolveCreature(player, uid)
 	end
 
 	entry.id = nextId
+	PlayerDataManager.NotifyAchievement("OnEvolution", player, previousId, nextId)
 	return true
 end
 
@@ -409,13 +613,14 @@ function PlayerDataManager.GetEggByUid(player, uid)
 	return nil
 end
 
-function PlayerDataManager.AddEgg(player, creatureId, level, rarity)
+function PlayerDataManager.AddEgg(player, creatureId, level, rarity, isMystery)
 	local d = playerCache[player.UserId]
 	if not d then return nil end
 	if not d.eggs then d.eggs = {} end
 	local lvl = math.max(1, tonumber(level) or 1)
 	local hatchMinutes = PlayerDataManager.GetHatchMinutesForLevel(lvl)
 	local uid = PlayerDataManager.GenerateUID()
+	local mystery = isMystery == true
 	table.insert(d.eggs, {
 		uid = uid,
 		creatureId = creatureId,
@@ -423,8 +628,45 @@ function PlayerDataManager.AddEgg(player, creatureId, level, rarity)
 		rarity = rarity or "Common",
 		hatchMinutes = hatchMinutes,
 		createdAt = os.time(),
+		mystery = mystery,
+		inspected = mystery and false or true,
 	})
 	return uid
+end
+
+-- Reveal a mystery egg's creature by spending gems ("diamonds").
+-- Returns: success, message, eggTableOrNil
+function PlayerDataManager.InspectEgg(player, uid)
+	local d = playerCache[player.UserId]
+	if not d or not d.eggs then return false, "No data", nil end
+	local egg = PlayerDataManager.GetEggByUid(player, uid)
+	if not egg then return false, "Egg not found", nil end
+	local su = tostring(uid)
+	local placed = false
+	for _, slotUid in ipairs(d.baseSlots or {}) do
+		if tostring(slotUid or "") == su then placed = true break end
+	end
+	if not placed then
+		for _, slotUid in ipairs(d.defenseSlots or {}) do
+			if tostring(slotUid or "") == su then placed = true break end
+		end
+	end
+	if not placed then
+		return false, "Place the egg at your base first", nil
+	end
+	if egg.mystery ~= true then
+		egg.inspected = true
+		return true, "This egg is already known", egg
+	end
+	if egg.inspected == true then
+		return true, "Already inspected", egg
+	end
+	local cost = tonumber(GameConfig.EggInspectGemCost) or 5
+	if cost > 0 and not PlayerDataManager.SpendGems(player, cost) then
+		return false, ("Need %d diamonds to inspect"):format(cost), nil
+	end
+	egg.inspected = true
+	return true, "Inspected!", egg
 end
 
 function PlayerDataManager.RemoveEgg(player, uid)
@@ -458,7 +700,7 @@ function PlayerDataManager.ProcessEggHatches(player)
 			local hatchAt = egg.createdAt + egg.hatchMinutes * 60
 			if now >= hatchAt then
 				-- Hatch: add creature to inventory, remove egg from slots and eggs list
-				local newUid = PlayerDataManager.AddCreature(player, egg.creatureId, egg.level, 0)
+				local newUid = PlayerDataManager.AddCreature(player, egg.creatureId, egg.level, 0, nil, nil, { source = "egg_hatch" })
 				removeFromAllSlots(d, uid)
 				PlayerDataManager.RemoveEgg(player, uid)
 				slotList[i] = newUid  -- same slot, new creature uid
@@ -624,6 +866,7 @@ function PlayerDataManager.AssignToBase(player, uid, optionalSlotIndex)
 		if not isCreatureOrEggUid(d, uid) then return false, nil, nil end
 		removeFromAllSlots(d, uid)
 		d.baseSlots[optionalSlotIndex] = tostring(uid)
+		PlayerDataManager.NotifyAchievement("OnSlotAssigned", player, "income", uid)
 		return true, optionalSlotIndex, true
 	end
 	-- First empty slot
@@ -632,6 +875,7 @@ function PlayerDataManager.AssignToBase(player, uid, optionalSlotIndex)
 	removeFromAllSlots(d, uid)
 	local slot = firstEmptySlot(d.baseSlots, maxSlots)
 	d.baseSlots[slot] = tostring(uid)
+	PlayerDataManager.NotifyAchievement("OnSlotAssigned", player, "income", uid)
 	return true, slot, true
 end
 
@@ -673,6 +917,7 @@ function PlayerDataManager.AssignToDefense(player, uid, optionalSlotIndex)
 		if not isCreatureOrEggUid(d, uid) then return false, nil, nil end
 		removeFromAllSlots(d, uid)
 		d.defenseSlots[optionalSlotIndex] = tostring(uid)
+		PlayerDataManager.NotifyAchievement("OnSlotAssigned", player, "defense", uid)
 		return true, optionalSlotIndex, true
 	end
 	if countFilledSlots(d.defenseSlots, maxSlots) >= maxSlots then return false, nil, nil end
@@ -680,6 +925,7 @@ function PlayerDataManager.AssignToDefense(player, uid, optionalSlotIndex)
 	removeFromAllSlots(d, uid)
 	local slot = firstEmptySlot(d.defenseSlots, maxSlots)
 	d.defenseSlots[slot] = tostring(uid)
+	PlayerDataManager.NotifyAchievement("OnSlotAssigned", player, "defense", uid)
 	return true, slot, true
 end
 
@@ -1135,6 +1381,10 @@ function PlayerDataManager.OnPlayerJoin(player)
 		if data.ownedFloors == nil then data.ownedFloors = {1} end
 		if data.eggs == nil then data.eggs = {} end
 		if data.rebirthLevel == nil then data.rebirthLevel = 0 end
+		if type(data.achievementMetrics) ~= "table" then data.achievementMetrics = {} end
+		if type(data.achievementMetrics.counters) ~= "table" then data.achievementMetrics.counters = {} end
+		if type(data.achievementMetrics.best) ~= "table" then data.achievementMetrics.best = {} end
+		if type(data.achievementMetrics.sets) ~= "table" then data.achievementMetrics.sets = {} end
 		-- CRITICAL: normalize battleTeam keys from strings to numbers ONCE on load
 		data.battleTeam = normalizeBattleTeam(data.battleTeam)
 		if data.battleTeamEnabled == nil then data.battleTeamEnabled = true end  -- backfill for existing players
@@ -1146,6 +1396,12 @@ function PlayerDataManager.OnPlayerJoin(player)
 			if e.level == nil then e.level = 1 end
 			if e.xp == nil then e.xp = 0 end
 			if e.variant == nil then e.variant = "Normal" end
+		end
+		-- Normalize egg inspect fields:
+		-- legacy eggs (no mystery flag) are treated as known and already inspected.
+		for _, egg in ipairs(data.eggs) do
+			if egg.mystery == nil then egg.mystery = false end
+			if egg.inspected == nil then egg.inspected = (egg.mystery ~= true) end
 		end
 		-- Clear stale and duplicate slot UIDs. Stale = creature no longer in inventory. Duplicate = same UID in multiple slots (causes income creatures to spawn twice).
 		do
@@ -1415,6 +1671,9 @@ function PlayerDataManager.AddPlayerXP(player, amount)
 			leveled = true
 		else break end
 	end
+	if leveled then
+		PlayerDataManager.NotifyAchievement("OnPlayerLevelChanged", player, d.playerLevel)
+	end
 	return d.playerLevel, leveled
 end
 
@@ -1451,6 +1710,7 @@ function PlayerDataManager.BuyFloor(player, floorNum)
 	if d.coins < cost then return false, "Not enough coins" end
 	d.coins = d.coins - cost
 	table.insert(d.ownedFloors, floorNum)
+	PlayerDataManager.NotifyAchievement("OnFloorUnlocked", player, floorNum)
 	return true, "Floor " .. floorNum .. " unlocked!"
 end
 
@@ -1486,6 +1746,7 @@ function PlayerDataManager.SellCreature(player, uid)
 		if tostring(e.uid) == su then table.remove(d.inventory, i); break end
 	end
 	d.coins = d.coins + sellPrice
+	PlayerDataManager.NotifyAchievement("OnSale", player, entry.id, sellPrice)
 	return true, sellPrice
 end
 

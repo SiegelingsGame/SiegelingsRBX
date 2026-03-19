@@ -83,9 +83,68 @@ local savedArenaFolder, savedBlueTeamFolder, savedRedTeamFolder
 -- Events
 local arenaEvents = {}
 
+-- Live state broadcast (server -> clients)
+local stateDirty = false
+local lastStateBroadcast = 0
+local STATE_BROADCAST_MIN_INTERVAL = 0.10 -- seconds; throttles event spam during combat
+
 -- --------------------------------------
 -- HELPERS
 -- --------------------------------------
+
+local function setArenaFighterAttributes(blueName, redName)
+	workspace:SetAttribute("ArenaFighterBlueName", blueName)
+	workspace:SetAttribute("ArenaFighterRedName", redName)
+end
+
+local function broadcastArenaState()
+	if not arenaEvents.ArenaStateUpdate then return end
+	if not battleInProgress then return end
+
+	local blue = {}
+	for _, c in ipairs(blueTeamCreatures) do
+		table.insert(blue, {
+			team = "blue",
+			pointIndex = c.pointIndex,
+			creatureId = c.creatureId,
+			uid = c.uid,
+			hp = c.hp,
+			maxHp = c.maxHp,
+			focus = c.focus or 0,
+			maxFocus = c.maxFocus or (GameConfig.FocusMax or 100),
+			alive = c.alive == true,
+			attack = c.attack,
+			speed = c.speed,
+		})
+	end
+
+	local red = {}
+	for _, c in ipairs(redTeamCreatures) do
+		table.insert(red, {
+			team = "red",
+			pointIndex = c.pointIndex,
+			creatureId = c.creatureId,
+			uid = c.uid,
+			hp = c.hp,
+			maxHp = c.maxHp,
+			focus = c.focus or 0,
+			maxFocus = c.maxFocus or (GameConfig.FocusMax or 100),
+			alive = c.alive == true,
+			attack = c.attack,
+			speed = c.speed,
+		})
+	end
+
+	local payload = {
+		blue = blue,
+		red = red,
+		t = os.clock(),
+	}
+
+	for _, p in ipairs(Players:GetPlayers()) do
+		arenaEvents.ArenaStateUpdate:FireClient(p, payload)
+	end
+end
 
 local function getPointsSorted(folder)
 	local pts = {}
@@ -418,6 +477,9 @@ local function updateHPBar(creatureData)
 	if label then
 		label.Text = math.max(0, math.floor(creatureData.hp)) .. "/" .. creatureData.maxHp
 	end
+
+	-- Mark dirty for client HUD
+	stateDirty = true
 end
 
 -- --------------------------------------
@@ -434,6 +496,9 @@ local function updateFocusBar(creatureData)
 	if not fill then return end
 	local pct = math.clamp((creatureData.focus or 0) / (creatureData.maxFocus or 100), 0, 1)
 	fill.Size = UDim2.new(pct, 0, 1, 0)
+
+	-- Mark dirty for client HUD
+	stateDirty = true
 end
 
 -- --------------------------------------
@@ -540,6 +605,9 @@ local ELEMENT_COLORS = {
 	Lightning = Color3.fromRGB(255, 230, 60),
 	Water = Color3.fromRGB(50, 150, 255),
 	Psychic = Color3.fromRGB(200, 150, 255),
+	Metal = Color3.fromRGB(160, 170, 180),
+	Poison = Color3.fromRGB(120, 220, 80),
+	Undead = Color3.fromRGB(140, 120, 160),
 }
 
 local function specialAttackVisual(attackerData, defenderData, element, damage)
@@ -754,6 +822,9 @@ local function deathVisual(creatureData)
 		-- Make fully invisible but don't destroy (cleanup does that)
 		if body.Parent then body.Transparency = 1 end
 	end)
+
+	-- Mark dirty for client HUD (alive -> false)
+	stateDirty = true
 end
 
 -- --------------------------------------
@@ -997,6 +1068,9 @@ local function payoutRewards(player, isWinner, teamBounty, enemyBounty, streak)
 				d.stats.arenaMaxStreak = d.stats.arenaWinStreak
 			end
 		end
+		if PlayerDataManager.NotifyAchievement then
+			PlayerDataManager.NotifyAchievement("OnArenaWin", player, d and d.stats and d.stats.arenaWinStreak or 0)
+		end
 
 		-- Award player XP for arena win
 		if PlayerDataManager.AddPlayerXP then
@@ -1011,7 +1085,7 @@ local function payoutRewards(player, isWinner, teamBounty, enemyBounty, streak)
 		-- Roll for bonus creature
 		local dropId, dropRarity = rollBonusDrop(streak)
 		if dropId then
-			local uid = PlayerDataManager.AddCreature(player, dropId)
+			local uid = PlayerDataManager.AddCreature(player, dropId, nil, nil, nil, nil, { source = "arena_reward" })
 			if uid then
 				reward.bonusCreature = dropId
 				reward.bonusRarity = dropRarity
@@ -1063,6 +1137,11 @@ local function runBattle()
 
 	task.wait(2) -- Pre-battle pause
 
+	-- Ensure HUD receives a start snapshot
+	stateDirty = true
+	lastStateBroadcast = 0
+	broadcastArenaState()
+
 	-- Combine all creatures and sort by speed (fastest acts first)
 	local allCreatures = {}
 	for _, c in ipairs(blueTeamCreatures) do table.insert(allCreatures, c) end
@@ -1110,6 +1189,11 @@ local function runBattle()
 				if attacker.hp <= 0 then
 					attacker.alive = false
 					deathVisual(attacker)
+				end
+				if stateDirty and (os.clock() - lastStateBroadcast) >= STATE_BROADCAST_MIN_INTERVAL then
+					lastStateBroadcast = os.clock()
+					stateDirty = false
+					broadcastArenaState()
 				end
 				task.wait(0.2)
 				if not attacker.alive then continue end
@@ -1203,6 +1287,11 @@ local function runBattle()
 				specialAttackVisual(attacker, target, elem, dmg)
 				target.hp = target.hp - dmg
 				updateHPBar(target)
+				if stateDirty and (os.clock() - lastStateBroadcast) >= STATE_BROADCAST_MIN_INTERVAL then
+					lastStateBroadcast = os.clock()
+					stateDirty = false
+					broadcastArenaState()
+				end
 
 				-- Slow the battle for special attack
 				task.wait(GameConfig.SpecialAttackDuration or 2.5)
@@ -1216,6 +1305,11 @@ local function runBattle()
 				-- Gain focus
 				attacker.focus = math.min(attacker.maxFocus or 100, (attacker.focus or 0) + (GameConfig.FocusGainPerAttack or 25))
 				updateFocusBar(attacker)
+				if stateDirty and (os.clock() - lastStateBroadcast) >= STATE_BROADCAST_MIN_INTERVAL then
+					lastStateBroadcast = os.clock()
+					stateDirty = false
+					broadcastArenaState()
+				end
 
 				task.wait(BATTLE_TICK_SPEED / math.max(1, #allCreatures / 3))
 			end
@@ -1223,6 +1317,11 @@ local function runBattle()
 			if target.hp <= 0 then
 				target.alive = false
 				deathVisual(target)
+				if stateDirty and (os.clock() - lastStateBroadcast) >= STATE_BROADCAST_MIN_INTERVAL then
+					lastStateBroadcast = os.clock()
+					stateDirty = false
+					broadcastArenaState()
+				end
 
 				-- Award kill XP to the attacker's creature
 				local attackerOwner = attacker.team == "blue" and currentKing or currentChallenger
@@ -1277,6 +1376,11 @@ local function runBattle()
 			arenaEvents.BattleEnd:FireClient(p, winName, winnerTeam, blueAlive, redAlive)
 		end
 	end
+
+	-- Final snapshot for UI
+	stateDirty = true
+	lastStateBroadcast = 0
+	broadcastArenaState()
 
 	-- -- REWARDS --
 	local loserCreatures = winnerTeam == "blue" and redTeamCreatures or blueTeamCreatures
@@ -1431,6 +1535,7 @@ local function runBattle()
 
 	battleInProgress = false
 	workspace:SetAttribute("ArenaBattleInProgress", false)
+	setArenaFighterAttributes(nil, nil)
 	print("[Arena] Battle complete! Winner: " .. winnerTeam .. " | King streak: " .. kingWinStreak)
 end
 
@@ -1505,6 +1610,7 @@ local function startRound()
 	-- LOCK: prevent any base refresh from re-placing battle creatures
 	battleInProgress = true
 	workspace:SetAttribute("ArenaBattleInProgress", true)
+	setArenaFighterAttributes(player and player.Name or nil, "Gym Leader")
 
 	-- Clear arena of any leftover models from previous round
 	clearArena()
@@ -1532,6 +1638,7 @@ local function startRound()
 		challengerTeam = generateAITeam(5)
 		challengerName = "AI Challenger"
 	end
+	setArenaFighterAttributes(king and king.Name or nil, challengerName)
 
 	-- Announce
 	if arenaEvents.ArenaAnnounce then
@@ -1568,7 +1675,11 @@ local function startRound()
 				rarity = info and info.rarity or "Common",
 				hp = c.hp,
 				maxHp = c.maxHp,
+				focus = c.focus or 0,
+				maxFocus = c.maxFocus or (GameConfig.FocusMax or 100),
 				pointIndex = c.pointIndex,
+				attack = c.attack,
+				speed = c.speed,
 				primaryColor = info and {info.primaryColor.R * 255, info.primaryColor.G * 255, info.primaryColor.B * 255} or {180, 180, 180},
 			})
 		end
@@ -1581,7 +1692,11 @@ local function startRound()
 				rarity = info and info.rarity or "Common",
 				hp = c.hp,
 				maxHp = c.maxHp,
+				focus = c.focus or 0,
+				maxFocus = c.maxFocus or (GameConfig.FocusMax or 100),
 				pointIndex = c.pointIndex,
+				attack = c.attack,
+				speed = c.speed,
 				primaryColor = info and {info.primaryColor.R * 255, info.primaryColor.G * 255, info.primaryColor.B * 255} or {180, 180, 180},
 			})
 		end
@@ -1589,6 +1704,11 @@ local function startRound()
 			arenaEvents.BattleTeamsPlaced:FireClient(p, blueData, redData, king.Name, challengerName)
 		end
 	end
+
+	-- Initial state snapshot for UI (HP/SP start values)
+	stateDirty = true
+	lastStateBroadcast = 0
+	broadcastArenaState()
 
 	task.wait(2)
 
@@ -1598,6 +1718,7 @@ local function startRound()
 		warn("[Arena] runBattle error: " .. tostring(battleErr))
 		battleInProgress = false
 		workspace:SetAttribute("ArenaBattleInProgress", false)
+		setArenaFighterAttributes(nil, nil)
 		clearArena()
 	end
 end
@@ -1687,7 +1808,12 @@ function ArenaSystem.StartGymBattle(player, gymFolder)
 				creatureId = c.creatureId,
 				displayName = info and info.displayName or "?",
 				rarity = info and info.rarity or "Common",
-				hp = c.hp, maxHp = c.maxHp, pointIndex = c.pointIndex,
+				hp = c.hp, maxHp = c.maxHp,
+				focus = c.focus or 0,
+				maxFocus = c.maxFocus or (GameConfig.FocusMax or 100),
+				pointIndex = c.pointIndex,
+				attack = c.attack,
+				speed = c.speed,
 				primaryColor = info and {info.primaryColor.R*255, info.primaryColor.G*255, info.primaryColor.B*255} or {180,180,180},
 			})
 		end
@@ -1697,7 +1823,12 @@ function ArenaSystem.StartGymBattle(player, gymFolder)
 				creatureId = c.creatureId,
 				displayName = info and info.displayName or "?",
 				rarity = info and info.rarity or "Common",
-				hp = c.hp, maxHp = c.maxHp, pointIndex = c.pointIndex,
+				hp = c.hp, maxHp = c.maxHp,
+				focus = c.focus or 0,
+				maxFocus = c.maxFocus or (GameConfig.FocusMax or 100),
+				pointIndex = c.pointIndex,
+				attack = c.attack,
+				speed = c.speed,
 				primaryColor = info and {info.primaryColor.R*255, info.primaryColor.G*255, info.primaryColor.B*255} or {180,180,180},
 			})
 		end
@@ -1705,6 +1836,9 @@ function ArenaSystem.StartGymBattle(player, gymFolder)
 			arenaEvents.BattleTeamsPlaced:FireClient(p, blueData, redData, player.Name, "Gym Leader")
 		end
 	end
+	stateDirty = true
+	lastStateBroadcast = 0
+	broadcastArenaState()
 	task.wait(2)
 
 	local ok, err = pcall(runBattle)
@@ -1712,6 +1846,7 @@ function ArenaSystem.StartGymBattle(player, gymFolder)
 		warn("[Arena] Gym runBattle error: " .. tostring(err))
 		battleInProgress = false
 		workspace:SetAttribute("ArenaBattleInProgress", false)
+		setArenaFighterAttributes(nil, nil)
 		clearArena()
 	end
 
@@ -1775,6 +1910,7 @@ function ArenaSystem.Init(playerDataMgr, basePlacementSys)
 	arenaEvents.BattleEnd = mkEvent("BattleEnd")
 	arenaEvents.BattleKill = mkEvent("BattleKill")
 	arenaEvents.BattleTeamsPlaced = mkEvent("BattleTeamsPlaced")
+	arenaEvents.ArenaStateUpdate = mkEvent("ArenaStateUpdate")
 
 	local getBattleInfo = mkFunc("GetBattleInfo")
 	getBattleInfo.OnServerInvoke = function(requestingPlayer)
@@ -1812,6 +1948,7 @@ function ArenaSystem.Init(playerDataMgr, basePlacementSys)
 	local redPoints = getPointsSorted(redTeamFolder)
 	print("[Arena] Blue: " .. #bluePoints .. " points, Red: " .. #redPoints .. " points")
 	print("[Arena] DEV_MODE: " .. tostring(DEV_MODE))
+	setArenaFighterAttributes(nil, nil)
 
 	-- Main round loop
 	task.spawn(function()
@@ -1855,6 +1992,7 @@ function ArenaSystem.Init(playerDataMgr, basePlacementSys)
 					warn("[Arena] Battle stuck! Force resetting...")
 					battleInProgress = false
 					workspace:SetAttribute("ArenaBattleInProgress", false)
+					setArenaFighterAttributes(nil, nil)
 					clearArena()
 					break
 				end

@@ -53,6 +53,8 @@ local tickerContentWidth = 0
 local tickerHeartbeatConn = nil
 local TICKER_MAX_MESSAGES = 12
 local TICKER_MOBILE_SCALE = 0.5
+local TICKER_DESKTOP_TOP_Y = 10
+local TICKER_MOBILE_Y_OFFSET = -10
 local TICKER_SCROLL_SPEED = 36  -- pixels per second (right-to-left)
 local TICKER_IDLE_SILENCE_DELAY = 18
 local TICKER_SILENCE_TEXT = "...Silence..."
@@ -87,7 +89,7 @@ local function buildNotificationUI()
 	tickerBar = Instance.new("Frame")
 	tickerBar.Name = "TickerBar"
 	tickerBar.Size = UDim2.new(0.7, 0, 0, 30)
-	tickerBar.Position = UDim2.new(0.5, 0, 0, 10)
+	tickerBar.Position = UDim2.new(0.5, 0, 0, TICKER_DESKTOP_TOP_Y + (isMobileTicker and TICKER_MOBILE_Y_OFFSET or 0))
 	tickerBar.AnchorPoint = Vector2.new(0.5, 0)
 	tickerBar.BackgroundColor3 = TICKER_BG
 	tickerBar.BackgroundTransparency = 0.25
@@ -806,6 +808,7 @@ function NotificationManager.RewardPopup(titleText, titleColor, lines, duration)
 		lineLabel.Font = line.font or Enum.Font.GothamBold
 		lineLabel.TextSize = line.textSize or 14
 		lineLabel.TextXAlignment = Enum.TextXAlignment.Left
+		lineLabel.TextWrapped = true
 		lineLabel.Parent = card
 		yOff = yOff + (line.size or 18) + 4
 	end

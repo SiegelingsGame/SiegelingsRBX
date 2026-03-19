@@ -1,5 +1,6 @@
 -- PvPBattleClient.lua - StarterPlayerScripts or StarterCharacterScripts (LocalScript)
--- When close to another player, shows "Press E to open [Name]'s profile" (Trade/Battle from there).
+-- When close to another player, shows "Press E" / "Tap to open [Name]'s profile" (Trade/Battle from there).
+-- On mobile the prompt is tap-responsive; on desktop E key or clicking the prompt opens the menu.
 -- Listens for PvP reject/start/end and shows toasts.
 
 local Players = game:GetService("Players")
@@ -88,9 +89,22 @@ local function updatePrompt()
 			promptLabel.TextSize = 16
 			promptLabel.TextWrapped = true
 			promptLabel.Parent = promptGui
+
+			-- Tap/click button so mobile can open profile (Activated = mouse click or touch tap)
+			local tapButton = Instance.new("TextButton")
+			tapButton.Name = "TapButton"
+			tapButton.Size = UDim2.new(1, 0, 1, 0)
+			tapButton.Position = UDim2.new(0, 0, 0, 0)
+			tapButton.BackgroundTransparency = 1
+			tapButton.Text = ""
+			tapButton.Parent = promptGui
+			tapButton.Activated:Connect(function()
+				onEKey()
+			end)
 		end
 		if promptLabel then
-			promptLabel.Text = "[E] Open " .. target.Name .. "'s profile"
+			local isTouch = UserInputService.TouchEnabled
+			promptLabel.Text = isTouch and ("Tap to open " .. target.Name .. "'s profile") or ("[E] Open " .. target.Name .. "'s profile")
 		end
 		if promptGui then promptGui.Visible = true end
 		return
@@ -293,4 +307,4 @@ task.defer(function()
 	end
 end)
 
-print("[PvP Client] Loaded - get close to a player and press E to open their profile (Trade/Battle from there). Set PVP_LOG=false to hide PvP debug logs.")
+print("[PvP Client] Loaded - get close to a player, press E or tap the prompt to open their profile (Trade/Battle from there). Set PVP_LOG=false to hide PvP debug logs.")

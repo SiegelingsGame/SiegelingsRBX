@@ -16,6 +16,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
 local Notify = require(ReplicatedStorage.Modules.NotificationManager)
+local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 
 -- Wait for Events (don't exit early so weapon toggle and attack loop can run once ready)
 local Events = ReplicatedStorage:WaitForChild("Events", 15)
@@ -159,7 +160,7 @@ task.spawn(function()
 		if now - lastAutoAttack < cd then continue end
 
 		-- Check if any GUI panel is open (don't attack while managing inventory etc.)
-		local guiNames = {"InventoryUI", "EggShopGUI", "BuffShopGUI", "CosmeticShopGUI", "FriendsListGUI"}
+		local guiNames = {"InventoryUI", "ShopHubGUI", "EggShopGUI", "BuffShopGUI", "CosmeticShopGUI", "FriendsListGUI"}
 		local menuOpen = false
 		for _, gn in ipairs(guiNames) do
 			local gui = playerGui:FindFirstChild(gn)
@@ -203,7 +204,6 @@ task.spawn(function()
 
 			-- Show target indicator
 			local cid = nearest:GetAttribute("CreatureId")
-			local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 			local info = cid and CreatureData.GetById(cid)
 			targetLbl.Text = "Attacking: " .. (info and info.displayName or "creature")
 			targetIndicator.Visible = true

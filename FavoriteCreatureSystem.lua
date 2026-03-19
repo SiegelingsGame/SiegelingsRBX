@@ -76,6 +76,27 @@ local function isPositionInWaterBlock(worldPos)
 	return false
 end
 
+-- FIX #20 Water companion vertical swimming: Returns the WaterBlock part containing worldPos, or nil.
+-- Used to get bounds for 3D companion follow inside WaterBlocks (not just Ocean).
+local function getWaterBlockContaining(worldPos)
+	-- Prefer CreatureAI's version if available (shared logic)
+	if CreatureAI and CreatureAI.GetWaterBlockContaining then
+		return CreatureAI.GetWaterBlockContaining(worldPos)
+	end
+	local tag = GameConfig.WaterBlockTag
+	if not tag or tag == "" then return nil end
+	for _, part in ipairs(CollectionService:GetTagged(tag)) do
+		if part and part:IsA("BasePart") and part.Parent then
+			local localPos = part.CFrame:PointToObjectSpace(worldPos)
+			local h = part.Size * 0.5
+			if math.abs(localPos.X) <= h.X and math.abs(localPos.Y) <= h.Y and math.abs(localPos.Z) <= h.Z then
+				return part
+			end
+		end
+	end
+	return nil
+end
+
 -- True if player is in water (position inside a Water Block Part or Humanoid Swimming state). Used to card non-water favorites and respawn when they exit.
 local function isPlayerInWater(player)
 	local character = player.Character
@@ -92,11 +113,13 @@ local function isPlayerInWater(player)
 	return false
 end
 
--- Card non-water companion and return it (turn into card, fly to player). Called when player enters water/swimming. Returns true if recalled.
-local function doWaterRecall(player)
+-- Card companion and return it (turn into card, fly to player). Used for water recall and distance recall.
+-- If reason is "water", sets companionRecalledDueToWater for auto-respawn when player exits water.
+-- If reason is "distance", no auto-respawn; player must manually resummon.
+local function doRecall(player, reason)
 	local comp = activeCompanions[player.UserId]
 	if not comp or not comp.alive then return false end
-	if CreatureData.IsWaterType(comp.creatureId) then return false end
+	if reason == "water" and CreatureData.IsWaterType(comp.creatureId) then return false end
 	if comp._waterRecallConn then
 		comp._waterRecallConn:Disconnect()
 		comp._waterRecallConn = nil
@@ -107,8 +130,22 @@ local function doWaterRecall(player)
 	if evt then evt:FireClient(player, creaturePos, comp.creatureId) end
 	if comp.model and comp.model.Parent then comp.model:Destroy() end
 	activeCompanions[player.UserId] = nil
-	companionRecalledDueToWater[player.UserId] = true
+	if reason == "water" then
+		companionRecalledDueToWater[player.UserId] = true
+	elseif reason == "distance" then
+		local notif = getNotifEvent()
+		if notif then
+			local cInfo = CreatureData.GetById(comp.creatureId)
+			local cName = cInfo and cInfo.displayName or comp.creatureId
+			notif:FireClient(player, cName .. " wandered too far and returned to its card. Resummon when ready.")
+		end
+	end
 	return true
+end
+
+-- Card non-water companion when player enters water/swimming.
+local function doWaterRecall(player)
+	return doRecall(player, "water")
 end
 
 -- Raycast down from origin to find ground Y (same surface as player would stand on).d
@@ -201,8 +238,8 @@ end
 -- COMPANION_ROTATION_DEFAULT: For horizontal-export models (placeholder orbs, rigs that export lying down).
 -- COMPANION_UPRIGHT_DEFAULT: For upright-export models (Breezee, etc.) – stand-up + facing.
 -- COMPANION_STAND_UP_ANGLES: Companion-only overrides for creatures that export horizontal/on-side.
--- COMPANION_FACING_CORRECTION: Full Model types (rigged) need 180° X; legacy Mesh types do snot.
--- World spawnfs use CreatureData; companion rotation is FavoriteCreatureSystem only.x
+-- COMPANION_FACING_CORRECTION: Full Model types (rigged) need 180° X; legacy Mesh types do snot.sds
+-- World spawnfs use CreatureData; companion rotation is FavoriteCreaturedSystem only.x
 -- ══════════════════════════════════════════════════════════════════════════════
 local COMPANION_FACING_CORRECTION = CFrame.Angles(math.rad(180), 0, 0)  -- full Model types only
 local COMPANION_ROTATION_DEFAULT = CFrame.Angles(math.rad(90), 0, math.rad(180)) * CFrame.Angles(0, math.rad(180), 0)
@@ -227,14 +264,21 @@ local COMPANION_STAND_UP_ANGLES = {
 	pylook = {0, 90, -180},
 	pyleer = {0, 180, -180},
 	pylme = {-180, 0, 0},
+	squirebuddy = {-180, 0, 0},
+	generoot = {-180, 0, 0},
+	floraknight = {-180, 0, 0},
+	pursula = {-180, 0, 0},
+	purseus = {-180, 0, 0},
+	pursepursula = {-180, 0, 0},
+	skydon = {-180, 0, 0},
 }
 
 local function needsFacingCorrection(model)
 	return model and model:GetAttribute("TemplateType") == "Model"
 end
 
--- Crawling: COMPANION_ROTATION_DEFAULT0.0 = base; CRAWL_UPRIGHT_CORRECTION = -90° X to stand upright.
--- Ground stand-up: for non-flying, non-crawling companions – models that export horizontal/on-back need this to stand upright.d.a
+-- Crawling: COMPANION_ROTATION_DEFAULT0.0 = base; CRAWL_UPRIGHT_CORRECTION. = -90° X to stand upright.cc
+-- Ground stand-up: for non-flying, non-crawling companions – models that export horizonbtal/on-back need this to stand upright.d.a
 local COMPANION_CRAWL_UPRIGHT_CORRECTION = CFrame.Angles(math.rad(-90), 0, 0)
 local COMPANION_GROUND_UPRIGHT = COMPANION_CRAWL_UPRIGHT_CORRECTION
 local function getCompanionRotationOffset(creatureId, isWalking, model)
@@ -306,7 +350,7 @@ local function createCompanionModel(creatureId, player, entry)
 		body = Instance.new("Part")
 		body.Name = "Body"; body.Shape = Enum.PartType.Ball; body.Size = Vector3.new(3.5, 3.5, 3.5)
 		body.Color = info.primaryColor; body.Material = Enum.Material.Neon
-		body.Anchored = true; body.CanCollide = false; body.CastShadow = true; body.Parent = model
+		body.Anchored = true; body.CanCollide = true; body.CastShadow = true; body.Parent = model
 
 		core = Instance.new("Part")
 		core.Name = "Core"; core.Shape = Enum.PartType.Ball; core.Size = Vector3.new(1.8, 1.8, 1.8)
@@ -336,7 +380,10 @@ local function createCompanionModel(creatureId, player, entry)
 	local nameLbl = Instance.new("TextLabel")
 	nameLbl.Size = UDim2.new(1, 0, 0, 18); nameLbl.BackgroundTransparency = 1
 	local variantSuffix = variant and (" · " .. variant .. " ") or " "
-	nameLbl.Text = info.displayName .. variantSuffix .. "(Companion)"
+	local companionName = (entry and type(entry.nickname) == "string" and entry.nickname ~= "")
+		and (entry.nickname .. " (" .. info.displayName .. ")")
+		or info.displayName
+	nameLbl.Text = companionName .. variantSuffix .. "(Companion)"
 	nameLbl.TextColor3 = Color3.new(1,1,1); nameLbl.TextScaled = true
 	nameLbl.Font = Enum.Font.GothamBold; nameLbl.Parent = bb
 
@@ -446,7 +493,10 @@ local function updateCompanionHPBar(comp)
 					if info then
 						local lvlText = lvl >= maxLvl and " [MAX]" or (" Lv." .. lvl)
 						local variantSuffix = (comp.variant and comp.variant ~= "Normal") and (" · " .. comp.variant) or ""
-						nameLbl.Text = info.displayName .. variantSuffix .. lvlText
+						local displayName = (entry.nickname and entry.nickname ~= "")
+							and (entry.nickname .. " (" .. info.displayName .. ")")
+							or info.displayName
+						nameLbl.Text = displayName .. variantSuffix .. lvlText
 					end
 				end
 			end
@@ -553,7 +603,7 @@ local function deliverStolenCreature(player, comp)
 	end
 
 	-- Add creature to player's inventory
-	local newUid = PlayerDataManager.AddCreature(player, carry.creatureId, carry.level, carry.xp)
+	local newUid = PlayerDataManager.AddCreature(player, carry.creatureId, carry.level, carry.xp, nil, nil, { source = "raid" })
 
 	local cInfo = CreatureData.GetById(carry.creatureId)
 	local cName = cInfo and cInfo.displayName or carry.creatureId
@@ -589,7 +639,7 @@ local function deliverStolenCreatureForPlayer(player)
 	local carry = playerCarryingSteal[player.UserId]
 	if not carry then return end
 	if carry.visualModel and carry.visualModel.Parent then carry.visualModel:Destroy() end
-	local newUid = PlayerDataManager.AddCreature(player, carry.creatureId, carry.level, carry.xp)
+	local newUid = PlayerDataManager.AddCreature(player, carry.creatureId, carry.level, carry.xp, nil, nil, { source = "raid" })
 	local cInfo = CreatureData.GetById(carry.creatureId)
 	local cName = cInfo and cInfo.displayName or carry.creatureId
 	local notif = getNotifEvent()
@@ -660,7 +710,7 @@ local function dropPlayerCarryAndWalkBack(player)
 				walkModel:Destroy()
 				local victimPlayer = Players:GetPlayerByUserId(victimUserId)
 				if victimPlayer then
-					PlayerDataManager.AddCreature(victimPlayer, creatureId, level, xp)
+					PlayerDataManager.AddCreature(victimPlayer, creatureId, level, xp, nil, nil, { source = "recovered" })
 					if notif then notif:FireClient(victimPlayer, cName .. " returned to your base!") end
 				end
 				return
@@ -970,6 +1020,17 @@ local function startCompanionBehavior(player, model, creatureId)
 				break
 			end
 
+			-- Distance recall: if companion gets too far from player, auto-card and force resummon
+			local bodyPartForDist = comp.model and (CreatureModelLoader.GetBodyPart(comp.model) or comp.model:FindFirstChild("Body"))
+			if bodyPartForDist then
+				local maxDist = GameConfig.CompanionAutoRecallDistance or 150
+				local distToPlayer = (root.Position - bodyPartForDist.Position).Magnitude
+				if distToPlayer > maxDist then
+					doRecall(player, "distance")
+					break
+				end
+			end
+
 			-- Resolve body from current comp model each frame (avoids stale reference if model was replaced)
 			local bodyPart = comp.model and (CreatureModelLoader.GetBodyPart(comp.model) or comp.model:FindFirstChild("Body"))
 			if not bodyPart then break end
@@ -980,18 +1041,35 @@ local function startCompanionBehavior(player, model, creatureId)
 				continue
 			end
 
-			-- Follow target behind player. Water + in Ocean: 3D follow (vertical only within Ocean bounds). Else: ground/flying height.
+			-- FIX #20 + FIX #26: Follow target behind player. Water creature follows in 3D when player is in any water.
+			-- FIX #26: Also detect Roblox terrain water (Humanoid Swimming state) as valid water,
+			-- not just tagged WaterBlock/Ocean parts. Previously water creatures couldn't follow in terrain water.
 			local isPlayerInOcean = CreatureAI and CreatureAI.IsPositionInOcean and CreatureAI.IsPositionInOcean(root.Position)
-			local isWaterFollowing = isPlayerInOcean and CreatureData.IsWaterType(creatureId)
+			local isPlayerInWaterBlock = isPositionInWaterBlock(root.Position)
+			local humanoidSwimming = false
+			local playerHumanoid = character:FindFirstChildOfClass("Humanoid")
+			if playerHumanoid and playerHumanoid:GetState() == Enum.HumanoidStateType.Swimming then
+				humanoidSwimming = true
+			end
+			local isWaterFollowing = (isPlayerInOcean or isPlayerInWaterBlock or humanoidSwimming) and CreatureData.IsWaterType(creatureId)
+			-- Cache the water volume part for Y-clamping (Ocean part or WaterBlock part)
+			local waterVolumePart = nil
+			if isWaterFollowing then
+				if isPlayerInOcean then
+					waterVolumePart = CreatureAI and CreatureAI.GetOceanPart and CreatureAI.GetOceanPart()
+				end
+				if not waterVolumePart and isPlayerInWaterBlock then
+					waterVolumePart = getWaterBlockContaining(root.Position)
+				end
+			end
 			local targetPos
 			if isWaterFollowing then
-				-- Clamp companion Y to Ocean part bounds so they stay within the water volume
+				-- Clamp companion Y to water volume bounds so they stay within the water volume
 				local behind = root.Position - root.CFrame.LookVector * GameConfig.CompanionFollowDist
 				local maxY = root.Position.Y + (GameConfig.WaterCompanionMaxSurfaceOffset or 1.5)
-				local ocean = CreatureAI and CreatureAI.GetOceanPart and CreatureAI.GetOceanPart()
-				if ocean then
-					local topY = ocean.Position.Y + ocean.Size.Y * 0.5
-					local bottomY = ocean.Position.Y - ocean.Size.Y * 0.5
+				if waterVolumePart then
+					local topY = waterVolumePart.Position.Y + waterVolumePart.Size.Y * 0.5
+					local bottomY = waterVolumePart.Position.Y - waterVolumePart.Size.Y * 0.5
 					maxY = math.min(maxY, topY)
 					behind = Vector3.new(behind.X, math.clamp(behind.Y, bottomY, topY), behind.Z)
 				end
@@ -1068,10 +1146,15 @@ local function startCompanionBehavior(player, model, creatureId)
 				end
 				newPos = Vector3.new(newPos.X, targetY, newPos.Z)
 			else
-				-- Water companion: clamp Y so they never break surface (max = player Y + wading offset)
+				-- FIX #20: Water companion: clamp Y within water volume bounds (Ocean or WaterBlock)
 				comp._carryFlyingY = nil
 				local maxY = root.Position.Y + (GameConfig.WaterCompanionMaxSurfaceOffset or 1.5)
-				if newPos.Y > maxY then
+				if waterVolumePart then
+					local topY = waterVolumePart.Position.Y + waterVolumePart.Size.Y * 0.5
+					local bottomY = waterVolumePart.Position.Y - waterVolumePart.Size.Y * 0.5
+					maxY = math.min(maxY, topY)
+					newPos = Vector3.new(newPos.X, math.clamp(newPos.Y, bottomY, maxY), newPos.Z)
+				elseif newPos.Y > maxY then
 					newPos = Vector3.new(newPos.X, maxY, newPos.Z)
 				end
 			end
@@ -1127,8 +1210,8 @@ local function startCompanionBehavior(player, model, creatureId)
 			else
 				animType = prevAnim
 			end
-			-- Water types: use Swimming when moving in Ocean, Move when on land
-			if isPlayerInOcean and CreatureData.IsWaterType(creatureId) and animType == "Move" then
+			-- FIX #20: Water types: use Swimming when moving in any water volume (Ocean or WaterBlock), Move when on land
+			if isWaterFollowing and animType == "Move" then
 				animType = "Swimming"
 			end
 			comp.lastAnimType = animType
@@ -1177,6 +1260,25 @@ local function startCompanionBehavior(player, model, creatureId)
 				if attackTarget then
 					local tp = attackTarget.PrimaryPart or CreatureModelLoader.GetBodyPart(attackTarget) or attackTarget:FindFirstChild("Body") or attackTarget:FindFirstChild("HumanoidRootPart")
 					if tp then faceToward = tp.Position end
+				end
+			end
+			-- Block movement through walls: raycast path; if blocked, stop at obstruction
+			local toNew = newPos - currentPos
+			local moveDist = toNew.Magnitude
+			if moveDist > 0.01 then
+				local rayParams = RaycastParams.new()
+				rayParams.FilterType = Enum.RaycastFilterType.Exclude
+				rayParams.FilterDescendantsInstances = getCreatureExcludeList({ character, comp.model })
+				local rayDir = toNew.Unit
+				local bodyRadius = math.max(bodyPart.Size.X, bodyPart.Size.Y, bodyPart.Size.Z) * 0.5
+				local hit = Workspace:Raycast(currentPos, rayDir * (moveDist + bodyRadius * 0.5), rayParams)
+				if hit and hit.Distance < moveDist + 0.1 then
+					newPos = hit.Position - hit.Normal * (bodyRadius + 0.2)
+					if not isWaterFollowing then
+						local groundYHere = getGroundY(Vector3.new(newPos.X, newPos.Y + 2, newPos.Z), { character, comp.model })
+						local heightHere = CreatureData.IsFlying(creatureId) and (GameConfig.FlyingHoverHeight or 5) or getBodyHeightAboveBboxBottom(model, bodyPart)
+						newPos = Vector3.new(newPos.X, groundYHere + heightHere, newPos.Z)
+					end
 				end
 			end
 			-- Move entire model with PivotTo first (so body ends up at newPos; core/ring stay in sync). Water swimming: face in 3D.
@@ -1376,19 +1478,34 @@ function FavoriteCreatureSystem.SpawnCompanion(player)
 		return
 	end
 
+	-- FIX #20 + FIX #26: Check Ocean, WaterBlock, AND Roblox terrain swimming for water companion spawn
 	local isPlayerInOceanSpawn = CreatureAI and CreatureAI.IsPositionInOcean and CreatureAI.IsPositionInOcean(root.Position)
+	local isPlayerInWaterBlockSpawn = isPositionInWaterBlock(root.Position)
+	-- FIX #26: Also detect terrain water via Humanoid Swimming state
+	local spawnHumanoid = character:FindFirstChildOfClass("Humanoid")
+	if not isPlayerInOceanSpawn and not isPlayerInWaterBlockSpawn and spawnHumanoid
+		and spawnHumanoid:GetState() == Enum.HumanoidStateType.Swimming then
+		isPlayerInWaterBlockSpawn = true  -- treat terrain water as WaterBlock for spawn logic
+	end
 	local model = createCompanionModel(entry.id, player, entry)
 	if not model then spawnLocks[userId] = nil; return end
-	-- Spawn behind player. Water + in Ocean: 3D behind, clamped to Ocean bounds; else ground/flying height
+	-- Spawn behind player. Water + in water volume: 3D behind, clamped to volume bounds; else ground/flying height
 	local bodyPart = model.PrimaryPart or CreatureModelLoader.GetBodyPart(model) or model:FindFirstChild("Body")
 	local spawnPos
-	if isPlayerInOceanSpawn and CreatureData.IsWaterType(entry.id) then
+	if (isPlayerInOceanSpawn or isPlayerInWaterBlockSpawn) and CreatureData.IsWaterType(entry.id) then
 		local behind = root.Position - root.CFrame.LookVector * GameConfig.CompanionFollowDist
 		local maxY = root.Position.Y + (GameConfig.WaterCompanionMaxSurfaceOffset or 1.5)
-		local ocean = CreatureAI and CreatureAI.GetOceanPart and CreatureAI.GetOceanPart()
-		if ocean then
-			local topY = ocean.Position.Y + ocean.Size.Y * 0.5
-			local bottomY = ocean.Position.Y - ocean.Size.Y * 0.5
+		-- Get the water volume part (Ocean or WaterBlock) for Y-clamping
+		local waterPart = nil
+		if isPlayerInOceanSpawn then
+			waterPart = CreatureAI and CreatureAI.GetOceanPart and CreatureAI.GetOceanPart()
+		end
+		if not waterPart and isPlayerInWaterBlockSpawn then
+			waterPart = getWaterBlockContaining(root.Position)
+		end
+		if waterPart then
+			local topY = waterPart.Position.Y + waterPart.Size.Y * 0.5
+			local bottomY = waterPart.Position.Y - waterPart.Size.Y * 0.5
 			maxY = math.min(maxY, topY)
 			behind = Vector3.new(behind.X, math.clamp(behind.Y, bottomY, topY), behind.Z)
 		end

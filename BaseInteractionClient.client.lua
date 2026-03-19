@@ -34,6 +34,7 @@ local moveCreatureSlot = safeGet("MoveCreatureSlot")
 local swapCreatureSlots = safeGet("SwapCreatureSlots")
 local assignToBattle = safeGet("AssignToBattle")
 local sellCreature = safeGet("SellCreature")
+local inspectEgg = safeGet("InspectEgg")
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- CONSTANTS & STATE
@@ -197,6 +198,13 @@ local function getDisplayName(creatureId)
 	return info and info.displayName or creatureId
 end
 
+local function getModelDisplayName(model, creatureId)
+	if model and model:GetAttribute("IsEgg") == true and model:GetAttribute("EggInspected") ~= true then
+		return "Unknown Egg"
+	end
+	return getDisplayName(creatureId)
+end
+
 -- ══════════════════════════════════════════════════════════════════════════════
 -- GHOST MODEL (floating visual while holding a creature)
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -291,11 +299,13 @@ local function showContextMenu(model)
 	local slotType = model:GetAttribute("SlotType")
 	local slotIndex = model:GetAttribute("SlotIndex")
 	local level = model:GetAttribute("CreatureLevel") or 1
-	local displayName = getDisplayName(creatureId)
+	local isEgg = model:GetAttribute("IsEgg") == true
+	local eggInspected = model:GetAttribute("EggInspected") == true
+	local displayName = getModelDisplayName(model, creatureId)
 	local sellPrice = getSellPrice(creatureId, level)
 	local accentColor = (slotType == "defense") and UI_RED or ((slotType == "battle") and Color3.fromRGB(130, 100, 255) or UI_GREEN)
 
-	local panel = makePanel(UDim2.new(0, 260, 0, 130), UDim2.new(0.5, 0, 0.5, 0), accentColor)
+	local panel = makePanel(UDim2.new(0, 260, 0, isEgg and 166 or 130), UDim2.new(0.5, 0, 0.5, 0), accentColor)
 	activeMenuGui = panel
 
 	-- Title
@@ -317,10 +327,22 @@ local function showContextMenu(model)
 
 	-- Pick Up button
 	local pickUpBtn = makeButton(panel, "Pick Up", UI_BLUE, UDim2.new(0.45, 0, 0, 30), UDim2.new(0.025, 0, 0, 44))
-	-- Sell button
-	local sellBtn = makeButton(panel, "Sell: " .. sellPrice .. "g", UI_RED, UDim2.new(0.45, 0, 0, 30), UDim2.new(0.525, 0, 0, 44))
+	local sellBtn = nil
+	local inspectBtn = nil
+	if not isEgg then
+		-- Sell button (creatures only)
+		sellBtn = makeButton(panel, "Sell: " .. sellPrice .. "g", UI_RED, UDim2.new(0.45, 0, 0, 30), UDim2.new(0.525, 0, 0, 44))
+	else
+		local inspectCost = tonumber(GameConfig.EggInspectGemCost) or 5
+		local inspectText = eggInspected and "Inspected" or ("Inspect: " .. inspectCost .. " diamonds")
+		inspectBtn = makeButton(panel, inspectText, eggInspected and UI_GREY or UI_GOLD, UDim2.new(0.95, 0, 0, 30), UDim2.new(0.025, 0, 0, 80))
+		inspectBtn.Active = not eggInspected
+		if eggInspected then
+			inspectBtn.TextColor3 = Color3.fromRGB(210, 210, 210)
+		end
+	end
 	-- Cancel button
-	local cancelBtn = makeButton(panel, "Cancel", UI_GREY, UDim2.new(0.95, 0, 0, 28), UDim2.new(0.025, 0, 0, 84))
+	local cancelBtn = makeButton(panel, "Cancel", UI_GREY, UDim2.new(0.95, 0, 0, 28), UDim2.new(0.025, 0, 0, isEgg and 124 or 84))
 
 	-- Determine the point index from the model's position context
 	-- We need to find which point part this creature is sitting on
@@ -408,10 +430,50 @@ local function showContextMenu(model)
 		Notify.Toast("Picked up " .. displayName .. "! Walk to a point & press [E] to place.", UI_BLUE, 2.5)
 	end)
 
-	sellBtn.MouseButton1Click:Connect(function()
-		clearMenu()
-		showSellConfirm(uid, creatureId, level, slotType)
-	end)
+	if sellBtn then
+		sellBtn.MouseButton1Click:Connect(function()
+			clearMenu()
+			showSellConfirm(uid, creatureId, level, slotType)
+		end)
+	end
+
+	if inspectBtn then
+		inspectBtn.MouseButton1Click:Connect(function()
+			if busy or not inspectEgg then return end
+			busy = true
+			local ok, success, msg, revealedId = pcall(function()
+				return inspectEgg:InvokeServer(uid)
+			end)
+			busy = false
+			if not ok then
+				Notify.Toast("Inspect failed", UI_RED, 2)
+				return
+			end
+			if success then
+				model:SetAttribute("EggInspected", true)
+				if type(revealedId) == "string" and revealedId ~= "" then
+					model:SetAttribute("CreatureId", revealedId)
+					creatureId = revealedId
+				end
+				displayName = getModelDisplayName(model, creatureId)
+				title.Text = displayName .. " Lv." .. level .. " (" .. slotType .. ")"
+				if attachedPrompts[model] then
+					attachedPrompts[model].ObjectText = displayName .. " Lv." .. level
+				end
+				inspectBtn.Text = "Inspected"
+				inspectBtn.BackgroundColor3 = UI_GREY
+				inspectBtn.TextColor3 = Color3.fromRGB(210, 210, 210)
+				inspectBtn.Active = false
+				local revealMsg = "Inside: " .. displayName
+				if msg and msg ~= "" and msg ~= "Inspected!" then
+					revealMsg = msg .. " | " .. revealMsg
+				end
+				Notify.Toast(revealMsg, UI_GOLD, 2.5)
+			else
+				Notify.Toast(msg or "Not enough diamonds", UI_RED, 2.5)
+			end
+		end)
+	end
 
 	cancelBtn.MouseButton1Click:Connect(function()
 		resetState()
@@ -997,7 +1059,7 @@ local function attachPromptToOrb(model)
 	if not body then return end
 
 	local creatureId = model:GetAttribute("CreatureId")
-	local displayName = getDisplayName(creatureId)
+	local displayName = getModelDisplayName(model, creatureId)
 	local level = model:GetAttribute("CreatureLevel") or 1
 
 	local prompt = Instance.new("ProximityPrompt")

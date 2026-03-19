@@ -20,6 +20,12 @@ local DOME_TAG = "BaseShieldDome"
 local activeDomes = {} -- plotId -> domeData
 local damageCooldowns = {}
 
+-- FIX #25: Forward-declare ellipsoid math functions so runDomeLoop can reference them.
+-- Previously these were defined AFTER runDomeLoop, causing nil upvalues in Lua scoping.
+-- Result: shield never pushed/damaged intruders because isInsideEllipsoid was nil.
+local isInsideEllipsoid
+local pushOutsideEllipsoid
+
 -- -- FIND PLOT CENTER --
 
 local function findPlotCenter(plotModel)
@@ -179,6 +185,7 @@ end
 
 local function isAllowedThrough(ownerUserId, visitorPlayer)
 	if visitorPlayer.UserId == ownerUserId then return true end
+	if not PlayerDataManager or not PlayerDataManager.IsFriend then return false end
 	local ownerPlayer = Players:GetPlayerByUserId(ownerUserId)
 	if not ownerPlayer then return false end
 	return PlayerDataManager.IsFriend(ownerPlayer, visitorPlayer.UserId)
@@ -429,12 +436,24 @@ local function createDome(plotModel, ownerPlayer)
 	btnData.clickDetector.MouseClick:Connect(function(plr)
 		if not isAllowedThrough(data.ownerUserId, plr) then return end
 		if data.shieldActive then return end -- already active
+		-- FIX #35: Block shield during knight base rental (base recharging from teleport)
+		if data.plotModel and data.plotModel:GetAttribute("KnightBaseRental") then
+			local warnEvt = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("KnightBaseWarning")
+			if warnEvt then warnEvt:FireClient(plr, "shield_blocked") end
+			return
+		end
 		showShield(data)
 	end)
 
 	btnData.proximityPrompt.Triggered:Connect(function(plr)
 		if not isAllowedThrough(data.ownerUserId, plr) then return end
 		if data.shieldActive then return end
+		-- FIX #35: Block shield during knight base rental (base recharging from teleport)
+		if data.plotModel and data.plotModel:GetAttribute("KnightBaseRental") then
+			local warnEvt = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("KnightBaseWarning")
+			if warnEvt then warnEvt:FireClient(plr, "shield_blocked") end
+			return
+		end
 		showShield(data)
 	end)
 
@@ -451,12 +470,13 @@ local function runDomeLoop()
 			if not data.shieldActive then continue end
 			if not data.dome or not data.dome.Parent then continue end
 
-			local domeCenter = data.domeCenter or data.center
+			-- Use dome's current world position so inside/damage check works (data.domeCenter may be in model space)
+			local domeCenter = data.dome.CFrame.Position
 			local radiusXZ = data.radiusXZ or data.radius
 			local radiusY = data.radiusY or data.radius
 			local ownerUserId = data.ownerUserId
 
-			-- Push non-friend PLAYERS out
+			-- Push and damage non-owner, non-friend PLAYERS inside the dome
 			for _, p in ipairs(Players:GetPlayers()) do
 				local char = p.Character
 				if not char then continue end
@@ -517,7 +537,8 @@ end
 -- -- PUBLIC API --
 
 -- Ellipsoid containment: (dx/rXZ)^2 + (dy/rY)^2 + (dz/rXZ)^2 <= 1
-local function isInsideEllipsoid(position, domeCenter, radiusXZ, radiusY)
+-- FIX #25: Assign to forward-declared locals (not 'local function') so runDomeLoop sees them.
+isInsideEllipsoid = function(position, domeCenter, radiusXZ, radiusY)
 	local dx = position.X - domeCenter.X
 	local dy = position.Y - domeCenter.Y
 	local dz = position.Z - domeCenter.Z
@@ -526,7 +547,7 @@ local function isInsideEllipsoid(position, domeCenter, radiusXZ, radiusY)
 end
 
 -- Push position to just outside ellipsoid surface in direction of diff from domeCenter
-local function pushOutsideEllipsoid(domeCenter, radiusXZ, radiusY, fromPosition, margin)
+pushOutsideEllipsoid = function(domeCenter, radiusXZ, radiusY, fromPosition, margin)
 	margin = margin or 3
 	local diff = fromPosition - domeCenter
 	local len = diff.Magnitude

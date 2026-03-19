@@ -39,7 +39,7 @@ local function onGymPromptTriggered(player)
 	-- 1) Check battle team (GymBattleSystem.StartGymBattle will also check; we check first to avoid deducting then failing)
 	local data = PlayerDataManager and PlayerDataManager.GetData(player)
 	if not data or not data.battleTeam then
-		if gymEvents.GymReject then gymEvents.GymReject:FireClient(player, "You need a battle team to challenge the Gym. Set one in your inventory!") end
+		if gymEvents.GymReject then gymEvents.GymReject:FireClient(player, "Cannot start gym without a battle team. Set one in your inventory (Battle tab).") end
 		return
 	end
 	local teamCount = 0
@@ -47,7 +47,7 @@ local function onGymPromptTriggered(player)
 		if uid and uid ~= "" then teamCount = teamCount + 1 end
 	end
 	if teamCount < (GameConfig.MinBattleTeamSize or 1) then
-		if gymEvents.GymReject then gymEvents.GymReject:FireClient(player, "You need a battle team to challenge the Gym. Set at least one creature in your battle grid!") end
+		if gymEvents.GymReject then gymEvents.GymReject:FireClient(player, "Cannot start gym without a battle team. Set at least one creature in your battle grid (Battle tab).") end
 		return
 	end
 

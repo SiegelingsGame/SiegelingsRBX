@@ -57,9 +57,13 @@ local function tryStealOne(raider, victim)
 	if #stealable == 0 then return false, nil end
 
 	local target = stealable[math.random(#stealable)]
-	if PlayerDataManager.TransferCreature(victim, raider, target.uid) then
+	if PlayerDataManager.TransferCreature(victim, raider, target.uid, { source = "raid" }) then
 		local info = CreatureData.GetById(target.id)
-		return true, info and info.displayName or target.id
+		local named = (type(target.nickname) == "string" and target.nickname ~= "") and target.nickname or nil
+		if named and info and info.displayName then
+			return true, named .. " (" .. info.displayName .. ")"
+		end
+		return true, named or (info and info.displayName or target.id)
 	end
 	return false, nil
 end
@@ -104,6 +108,9 @@ function RaidSystem.StartRaid(raider, victim)
 		if endEv then
 			endEv:FireClient(raider, #stolen, stolen)
 			endEv:FireClient(victim, #stolen, stolen)
+		end
+		if #stolen == 0 and PlayerDataManager.NotifyAchievement then
+			PlayerDataManager.NotifyAchievement("OnDefenseSuccess", victim, "player_raid")
 		end
 
 		local data = PlayerDataManager.GetData(raider)

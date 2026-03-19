@@ -686,6 +686,7 @@ end)
 local lastInRangeModels = {}
 local lastSelectedTargetModel = nil
 local lastDisplayUniqueIds = {}  -- last shown creature uniqueIds (order) - used to avoid unnecessary rebuilds
+local lastFallbackDescendantScan = 0
 local ICON_SIZE = 56  -- larger icons for easier tap/click (especially on mobile)
 local MAX_TARGET_ICONS = 5  -- show closest 5 creatures
 
@@ -781,11 +782,13 @@ local function collectInRangeCreatures(rootPos)
 		end
 	end
 
-	-- Always run fallback scan so we never miss creatures (e.g. tag replication, pack spawns).
-	-- Tags may not return all instances; GetDescendants catches everything in workspace.
-	for _, obj in ipairs(workspace:GetDescendants()) do
-		if obj:IsA("Model") then
-			addModel(obj)
+	-- Fallback full scan only when tagged sources found nothing, and only periodically.
+	if #list == 0 and (tick() - lastFallbackDescendantScan) >= 2 then
+		lastFallbackDescendantScan = tick()
+		for _, obj in ipairs(workspace:GetDescendants()) do
+			if obj:IsA("Model") then
+				addModel(obj)
+			end
 		end
 	end
 

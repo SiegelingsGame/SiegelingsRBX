@@ -5,6 +5,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local MobileWindowLayout = require(ReplicatedStorage.Modules:WaitForChild("MobileWindowLayout"))
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -25,8 +26,9 @@ local equipBaseColor = Events:FindFirstChild("EquipBaseColor") or Events:WaitFor
 local getInventory = Events:WaitForChild("GetInventory", 8)
 local coinsUpdate = Events:FindFirstChild("CoinsUpdate") or Events:WaitForChild("CoinsUpdate", 3)
 
--- #region agent log
+-- #region agent loger.1
 do
+	1544
 	local HttpService = game:GetService("HttpService")
 	pcall(function()
 		HttpService:PostAsync("http://127.0.0.1:7242/ingest/29779be3-c77e-4205-a6a3-76f7b6b6f8e7", HttpService:JSONEncode({
@@ -66,10 +68,23 @@ local function getPanelScale()
 end
 
 local function applyPanelScale(pnl)
+	if MobileWindowLayout.IsMobile() then
+		MobileWindowLayout.ApplyWindow(pnl, {
+			leftInset = 14,
+			rightInset = 14,
+			topInset = 10,
+			bottomInset = 14,
+			bottomMobileExtra = 20,
+		})
+		pnl.Draggable = true
+		return
+	end
+
 	local scale = getPanelScale()
 	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
 	pnl.Size = UDim2.new(0, w, 0, h)
 	pnl.Position = UDim2.new(0.5, -w/2, 0.5, -h/2)
+	MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
 end
 
 -- -- SCREEN GUI --
@@ -116,7 +131,10 @@ closeBtn.BackgroundColor3 = C.red; closeBtn.BackgroundTransparency = 0.5
 closeBtn.Text = "X"; closeBtn.TextColor3 = C.white
 closeBtn.Font = Enum.Font.GothamBold; closeBtn.TextSize = 14; closeBtn.Parent = titleBar
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
-closeBtn.MouseButton1Click:Connect(function() panel.Visible = false end)
+closeBtn.MouseButton1Click:Connect(function()
+	panel.Visible = false
+	MobileWindowLayout.NotifyMenuClosed()
+end)
 
 if coinsUpdate then
 	coinsUpdate.OnClientEvent:Connect(function(balance)
@@ -154,6 +172,22 @@ scroll.ScrollBarThickness = 4; scroll.Parent = panel
 
 local layout = Instance.new("UIListLayout")
 layout.Padding = UDim.new(0, 6); layout.Parent = scroll
+
+local function applyResponsiveContentLayout()
+	local mobile = MobileWindowLayout.IsMobile()
+	titleLbl.TextSize = mobile and 22 or 18
+	currLbl.TextSize = mobile and 14 or 12
+	closeBtn.Size = mobile and UDim2.new(0, 38, 0, 38) or UDim2.new(0, 32, 0, 32)
+	closeBtn.Position = mobile and UDim2.new(1, -46, 0, 4) or UDim2.new(1, -40, 0, 5)
+	closeBtn.TextSize = mobile and 16 or 14
+	tabFrame.Size = mobile and UDim2.new(1, -12, 0, 34) or UDim2.new(1, -20, 0, 30)
+	tabFrame.Position = mobile and UDim2.new(0, 6, 0, 48) or UDim2.new(0, 10, 0, 48)
+	scroll.Size = mobile and UDim2.new(1, -12, 1, -94) or UDim2.new(1, -20, 1, -90)
+	scroll.Position = mobile and UDim2.new(0, 6, 0, 86) or UDim2.new(0, 10, 0, 84)
+	for _, btn in pairs(tabButtons) do
+		btn.TextSize = mobile and 12 or 11
+	end
+end
 
 -- -- REFRESH --
 
@@ -566,7 +600,7 @@ for tab, btn in pairs(tabButtons) do
 	end)
 end
 
--- Toggle from HUD only (key C and [C] button both fire HUDToggleMenu from HUDButtonBar)
+-- Toggle from HUD only (routed from ShopHub via HUDButtonBar)
 local function getHUDToggle()
 	local evt = playerGui:FindFirstChild("HUDToggleMenu")
 	if not evt or not evt:IsA("BindableEvent") then
@@ -579,7 +613,13 @@ end
 local function onHUDToggle(menuName)
 	if menuName == "CosmeticShopGUI" then
 		if not panel.Visible then applyPanelScale(panel) end
+		applyResponsiveContentLayout()
 		panel.Visible = not panel.Visible
+		if panel.Visible then
+			MobileWindowLayout.NotifyMenuOpened()
+		else
+			MobileWindowLayout.NotifyMenuClosed()
+		end
 		if panel.Visible then refreshData(); buildItems() end
 	end
 end
@@ -588,11 +628,15 @@ playerGui.ChildAdded:Connect(function(child)
 	if child.Name == "HUDToggleMenu" and child:IsA("BindableEvent") then child.Event:Connect(onHUDToggle) end
 end)
 
--- C key: open/close cosmetics (client-side fallback)
-UserInputService.InputBegan:Connect(function(input)
-	if UserInputService:GetFocusedTextBox() then return end
-	if input.UserInputType ~= Enum.UserInputType.Keyboard or input.KeyCode ~= Enum.KeyCode.C then return end
-	onHUDToggle("CosmeticShopGUI")
+MobileWindowLayout.BindViewportUpdate(function()
+	if panel.Visible then
+		applyPanelScale(panel)
+		applyResponsiveContentLayout()
+		buildItems()
+	end
 end)
 
-print("[CosmeticShopClient] Loaded - press C or click [C] Cosmetics on HUD to open")
+-- FIX #18: Removed fallback C key handler — HUDButtonBar is the sole keyboard handler.
+-- Having both caused double-toggle (open then immediately close).
+
+print("[CosmeticShopClient] Loaded - open via [G] Shop > Cosmetics Shop")

@@ -6,6 +6,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local MobileWindowLayout = require(ReplicatedStorage.Modules:WaitForChild("MobileWindowLayout"))
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -50,6 +51,18 @@ local function getPanelScale()
 end
 
 local function applyPanelScale(pnl)
+	if MobileWindowLayout.IsMobile() then
+		MobileWindowLayout.ApplyWindow(pnl, {
+			leftInset = 14,
+			rightInset = 14,
+			topInset = 10,
+			bottomInset = 14,
+			bottomMobileExtra = 20,
+		})
+		pnl.Draggable = true
+		return
+	end
+
 	local camera = workspace.CurrentCamera
 	local vp = (camera and camera.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
 	local scale = getPanelScale()
@@ -62,6 +75,7 @@ local function applyPanelScale(pnl)
 	local yMax = vp.Y - VIEWPORT_PADDING - h * 0.5
 	local clampedY = math.clamp(centerY, yMin, math.max(yMin, yMax))
 	pnl.Position = UDim2.new(0, math.floor(centerX - w * 0.5), 0, math.floor(clampedY - h * 0.5))
+	MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
 end
 
 -- ScreenGui
@@ -133,9 +147,25 @@ local tabs = {
 
 local currentTab = "income"
 local tabButtons = {}
+local contentFrame, myRankBar, myRankLabel
 
--- Content area
-local contentFrame = Instance.new("ScrollingFrame")
+local function applyResponsiveContentLayout()
+	local mobile = MobileWindowLayout.IsMobile()
+	tabBar.Size = mobile and UDim2.new(1, -12, 0, 36) or UDim2.new(1, -20, 0, 32)
+	tabBar.Position = mobile and UDim2.new(0, 6, 0, 48) or UDim2.new(0, 10, 0, 48)
+	contentFrame.Size = mobile and UDim2.new(1, -12, 1, -140) or UDim2.new(1, -20, 1, -130)
+	contentFrame.Position = mobile and UDim2.new(0, 6, 0, 92) or UDim2.new(0, 10, 0, 88)
+	myRankBar.Size = mobile and UDim2.new(1, -12, 0, 32) or UDim2.new(1, -20, 0, 28)
+	myRankBar.Position = mobile and UDim2.new(0, 6, 1, -40) or UDim2.new(0, 10, 1, -36)
+
+	for _, btn in pairs(tabButtons) do
+		btn.TextSize = mobile and 14 or 13
+	end
+	myRankLabel.TextSize = mobile and 13 or 12
+end
+
+-- Content areavv
+contentFrame = Instance.new("ScrollingFrame")
 contentFrame.Size = UDim2.new(1, -20, 1, -130)
 contentFrame.Position = UDim2.new(0, 10, 0, 88)
 contentFrame.BackgroundColor3 = C.bgLight
@@ -159,7 +189,7 @@ listPadding.PaddingRight = UDim.new(0, 4)
 listPadding.Parent = contentFrame
 
 -- Player's own rank bar
-local myRankBar = Instance.new("Frame")
+myRankBar = Instance.new("Frame")
 myRankBar.Size = UDim2.new(1, -20, 0, 28)
 myRankBar.Position = UDim2.new(0, 10, 1, -36)
 myRankBar.BackgroundColor3 = C.playerHL
@@ -167,7 +197,7 @@ myRankBar.BorderSizePixel = 0
 myRankBar.Parent = panel
 Instance.new("UICorner", myRankBar).CornerRadius = UDim.new(0, 6)
 
-local myRankLabel = Instance.new("TextLabel")
+myRankLabel = Instance.new("TextLabel")
 myRankLabel.Size = UDim2.new(1, -10, 1, 0)
 myRankLabel.Position = UDim2.new(0, 10, 0, 0)
 myRankLabel.BackgroundTransparency = 1
@@ -372,6 +402,7 @@ end
 -- Close
 closeBtn.MouseButton1Click:Connect(function()
 	panel.Visible = false
+	MobileWindowLayout.NotifyMenuClosed()
 end)
 
 -- Toggle from HUD only (key X and [X] Leaders button both fire HUDToggleMenu from HUDButtonBar)
@@ -387,7 +418,13 @@ end
 local function onHUDToggle(menuName)
 	if menuName == "LeaderboardGUI" then
 		if not panel.Visible then applyPanelScale(panel) end
+		applyResponsiveContentLayout()
 		panel.Visible = not panel.Visible
+		if panel.Visible then
+			MobileWindowLayout.NotifyMenuOpened()
+		else
+			MobileWindowLayout.NotifyMenuClosed()
+		end
 		if panel.Visible then refreshLeaderboard() end
 	end
 end
@@ -396,9 +433,12 @@ playerGui.ChildAdded:Connect(function(child)
 	if child.Name == "HUDToggleMenu" and child:IsA("BindableEvent") then child.Event:Connect(onHUDToggle) end
 end)
 
--- X key: open/close leaderboard (client-side fallback)
-UserInputService.InputBegan:Connect(function(input)
-	if UserInputService:GetFocusedTextBox() then return end
-	if input.UserInputType ~= Enum.UserInputType.Keyboard or input.KeyCode ~= Enum.KeyCode.X then return end
-	onHUDToggle("LeaderboardGUI")
+MobileWindowLayout.BindViewportUpdate(function()
+	if panel.Visible then
+		applyPanelScale(panel)
+		applyResponsiveContentLayout()
+	end
 end)
+
+-- FIX #18: Removed fallback X key handler — HUDButtonBar is the sole keyboard handler.
+-- Having both caused double-toggle (open then immediately close).

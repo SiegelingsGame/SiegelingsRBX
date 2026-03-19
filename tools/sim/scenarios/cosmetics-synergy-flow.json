@@ -1,0 +1,30 @@
+{
+  "name": "Cosmetics and Battle Synergy Flow",
+  "players": [
+    {
+      "name": "Alex",
+      "userId": 1,
+      "coins": 2000,
+      "gems": 20,
+      "playerLevel": 3,
+      "inventory": [
+        { "uid": "cacty-1", "id": "cacty", "level": 2, "variant": "Normal" },
+        { "uid": "jackedty-1", "id": "jackedty", "level": 2, "variant": "Normal" },
+        { "uid": "pylme-1", "id": "pylme", "level": 2, "variant": "Normal" }
+      ]
+    }
+  ],
+  "steps": [
+    { "action": "buy_cosmetic", "player": "Alex", "cosmeticId": "trail_fire", "currency": "coins" },
+    { "action": "buy_cosmetic", "player": "Alex", "cosmeticId": "trail_rainbow", "currency": "gems" },
+    { "action": "expect", "path": "players.Alex.cosmetics.equipped.trail", "equals": "trail_rainbow" },
+    { "action": "buy_floor", "player": "Alex", "floor": 2 },
+    { "action": "assign_battle", "player": "Alex", "uid": "cacty-1", "slot": 1 },
+    { "action": "assign_battle", "player": "Alex", "uid": "jackedty-1", "slot": 2 },
+    { "action": "assign_battle", "player": "Alex", "uid": "pylme-1", "slot": 3 },
+    { "action": "battle_synergies", "player": "Alex" },
+    { "action": "expect", "path": "lastResult.summary.elementCounts.Earth", "equals": 3 },
+    { "action": "expect", "path": "lastResult.summary.active", "count": 2 },
+    { "action": "assert_invariants", "player": "Alex" }
+  ]
+}

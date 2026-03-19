@@ -79,36 +79,24 @@ local function rollCreature(eggConfig)
 	return pool[math.random(#pool)], chosenRarity
 end
 
--- Hatch egg (after payment)
-local function hatchEgg(player, eggConfig)
+-- Create a mystery egg (after payment). Creature identity is hidden until inspected or hatch.
+local function createPurchasedEgg(player, eggConfig)
 	local data = PlayerDataManager.GetData(player)
 	if not data then return false, "No data", nil end
 
-	if #data.inventory >= GameConfig.MaxInventorySize then
-		return false, "Inventory full!", nil
+	if #(data.eggs or {}) >= GameConfig.MaxInventorySize then
+		return false, "Too many eggs! Hatch some first.", nil
 	end
 
 	local creatureId, rarity = rollCreature(eggConfig)
 	if not creatureId then return false, "No creatures available", nil end
 
-	local uid = PlayerDataManager.AddCreature(player, creatureId, 1, 0)
+	local uid = PlayerDataManager.AddEgg(player, creatureId, 1, rarity, true)
 	if not uid then return false, "Failed to add creature", nil end
 
-	local info = CreatureData.GetById(creatureId)
-	-- Mythic uses Epic color (CreatureData has Epic, not Mythic)
-	local rarityForColor = (rarity == "Mythic") and "Epic" or rarity
-	local rarityInfo = CreatureData.Rarities[rarityForColor]
-
-	return true, "Hatched!", {
-		creatureId = creatureId,
+	return true, "Mystery egg purchased! Place it at your base to hatch.", {
 		uid = uid,
-		rarity = rarity,
-		displayName = info and info.displayName or creatureId,
-		rarityColor = rarityInfo and {
-			math.floor(rarityInfo.color.R * 255),
-			math.floor(rarityInfo.color.G * 255),
-			math.floor(rarityInfo.color.B * 255),
-		} or {180, 180, 180},
+		rarity = rarity, -- kept for optional client messaging; creature stays hidden
 	}
 end
 
@@ -119,8 +107,6 @@ function EggShopSystem.Init(pdm)
 	if not events then warn("[EggShopSystem] Events folder not found!"); return end
 
 	local buyEgg = events:WaitForChild("BuyEgg", 15)
-	local eggResult = events:FindFirstChild("EggResult")
-
 	if buyEgg then
 		buyEgg.OnServerInvoke = function(player, eggId, paymentType)
 			paymentType = (paymentType == "robux" and "robux") or "coins"
@@ -144,12 +130,9 @@ function EggShopSystem.Init(pdm)
 				return false, "Use the R$ button to purchase with Robux", nil
 			end
 
-			local ok, msg, result = hatchEgg(player, config)
+			local ok, msg, result = createPurchasedEgg(player, config)
 			if ok then
-				print("[EggShop] " .. player.Name .. " hatched " .. result.displayName .. " (" .. result.rarity .. ") from " .. eggId)
-				if eggResult then
-					eggResult:FireClient(player, result)
-				end
+				print("[EggShop] " .. player.Name .. " purchased mystery egg from " .. eggId .. " (" .. tostring(result and result.rarity) .. ")")
 			end
 			return ok, msg, result
 		end
@@ -170,11 +153,10 @@ function EggShopSystem.Init(pdm)
 		local playerObj = Players:GetPlayerByUserId(receiptInfo.PlayerId)
 		if not playerObj then return Enum.ProductPurchaseDecision.NotProcessedYet end
 
-		local ok, msg, result = hatchEgg(playerObj, config)
-		if ok and eggResult then
+		local ok, msg, result = createPurchasedEgg(playerObj, config)
+		if ok then
 			processedReceipts[purchaseId] = true
-			eggResult:FireClient(playerObj, result)
-			print("[EggShop] " .. playerObj.Name .. " hatched " .. result.displayName .. " (" .. result.rarity .. ") via Robux (" .. config.id .. ")")
+			print("[EggShop] " .. playerObj.Name .. " purchased mystery egg via Robux (" .. config.id .. ", " .. tostring(result and result.rarity) .. ")")
 			return Enum.ProductPurchaseDecision.PurchaseGranted
 		end
 		return Enum.ProductPurchaseDecision.NotProcessedYet

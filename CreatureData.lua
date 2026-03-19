@@ -107,7 +107,7 @@ CreatureData.Rarities = {
 -- Used by GetDungeonCreatureId to filter for Rare+ creatures
 CreatureData.RarityOrder = { Common = 1, Uncommon = 2, Rare = 3, Epic = 4, Legendary = 5 }
 
--- Variant tiers for combining: 3 of same tier combine into next (Normal → Silver → Gold → Legend)
+-- Variant tiers for combining: 3 of same tier combine into next (Normal → Silver → Gold → Legend)d
 CreatureData.VariantTiers = { "Normal", "Silver", "Gold", "Legend" }
 CreatureData.VariantOrder = { Normal = 1, Silver = 2, Gold = 3, Legend = 4 }
 CreatureData.VariantColors = {
@@ -118,22 +118,23 @@ CreatureData.VariantColors = {
 }
 
 -- Starter creatures the player can choose on first join
-CreatureData.Starters = { "cacty", "breezee", "pylme", "sundile", "ceeponee" }
+CreatureData.Starters = { "cacty", "pursula", "spoutyl", "sundile", "ceeponee" }
 
--- Zone preferences by element (creatures spawn near matching terrain)
+-- Zone preferences by element (creatures spawn in zone with SpawnPoints/DungeonPoint/BossPoint)
+-- Psychic+Undead=Desert, Shadow+Metal=Cave, Electric+Light=Electric, Poison+Water=Ocean; rest unchanged
 CreatureData.ZonePreference = {
 	Fire      = "volcanic",
 	Ice       = "frozen",
 	Wind      = "highlands",
 	Earth     = "forest",
 	Shadow    = "caves",
-	Light     = "sanctum",
+	Light     = "peaks",     -- Electric zone (with Lightning)
 	Lightning = "peaks",
 	Water     = "aquatic",
-	Psychic   = "mind",
-	Metal     = "forge",
-	Poison    = "swamp",
-	Undead    = "crypt",
+	Psychic   = "desert",
+	Metal     = "caves",     -- Cave zone (with Shadow)
+	Poison    = "aquatic",   -- Ocean zone (with Water)
+	Undead    = "desert",
 }
 
 -- Zone name -> Workspace biome folder name (primary name used in Studio)
@@ -144,9 +145,10 @@ CreatureData.ZoneBiomeFolder = {
 	forest    = "ForestBiome",
 	caves     = "CaveBiome",
 	sanctum   = "SanctumBiome",
-	-- Route the Lightning/peaks zone directly to ElectricBiome
 	peaks     = "ElectricBiome",
-	aquatic   = "AquaticBiome",
+	aquatic   = "OceanBiome",   -- Ocean zone (Water + Poison)
+	desert    = "DesertBiome",  -- Psychic + Undead
+	-- Legacy zones (no longer used for spawn preference; kept for any other refs)
 	mind      = "MindBiome",
 	forge     = "ForgeBiome",
 	swamp     = "SwampBiome",
@@ -155,9 +157,9 @@ CreatureData.ZoneBiomeFolder = {
 
 -- Alternate folder names that also map to the same zone (so any of these in workspace.Biomes work)
 CreatureData.ZoneBiomeFolderAliases = {
-	aquatic = { "WaterBiome", "OceanBiome", "Water" },
-	-- Keep legacy PeaksBiome/ElectriBiome as fallbacks, but primary is ElectricBiome
+	aquatic = { "WaterBiome", "AquaticBiome", "Water" },
 	peaks   = { "PeaksBiome", "ElectriBiome" },
+	desert  = {},  -- DesertBiome only (no alias)
 }
 
 -- Get the biome folder name for a creature's element (primary name only)
@@ -310,7 +312,7 @@ CreatureData.Creatures = {
 		element = "Fire", class = "Assassin", behavior = "skittish",
 		spawnWeight = 18, baseIncome = 1, captureTime = 0.6,
 		health = 40, attack = 11, defense = 5, speed = 11,
-		description = "A quick rodent wreathed in steam. It darts away at the slightest sound, leaving tiny burn marks in its wake.",
+		description = "Some say the spirits of lost SiegeKnights burning with rage become pylooks",
 		modelName = "Pylook", primaryColor = Color3.fromRGB(255, 120, 60),
 		evolvesTo = "pyleer",
 		flying = true,
@@ -320,7 +322,7 @@ CreatureData.Creatures = {
 		element = "Fire", class = "Guardian", behavior = "gentle",
 		spawnWeight = 18, baseIncome = 1, captureTime = 0.5,
 		health = 75, attack = 5, defense = 15, speed = 3,
-		description = "A docile creature formed of compacted volcanic ash. Its tough shell absorbs blows before it bothers to fight back.",
+		description = "These scaled lizards are known to have an affinity for lava pools and tracking time",
 		modelName = "Sundile", primaryColor = Color3.fromRGB(140, 90, 70),
 		evolvesTo = "raydile",
 		crawling = true,
@@ -330,7 +332,7 @@ CreatureData.Creatures = {
 		element = "Fire", class = "Bruiser", behavior = "pack",
 		spawnWeight = 17, baseIncome = 1, captureTime = 0.5, packSize = {2, 4},
 		health = 55, attack = 10, defense = 8, speed = 6,
-		description = "Tiny fire imps that travel in rowdy gangs. Individually weak, but their combined heat is no joke.",
+		description = "Their coiled tails lash out at anything that dares to cross their path. Always found in groups",
 		modelName = "Draco", primaryColor = Color3.fromRGB(255, 90, 30),evolvesTo = "dracoil",
 	},
 	{
@@ -338,7 +340,7 @@ CreatureData.Creatures = {
 		element = "Fire", class = "Support", behavior = "gentle",
 		spawnWeight = 16, baseIncome = 1, captureTime = 0.6,
 		health = 65, attack = 6, defense = 10, speed = 4,
-		description = "A warm, vine-like creature that radiates gentle heat. Nearby allies feel invigorated by its glow.",
+		description = "The gentle emberfox, found in many homes as a pet. Perfect for winter snuggles",
 		modelName = "Emberfox", primaryColor = Color3.fromRGB(200, 110, 40),
 	},
 
@@ -348,7 +350,7 @@ CreatureData.Creatures = {
 		element = "Fire", class = "Bruiser", behavior = "aggressive",
 		spawnWeight = 10, baseIncome = 3, captureTime = 1.0,
 		health = 90, attack = 18, defense = 10, speed = 8,
-		description = "A fiery puppy that leaves scorch marks wherever it walks. Attacks on sight.",
+		description = "A fiery puppy that leaves scorch marks wherever it walks. Attacks on sight!",
 		modelName = "Emberpup", primaryColor = Color3.fromRGB(255, 100, 40),
 	},
 	{
@@ -356,7 +358,7 @@ CreatureData.Creatures = {
 		element = "Fire", class = "Guardian", behavior = "lone",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.1,
 		health = 110, attack = 10, defense = 20, speed = 4,
-		description = "A salamander with a molten core. Its skin hardens into obsidian plates when threatened.",
+		description = "A salamander with a molten core. These lone sieglings seek the heat of the sun.",
 		modelName = "Raydile", primaryColor = Color3.fromRGB(200, 60, 20),
 		evolvesFrom = "sundile",
 		evolvesTo = "solgator",
@@ -368,7 +370,7 @@ CreatureData.Creatures = {
 		element = "Fire", class = "Support", behavior = "pack",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.0, packSize = {2, 3},
 		health = 75, attack = 12, defense = 12, speed = 9,
-		description = "Fox-like creatures that share warmth through linked tails. Their combined flame bolsters pack morale.",
+		description = "Hotty's are helpers of the Fire Eleminion",
 		modelName = "Hotty", primaryColor = Color3.fromRGB(255, 160, 80),
 	},
 	{
@@ -386,7 +388,7 @@ CreatureData.Creatures = {
 		element = "Fire", class = "Assassin", behavior = "lone",
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
 		health = 100, attack = 28, defense = 12, speed = 13,
-		description = "A serpent wreathed in living flame. Strikes with deadly precision.",
+		description = "Dracoil's leave the safety of the pack to travel alone, but they are known to return when the pack is in danger",
 		modelName = "Dracoil", primaryColor = Color3.fromRGB(255, 60, 20),
 		spawnPointType = "dungeon",evolvesFrom = "draco",
 		modelDisplaySize = 5.0,modelScaleMultiplier = 1.5
@@ -416,17 +418,17 @@ CreatureData.Creatures = {
 		element = "Fire", class = "Mage", behavior = "lone",
 		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
 		health = 140, attack = 42, defense = 15, speed = 10,
-		description = "A walking furnace of arcane flame. Melts stone with a glance.",
+		description = "The pylook's evolved form, formed on many pylook's fused into a single ghastly creature",
 		modelName = "Pyleer", primaryColor = Color3.fromRGB(255, 50, 0),
 		spawnPointType = "dungeon",modelDisplaySize = 8.0,modelScaleMultiplier = 2.0,
 		evolvesFrom = "pylook", flying = true
 	},
 	{
 		id = "solgator", displayName = "Solgator", rarity = "Epic",
-		element = "Fire", class = "Guardian", behavior = "gentle",
+		element = "Fire", class = "Guardian", behavior = "aggressive",
 		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
 		health = 220, attack = 20, defense = 35, speed = 8,
-		description = "A titanic tortoise with a volcanic crater on its back. Erupts only when truly enraged.",
+		description = "The Solgator guards the lava pools of the Fire lands, they attack anything that dares to cross their path",
 		modelName = "Solgator", primaryColor = Color3.fromRGB(180, 40, 10),
 		spawnPointType = "dungeon",
 		evolvesFrom = "raydile", crawling = true,modelDisplaySize = 8.0,modelScaleMultiplier = 2.0,
@@ -438,7 +440,7 @@ CreatureData.Creatures = {
 		element = "Fire", class = "Bruiser", behavior = "lone",
 		spawnWeight = 1, baseIncome = 50, captureTime = 3.5,
 		health = 380, attack = 50, defense = 40, speed = 10,
-		description = "A dragon forged from the heart of a dying star. The air itself ignites in its presence. Only the boldest challengers dare approach.",
+		description = "This ancient Siegling is said to be the soul of a powerful SiegLord who jumped into the Volcano to become Fire itself",
 		modelName = "Pylord", primaryColor = Color3.fromRGB(255, 200, 30),
 		spawnPointType = "boss",modelDisplaySize = 16.0,
 
@@ -446,7 +448,7 @@ CreatureData.Creatures = {
 
 	-- ============================
 	-- ICE CREATURES (5C, 4U, 3R, 2E, 1L)
-	-- ============================
+	-- ============================123
 
 	-- Ice Common (5)
 	{
@@ -454,7 +456,7 @@ CreatureData.Creatures = {
 		element = "Ice", class = "Bruiser", behavior = "pack",
 		spawnWeight = 15, baseIncome = 1, captureTime = 0.5,
 		health = 55, attack = 5, defense = 10, speed = 5,
-		description = "A fluffy cloud of frost that hums softly. Peaceful unless bothered.",
+		description = "Bundled up from within the snow, these small deerlike creatures are known to be shy",
 		modelName = "Fawny", primaryColor = Color3.fromRGB(200, 230, 255),
 		evolvesTo = "chilldoe",
 	},
@@ -463,7 +465,7 @@ CreatureData.Creatures = {
 		element = "Ice", class = "Mage", behavior = "gentle",
 		spawnWeight = 18, baseIncome = 1, captureTime = 0.5,
 		health = 70, attack = 6, defense = 16, speed = 3,
-		description = "A beetle encased in a shell of permanent ice. It plods along unbothered, nearly impossible to crack open.",
+		description = "Frostflies are found fluttering along snowflakes, they rest on pine trees and have a fondness for winter berries",
 		modelName = "Frostfly", primaryColor = Color3.fromRGB(150, 200, 240), flying = true, crawling = true
 	},
 	{
@@ -471,7 +473,7 @@ CreatureData.Creatures = {
 		element = "Ice", class = "Assassin", behavior = "aggressive",
 		spawnWeight = 16, baseIncome = 1, captureTime = 0.6,
 		health = 42, attack = 10, defense = 6, speed = 11,
-		description = "A nimble fox that leaves trails of frost. It bolts at the first sign of danger, sliding across ice with ease.",
+		description = "The Ice-Weee is a odd creature, its Ice-Cube shaped body can grow to intimidate other creatures",
 		modelName = "Icewee", primaryColor = Color3.fromRGB(180, 220, 255),
 		evolvesTo = "icecuewee",
 	},
@@ -480,7 +482,7 @@ CreatureData.Creatures = {
 		element = "Ice", class = "Bruiser", behavior = "skittish",
 		spawnWeight = 17, baseIncome = 1, captureTime = 0.5,
 		health = 55, attack = 11, defense = 8, speed = 6,
-		description = "A crustacean with razor-sharp ice pincers. It aggressively defends frozen tide pools from anything that moves.",
+		description = "Ceeponee float through the winter winds and are known to be a bit shy",
 		modelName = "Ceeponee", primaryColor = Color3.fromRGB(130, 190, 255), flying = true, evolvesTo = "ceehorcee"
 	},
 	{
@@ -488,7 +490,7 @@ CreatureData.Creatures = {
 		element = "Ice", class = "Mage", behavior = "lone",
 		spawnWeight = 15, baseIncome = 1, captureTime = 0.6, packSize = {2, 3},
 		health = 45, attack = 10, defense = 7, speed = 8,
-		description = "Wispy spirits that gather in small flurries. Together they conjure blinding snowstorms.",
+		description = "Large and imposing these cuddly creatures only want to find their companion and stay warm.",
 		modelName = "Cozycub", primaryColor = Color3.fromRGB(220, 240, 255),
 		modelDisplaySize = 9.0,modelScaleMultiplier = 1.5,
 	},
@@ -508,7 +510,7 @@ CreatureData.Creatures = {
 		element = "Ice", class = "Bruiser", behavior = "aggressive",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.0, packSize = {2, 4},
 		health = 85, attack = 15, defense = 12, speed = 9,
-		description = "Frost-coated wolves that hunt in coordinated packs across the tundra. Their howls freeze the air.",
+		description = "Trading the puffy for a Hooded Jacker, the Chilldoe has honed its fist into fearsome weapons",
 		modelName = "Chilldoe", primaryColor = Color3.fromRGB(160, 210, 240),
 		evolvesFrom = "fawny", evolvesTo = "frostag",modelDisplaySize = 4.0,modelScaleMultiplier = 1.5,
 	},
@@ -517,7 +519,7 @@ CreatureData.Creatures = {
 		element = "Ice", class = "Assassin", behavior = "skittish",
 		spawnWeight = 8, baseIncome = 3, captureTime = 1.2,
 		health = 80, attack = 8, defense = 15, speed = 12,
-		description = "A gentle fawn made of crystallized snow. It heals nearby allies with its aura but flees from conflict.",
+		description = "A gentle fawn made of crystallized snow. It heals nearby allies w.ith its aura but flees from conflict.",
 		modelName = "Icecuewee", primaryColor = Color3.fromRGB(200, 240, 250),
 		evolvesFrom = "icewee"
 	},
@@ -748,7 +750,7 @@ CreatureData.Creatures = {
 		health = 290, attack = 55, defense = 35, speed = 14,
 		description = "The sovereign of all skies. Aerovane moves faster than sight and strikes harder than a thunderbolt. Legends say it can split mountains with a wingbeat.",
 		modelName = "Aerovane", primaryColor = Color3.fromRGB(80, 255, 180),
-		spawnPointType = "boss", flying = true,modelDisplaySize = 15.0
+		spawnPointType = "boss", flying = true,modelDisplaySize = 16.0
 	},
 
 	-- ============================
@@ -827,7 +829,7 @@ CreatureData.Creatures = {
 		health = 75, attack = 15, defense = 12, speed = 8,
 		description = "A serpentine creature woven from fern fronds and ancient vines. It channels nature magic to entangle prey.",
 		modelName = "FloraKnight", primaryColor = Color3.fromRGB(60, 150, 50),
-		evolvesFrom = "squirebud",evolvesTo = "generoot",
+		evolvesFrom = "squirebud",evolvesTo = "generoot",modelDisplaySize = 5.0,modelScaleMultiplier = 1.5
 	},
 	{
 		id = "bonoblade", displayName = "Bonoblade", rarity = "Uncommon",
@@ -912,7 +914,7 @@ CreatureData.Creatures = {
 	},
 
 	-- ============================
-	-- SHADOW CREATURES (5C, 4U, 3R, 2E, 1L)d
+	-- SHADOW CREATURES (5C, 4U, 3R, 2E, 1L)
 	-- ============================
 
 	-- Shadow Common (5)
@@ -1200,7 +1202,7 @@ CreatureData.Creatures = {
 	-- Water Common (5)
 	{
 		id = "spoutyl", displayName = "Spoutyl", rarity = "Common",
-		element = "Water", class = "Support", behavior = "gentle",
+		element = "Water", class = "assassin", behavior = "gentle",
 		spawnWeight = 15, baseIncome = 1, captureTime = 0.5,
 		health = 50, attack = 6, defense = 8, speed = 8,
 		description = "A tiny water spirit that heals allies with soothing droplets. Commonly found near pools and streams.",
@@ -1208,12 +1210,12 @@ CreatureData.Creatures = {
 		evolvesTo = "droxyl",
 	},
 	{
-		id = "pondskimmer", displayName = "Pondskimmer", rarity = "Common",
-		element = "Water", class = "Assassin", behavior = "skittish",
+		id = "shellpack", displayName = "Shellpack", rarity = "Common",
+		element = "Water", class = "support", behavior = "skittish",
 		spawnWeight = 18, baseIncome = 1, captureTime = 0.6,
 		health = 38, attack = 12, defense = 4, speed = 12,
 		description = "A sleek creature that darts across water surfaces. Vanishes beneath the surface when startled.",
-		modelName = "Pondskimmer", primaryColor = Color3.fromRGB(60, 160, 220),
+		modelName = "Shellpack", primaryColor = Color3.fromRGB(60, 160, 220),
 	},
 	{
 		id = "kelpcrawler", displayName = "Kelpcrawler", rarity = "Common",
@@ -1260,12 +1262,12 @@ CreatureData.Creatures = {
 		evolvesTo = "clawqueen",modelDisplaySize = 5.0,modelScaleMultiplier = 1.5
 	},
 	{
-		id = "mistwalker", displayName = "Mistwalker", rarity = "Uncommon",
-		element = "Water", class = "Mage", behavior = "skittish",
+		id = "torqlander", displayName = "Torqlander", rarity = "Uncommon",
+		element = "Water", class = "Mage", behavior = "lone",
 		spawnWeight = 8, baseIncome = 3, captureTime = 1.2,
 		health = 72, attack = 16, defense = 10, speed = 10,
 		description = "Emerges from morning mist to strike with condensed water bolts. Fades back into fog when threatened.",
-		modelName = "Mistwalker", primaryColor = Color3.fromRGB(180, 210, 255),
+		modelName = "Torqlander", primaryColor = Color3.fromRGB(180, 210, 255),
 	},
 	{
 		id = "brinepup", displayName = "Brinepup", rarity = "Uncommon",
@@ -1287,12 +1289,12 @@ CreatureData.Creatures = {
 		spawnPointType = "dungeon", evolvesFrom = "droxyl",modelDisplaySize = 10,modelScaleMultiplier = 1.5
 	},
 	{
-		id = "tidalguard", displayName = "Tidalguard", rarity = "Rare",
+		id = "Shellnaut", displayName = "Shellnaut", rarity = "Rare",
 		element = "Water", class = "Guardian", behavior = "lone",
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
 		health = 145, attack = 12, defense = 28, speed = 6,
 		description = "A massive crab-like guardian. Rises with the tide to shield allies behind walls of water.",
-		modelName = "Tidalguard", primaryColor = Color3.fromRGB(60, 140, 220),
+		modelName = "Shellnaut", primaryColor = Color3.fromRGB(60, 140, 220),
 		spawnPointType = "dungeon",
 	},
 	{
@@ -1390,7 +1392,7 @@ CreatureData.Creatures = {
 -- LOOKUP HELPERS
 -- ======================================
 -- These rebuild automatically from the Creatures table.
--- After adding a creature, these work with no additional changes.
+-- After adding a creature, these work with no additional changes....
 
 -- Fast O(1) lookup by creature id
 CreatureData._byId = {}
@@ -1804,10 +1806,9 @@ end
 
 -- Elemental weakness chart:
 --   Fire → Ice → Earth → Wind → Fire (cycle)
---   Water: strong vs Fire, Earth; weak vs Ice, Lightning
---   Lightning: strong vs Ice, Water; weak vs Fire, Earth
---   Light ↔ Shadow (mutual advantage)
---   Psychic: neutral (no advantage or disadvantage)
+--   Quad 1: Water strong vs Fire, Earth; weak vs Ice, Lightning. Lightning strong vs Ice, Water; weak vs Earth, Metal.
+--   Metal strong vs Earth, Wind, Lightning; weak vs Fire, Lightning. Poison strong vs Water, Earth; weak vs Metal, Fire.
+--   Quad 2 (4-cycle): Light → Shadow → Psychic → Undead → Light; each 1 strong, 1 weak.
 -- Returns damage multiplier: >1 when attacker has advantage, <1 when defender has advantage, 1 when neutral.
 -- Tuning is in GameConfig (ElementalAdvantageMultiplier / ElementalDisadvantageMultiplier); callers apply those if desired.
 local function elementBeats(attacker, defender, beats)
@@ -1821,18 +1822,20 @@ function CreatureData.GetElementalDamageMultiplier(attackerElement, defenderElem
 	attackerElement = attackerElement or "Fire"
 	defenderElement = defenderElement or "Fire"
 	local beats = {
-		-- Fire → Ice → Earth → Wind → Fire cycle
-		Fire  = { "Ice", "Lightning" },   -- Fire beats Ice (cycle); Fire beats Lightning (Electric weak vs Fire)
-		Ice   = { "Earth", "Water" },     -- Ice beats Earth (cycle); Ice beats Water (Water weak vs Ice)
-		Earth = { "Wind", "Lightning" },  -- Earth beats Wind (cycle); Earth beats Lightning (Electric weak vs Earth)
-		Wind  = "Fire",                   -- Wind beats Fire (cycle)
-		-- Water: strong vs Fire and Earth; weak vs Ice and Lightning
+		-- Fire → Ice → Earth → Wind → Fire cycle; Quad 1 (Water, Lightning, Metal, Poison)
+		Fire     = { "Ice", "Poison", "Metal" },
+		Ice      = { "Earth", "Water" },
+		Earth    = { "Wind", "Lightning" },
+		Wind     = "Fire",
 		Water    = { "Fire", "Earth" },
-		Lightning = { "Ice", "Water" },   -- Electric strong vs Ice and Water
-		-- Light ↔ Shadow: mutual advantage
-		Light  = "Shadow",
-		Shadow = "Light",
-		-- Psychic: no entries = neutral vs all
+		Lightning = { "Ice", "Water" },
+		Metal    = { "Earth", "Wind", "Lightning" },
+		Poison   = { "Water", "Earth" },
+		-- Quad 2: 4-cycle Light → Shadow → Psychic → Undead → Light
+		Light   = "Shadow",
+		Shadow  = "Psychic",
+		Psychic = "Undead",
+		Undead  = "Light",
 	}
 	if elementBeats(attackerElement, defenderElement, beats) then
 		return 1.5  -- advantage

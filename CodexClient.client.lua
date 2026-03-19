@@ -14,6 +14,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+local MobileWindowLayout = require(ReplicatedStorage.Modules:WaitForChild("MobileWindowLayout"))
 
 local CodexModelViewer = nil
 if GameConfig.ENABLE_CODEX_3D_VIEWER then
@@ -42,6 +43,7 @@ local filteredCreatures = {} -- cached list for Visual grid
 local filterElement = nil   -- nil = All
 local filterRarity = nil
 local filterSearch = ""
+local showCreature -- forward declaration (used by switchToDetails before definition)
 
 -- Colors
 local C = {
@@ -55,11 +57,19 @@ local C = {
 	white = Color3.new(1, 1, 1),
 }
 
--- Panel scaling (wider so filters + Search don't overlap; taller so nav bar and scroll reach bottom)
-local PANEL_DESIGN_W = 560
-local PANEL_DESIGN_H = 600
-local PANEL_SCALE_MIN = 0.52
+-- Egg placeholder shown in Visual Codex for uncaught creatures.
+-- Replace with your uploaded screenshot asset id to match exactly:
+-- e.g. CODEX_EGG_PLACEHOLDER_IMAGE_ID = "rbxassetid://1234567890"fgv
+local CODEX_EGG_PLACEHOLDER_IMAGE_ID = "" -- TODO
+local CODEX_EGG_BACKDROP = Color3.fromRGB(235, 225, 180)
+local CODEX_EGG_BORDER = Color3.fromRGB(255, 200, 80)
+
+-- Panel scaling: wider so filters/dropdowns/buttons fit; on mobile use most of viewport
+local PANEL_DESIGN_W = 640
+local PANEL_DESIGN_H = 620
+local PANEL_SCALE_MIN = 0.5
 local PANEL_SCALE_MAX = 1
+local MOBILE_WIDTH_THRESHOLD = 600 -- below this, use viewport-relative sizing so window is "wider" on mobile
 
 local function getPanelScale()
 	local camera = workspace.CurrentCamera
@@ -69,10 +79,24 @@ local function getPanelScale()
 end
 
 local function applyPanelScale(pnl)
+	if MobileWindowLayout.IsMobile() then
+		MobileWindowLayout.ApplyWindow(pnl, {
+			leftInset = 14,
+			rightInset = 14,
+			topInset = 10,
+			bottomInset = 14,
+			bottomMobileExtra = 20,
+		})
+		pnl.Draggable = true
+		return
+	end
+
+	pnl.AnchorPoint = Vector2.new(0, 0)
 	local scale = getPanelScale()
 	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
 	pnl.Size = UDim2.new(0, w, 0, h)
 	pnl.Position = UDim2.new(0.5, -w/2, 0.5, -h/2)
+	MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
 end
 
 -- Ordered creature list for next/prev
@@ -94,6 +118,7 @@ sg.Parent = playerGui
 -- Main panel
 local panel = Instance.new("Frame")
 panel.Name = "CodexPanel"
+panel.AnchorPoint = Vector2.new(0, 0)
 panel.Size = UDim2.new(0, PANEL_DESIGN_W, 0, PANEL_DESIGN_H)
 panel.Position = UDim2.new(0.5, -PANEL_DESIGN_W/2, 0.5, -PANEL_DESIGN_H/2)
 panel.BackgroundColor3 = C.bg
@@ -140,6 +165,7 @@ closeBtn.Parent = titleBar
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
 closeBtn.MouseButton1Click:Connect(function()
 	panel.Visible = false
+	MobileWindowLayout.NotifyMenuClosed()
 end)
 
 -- Tab bar: Guide | Lore | Details | Visual
@@ -221,7 +247,7 @@ previewFrame.Name = "Preview"
 previewFrame.Size = UDim2.new(1, 0, 0, 196)
 previewFrame.BackgroundColor3 = C.card
 previewFrame.BorderSizePixel = 0
-previewFrame.LayoutOrder = 0
+previewFrame.LayoutOrder = 3
 previewFrame.Parent = scroll
 Instance.new("UICorner", previewFrame).CornerRadius = UDim.new(0, 10)
 
@@ -309,6 +335,7 @@ end)
 
 local detailsModelViewer = nil -- created when first showing details with 3D enabled
 local detailsSnapshotImg = nil -- ImageLabel from CaptureSnapshotAsync (static fallback)
+local ENABLE_CODEX_SNAPSHOT_FALLBACK = false -- keep live ViewportFrame visible by default
 
 local nameLbl = Instance.new("TextLabel")
 nameLbl.Name = "Name"
@@ -347,7 +374,7 @@ descLbl.TextSize = 12
 descLbl.TextXAlignment = Enum.TextXAlignment.Left
 descLbl.TextWrapped = true
 descLbl.AutomaticSize = Enum.AutomaticSize.Y
-descLbl.LayoutOrder = 3
+descLbl.LayoutOrder = 4
 descLbl.Parent = scroll
 
 local statsLbl = Instance.new("TextLabel")
@@ -361,7 +388,7 @@ statsLbl.TextSize = 12
 statsLbl.TextXAlignment = Enum.TextXAlignment.Left
 statsLbl.TextWrapped = true
 statsLbl.AutomaticSize = Enum.AutomaticSize.Y
-statsLbl.LayoutOrder = 4
+statsLbl.LayoutOrder = 5
 statsLbl.Parent = scroll
 
 local abilitiesLbl = Instance.new("TextLabel")
@@ -375,7 +402,7 @@ abilitiesLbl.TextSize = 11
 abilitiesLbl.TextXAlignment = Enum.TextXAlignment.Left
 abilitiesLbl.TextWrapped = true
 abilitiesLbl.AutomaticSize = Enum.AutomaticSize.Y
-abilitiesLbl.LayoutOrder = 5
+abilitiesLbl.LayoutOrder = 6
 abilitiesLbl.Parent = scroll
 
 -- Nav bar (fixed at bottom of Details so always visible; not inside scroll)
@@ -544,7 +571,7 @@ guideContent.Parent = panel
 
 local GUIDE_SECTIONS = {
 	{ title = "I. Quick Ref", text = [[CONTROLS
-[W][A][S][D] Move  [E] Target  [F] Attack  [Q] SieglinQ  [R] Eggs  [G] Buffs  [C] Drip  [V] Friends  [X] Leaders  [P] Profile  [Z] Rebirth  [H] Home Recall  [B] Battle tab  [Y] Toggle favorite
+[W][A][S][D] Move  [E] Target  [F] Attack  [Q] SieglinQ  [G] Shop  [V] Friends  [X] Leaders  [P] Profile  [Z] Rebirth  [H] Home Recall  [B] Battle tab  [Y] Toggle favorite
 
 HOW TO PLAY
 1. CAPTURE — Find Sieglinqs in the world. Press [E] to target. Attack with [F] (and your companion) until the creature faints. Click the fainted creature to capture (costs gold; rarer = more cost).
@@ -722,7 +749,7 @@ visualContent.BackgroundTransparency = 1
 visualContent.Visible = false
 visualContent.Parent = panel
 
--- Filter row: Element row, Rarity row, then Search on its own row so it never overlaps Legendary
+-- Filter row: Element and Rarity in horizontal ScrollingFrames so all fit on mobile; Search full width
 local filterRow = Instance.new("Frame")
 filterRow.Size = UDim2.new(1, 0, 0, 88)
 filterRow.BackgroundTransparency = 1
@@ -738,17 +765,40 @@ elementFilterLabel.Font = Enum.Font.GothamMedium
 elementFilterLabel.TextSize = 10
 elementFilterLabel.Parent = filterRow
 
+local elementScroll = Instance.new("ScrollingFrame")
+elementScroll.Size = UDim2.new(1, -54, 0, 26)
+elementScroll.Position = UDim2.new(0, 52, 0, 2)
+elementScroll.BackgroundTransparency = 1
+elementScroll.BorderSizePixel = 0
+elementScroll.ScrollBarThickness = 4
+elementScroll.ScrollBarImageColor3 = C.muted
+elementScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+elementScroll.AutomaticCanvasSize = Enum.AutomaticSize.X
+elementScroll.ScrollingDirection = Enum.ScrollingDirection.X
+elementScroll.Parent = filterRow
+local elementList = Instance.new("Frame")
+elementList.Size = UDim2.new(0, 0, 1, 0)
+elementList.BackgroundTransparency = 1
+elementList.AutomaticSize = Enum.AutomaticSize.X
+elementList.Parent = elementScroll
+local elementLayout = Instance.new("UIListLayout")
+elementLayout.FillDirection = Enum.FillDirection.Horizontal
+elementLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+elementLayout.Padding = UDim.new(0, 4)
+elementLayout.SortOrder = Enum.SortOrder.LayoutOrder
+elementLayout.Parent = elementList
+
 local elementButtons = {}
 local elements = {"All", "Fire", "Ice", "Wind", "Earth", "Shadow", "Light", "Lightning", "Water", "Psychic"}
 for i, el in ipairs(elements) do
 	local btn = Instance.new("TextButton")
 	btn.Size = UDim2.new(0, 48, 0, 22)
-	btn.Position = UDim2.new(0, 52 + (i - 1) * 52, 0, 2)
+	btn.LayoutOrder = i
 	btn.Text = el
 	btn.Font = Enum.Font.GothamBold
 	btn.TextSize = 9
 	btn.BorderSizePixel = 0
-	btn.Parent = filterRow
+	btn.Parent = elementList
 	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
 	elementButtons[el] = btn
 end
@@ -763,17 +813,40 @@ rarityFilterLabel.Font = Enum.Font.GothamMedium
 rarityFilterLabel.TextSize = 10
 rarityFilterLabel.Parent = filterRow
 
+local rarityScroll = Instance.new("ScrollingFrame")
+rarityScroll.Size = UDim2.new(1, -50, 0, 26)
+rarityScroll.Position = UDim2.new(0, 50, 0, 28)
+rarityScroll.BackgroundTransparency = 1
+rarityScroll.BorderSizePixel = 0
+rarityScroll.ScrollBarThickness = 4
+rarityScroll.ScrollBarImageColor3 = C.muted
+rarityScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+rarityScroll.AutomaticCanvasSize = Enum.AutomaticSize.X
+rarityScroll.ScrollingDirection = Enum.ScrollingDirection.X
+rarityScroll.Parent = filterRow
+local rarityList = Instance.new("Frame")
+rarityList.Size = UDim2.new(0, 0, 1, 0)
+rarityList.BackgroundTransparency = 1
+rarityList.AutomaticSize = Enum.AutomaticSize.X
+rarityList.Parent = rarityScroll
+local rarityLayout = Instance.new("UIListLayout")
+rarityLayout.FillDirection = Enum.FillDirection.Horizontal
+rarityLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+rarityLayout.Padding = UDim.new(0, 4)
+rarityLayout.SortOrder = Enum.SortOrder.LayoutOrder
+rarityLayout.Parent = rarityList
+
 local rarityButtons = {}
 local rarities = {"All", "Common", "Uncommon", "Rare", "Epic", "Legendary"}
 for i, r in ipairs(rarities) do
 	local btn = Instance.new("TextButton")
 	btn.Size = UDim2.new(0, 58, 0, 22)
-	btn.Position = UDim2.new(0, 50 + (i - 1) * 62, 0, 28)
+	btn.LayoutOrder = i
 	btn.Text = r
 	btn.Font = Enum.Font.GothamBold
 	btn.TextSize = 9
 	btn.BorderSizePixel = 0
-	btn.Parent = filterRow
+	btn.Parent = rarityList
 	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
 	rarityButtons[r] = btn
 end
@@ -926,7 +999,7 @@ local function switchToVisual()
 	task.defer(updateVisualViewerPool)
 end
 
-local function showCreature(creatureId)
+showCreature = function(creatureId)
 	local info = CreatureData.GetById(creatureId)
 	if not info then
 		panel.Visible = false
@@ -940,12 +1013,11 @@ local function showCreature(creatureId)
 	local elemInfo = CreatureData.Elements[info.element]
 	local classInfo = CreatureData.Classes[info.class]
 
-	-- Preview: 3D viewer with snapshot fallback, or placeholder
+	-- Preview: 3D viewer with element theming, floor, and auto-rotate
 	if CodexModelViewer then
 		previewViewportContainer.Visible = true
 		previewPlaceholder.Visible = false
 		customModelControls.Visible = true
-		-- Remove old snapshot if any
 		if detailsSnapshotImg then
 			detailsSnapshotImg:Destroy()
 			detailsSnapshotImg = nil
@@ -953,27 +1025,35 @@ local function showCreature(creatureId)
 		if not detailsModelViewer then
 			detailsModelViewer = CodexModelViewer.new(previewViewportContainer, {
 				size = UDim2.new(1, 0, 1, 0),
-				autoRotate = false,
+				autoRotate = true,
+				autoRotateSpeed = 0.3,
 				zoomEnabled = true,
+				showFloor = true,
+				themedLighting = true,
+				playIdleAnimation = true,
 			})
 		end
-		local vf = detailsModelViewer:GetViewportFrame()
-		if vf then vf.Visible = true end
-		detailsModelViewer:SetCreature(creatureId)
-		-- Capture 2D snapshot as static image (fallback when ViewportFrame display fails)
-		task.spawn(function()
-			task.wait(0.25)
-			if not detailsModelViewer or currentCreatureId ~= creatureId then return end
-			local ok, img = pcall(function()
-				return detailsModelViewer:CaptureSnapshotAsync()
+		if detailsModelViewer then
+			local vf = detailsModelViewer:GetViewportFrame()
+			if vf then vf.Visible = true end
+			detailsModelViewer:SetCreature(creatureId)
+		end
+		-- Optional static snapshot fallback (disabled by default to avoid hiding live viewer)
+		if ENABLE_CODEX_SNAPSHOT_FALLBACK then
+			task.spawn(function()
+				task.wait(0.25)
+				if not detailsModelViewer or currentCreatureId ~= creatureId then return end
+				local ok, img = pcall(function()
+					return detailsModelViewer:CaptureSnapshotAsync()
+				end)
+				if ok and img and currentCreatureId == creatureId then
+					if detailsSnapshotImg then detailsSnapshotImg:Destroy() end
+					detailsSnapshotImg = img
+					img.Parent = previewViewportContainer
+					if vf then vf.Visible = false end
+				end
 			end)
-			if ok and img and currentCreatureId == creatureId then
-				if detailsSnapshotImg then detailsSnapshotImg:Destroy() end
-				detailsSnapshotImg = img
-				img.Parent = previewViewportContainer
-				if vf then vf.Visible = false end
-			end
-		end)
+		end
 	else
 		previewViewportContainer.Visible = false
 		previewPlaceholder.Visible = true
@@ -1077,6 +1157,8 @@ local function makeCell(creatureInfo, order)
 	viewerSlot.Parent = cell
 	Instance.new("UICorner", viewerSlot).CornerRadius = UDim.new(0, 6)
 
+	local isCaught = ownedCreatureIds[creatureInfo.id] == true
+
 	local placeholder = Instance.new("Frame")
 	placeholder.Name = "Placeholder"
 	placeholder.Size = UDim2.new(0, 40, 0, 40)
@@ -1085,6 +1167,40 @@ local function makeCell(creatureInfo, order)
 	placeholder.BorderSizePixel = 0
 	placeholder.Parent = viewerSlot
 	Instance.new("UICorner", placeholder).CornerRadius = UDim.new(1, 0)
+	placeholder.Visible = isCaught
+
+	-- Egg overlay (2D placeholder). No 3D viewer when uncaught.
+	local eggOverlay = Instance.new("Frame")
+	eggOverlay.Name = "EggOverlay"
+	eggOverlay.Size = UDim2.new(0, 40, 0, 40)
+	eggOverlay.Position = UDim2.new(0.5, -20, 0.5, -20)
+	eggOverlay.BackgroundColor3 = CODEX_EGG_BACKDROP
+	eggOverlay.BorderSizePixel = 0
+	eggOverlay.Parent = viewerSlot
+	eggOverlay.Visible = not isCaught
+	Instance.new("UICorner", eggOverlay).CornerRadius = UDim.new(1, 0)
+
+	local eggImg = Instance.new("ImageLabel")
+	eggImg.Name = "EggImage"
+	eggImg.Size = UDim2.new(1, 0, 1, 0)
+	eggImg.BackgroundTransparency = 1
+	eggImg.ScaleType = Enum.ScaleType.Fit
+	eggImg.Image = CODEX_EGG_PLACEHOLDER_IMAGE_ID
+	eggImg.Visible = CODEX_EGG_PLACEHOLDER_IMAGE_ID ~= nil and CODEX_EGG_PLACEHOLDER_IMAGE_ID ~= ""
+	eggImg.Parent = eggOverlay
+
+	local eggText = Instance.new("TextLabel")
+	eggText.Name = "EggTextFallback"
+	eggText.Size = UDim2.new(1, 0, 1, 0)
+	eggText.BackgroundTransparency = 1
+	eggText.Text = "?"
+	eggText.Font = Enum.Font.GothamBlack
+	eggText.TextColor3 = CODEX_EGG_BORDER
+	eggText.TextScaled = true
+	eggText.TextXAlignment = Enum.TextXAlignment.Center
+	eggText.TextYAlignment = Enum.TextYAlignment.Center
+	eggText.Visible = not eggImg.Visible
+	eggText.Parent = eggOverlay
 
 	local nameLbl = Instance.new("TextLabel")
 	nameLbl.Size = UDim2.new(1, -8, 0, 18)
@@ -1127,7 +1243,15 @@ local function makeCell(creatureInfo, order)
 		OpenCodex(creatureInfo.id)
 	end)
 
-	return { frame = cell, creatureId = creatureInfo.id, viewerSlot = viewerSlot, placeholder = placeholder, lockedOverlay = lockedOverlay }
+	return {
+		frame = cell,
+		creatureId = creatureInfo.id,
+		viewerSlot = viewerSlot,
+		placeholder = placeholder,
+		eggOverlay = eggOverlay,
+		caught = isCaught,
+		lockedOverlay = lockedOverlay,
+	}
 end
 
 -- Refresh Visual grid: apply filters, rebuild cells, update pool
@@ -1163,6 +1287,8 @@ end
 -- Assign pool viewers to cells that are in view (lazy 3D)
 function updateVisualViewerPool()
 	if not CodexModelViewer or #CELLS == 0 then return end
+	-- Prevent stale viewer->cell bookkeeping from earlier scroll positions.
+	viewerPoolInUse = {}
 	local scrollAbs = visualScroll.AbsolutePosition
 	local scrollSize = visualScroll.AbsoluteWindowSize
 	local visible = {}
@@ -1179,31 +1305,56 @@ function updateVisualViewerPool()
 	for i = 1, VIEWER_POOL_SIZE do
 		if visible[i] then
 			local cellData = visible[i].cellData
-			if not viewerPool[i] then
-				viewerPool[i] = CodexModelViewer.new(cellData.viewerSlot, {
-					size = UDim2.new(1, 0, 1, 0),
-					autoRotate = true,
-					zoomEnabled = false,
-				})
+			local caught = cellData.caught == true
+			if caught then
+				if not viewerPool[i] then
+					viewerPool[i] = CodexModelViewer.new(cellData.viewerSlot, {
+						size = UDim2.new(1, 0, 1, 0),
+						autoRotate = true,
+						autoRotateSpeed = 0.2,
+						zoomEnabled = false,
+						showFloor = false,
+						themedLighting = true,
+						playIdleAnimation = false,
+					})
+				end
+				viewerPool[i]:GetViewportFrame().Parent = cellData.viewerSlot
+				viewerPool[i]:SetCreature(cellData.creatureId)
+				cellData.placeholder.Visible = false
+				if cellData.eggOverlay then cellData.eggOverlay.Visible = false end
+				viewerPoolInUse[i] = cellData.creatureId
+			else
+				-- Uncaught: don't show 3D creature; show egg overlay instead.
+				if viewerPool[i] then
+					viewerPool[i]:SetCreature(nil)
+					viewerPool[i]:GetViewportFrame().Parent = nil
+				end
+				cellData.placeholder.Visible = false
+				if cellData.eggOverlay then cellData.eggOverlay.Visible = true end
+				viewerPoolInUse[i] = nil
 			end
-			viewerPool[i]:GetViewportFrame().Parent = cellData.viewerSlot
-			viewerPool[i]:SetCreature(cellData.creatureId)
-			cellData.placeholder.Visible = false
-			viewerPoolInUse[i] = cellData.creatureId
 		else
 			if viewerPool[i] then
 				viewerPool[i]:SetCreature(nil)
 				viewerPool[i]:GetViewportFrame().Parent = nil
 			end
+			viewerPoolInUse[i] = nil
 		end
 	end
 	-- Show placeholder again for cells that lost a viewer
 	for idx, cellData in ipairs(CELLS) do
+		local caught = cellData.caught == true
 		local hasViewer = false
-		for i = 1, VIEWER_POOL_SIZE do
-			if viewerPoolInUse[i] == cellData.creatureId then hasViewer = true break end
+		if caught then
+			for i = 1, VIEWER_POOL_SIZE do
+				if viewerPoolInUse[i] == cellData.creatureId then hasViewer = true break end
+			end
+			cellData.placeholder.Visible = not hasViewer
+			if cellData.eggOverlay then cellData.eggOverlay.Visible = false end
+		else
+			cellData.placeholder.Visible = false
+			if cellData.eggOverlay then cellData.eggOverlay.Visible = true end
 		end
-		cellData.placeholder.Visible = not hasViewer
 	end
 end
 
@@ -1214,6 +1365,7 @@ end)
 
 -- Fetch owned creature IDs from server (for Visual grid "owned" overlay)
 local function refreshOwnedCreatures()
+	table.clear(ownedCreatureIds)
 	local events = ReplicatedStorage:FindFirstChild("Events")
 	local getInv = events and events:FindFirstChild("GetInventory")
 	if not getInv then return end
@@ -1232,16 +1384,24 @@ function OpenCodex(creatureId)
 	if creatureId == "guide" or creatureId == "lore" or creatureId == nil or creatureId == "" then
 		if creatureId == "lore" then switchToLore() else switchToGuide() end
 		panel.Visible = true
+		MobileWindowLayout.NotifyMenuOpened()
 		return
 	end
 	if type(creatureId) ~= "string" then return end
 	local info = CreatureData.GetById(creatureId)
 	if not info then return end
 
-	task.spawn(refreshOwnedCreatures)
+	task.spawn(function()
+		refreshOwnedCreatures()
+		-- Update Visual mode egg placeholders + locked overlay once inventory lands.
+		if currentMode == "VISUAL" then
+			refreshVisualGrid()
+		end
+	end)
 	switchToDetails()
 	showCreature(creatureId)
 	panel.Visible = true
+	MobileWindowLayout.NotifyMenuOpened()
 end
 
 -- Expose for other scripts: fire with creatureId to open Codex, or "guide" for lore/guide
@@ -1275,6 +1435,7 @@ local function onHUDToggle(menuName)
 	if menuName == "CodexGuide" then
 		if panel.Visible then
 			panel.Visible = false
+			MobileWindowLayout.NotifyMenuClosed()
 		else
 			OpenCodex("guide")
 		end
@@ -1285,20 +1446,57 @@ playerGui.ChildAdded:Connect(function(child)
 	if child.Name == "HUDToggleMenu" and child:IsA("BindableEvent") then child.Event:Connect(onHUDToggle) end
 end)
 
+MobileWindowLayout.BindViewportUpdate(function()
+	if panel.Visible then
+		applyPanelScale(panel)
+	end
+end)
+
 -- Auto-show Guide when game starts (once per session)
 local guideShownThisSession = false
 task.spawn(function()
-	local events = ReplicatedStorage:FindFirstChild("Events")
-	local loadingReady = events and events:FindFirstChild("LoadingReady")
-	if loadingReady then
-		loadingReady.OnClientEvent:Wait()
-	else
-		task.wait(15)
+	local events = ReplicatedStorage:FindFirstChild("Events") or ReplicatedStorage:WaitForChild("Events", 15)
+	if events then
+		local criticalReady = events:FindFirstChild("LoadingCriticalReady")
+		local worldReady = events:FindFirstChild("LoadingReady")
+		if criticalReady then
+			criticalReady.OnClientEvent:Wait()
+		elseif worldReady then
+			worldReady.OnClientEvent:Wait()
+		end
 	end
-	task.wait(2)
+	task.wait(3)
+	if playerGui:FindFirstChild("LoadingScreen") or playerGui:FindFirstChild("LaunchScreen") then
+		task.wait(3)
+	end
 	if guideShownThisSession then return end
 	guideShownThisSession = true
-	OpenCodex("guide")
+
+	-- On first load, open Codex on the player's favorite creature.
+	local favCreatureId = nil
+	if events then
+		local getInv = events:FindFirstChild("GetInventory")
+		if getInv then
+			local ok, data = pcall(function() return getInv:InvokeServer() end)
+			if ok and data then
+				local favUid = data.favoriteUid
+				if favUid ~= nil and favUid ~= "" then
+					for _, e in ipairs(data.inventory or {}) do
+						if e and e.uid ~= nil and tostring(e.uid) == tostring(favUid) then
+							favCreatureId = e.id
+							break
+						end
+					end
+				end
+			end
+		end
+	end
+
+	if type(favCreatureId) == "string" and favCreatureId ~= "" and CreatureData.GetById(favCreatureId) then
+		OpenCodex(favCreatureId)
+	else
+		OpenCodex("guide")
+	end
 end)
 
 print("[CodexClient] Loaded — OpenCodex(creatureId) or OpenCodex(\"guide\") when ENABLE_CODEX_UI is true")

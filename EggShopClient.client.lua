@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local MarketplaceService = game:GetService("MarketplaceService")
+local MobileWindowLayout = require(ReplicatedStorage.Modules:WaitForChild("MobileWindowLayout"))
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -65,10 +66,23 @@ local function getPanelScale()
 end
 
 local function applyPanelScale(pnl)
+	if MobileWindowLayout.IsMobile() then
+		MobileWindowLayout.ApplyWindow(pnl, {
+			leftInset = 14,
+			rightInset = 14,
+			topInset = 10,
+			bottomInset = 14,
+			bottomMobileExtra = 20,
+		})
+		pnl.Draggable = true
+		return
+	end
+
 	local scale = getPanelScale()
 	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
 	pnl.Size = UDim2.new(0, w, 0, h)
 	pnl.Position = UDim2.new(0.5, -w/2, 0.5, -h/2)
+	MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
 end
 
 -- Screen GUI
@@ -136,13 +150,17 @@ closeBtn.Font = Enum.Font.GothamBold
 closeBtn.TextSize = 14
 closeBtn.Parent = titleBar
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
-closeBtn.MouseButton1Click:Connect(function() panel.Visible = false end)
+closeBtn.MouseButton1Click:Connect(function()
+	panel.Visible = false
+	MobileWindowLayout.NotifyMenuClosed()
+end)
 
 -- Card container
 local cardContainer = Instance.new("Frame")
 cardContainer.Size = UDim2.new(1, -20, 1, -55)
 cardContainer.Position = UDim2.new(0, 10, 0, 50)
 cardContainer.BackgroundTransparency = 1
+cardContainer.BorderSizePixel = 0
 cardContainer.Parent = panel
 
 local cardLayout = Instance.new("UIListLayout")
@@ -151,6 +169,21 @@ cardLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 cardLayout.VerticalAlignment = Enum.VerticalAlignment.Top
 cardLayout.Padding = UDim.new(0, 10)
 cardLayout.Parent = cardContainer
+
+local function applyResponsiveContentLayout()
+	local mobile = MobileWindowLayout.IsMobile()
+	titleLbl.TextSize = mobile and 22 or 18
+	currLbl.TextSize = mobile and 14 or 12
+	closeBtn.Size = mobile and UDim2.new(0, 38, 0, 38) or UDim2.new(0, 32, 0, 32)
+	closeBtn.Position = mobile and UDim2.new(1, -46, 0, 4) or UDim2.new(1, -40, 0, 5)
+	closeBtn.TextSize = mobile and 16 or 14
+	cardContainer.Size = mobile and UDim2.new(1, -12, 1, -60) or UDim2.new(1, -20, 1, -55)
+	cardContainer.Position = mobile and UDim2.new(0, 6, 0, 50) or UDim2.new(0, 10, 0, 50)
+	cardLayout.FillDirection = Enum.FillDirection.Horizontal
+	cardLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	cardLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+	cardLayout.Padding = mobile and UDim.new(0, 6) or UDim.new(0, 10)
+end
 
 local hatching = false
 
@@ -170,7 +203,10 @@ local function buildEggCards()
 	local items = GameConfig.EggShopItems
 	if not items or #items == 0 then return end
 
-	local cardWidth = math.floor((600 - (#items - 1) * 10) / #items)
+	local gap = MobileWindowLayout.IsMobile() and 6 or 10
+	local containerWidth = math.max(200, cardContainer.AbsoluteSize.X)
+	local cardWidth = math.max(62, math.floor((containerWidth - ((#items - 1) * gap)) / #items))
+	local uiScale = math.clamp(cardWidth / 120, 0.58, 1)
 
 	for i, egg in ipairs(items) do
 		local eggStyle = EGG_CARD_COLORS[egg.id] or { border = C.muted, bg = C.card }
@@ -211,7 +247,7 @@ local function buildEggCards()
 		nameLbl.Text = egg.name
 		nameLbl.TextColor3 = eggStyle.border
 		nameLbl.Font = Enum.Font.GothamBold
-		nameLbl.TextSize = 12
+		nameLbl.TextSize = math.max(7, math.floor(12 * uiScale))
 		nameLbl.TextWrapped = true
 		nameLbl.Parent = card
 
@@ -222,7 +258,7 @@ local function buildEggCards()
 		descLbl.Text = egg.desc
 		descLbl.TextColor3 = C.muted
 		descLbl.Font = Enum.Font.GothamMedium
-		descLbl.TextSize = 9
+		descLbl.TextSize = math.max(6, math.floor(9 * uiScale))
 		descLbl.TextWrapped = true
 		descLbl.Parent = card
 
@@ -241,7 +277,7 @@ local function buildEggCards()
 			chanceLbl.Text = entry.rarity .. ": " .. pct .. "%"
 			chanceLbl.TextColor3 = rc
 			chanceLbl.Font = Enum.Font.GothamMedium
-			chanceLbl.TextSize = 10
+			chanceLbl.TextSize = math.max(6, math.floor(10 * uiScale))
 			chanceLbl.TextXAlignment = Enum.TextXAlignment.Left
 			chanceLbl.Parent = card
 			yOff = yOff + 15
@@ -257,7 +293,7 @@ local function buildEggCards()
 		buyCoinsBtn.Position = UDim2.new(0, 8, 1, -78)
 		buyCoinsBtn.BorderSizePixel = 0
 		buyCoinsBtn.Font = Enum.Font.GothamBold
-		buyCoinsBtn.TextSize = 12
+		buyCoinsBtn.TextSize = math.max(7, math.floor(12 * uiScale))
 		buyCoinsBtn.Text = "Coins: " .. coinCost
 		buyCoinsBtn.BackgroundColor3 = Color3.fromRGB(50, 45, 20)
 		buyCoinsBtn.TextColor3 = C.coin
@@ -270,7 +306,7 @@ local function buildEggCards()
 		buyRobuxBtn.Position = UDim2.new(0, 8, 1, -42)
 		buyRobuxBtn.BorderSizePixel = 0
 		buyRobuxBtn.Font = Enum.Font.GothamBold
-		buyRobuxBtn.TextSize = 12
+		buyRobuxBtn.TextSize = math.max(7, math.floor(12 * uiScale))
 		buyRobuxBtn.Text = "R$ " .. robuxCost
 		buyRobuxBtn.BackgroundColor3 = Color3.fromRGB(30, 70, 45)
 		buyRobuxBtn.TextColor3 = C.robux
@@ -281,11 +317,12 @@ local function buildEggCards()
 		local function doCoinPurchase()
 			if hatching or coinCost <= 0 or not buyEgg then return end
 			hatching = true
-			buyCoinsBtn.Text = "Hatching..."
+			buyCoinsBtn.Text = "Buying..."
 			local pcallOk, serverOk, serverMsg = pcall(function()
 				return buyEgg:InvokeServer(egg.id, "coins")
 			end)
 			if pcallOk and serverOk then
+				Notify.Toast((type(serverMsg) == "string" and serverMsg ~= "") and serverMsg or "Egg purchased!", C.green, 3)
 				refreshCurrency()
 			elseif pcallOk then
 				Notify.Toast((type(serverMsg) == "string" and serverMsg ~= "") and serverMsg or "Purchase failed", C.red, 3)
@@ -473,7 +510,7 @@ if eggResult then
 	end)
 end
 
--- Toggle from HUD only (key R and [R] Eggs button both fire HUDToggleMenu from HUDButtonBar)
+-- Toggle from HUD only (routed from ShopHub via HUDButtonBar)
 local function getHUDToggle()
 	local evt = playerGui:FindFirstChild("HUDToggleMenu")
 	if not evt or not evt:IsA("BindableEvent") then
@@ -486,7 +523,13 @@ end
 local function onHUDToggle(menuName)
 	if menuName == "EggShopGUI" then
 		if not panel.Visible then applyPanelScale(panel) end
+		applyResponsiveContentLayout()
 		panel.Visible = not panel.Visible
+		if panel.Visible then
+			MobileWindowLayout.NotifyMenuOpened()
+		else
+			MobileWindowLayout.NotifyMenuClosed()
+		end
 		if panel.Visible then
 			refreshCurrency()
 			buildEggCards()
@@ -498,11 +541,15 @@ playerGui.ChildAdded:Connect(function(child)
 	if child.Name == "HUDToggleMenu" and child:IsA("BindableEvent") then child.Event:Connect(onHUDToggle) end
 end)
 
--- R key: open/close egg shop (client-side fallback)
-UserInputService.InputBegan:Connect(function(input)
-	if UserInputService:GetFocusedTextBox() then return end
-	if input.UserInputType ~= Enum.UserInputType.Keyboard or input.KeyCode ~= Enum.KeyCode.R then return end
-	onHUDToggle("EggShopGUI")
+MobileWindowLayout.BindViewportUpdate(function()
+	if panel.Visible then
+		applyPanelScale(panel)
+		applyResponsiveContentLayout()
+		buildEggCards()
+	end
 end)
 
-print("[EggShopClient] Loaded - press R or click [R] Eggs on HUD to open")
+-- FIX #18: Removed fallback R key handler — HUDButtonBar is the sole keyboard handler.
+-- Having both caused double-toggle (open then immediately close).
+
+print("[EggShopClient] Loaded - open via [G] Shop > Egg Shop")

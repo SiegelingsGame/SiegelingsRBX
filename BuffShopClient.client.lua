@@ -6,6 +6,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local MobileWindowLayout = require(ReplicatedStorage.Modules:WaitForChild("MobileWindowLayout"))
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -46,10 +47,23 @@ local function getPanelScale()
 end
 
 local function applyPanelScale(pnl)
+	if MobileWindowLayout.IsMobile() then
+		MobileWindowLayout.ApplyWindow(pnl, {
+			leftInset = 14,
+			rightInset = 14,
+			topInset = 10,
+			bottomInset = 14,
+			bottomMobileExtra = 20,
+		})
+		pnl.Draggable = true
+		return
+	end
+
 	local scale = getPanelScale()
 	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
 	pnl.Size = UDim2.new(0, w, 0, h)
 	pnl.Position = UDim2.new(0.5, -w/2, 0.5, -h/2)
+	MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
 end
 
 -- Simple full-screen FX when a buff activates
@@ -175,7 +189,10 @@ closeBtn.BackgroundColor3 = C.red; closeBtn.BackgroundTransparency = 0.5
 closeBtn.Text = "X"; closeBtn.TextColor3 = C.white
 closeBtn.Font = Enum.Font.GothamBold; closeBtn.TextSize = 14; closeBtn.Parent = titleBar
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
-closeBtn.MouseButton1Click:Connect(function() panel.Visible = false end)
+closeBtn.MouseButton1Click:Connect(function()
+	panel.Visible = false
+	MobileWindowLayout.NotifyMenuClosed()
+end)
 
 -- Scrolling item list
 local scroll = Instance.new("ScrollingFrame")
@@ -185,12 +202,25 @@ scroll.BackgroundTransparency = 1; scroll.BorderSizePixel = 0
 scroll.ScrollBarThickness = 4; scroll.ScrollBarImageColor3 = C.muted
 scroll.Parent = panel
 
+local buffBar
+local function applyResponsiveContentLayout()
+	local mobile = MobileWindowLayout.IsMobile()
+	titleLbl.TextSize = mobile and 22 or 18
+	currLbl.TextSize = mobile and 14 or 12
+	closeBtn.Size = mobile and UDim2.new(0, 38, 0, 38) or UDim2.new(0, 32, 0, 32)
+	closeBtn.Position = mobile and UDim2.new(1, -46, 0, 4) or UDim2.new(1, -40, 0, 5)
+	closeBtn.TextSize = mobile and 16 or 14
+	scroll.Size = mobile and UDim2.new(1, -12, 1, -60) or UDim2.new(1, -20, 1, -55)
+	scroll.Position = mobile and UDim2.new(0, 6, 0, 50) or UDim2.new(0, 10, 0, 48)
+	buffBar.Position = mobile and UDim2.new(0.5, 0, 1, -164) or UDim2.new(0.5, 0, 1, -120)
+end
+
 local layout = Instance.new("UIListLayout")
 layout.SortOrder = Enum.SortOrder.LayoutOrder
 layout.Padding = UDim.new(0, 6); layout.Parent = scroll
 
 -- -- ACTIVE BUFFS HUD (badge style) - defined before buildShopItems so click handlers can call updateActiveBuffsDisplay
-local buffBar = Instance.new("Frame")
+buffBar = Instance.new("Frame")
 buffBar.Name = "ActiveBuffs"
 buffBar.Size = UDim2.new(0, 400, 0, 52)
 buffBar.AnchorPoint = Vector2.new(0.5, 1)
@@ -430,7 +460,7 @@ local function buildShopItems()
 	scroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 10)
 end
 
--- Toggle from HUD only (key G and [G] Buffs button both fire HUDToggleMenu from HUDButtonBar)
+-- Toggle from HUD only (routed from ShopHub via HUDButtonBar)
 local function getHUDToggle()
 	local evt = playerGui:FindFirstChild("HUDToggleMenu")
 	if not evt or not evt:IsA("BindableEvent") then
@@ -443,7 +473,13 @@ end
 local function onHUDToggle(menuName)
 	if menuName == "BuffShopGUI" then
 		if not panel.Visible then applyPanelScale(panel) end
+		applyResponsiveContentLayout()
 		panel.Visible = not panel.Visible
+		if panel.Visible then
+			MobileWindowLayout.NotifyMenuOpened()
+		else
+			MobileWindowLayout.NotifyMenuClosed()
+		end
 		if panel.Visible then
 			refreshCurrency()
 			buildShopItems()
@@ -456,12 +492,15 @@ playerGui.ChildAdded:Connect(function(child)
 	if child.Name == "HUDToggleMenu" and child:IsA("BindableEvent") then child.Event:Connect(onHUDToggle) end
 end)
 
--- G key: open/close buff shop (client-side fallback; HUDButtonBar also fires HUDToggleMenu)
-UserInputService.InputBegan:Connect(function(input, gp)
-	if UserInputService:GetFocusedTextBox() then return end
-	if input.UserInputType ~= Enum.UserInputType.Keyboard or input.KeyCode ~= Enum.KeyCode.G then return end
-	onHUDToggle("BuffShopGUI")
+MobileWindowLayout.BindViewportUpdate(function()
+	if panel.Visible then
+		applyPanelScale(panel)
+		applyResponsiveContentLayout()
+	end
 end)
 
+-- FIX #18: Removed fallback G key handler — HUDButtonBar is the sole keyboard handler.
+-- Having both caused double-toggle (open then immediately close).
+
 buildShopItems()
-print("[BuffShopClient] Loaded - press G or click [G] Buffs on HUD to open")
+print("[BuffShopClient] Loaded - open via [G] Shop > Swag Shop")

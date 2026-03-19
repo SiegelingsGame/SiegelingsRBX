@@ -51,7 +51,7 @@ function CreatureModelLoader.GetBodyPart(model)
 	-- PrimaryPart (importer often sets this for rig root)
 	if model.PrimaryPart then return model.PrimaryPart end
 	-- Fallbacks
-	return model:FindFirstChildWhichIsA("MeshPart") or model:FindFirstChildWhichIsA("BasePart")
+	return model:FindFirstChildWhichIsA("MeshPart", true) or model:FindFirstChildWhichIsA("BasePart", true)
 end
 
 --- Loads a creature template. Tries Model type first, then legacy mesh.
@@ -77,7 +77,7 @@ function CreatureModelLoader.IntegrateTemplate(creatureModel, template, position
 			child.Parent = creatureModel
 		end
 		body = CreatureModelLoader.GetBodyPart(creatureModel)
-		body = body or template.PrimaryPart or creatureModel:FindFirstChildWhichIsA("BasePart")
+		body = body or template.PrimaryPart or creatureModel:FindFirstChildWhichIsA("BasePart", true)
 		template:Destroy()
 	elseif template:IsA("BasePart") or template:IsA("MeshPart") then
 		template.Name = "Body"
@@ -89,7 +89,7 @@ function CreatureModelLoader.IntegrateTemplate(creatureModel, template, position
 		-- Keep HumanoidRootPart name for fgHumanoid compatibility (Blender-imported rigs)
 		if body.Name ~= "HumanoidRootPart" then body.Name = "Body" end
 		body.Anchored = true
-		body.CanCollide = false
+		body.CanCollide = true  -- monsters collide with walls; prevents clipping through terrain
 		body.CastShadow = true
 		if position then body.Position = position end
 		creatureModel.PrimaryPart = body

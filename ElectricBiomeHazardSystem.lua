@@ -11,7 +11,6 @@
 ]]
 
 local CollectionService = game:GetService("CollectionService")
-local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
@@ -56,6 +55,12 @@ local RANDOM_POSITION_MARGIN = 15  -- keep random spawns this many studs inside 
 local MIN_HEIGHT_ABOVE_GROUND = 1
 local MAX_HEIGHT_ABOVE_GROUND = 10
 local LIGHTNING_BIOME_FALLBACKS = { "ElectricBiome", "ElectriBiome", "PeaksBiome" }
+
+-- ── Growth behavior constants ──
+-- Orbs spawn at 50% of template size, grow to 300% over CHARGE_SECONDS, then vanish.
+-- Touch/overlap during growth = damage.  In the aura at 300% = stun.
+local INITIAL_SCALE = 0.5   -- orbs spawn at 50% of their template size
+local FINAL_SCALE   = 3.0   -- orbs grow to 300% of their template size
 
 local function getLightningBiomeFolderNames()
 	local names = {}
@@ -205,8 +210,16 @@ local function createExplosionEffect(position)
 	local emit = Instance.new("ParticleEmitter")
 	emit.Name = "ElectricSparks"
 	emit.Color = ColorSequence.new(Color3.fromRGB(180, 200, 255))
-	emit.Size = NumberSequence.new({ { 0, 0 }, { 0.5, 1.5 }, { 1, 0 } })
-	emit.Transparency = NumberSequence.new({ { 0, 0 }, { 0.7, 0.5 }, { 1, 1 } })
+	emit.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(0.5, 1.5),
+		NumberSequenceKeypoint.new(1, 0),
+	})
+	emit.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(0.7, 0.5),
+		NumberSequenceKeypoint.new(1, 1),
+	})
 	emit.Lifetime = NumberRange.new(0.3, 0.6)
 	emit.Rate = 80
 	emit.Speed = NumberRange.new(15, 35)
@@ -220,22 +233,151 @@ local function createExplosionEffect(position)
 	end)
 end
 
--- Apply damage and stun to entities in radius
-local function applyHazardEffect(center, radius)
+-- ══════════════════════════════════════════════════════════════════════════════
+-- Touch Damage: applied when a single entity contacts a growing orb via .Touched.
+-- One hit per entity per orb — the "damaged" table prevents repeat damage.
+-- @param hit       BasePart that touched the orb
+-- @param damaged   {[Instance]=true} tracker preventing multi-hit per entity
+-- ══════════════════════════════════════════════════════════════════════════════
+local function applyTouchDamage(hit, damaged)
+	if not hit or not hit.Parent then return end
+	local entity = hit.Parent
+	if damaged[entity] then return end
+
+	-- Player character
+	local humanoid = entity:FindFirstChildOfClass("Humanoid")
+	if humanoid and humanoid.Health > 0 then
+		damaged[entity] = true
+		local pct = cfg("ElectroBallDamagePercent", DAMAGE_PERCENT)
+		local dmg = math.ceil(humanoid.MaxHealth * pct)
+		humanoid:TakeDamage(dmg)
+		return
+	end
+
+	-- World creature
+	if CollectionService:HasTag(entity, WORLD_CREATURE_TAG) and not entity:GetAttribute("Fainted") then
+		damaged[entity] = true
+		if WorldCreatureHP then
+			local hp, maxHp = WorldCreatureHP.GetHP(entity)
+			if maxHp and maxHp > 0 then
+				local pct = cfg("ElectroBallDamagePercent", DAMAGE_PERCENT)
+				local dmg = math.ceil(maxHp * pct)
+				WorldCreatureHP.DamageCreature(entity, dmg, nil)
+			end
+		end
+		return
+	end
+
+	-- Companion creature
+	if CollectionService:HasTag(entity, COMPANION_TAG) then
+		damaged[entity] = true
+		local FCS = nil
+		pcall(function() FCS = require(ServerScriptService.FavoriteCreatureSystem) end)
+		if FCS and FCS.DamageCompanion then
+			local ownerId = entity:GetAttribute("OwnerUserId")
+			local player = ownerId and Players:GetPlayerByUserId(ownerId)
+			if player and player.Parent then
+				local cid = entity:GetAttribute("CreatureId")
+				local info = cid and CreatureData.GetById(cid)
+				local maxHp = (info and info.health) or 100
+				local pct = cfg("ElectroBallDamagePercent", DAMAGE_PERCENT)
+				local dmg = math.ceil(maxHp * pct)
+				FCS.DamageCompanion(player, dmg, nil)
+			end
+		end
+		return
+	end
+end
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- Overlap Damage: periodic radius check for entities INSIDE the growing orb.
+-- .Touched may not fire when an anchored Part's Size is tweened outward, so
+-- this 0.3s sweep catches anything the orb has grown into while stationary.
+-- @param center   Vector3 position of the orb
+-- @param radius   number  current orb radius at time of check
+-- @param damaged  {[Instance]=true} tracker preventing multi-hit per entity
+-- ══════════════════════════════════════════════════════════════════════════════
+local function checkDamageInRadius(center, radius, damaged)
+	-- Players
+	for _, player in ipairs(Players:GetPlayers()) do
+		local char = player.Character
+		if not char or damaged[char] then continue end
+		local root = char:FindFirstChild("HumanoidRootPart")
+		local humanoid = char:FindFirstChildOfClass("Humanoid")
+		if not root or not humanoid or humanoid.Health <= 0 then continue end
+		if (root.Position - center).Magnitude <= radius then
+			damaged[char] = true
+			local pct = cfg("ElectroBallDamagePercent", DAMAGE_PERCENT)
+			local dmg = math.ceil(humanoid.MaxHealth * pct)
+			humanoid:TakeDamage(dmg)
+		end
+	end
+
+	-- World creatures
+	if WorldCreatureHP then
+		for _, model in ipairs(CollectionService:GetTagged(WORLD_CREATURE_TAG)) do
+			if not model.Parent or model:GetAttribute("Fainted") or damaged[model] then continue end
+			local body = (CreatureModelLoader and CreatureModelLoader.GetBodyPart and CreatureModelLoader.GetBodyPart(model))
+				or model:FindFirstChild("Body") or model.PrimaryPart
+			if not body then continue end
+			if (body.Position - center).Magnitude <= radius then
+				damaged[model] = true
+				local hp, maxHp = WorldCreatureHP.GetHP(model)
+				if maxHp and maxHp > 0 then
+					local pct = cfg("ElectroBallDamagePercent", DAMAGE_PERCENT)
+					local dmg = math.ceil(maxHp * pct)
+					WorldCreatureHP.DamageCreature(model, dmg, nil)
+				end
+			end
+		end
+	end
+
+	-- Companions
+	for _, model in ipairs(CollectionService:GetTagged(COMPANION_TAG)) do
+		if not model.Parent or damaged[model] then continue end
+		local body = (CreatureModelLoader and CreatureModelLoader.GetBodyPart and CreatureModelLoader.GetBodyPart(model))
+			or model:FindFirstChild("Body") or model.PrimaryPart
+		if not body then continue end
+		if (body.Position - center).Magnitude <= radius then
+			damaged[model] = true
+			local FCS = nil
+			pcall(function() FCS = require(ServerScriptService.FavoriteCreatureSystem) end)
+			if FCS and FCS.DamageCompanion then
+				local ownerId = model:GetAttribute("OwnerUserId")
+				local player = ownerId and Players:GetPlayerByUserId(ownerId)
+				if player and player.Parent then
+					local cid = model:GetAttribute("CreatureId")
+					local info = cid and CreatureData.GetById(cid)
+					local maxHp = (info and info.health) or 100
+					local pct = cfg("ElectroBallDamagePercent", DAMAGE_PERCENT)
+					local dmg = math.ceil(maxHp * pct)
+					FCS.DamageCompanion(player, dmg, nil)
+				end
+			end
+		end
+	end
+end
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- Stun-Only AOE: applied to everything in the aura the instant orb hits 300%.
+-- Does NOT deal damage — damage comes from touch/overlap during the growth phase.
+-- Lightning companions grant players stun immunity; Lightning creatures are immune.
+-- @param center  Vector3 position of the orb
+-- @param radius  number  final aura radius at 300%
+-- ══════════════════════════════════════════════════════════════════════════════
+local function applyStunInRadius(center, radius)
+	local stunSec = cfg("ElectroBallStunSeconds", STUN_SECONDS)
+
+	-- Players
 	for _, player in ipairs(Players:GetPlayers()) do
 		local char = player.Character
 		if not char then continue end
 		local root = char:FindFirstChild("HumanoidRootPart")
 		local humanoid = char:FindFirstChildOfClass("Humanoid")
 		if not root or not humanoid or humanoid.Health <= 0 then continue end
-		local dist = (root.Position - center).Magnitude
-		if dist > radius then continue end
+		if (root.Position - center).Magnitude > radius then continue end
 
-		local pct = cfg("ElectroBallDamagePercent", DAMAGE_PERCENT)
-		local damage = math.ceil(humanoid.MaxHealth * pct)
-		humanoid:TakeDamage(damage)
-
-		-- Stun: zero WalkSpeed/JumpPower for STUN_SECONDS (Lightning companion = resistant)
+		-- Lightning companion grants stun resistance
 		local hasLightningCompanion = false
 		for _, compModel in ipairs(CollectionService:GetTagged(COMPANION_TAG)) do
 			if compModel.Parent and compModel:GetAttribute("OwnerUserId") == player.UserId then
@@ -247,10 +389,10 @@ local function applyHazardEffect(center, radius)
 				end
 			end
 		end
+
 		if not hasLightningCompanion then
 			local origWalk = humanoid.WalkSpeed
 			local origJump = humanoid.JumpPower
-			local stunSec = cfg("ElectroBallStunSeconds", STUN_SECONDS)
 			humanoid.WalkSpeed = 0
 			humanoid.JumpPower = 0
 			task.delay(stunSec, function()
@@ -262,77 +404,31 @@ local function applyHazardEffect(center, radius)
 		end
 	end
 
-	-- World creatures
-	if WorldCreatureHP then
-		for _, model in ipairs(CollectionService:GetTagged(WORLD_CREATURE_TAG)) do
-			if not model.Parent or model:GetAttribute("Fainted") then continue end
-			local body = (CreatureModelLoader and CreatureModelLoader.GetBodyPart and CreatureModelLoader.GetBodyPart(model))
-				or model:FindFirstChild("Body") or model.PrimaryPart
-			if not body then continue end
-			local dist = (body.Position - center).Magnitude
-			if dist > radius then continue end
-
-			local hp, maxHp = WorldCreatureHP.GetHP(model)
-			if maxHp and maxHp > 0 then
-				local pct = cfg("ElectroBallDamagePercent", DAMAGE_PERCENT)
-				local damage = math.ceil(maxHp * pct)
-				WorldCreatureHP.DamageCreature(model, damage, nil)
-			end
-			-- Lightning creatures immune to stun
-			local cid = model:GetAttribute("CreatureId")
-			local info = cid and CreatureData.GetById(cid)
-			if not (info and info.element == "Lightning") then
-				local stunSec = cfg("ElectroBallStunSeconds", STUN_SECONDS)
-				model:SetAttribute("StunnedUntil", tick() + stunSec)
-			end
+	-- World creatures (Lightning element = immune to stun)
+	for _, model in ipairs(CollectionService:GetTagged(WORLD_CREATURE_TAG)) do
+		if not model.Parent or model:GetAttribute("Fainted") then continue end
+		local body = (CreatureModelLoader and CreatureModelLoader.GetBodyPart and CreatureModelLoader.GetBodyPart(model))
+			or model:FindFirstChild("Body") or model.PrimaryPart
+		if not body then continue end
+		if (body.Position - center).Magnitude > radius then continue end
+		local cid = model:GetAttribute("CreatureId")
+		local info = cid and CreatureData.GetById(cid)
+		if not (info and info.element == "Lightning") then
+			model:SetAttribute("StunnedUntil", tick() + stunSec)
 		end
 	end
 
-	-- Companions (FavoriteCreature)
-	local FavoriteCreatureSystem = nil
-	pcall(function() FavoriteCreatureSystem = require(ServerScriptService.FavoriteCreatureSystem) end)
-	if FavoriteCreatureSystem and FavoriteCreatureSystem.DamageCompanion then
-		for _, model in ipairs(CollectionService:GetTagged(COMPANION_TAG)) do
-			if not model.Parent then continue end
-			local body = (CreatureModelLoader and CreatureModelLoader.GetBodyPart and CreatureModelLoader.GetBodyPart(model))
-				or model:FindFirstChild("Body") or model.PrimaryPart
-			if not body then continue end
-			local dist = (body.Position - center).Magnitude
-			if dist > radius then continue end
-
-			local ownerId = model:GetAttribute("OwnerUserId")
-			local player = ownerId and Players:GetPlayerByUserId(ownerId)
-			if player and player.Parent then
-				local creatureId = model:GetAttribute("CreatureId")
-				local info = creatureId and CreatureData.GetById(creatureId)
-				local maxHp = (info and info.health) or 100
-				local pct = cfg("ElectroBallDamagePercent", DAMAGE_PERCENT)
-				local damage = math.ceil(maxHp * pct)
-				FavoriteCreatureSystem.DamageCompanion(player, damage, nil)
-			end
-			-- Lightning companions immune to stun
-			local cid = model:GetAttribute("CreatureId")
-			local info = cid and CreatureData.GetById(cid)
-			if not (info and info.element == "Lightning") then
-				local stunSec = cfg("ElectroBallStunSeconds", STUN_SECONDS)
-				model:SetAttribute("StunnedUntil", tick() + stunSec)
-			end
-		end
-	else
-		local stunSec = cfg("ElectroBallStunSeconds", STUN_SECONDS)
-		for _, model in ipairs(CollectionService:GetTagged(COMPANION_TAG)) do
-			if not model.Parent then continue end
-			local body = (CreatureModelLoader and CreatureModelLoader.GetBodyPart and CreatureModelLoader.GetBodyPart(model))
-				or model:FindFirstChild("Body") or model.PrimaryPart
-			if not body then continue end
-			local dist = (body.Position - center).Magnitude
-			if dist > radius then continue end
-			-- Lightning companions immune to stun
-			local cid = model:GetAttribute("CreatureId")
-			local info = cid and CreatureData.GetById(cid)
-			if not (info and info.element == "Lightning") then
-				model:SetAttribute("StunnedUntil", tick() + stunSec)
-			end
+	-- Companions (Lightning element = immune to stun)
+	for _, model in ipairs(CollectionService:GetTagged(COMPANION_TAG)) do
+		if not model.Parent then continue end
+		local body = (CreatureModelLoader and CreatureModelLoader.GetBodyPart and CreatureModelLoader.GetBodyPart(model))
+			or model:FindFirstChild("Body") or model.PrimaryPart
+		if not body then continue end
+		if (body.Position - center).Magnitude > radius then continue end
+		local cid = model:GetAttribute("CreatureId")
+		local info = cid and CreatureData.GetById(cid)
+		if not (info and info.element == "Lightning") then
+			model:SetAttribute("StunnedUntil", tick() + stunSec)
 		end
 	end
 end
@@ -364,21 +460,69 @@ local function clearElectroBallInstances()
 	end
 end
 
--- Activate one ElectroBall (AOE charge + damage) at a given index/position
+-- ══════════════════════════════════════════════════════════════════════════════
+-- Activate one ElectroBall: grows from 50% → 300% over CHARGE_SECONDS.
+-- FIX #18: New growth-based hazard replacing old charge → explode model.
+--   • Touch/overlap at ANY point during growth = damage (one hit per entity).
+--   • In the aura when it hits 300% = stun.
+--   • Orb vanishes immediately after reaching 300%.
+-- ══════════════════════════════════════════════════════════════════════════════
 local function activateElectroBallAt(position, index)
-	local radius = cfg("ElectroBallRadius", AOE_RADIUS)
-	local charge = cfg("ElectroBallChargeSeconds", CHARGE_SECONDS)
 	local orb = electroBallInstances[index]
-	local folder, tween = createAOEVisual(position, radius, charge)
-	folder.Parent = biomeFolder
+	if not orb then return end
+
+	-- Resolve the primary BasePart (works for Part, Model, or Folder templates)
+	local orbPart = orb:IsA("BasePart") and orb
+		or (orb:IsA("Model") and (orb.PrimaryPart or orb:FindFirstChildWhichIsA("BasePart")))
+		or orb:FindFirstChildWhichIsA("BasePart")
+	if not orbPart then return end
+
+	-- Recover the template's original size from the 50%-scaled spawn size,
+	-- then compute the 300% target and its radius for the final stun aura.
+	local templateSize = orbPart.Size / INITIAL_SCALE
+	local targetSize   = templateSize * FINAL_SCALE
+	local finalRadius  = math.max(targetSize.X, targetSize.Y, targetSize.Z) / 2
+	local growthTime   = cfg("ElectroBallChargeSeconds", CHARGE_SECONDS)
+	local alive        = true
+	local damaged      = {}  -- { [entity] = true } prevents multi-hit per entity per orb
+
+	-- ── Tween: grow from 50% → 300% ─────────────────────────────────────
+	local tween = TweenService:Create(
+		orbPart,
+		TweenInfo.new(growthTime, Enum.EasingStyle.Linear),
+		{ Size = targetSize }
+	)
+	tween:Play()
+
+	-- ── Touch damage: fires when a simulated part walks into the orb ────
+	local touchConn = orbPart.Touched:Connect(function(hit)
+		if not alive then return end
+		applyTouchDamage(hit, damaged)
+	end)
+
+	-- ── Overlap sweep (every 0.3s): catches entities the orb GROWS INTO ─
+	-- Touched may not fire when an anchored Part's Size is tweened outward,
+	-- so this periodic check ensures nothing inside the growing radius is missed.
+	task.spawn(function()
+		while alive do
+			task.wait(0.3)
+			if not alive or not orbPart or not orbPart.Parent then break end
+			local currentRadius = math.max(orbPart.Size.X, orbPart.Size.Y, orbPart.Size.Z) / 2
+			checkDamageInRadius(position, currentRadius, damaged)
+		end
+	end)
+
+	-- ── At 300%: stun everything in aura, flash, then vanish immediately ─
 	tween.Completed:Connect(function()
-		applyHazardEffect(position, radius)
+		alive = false
+		if touchConn then touchConn:Disconnect() end
+
+		applyStunInRadius(position, finalRadius)
 		createExplosionEffect(position)
-		task.delay(0.5, function()
-			if folder and folder.Parent then folder:Destroy() end
-			if orb and orb.Parent then
-				orb:Destroy()
-			end
+
+		-- Destroy orb immediately (tiny delay so explosion visual registers)
+		task.delay(0.15, function()
+			if orb and orb.Parent then orb:Destroy() end
 			if electroBallInstances[index] == orb then
 				electroBallInstances[index] = nil
 			end
@@ -387,6 +531,27 @@ local function activateElectroBallAt(position, index)
 end
 
 local collectPointPositions
+
+-- FIX: getGroundBounds must be defined BEFORE pickRandomPositionsForCycle which calls it.
+-- Previously defined after pickRandomPositionsForCycle (line ~454), causing a nil forward reference
+-- that silently crashed the spawn loop.
+local function getGroundBounds()
+	local minX, maxX, minZ, maxZ = math.huge, -math.huge, math.huge, -math.huge
+	local anyY = 0
+	for _, part in ipairs(groundParts) do
+		local cf, size = part.CFrame, part.Size
+		local half = size * 0.5
+		for sx = -1, 1, 2 do
+			for sz = -1, 1, 2 do
+				local w = cf:PointToWorldSpace(Vector3.new(sx * half.X, 0, sz * half.Z))
+				minX = math.min(minX, w.X); maxX = math.max(maxX, w.X)
+				minZ = math.min(minZ, w.Z); maxZ = math.max(maxZ, w.Z)
+			end
+		end
+		anyY = cf.Position.Y
+	end
+	return minX, maxX, minZ, maxZ, anyY
+end
 
 -- Pick random positions within ground bounds for this activation cycle
 local function pickRandomPositionsForCycle()
@@ -448,25 +613,6 @@ collectPointPositions = function()
 		end
 	end
 	return positions
-end
-
--- Grid positions over ElectricGround bounds
-local function getGroundBounds()
-	local minX, maxX, minZ, maxZ = math.huge, -math.huge, math.huge, -math.huge
-	local anyY = 0
-	for _, part in ipairs(groundParts) do
-		local cf, size = part.CFrame, part.Size
-		local half = size * 0.5
-		for sx = -1, 1, 2 do
-			for sz = -1, 1, 2 do
-				local w = cf:PointToWorldSpace(Vector3.new(sx * half.X, 0, sz * half.Z))
-				minX = math.min(minX, w.X); maxX = math.max(maxX, w.X)
-				minZ = math.min(minZ, w.Z); maxZ = math.max(maxZ, w.Z)
-			end
-		end
-		anyY = cf.Position.Y
-	end
-	return minX, maxX, minZ, maxZ, anyY
 end
 
 local function buildElectroBallPositions()
@@ -571,6 +717,10 @@ local function ensureElectroBallTemplate()
 	return template
 end
 
+-- ══════════════════════════════════════════════════════════════════════════════
+-- Place electroballs at computed positions, scaled to INITIAL_SCALE (50%).
+-- activateElectroBallAt will tween each orb from 50% → 300% over CHARGE_SECONDS.
+-- ══════════════════════════════════════════════════════════════════════════════
 local function placeElectroBalls()
 	local template = ensureElectroBallTemplate()
 	if not template then
@@ -584,6 +734,7 @@ local function placeElectroBalls()
 		local clone = template:Clone()
 		clone.Name = "ElectroBall_" .. i
 		if clone:IsA("BasePart") then
+			clone.Size = clone.Size * INITIAL_SCALE  -- spawn at 50% of template size
 			clone.CFrame = CFrame.new(pos)
 			clone.Anchored = true
 			clone.CanCollide = false
@@ -591,6 +742,7 @@ local function placeElectroBalls()
 			clone:SetPivot(CFrame.new(pos))
 			for _, desc in ipairs(clone:GetDescendants()) do
 				if desc:IsA("BasePart") then
+					desc.Size = desc.Size * INITIAL_SCALE  -- spawn at 50%
 					desc.Anchored = true
 					desc.CanCollide = false
 				end
@@ -598,6 +750,7 @@ local function placeElectroBalls()
 		else
 			local primary = clone:FindFirstChildWhichIsA("BasePart")
 			if primary then
+				primary.Size = primary.Size * INITIAL_SCALE  -- spawn at 50%
 				primary.CFrame = CFrame.new(pos)
 				primary.Anchored = true
 				primary.CanCollide = false
@@ -633,10 +786,13 @@ local function startElectroBallLoop()
 	activationIndex = 0
 	print("[ElectricBiomeHazardSystem] Initialized - " .. #electroBallPositions .. " ElectroBalls will spawn every " .. cfg("ElectroBallSpawnInterval", SPAWN_INTERVAL) .. "s")
 	runCycle()
-	RunService.Heartbeat:Connect(function()
-		if not running or not biomeFolder or not biomeFolder.Parent then return end
-		local interval = cfg("ElectroBallSpawnInterval", SPAWN_INTERVAL)
-		if tick() - lastActivationTime >= interval then
+	task.spawn(function()
+		while running and biomeFolder and biomeFolder.Parent do
+			local interval = cfg("ElectroBallSpawnInterval", SPAWN_INTERVAL)
+			task.wait(math.max(0.5, interval))
+			if not running or not biomeFolder or not biomeFolder.Parent then
+				break
+			end
 			lastActivationTime = tick()
 			runCycle()
 		end

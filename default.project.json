@@ -6,6 +6,7 @@
     "ReplicatedStorage": {
       "Modules": {
         "$className": "Folder",
+        "AchievementsConfig": { "$path": "AchievementsConfig.lua" },
         "CreatureAnimation": { "$path": "CreatureAnimation.lua" },
         "CreatureData": { "$path": "CreatureData.lua" },
         "CreatureModelLoader": { "$path": "CreatureModelLoader.lua" },
@@ -13,7 +14,8 @@
         "GameConfigData": { "$path": "GameConfigData.lua" },
         "NotificationManager": { "$path": "NotificationManager.lua" },
         "LivingWorldData": { "$path": "LivingWorldData.lua" },
-        "CodexModelViewer": { "$path": "CodexModelViewer.lua" }
+        "CodexModelViewer": { "$path": "CodexModelViewer.lua" },
+        "MobileWindowLayout": { "$path": "MobileWindowLayout.lua" }
       }
     },
 
@@ -32,6 +34,9 @@
       },
       "PlayerDataManager": {
         "$path": "PlayerDataManager.lua"
+      },
+      "AchievementsSystem": {
+        "$path": "AchievementsSystem.lua"
       },
       "CreatureSpawner": {
         "$path": "CreatureSpawner.lua"
@@ -63,6 +68,15 @@
       "WaterGymBattleSystem": {
         "$path": "WaterGymBattleSystem.lua"
       },
+      "CaveGymSystem": {
+        "$path": "CaveGymSystem.lua"
+      },
+      "DesertGymSystem": {
+        "$path": "DesertGymSystem.lua"
+      },
+      "ElectricGymSystem": {
+        "$path": "ElectricGymSystem.lua"
+      },
       "BattleTeamSystem": {
         "$path": "BattleTeamSystem.lua"
       },
@@ -83,6 +97,9 @@
       },
       "LaserDoorSystem": {
         "$path": "LaserDoorSystem.lua"
+      },
+      "ZoneDoorSystem": {
+        "$path": "ZoneDoorSystem.lua"
       },
       "BaseExteriorSystem": {
         "$path": "BaseExteriorSystem.lua"
@@ -119,6 +136,9 @@
       },
       "BaseBuildInstructions_HauntedHouse": {
         "$path": "BaseBuildInstructions_HauntedHouse.lua"
+      },
+      "KnightBaseSystem": {
+        "$path": "KnightBaseSystem.lua"
       }
     },
 
@@ -169,6 +189,9 @@
         "BuffShopClient": {
           "$path": "BuffShopClient.client.lua"
         },
+        "ShopHubClient": {
+          "$path": "ShopHubClient.client.lua"
+        },
         "CreatureAnimationClient": {
           "$path": "CreatureAnimationClient.client.lua"
         },
@@ -184,6 +207,9 @@
         "LoadingGate": {
           "$path": "LoadingGate.client.lua"
         },
+        "SprintClient": {
+          "$path": "SprintClient.client.lua"
+        },
         "GameplayMusic": {
           "$path": "GameplayMusic.client.lua"
         },
@@ -192,6 +218,24 @@
         },
         "InventoryUIManager": {
           "$path": "InventoryUIManager.client.lua"
+        },
+        "BossBackboardClient": {
+          "$path": "BossBackboardClient.client.lua"
+        },
+        "BiomeSkyboxClient": {
+          "$path": "BiomeSkyboxClient.client.lua"
+        },
+        "BaseSummaryClient": {
+          "$path": "BaseSummaryClient.client.lua"
+        },
+        "ArenaBattleSummaryClient": {
+          "$path": "ArenaBattleSummaryClient.client.lua"
+        },
+        "UnderwaterBreathClient": {
+          "$path": "UnderwaterBreathClient.client.lua"
+        },
+        "KnightBaseClient": {
+          "$path": "KnightBaseClient.client.lua"
         }
       }
     },

@@ -2,8 +2,36 @@ To DO:
 
 Fix Cosmetic Base
 Add more cosmetic Bases
+Fix Basses turning gray and losing custom
+Fix Battle Team rotations
+Fix Visual Distance on gui elemnts, once you get far enough your base should just collapse into a Far Distnace GUI that summarizes everythign that is in your base without the visual clutter of all the names etc
+
+Add levelgated doors to enter the Ocean, Desert, Electric and Cave Biome. You must defeat the four
+The doors will be called "ZoneDoor" located in each of the biomefolders
+
+The main mission is to beat the 4 boss sieglings and have them all in your inventory. 
+Add a seperate InventoryUI for Sigils - These sigils are earned by defeating the 4 bosses. 
+Once you have four sigils you can open one of the levelgated doors to new zone, create a cool ui selection mechanism for doing this 
+
+After, you need to defeat the gymbattle of that zone to get another key to unlock a new zone
 
 Rojo structure fixes (from verification plan):
 - Move CodexModelViewer to ReplicatedStorage.Modules (rename to .lua, remove from StarterPlayerScripts)
 - Move BaseBuildInstructions_HauntedHouse to ServerScriptService (rename to .lua, remove from StarterPlayerScripts)
 - LoadingGate: optional - remove redundant $className
+
+Teleporter and upper levels appearing on base before purchase 
+Stealing is broken You cannot steal 
+
+Team Limit is breaking on BattleTeam player was able to place 7 creatures (at least when online allows player to place more than 5 on a battleteam)
+
+Show the cost for upgrading floors in the Player menu 
+
+Clear base plots when players leave game server and reset them
+
+Shield does not damage intruders and Defense monsters does not damage intruders 
+
+Creatures do not swim with the player still fix this
+
+Add a Breath mechanic when player is underwater, after 10 seconds underwater the players health will continue to drop until it reaches 0 ticking 10 hp every 5 seconds. If a water monster is equipped you can breath longer underwater based on its level, show the water meter when the player enters the water 
+

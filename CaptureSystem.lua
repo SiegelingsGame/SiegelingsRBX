@@ -155,10 +155,32 @@ function CaptureSystem.TryCapture(player, creatureModel)
 
 	PlayerDataManager.SpendCoins(player, cost)
 
-	local uid = PlayerDataManager.AddCreature(player, creatureId, captureLevel, captureXP, captureVariant, worldCreatureUid)
+	local uid = PlayerDataManager.AddCreature(player, creatureId, captureLevel, captureXP, captureVariant, worldCreatureUid, {
+		source = "capture",
+	})
 	if not uid then
 		capturesInProgress[creatureModel] = nil
 		return false, "Failed to add creature"
+	end
+
+	data.stats.totalCaptured = (data.stats.totalCaptured or 0) + 1
+
+	-- If this was an elemental boss (Fire, Ice, Wind, Earth), grant the corresponding SiegeKnight Sigil (zone)
+	do
+		local elementalElements = GameConfig.ElementalBossElements or { "Fire", "Ice", "Wind", "Earth" }
+		local elementalToZone = GameConfig.ElementalBossToZoneId or { Fire = "Desert", Ice = "Cave", Wind = "Ocean", Earth = "Electric" }
+		for _, element in ipairs(elementalElements) do
+			local bossId = CreatureData.GetBossCreatureId and CreatureData.GetBossCreatureId(element, false)
+			if bossId and creatureId == bossId then
+				local zoneId = elementalToZone[element]
+				if zoneId then
+					PlayerDataManager.AddSigil(player, zoneId)
+					local sigilEvt = events and events:FindFirstChild("SigilEarned")
+					if sigilEvt then sigilEvt:FireClient(player, zoneId) end
+				end
+				break
+			end
+		end
 	end
 
 	-- Award capture XP to companion

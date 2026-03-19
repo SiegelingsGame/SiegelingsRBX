@@ -9,9 +9,9 @@ local GameConfig = {}
 
 -- Day / Night Cycle (Lighting.ClockTime)
 GameConfig.DayNightCycleEnabled = true   -- true = enable cycle; false = use default Roblox lighting
-GameConfig.DayNightCycleSeconds = 300    -- real seconds per full day (24 in-game hours); changeable
-GameConfig.NightStartHour = 18          -- ClockTime >= this = night (6 PM)
-GameConfig.NightEndHour = 6              -- ClockTime < this = night (until 6 AM)
+GameConfig.DayNightCycleSeconds = 500    -- real seconds per full day (24 in-game hours); changeable
+GameConfig.NightStartHour = 22          -- ClockTime >= this = night (6 PM)
+GameConfig.NightEndHour = 5              -- ClockTime < this = night (until 6 AM)
 -- Night spawn variants: Common/Uncommon → Silver chance; Rare+ → Gold chance (0–1)
 GameConfig.NightSpawnSilverChance = 0.10  -- chance for Common/Uncommon at night
 GameConfig.NightSpawnGoldChance = 0.05    -- chance for Rare+ at night
@@ -20,12 +20,12 @@ GameConfig.NightWorldEvolutionChance   = 0.20  -- per creature per check (base f
 GameConfig.NightWorldEvolutionInterval = 30     -- seconds .between evolution checks
 GameConfig.NightSpawnBonus             = 100   -- extra max world creatures at night (for rare/night spawns)
 
--- Debug / Dev toggles (set true for testing)
+-- Debug / Dev toggles (set true for testing)ff
 GameConfig.SpawnOnlyCreaturesWithModels = true  -- true = only spawn creatures that have models in CreatureModels
 GameConfig.DebugCoins1000 = false               -- true = new players start with 1000 coins
 GameConfig.DebugFloor2Level2 = false            -- true = Floor 2 srequires player level 2 (instead of 5)
 GameConfig.DebugDoubleSpeed = false             -- true = player WalkSpeed is 32 (2x default)
-GameConfig.QuickSpawnDebugMode = true         -- true = bypass loading gate (skip Events/LoadingReady wait) for fast testing
+GameConfig.QuickSpawnDebugMode = false         -- true = bypass loading gate (skip Events/LoadingReady wait) for fast testing
 GameConfig.CombinerRecyclerPromptAllPlots = true -- true = add E prompts to Combiner/Recycler on ALL plots (for testing; set false for release)
 
 -- Economy
@@ -37,7 +37,7 @@ GameConfig.MaxIncomeSlots      = 6   -- matches IncomePoints on plot
 GameConfig.MaxDefenseSlots     = 6   -- matches DefensePoints on plot (auto-detected too)
 
 -- Leveling (creature levels; max level depends on evolution stage)
-GameConfig.MaxCreatureLevel    = 10   -- legacy/fallback
+GameConfig.MaxCreatureLevel    = 10   -- legacy/fallbackd
 GameConfig.BaseMaxLevel        = 10   -- base form (no evolvesFrom)
 GameConfig.EvolvedMaxLevel     = 25   -- after 1st evolution (has evolvesTo)
 GameConfig.FinalMaxLevel       = 50   -- after 2nd evolution / final form (no evolvesTo)
@@ -48,11 +48,14 @@ GameConfig.BattleKillXP        = 25   -- XP per arena battle kill (per creature 
 -- Arena win XP: entire winning team splits a pool; pool scales with win streak; smaller teams get more XP per creature
 GameConfig.ArenaWinXPPoolBase      = 400   -- base XP pool for winning (total before split)
 GameConfig.ArenaWinXPPoolPerStreak = 60    -- extra pool XP per current win streak (e.g. streak 5 = 400 + 300 = 700)
-GameConfig.StatGainPerLevel    = 0.08 -- base % gain per level (then scaled by stat rank)
+GameConfig.StatGainPerLevel    = 0.08 -- base % gain per level (then scaled by stat rank)f
 -- Rank-based level scaling: highest base stat grows fastest, then next, down to lowest (rank 1 = biggest stat)
 GameConfig.StatGainByRank      = { 1.5, 1.25, 1.0, 0.75 }  -- multipliers for rank 1..4 (1=fastest growth)
 -- Rarity amplifies effective stats (higher rarity = stronger when leveled)
 GameConfig.RarityStatMultipliers = { Common = 1.0, Uncommon = 1.05, Rare = 1.1, Epic = 1.15, Legendary = 1.25 }
+-- Creature nicknames: first naming is free, later renames cost premium currency ("diamonds"/gems)
+GameConfig.CreatureNicknameMaxLength = 20
+GameConfig.CreatureRenameGemCost = 5
 
 -- Player Leveling (separate from creature levels — gates features & floors)
 GameConfig.PlayerMaxLevel         = 50
@@ -70,15 +73,17 @@ GameConfig.PlayerXP_BossKill      = 100    -- XP for killing a boss creature
 GameConfig.Floor2Cost             = 500   -- coins to buy Floor 2
 GameConfig.Floor2LevelReq         = 2      -- player level required
 GameConfig.Floor3Cost             = 5000  -- coins to buy Floor 3
-GameConfig.Floor3LevelReq         = 5     -- player level required
+GameConfig.Floor3LevelReq         = 10     -- player level required
 
 -- Evolution & Combine (monster duplication / variant tiers)
-GameConfig.EvolutionMinLevel      = 1      -- level required for 1st evolution (base form)
-GameConfig.EvolutionMinLevel2     = 1      -- level required for 2nd evolution (evolved form)
+GameConfig.EvolutionMinLevel      = 10      -- level required for 1st evolution (base form)
+GameConfig.EvolutionMinLevel2     = 25      -- level required for 2nd evolution (evolved form)
 GameConfig.CombineCost            = 0      -- gold cost to combine 3 into next variant (0 = free)
 GameConfig.RecyclerDuplicateCount = 3      -- min same-creature duplicates to trade for 1 egg (1 rarity tier higher)
 -- Egg hatch time (minutes) by creature level inside the egg: level 1→20min, 2→30, 3→60, 4→120, 5→600, 6+→300
 GameConfig.EggHatchMinutesByLevel = { 20, 30, 60, 120, 600, 300 }
+-- Mystery egg inspect cost (diamonds/gems) for revealing what's inside before hatch
+GameConfig.EggInspectGemCost = 5
 GameConfig.VariantStatMultipliers = { Normal = 1.0, Silver = 1.15, Gold = 1.35, Legend = 1.6 }
 
 -- Selling
@@ -94,15 +99,18 @@ GameConfig.BaseInteractionEnabled = true   -- master toggle for pick-up/move/swa
 GameConfig.IncomePointsPerFloor   = 6
 GameConfig.DefensePointsPerFloor  = 6
 
--- Loading screen: wait for creatures + models before allowing play
-GameConfig.LoadingSpawnTarget  = 80   -- creatures to spawn before "ready" (initial burst is 50; this ensures good fill)
-GameConfig.LoadingMinWait      = 12   -- minimum seconds loading screen shows (allows model replication)
-GameConfig.LoadingMaxWait      = 60   -- max seconds before allowing play anyway (safety timeout)a
+-- Loading screen: critical-first startup + background world warmup
+GameConfig.LoadingCriticalMaxWait = 18 -- max seconds client waits for critical gameplay readiness
+GameConfig.LoadingSpawnTarget  = 30   -- world creatures target for non-critical "world ready" signal
+GameConfig.LoadingMinWait      = 2    -- minimum world warmup signal delay (non-blocking for control release)
+GameConfig.LoadingMaxWait      = 25   -- max seconds for world warmup signal before fallback
+GameConfig.StartupMetricLogEnabled = true -- prints startup timing milestones (join->critical/control/world-ready)
 
 -- Gameplay music (client-side loop under SoundService)
 GameConfig.GameplayMusic = {
     Enabled = true,
-    SoundId = "rbxassetid://0", -- replace 0 with the uploaded Sieglings theme asset id
+    SoundId = "rbxassetid://0", -- preferred: paste uploaded asset id for "Sieglings_ BattleTheme.mp3"
+    FallbackImportedSoundName = "Sieglings_ BattleTheme", -- optional: imported Sound object name in SoundService
     Volume = 0.32,
     PlaybackSpeed = 1,
     FadeInTime = 2.5,
@@ -118,14 +126,14 @@ GameConfig.GameplayMusic = {
 
 -- Spawning (SpawnPoints should stay full; common creatures prioritized)
 -- Reduced from 200 to 150 for performance (night bonus +100 still applies)
-GameConfig.MaxWorldCreatures   = 200
+GameConfig.MaxWorldCreatures   = 400
 GameConfig.SpawnIntervalMin    = 0.5   -- faster spawns so SpawnPoints stay full
 GameConfig.SpawnIntervalMax    = 1.5
 GameConfig.SpawnsPerCycle      = 4     -- spawn this many per cycle when under 50% capacity (else 1-2)
 GameConfig.SpawnPointFillTarget = 0.5  -- run dungeon spawns when creature count above this fraction (lower = more dungeon spawns)
 GameConfig.CreatureDespawnTime = 180
 GameConfig.SpawnRadius         = 200
-GameConfig.SpawnHeightOffset   = 3
+GameConfig.SpawnHeightOffset   = 1
 GameConfig.FlyingHoverHeight   = 10   -- studs above ground for flying creatures (player model height)
 GameConfig.SpawnPointSpread    = 25     -- studs radius around a biome SpawnPoint
 GameConfig.DungeonPointSpread  = 15     -- studs radius around a DungeonPoint (tighter for dungeon encounters)
@@ -137,17 +145,22 @@ GameConfig.BossRespawnTime     = 300    -- seconds before a boss can respawn at 
 GameConfig.CaptureRange        = 30
 GameConfig.CaptureHoldTime     = 0
 GameConfig.CaptureAnimationTime = 2.5   -- card throw + warp animation duration
-GameConfig.CaptureGracePeriod   = 3     -- seconds to return when out of range before capture fails
+GameConfig.CaptureGracePeriod   = 10     -- seconds to return when out of range before capture fails
 GameConfig.CaptureCooldown     = 0.5
-GameConfig.FaintDuration       = 5   -- seconds a fainted world creature stays before despawning (unclaimed = disappears so others can spawn)
+GameConfig.FaintDuration       = 10   -- seconds a fainted world creature stays before despawning (unclaimed = disappears so others can spawn)
 
 -- Base
 GameConfig.BasePlotSize        = 60
 GameConfig.MaxBaseCreatures    = 20
 GameConfig.BaseCreatureSpacing = 8
 
+-- Base billboard distance (controls when individual creature tags hide and summary appears)
+GameConfig.BaseBillboardMaxDistance = 80    -- studs; individual creature billboards hide beyond this
+GameConfig.BaseSummaryShowDistance  = 100    -- studs; summary GUI fades in right when individual labels disappear
+GameConfig.BaseSummaryMaxDistance   = 900   -- studs; summary GUI hides beyond this
+
 -- Base plots
-GameConfig.MaxPlots            = 4
+GameConfig.MaxPlots            = 8
 GameConfig.PlotSize            = 50
 GameConfig.CreaturesPerRow     = 5
 GameConfig.CreatureSpacing     = 8
@@ -158,6 +171,7 @@ GameConfig.RaidDuration        = 30
 GameConfig.MaxStealPerRaid     = 1
 GameConfig.RaidProtectionTime  = 60
 GameConfig.StealChanceBase     = 0.3
+GameConfig.DefensePerCreature  = 0.03  -- steal chance reduction per defense creature (e.g. 6 defense = -18% chance)
 
 -- AI Raids (wild creatures attack bases)
 GameConfig.AIRaidInterval      = 90   -- seconds between AI raids
@@ -168,6 +182,16 @@ GameConfig.AIRaidDuration      = 18   -- seconds the raid lasts
 GameConfig.AIRaidAttackInsideRadius = 55    -- raiders must be within this many studs of plot center to attack (stops outranging from outside base)
 GameConfig.AIRaidDoorReachRadius     = 10   -- studs; raiders path to door (Ramp/PlotCenter) first; within this = "at door"
 GameConfig.AIRaidCenterReachRadius   = 14   -- studs; after door, raiders path to plot center (up ramp); within this = "at center", then may engage targets
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- Knight Base Rental (deploy base to outer biome outposts)
+-- ═══════════════════════════════════════════════════════════════════════════════
+GameConfig.KnightBaseRentalCost       = 1000           -- coins to rent a knight base slot
+GameConfig.KnightBaseRentalDuration   = 300            -- seconds (5 minutes)
+GameConfig.KnightBaseWarningTimes     = {30, 10}       -- seconds remaining when countdown warnings fire
+GameConfig.KnightBaseBiomes           = {"DesertBiome", "OceanBiome", "ElectricBiome", "CaveBiome"}
+GameConfig.KnightBaseSlotsPerBiome    = 2              -- PlotCenter1, PlotCenter2 per biome
+GameConfig.KnightBaseMinPlayerLevel   = 5              -- player level required to rent
 
 -- Dungeon events (legendary dungeon landmark + DungeonPoint spawners)
 GameConfig.DungeonSpawnInterval = 90   -- seconds between legendary dungeon spawns (more frequent)
@@ -180,20 +204,69 @@ GameConfig.ArenaPresenceBuff    = 0.10 -- +10% stats when owner stands on arena
 
 -- Arena / Battle
 GameConfig.ArenaRoundInterval  = 60
-GameConfig.MaxBattleTeamSize   = 9
+GameConfig.MaxBattleTeamSize   = 9      -- total grid slots (3x3 layout)
+GameConfig.MaxBattleTeamCreatures = 5   -- max creatures allowed on team (enforced by AssignToBattle)
 GameConfig.MinBattleTeamSize   = 1
 GameConfig.BattleTickSpeed     = 1.2
 GameConfig.GrowthPerWin        = 0.05
 GameConfig.MaxGrowth           = 3.0
 GameConfig.ArenaExclusionRadius = 80  -- studs around arena center where creatures cannot spawn/be targeted
 
+-- Arena UI (client)
+-- Show the condensed arena battle summary when the player is far enough that
+-- individual arena fighter HP bars would be noisy. HP bars only show when close.
+GameConfig.ArenaSummaryShowDistance    = 30   -- studs; summary fades in at/after this distance (outside arena dome)
+GameConfig.ArenaSummaryMaxDistance     = 900  -- studs; summary hides beyond this distance
+GameConfig.ArenaHealthBarShowDistance  = 10   -- studs; arena fighter HP bars only visible within this distance
+
 -- WaterGym (OceanBiome): touch ArenaBase for [E] Summon Gym; requires battle team; pay entry fee; fight 5 high-level Water/Ice/Fire
 GameConfig.WaterGymEntryFee       = 100   -- coins to challenge the gym leader
-GameConfig.WaterGymCreatureLevel  = 45    -- level of gym leader's squad (high level)
+GameConfig.WaterGymCreatureLevel  = 45    -- level of gym leader's squdad (high level)
 GameConfig.WaterGymPromptRange    = 10    -- studs; ProximityPrompt on ArenaBase
 GameConfig.WaterGymWinReward      = 250   -- coins if player wins
 GameConfig.WaterGymWinXP          = 75    -- player XP on gym win
 GameConfig.WaterGymCooldown       = 120   -- seconds; per-player cooldown between gym challenges
+
+-- CaveGym (CaveBiome): Shadow (+ Earth) element squad
+GameConfig.CaveGymEntryFee       = 100
+GameConfig.CaveGymCreatureLevel   = 45
+GameConfig.CaveGymPromptRange    = 10
+GameConfig.CaveGymWinReward      = 250
+GameConfig.CaveGymWinXP           = 75
+GameConfig.CaveGymCooldown        = 120
+
+-- DesertGym (DesertBiome): Fire + Earth element squad
+GameConfig.DesertGymEntryFee      = 100
+GameConfig.DesertGymCreatureLevel = 45
+GameConfig.DesertGymPromptRange   = 10
+GameConfig.DesertGymWinReward     = 250
+GameConfig.DesertGymWinXP         = 75
+GameConfig.DesertGymCooldown      = 120
+
+-- ElectricGym (ElectricBiome): Lightning element squad
+GameConfig.ElectricGymEntryFee       = 100
+GameConfig.ElectricGymCreatureLevel = 45
+GameConfig.ElectricGymPromptRange   = 10
+GameConfig.ElectricGymWinReward     = 250
+GameConfig.ElectricGymWinXP         = 75
+GameConfig.ElectricGymCooldown      = 120
+
+-- Zone doors (Ocean, Desert, Electric, Cave): 4 sigils from boss defeats open one door; gym win grants key for another
+GameConfig.ZoneDoorZoneIds        = { "Ocean", "Desert", "Electric", "Cave" }
+GameConfig.ZoneDoorBiomeFolders   = { Ocean = "OceanBiome", Desert = "DesertBiome", Electric = "ElectricBiome", Cave = "CaveBiome" }
+-- Ocean allows alias AquaticBiome; Desert may use VolcanicBiome until DesertBiome exists
+GameConfig.ZoneDoorBiomeAliases   = { Ocean = { "AquaticBiome", "WaterBiome" } }
+-- Element whose boss grants each zone's sigil (CreatureData.GetBossCreatureId(element))
+GameConfig.ZoneDoorElementByZone  = { Ocean = "Water", Desert = "Fire", Electric = "Lightning", Cave = "Shadow" }
+
+-- Sigil backboard UI: two sections
+-- 1) Elemental Bosses (Fire, Ice, Wind, Earth) — defeat in world to earn corresponding SiegeKnight Sigil
+GameConfig.ElementalBossElements   = { "Fire", "Ice", "Wind", "Earth" }
+-- Which zone sigil is earned when this elemental boss is defeated (zone id used in player data)
+GameConfig.ElementalBossToZoneId   = { Fire = "Desert", Ice = "Cave", Wind = "Ocean", Earth = "Electric" }
+-- 2) SiegeKnight Sigils (display names; order matches ZoneDoorZoneIds for door-unlock UI)
+GameConfig.SiegeKnightSigilLabels  = { "Desert", "Cave", "Ocean", "Cyber" }
+GameConfig.SiegeKnightSigilZoneIds = { "Desert", "Cave", "Ocean", "Electric" }  -- backend zone ids (Electric = Cyber)
 
 -- PvP (player vs player) 1v1 battle
 GameConfig.PvPInteractionRange   = 30   -- studs; must be this close to challenge (server checks HumanoidRoot distance)
@@ -215,7 +288,7 @@ GameConfig.EarthDebuffDuration = 3     -- rounds Earth debuff lasts
 GameConfig.WindFocusDrain      = 50    -- focus drained from target by Wind special
 GameConfig.WaterHealPercent    = 0.20  -- Water special: attacker heals 20% of max HP
 
--- Elemental weaknesses: Fire→Ice→Earth→Wind→Fire; Water vs Fire/Earth/Ice/Lightning; Light↔Shadow; Psychic neutral
+-- Elemental weaknesses: Fire→Ice→Earth→Wind→Fire; Quad 1 Water/Lightning/Metal/Poison; Quad 2 4-cycle Light→Shadow→Psychic→Undead→Light
 GameConfig.ElementalAdvantageMultiplier   = 1.5   -- damage when attacker element beats defender
 GameConfig.ElementalDisadvantageMultiplier = 0.5   -- damage when defender element beats attacker
 
@@ -250,7 +323,7 @@ GameConfig.HomeRecallGroundRadius    = 22  -- studs: impact circle radius
 -- Companion (favorite creature)
 GameConfig.CompanionAttackRange = 40
 GameConfig.CompanionAttackCD    = 2.0
-GameConfig.CompanionBaseDamage  = 15    -- multiplied by creature attack stat / 10
+GameConfig.CompanionBaseDamage  = 1.1    -- multiplied by creature attack stat / 10
 GameConfig.CompanionFollowDist  = 6
 GameConfig.CompanionFollowSpeed = 28   -- used as catch-up speed when companion is far; normal follow matches player WalkSpeed
 GameConfig.CompanionFollowCatchUpDist = 12  -- when distance to follow point exceeds this (studs), companion starts speeding up
@@ -264,6 +337,7 @@ GameConfig.WaterBreathRarityMultiplier = { Common = 1, Uncommon = 1.25, Rare = 1
 GameConfig.WaterBlockSeekRange = 80     -- max studs from spawn to consider "seek out" nearest WaterBlock (OceanBiome water creatures)
 GameConfig.CompanionTargetRange = 40    -- range for manual target selection
 GameConfig.CompanionRespawnCD   = 30    -- seconds before companion respawns after fainting
+GameConfig.CompanionAutoRecallDistance = 150  -- if companion gets this far from player (studs), auto-card and force resummon
 
 -- ElectricBiome hazards (ElectroBall AOE)
 GameConfig.ElectroBallCount          = 50   -- total placed (grid + 1 per SpawnPoint/DungeonPoint/BossPoint)
@@ -293,6 +367,17 @@ GameConfig.CreatureBobSpeed    = 2
 GameConfig.PlayerMaxHealth           = 100   -- starting/max HP
 GameConfig.PlayerHealthOutOfCombatDelay = 5   -- seconds without damage before regen starts
 GameConfig.PlayerHealthRegenPerSecond  = 100  -- HP/sec when regen is active (rapid heal to full)
+
+-- Underwater Breath Mechanic (client-side)
+GameConfig.BreathMaxTime             = 10    -- seconds of breath before drowning starts
+GameConfig.BreathDrownDamage         = 10    -- HP lost per tick when drowning
+GameConfig.BreathDrownTickInterval   = 5     -- seconds between drown damage ticks
+GameConfig.BreathWaterCreatureBonus  = 2     -- extra seconds of breath per water creature level (equipped favorite)
+GameConfig.BreathWaterCreatureMaxBonus = 60  -- cap on bonus breath from water creature level
+
+-- Player movement
+GameConfig.PlayerWalkSpeed      = 16    -- normal walk speed (studs/sec)
+GameConfig.PlayerSprintSpeed    = 26    -- sprint speed when holding Shift or toggling Sprint button
 
 -- Player Combat (outside arena)
 GameConfig.PlayerRangedDamage   = 4
@@ -350,7 +435,7 @@ GameConfig.LaserDoorEnabled     = true
 GameConfig.LaserDoorDamage      = 20    -- damage to non-friends entering dome
 GameConfig.LaserDoorMaxFriends  = 10
 GameConfig.DomeRadius           = 50    -- studs, horizontal (XZ) radius at base; dome is ellipsoid
-GameConfig.DomeHeightMultiplier = 1.5   -- vertical (Y) radius = DomeRadius * this (taller ellipse, same footprint)
+GameConfig.DomeHeightMultiplier = 1.5   -- vertical (Y) radius = DomeRadius * sdthis (taller ellipse, same footprint)
 GameConfig.ShieldDuration       = 50    -- seconds before shield expires and must be reactivated
 
 -- Buff Shop
@@ -382,14 +467,35 @@ GameConfig.CosmeticItems = {
 	{id = "trail_ice",      slot = "trail", name = "Ice Trail",       coinCost = 300,  gemCost = 0},
 	{id = "trail_rainbow",  slot = "trail", name = "Rainbow Trail",   coinCost = 0,    gemCost = 10},
 	{id = "trail_shadow",   slot = "trail", name = "Shadow Trail",    coinCost = 0,    gemCost = 8},
+	{id = "trail_nature",   slot = "trail", name = "Nature Trail",    coinCost = 350,  gemCost = 0},
+	{id = "trail_poison",   slot = "trail", name = "Poison Trail",    coinCost = 0,    gemCost = 9},
+	{id = "trail_void",     slot = "trail", name = "Void Trail",      coinCost = 0,    gemCost = 11},
+	{id = "trail_sunset",   slot = "trail", name = "Sunset Trail",    coinCost = 350,  gemCost = 0},
+	{id = "trail_candy",    slot = "trail", name = "Candy Trail",     coinCost = 0,    gemCost = 8},
+	{id = "trail_galaxy",   slot = "trail", name = "Galaxy Trail",     coinCost = 0,    gemCost = 12},
 	-- Auras
-	{id = "aura_flame",     slot = "aura",  name = "Flame Aura",     coinCost = 500,  gemCost = 0},
-	{id = "aura_electric",  slot = "aura",  name = "? Electric Aura",   coinCost = 500,  gemCost = 0},
-	{id = "aura_divine",    slot = "aura",  name = "? Divine Aura",     coinCost = 0,    gemCost = 15},
+	{id = "aura_flame",     slot = "aura",  name = "Flame Aura",      coinCost = 500,  gemCost = 0},
+	{id = "aura_electric",  slot = "aura",  name = "⚡ Electric Aura", coinCost = 500,  gemCost = 0},
+	{id = "aura_divine",    slot = "aura",  name = "✨ Divine Aura",   coinCost = 0,    gemCost = 15},
+	{id = "aura_nature",    slot = "aura",  name = "Nature Aura",      coinCost = 500,  gemCost = 0},
+	{id = "aura_void",      slot = "aura",  name = "Void Aura",       coinCost = 0,    gemCost = 14},
+	{id = "aura_ice",       slot = "aura",  name = "Ice Aura",        coinCost = 500,  gemCost = 0},
+	{id = "aura_poison",    slot = "aura",  name = "Poison Aura",     coinCost = 0,    gemCost = 10},
+	{id = "aura_sakura",    slot = "aura",  name = "Sakura Aura",     coinCost = 0,    gemCost = 12},
+	{id = "aura_star",      slot = "aura",  name = "Star Aura",       coinCost = 0,    gemCost = 13},
 	-- Name Colors
-	{id = "name_gold",      slot = "nameColor", name = "Gold Name",   coinCost = 200,  gemCost = 0},
-	{id = "name_red",       slot = "nameColor", name = "Red Name",    coinCost = 200,  gemCost = 0},
-	{id = "name_rainbow",   slot = "nameColor", name = "Rainbow Name",coinCost = 0,    gemCost = 12},
+	{id = "name_gold",      slot = "nameColor", name = "Gold Name",    coinCost = 200,  gemCost = 0},
+	{id = "name_red",       slot = "nameColor", name = "Red Name",     coinCost = 200,  gemCost = 0},
+	{id = "name_rainbow",   slot = "nameColor", name = "Rainbow Name", coinCost = 0,    gemCost = 12},
+	{id = "name_blue",      slot = "nameColor", name = "Blue Name",    coinCost = 200,  gemCost = 0},
+	{id = "name_green",     slot = "nameColor", name = "Green Name",   coinCost = 200,  gemCost = 0},
+	{id = "name_purple",    slot = "nameColor", name = "Purple Name",  coinCost = 200,  gemCost = 0},
+	{id = "name_cyan",      slot = "nameColor", name = "Cyan Name",    coinCost = 200,  gemCost = 0},
+	{id = "name_pink",      slot = "nameColor", name = "Pink Name",    coinCost = 200,  gemCost = 0},
+	{id = "name_orange",    slot = "nameColor", name = "Orange Name",  coinCost = 200,  gemCost = 0},
+	{id = "name_white",     slot = "nameColor", name = "White Name",   coinCost = 0,    gemCost = 6},
+	{id = "name_lime",      slot = "nameColor", name = "Lime Name",    coinCost = 200,  gemCost = 0},
+	{id = "name_coral",     slot = "nameColor", name = "Coral Name",   coinCost = 200,  gemCost = 0},
 }
 
 -- Base Exterior Shop (purchase theme; equipping applies theme to walls, stairs, etc.)

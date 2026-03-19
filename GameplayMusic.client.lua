@@ -44,9 +44,23 @@ local function normalizeSoundId(value)
 	return nil
 end
 
-local soundId = normalizeSoundId(config.SoundId)
+local function resolveSoundIdFromImportedSound()
+	local fallbackName = tostring(config.FallbackImportedSoundName or "Sieglings_ BattleTheme")
+	local imported = SoundService:FindFirstChild(fallbackName)
+	if imported and imported:IsA("Sound") then
+		return normalizeSoundId(imported.SoundId)
+	end
+	return nil
+end
+
+local soundId = normalizeSoundId(config.SoundId) or resolveSoundIdFromImportedSound()
 if not soundId then
-	warn("[GameplayMusic] Set GameConfig.GameplayMusic.SoundId to the uploaded Sieglings soundtrack asset id.")
+	warn(
+		"[GameplayMusic] Missing soundtrack id. Upload Sieglings_ BattleTheme.mp3 and set GameConfig.GameplayMusic.SoundId,"
+			.. " or import a Sound in SoundService named '"
+			.. tostring(config.FallbackImportedSoundName or "Sieglings_ BattleTheme")
+			.. "'."
+	)
 	return
 end
 
@@ -101,6 +115,24 @@ local function waitForGameplayWindow()
 	end
 end
 
+local function waitForStartupReady()
+	local events = ReplicatedStorage:FindFirstChild("Events")
+	if not events then
+		events = ReplicatedStorage:WaitForChild("Events", 15)
+	end
+	if not events then
+		return
+	end
+
+	local criticalReady = events:FindFirstChild("LoadingCriticalReady")
+	local worldReady = events:FindFirstChild("LoadingReady")
+	if criticalReady then
+		criticalReady.OnClientEvent:Wait()
+	elseif worldReady then
+		worldReady.OnClientEvent:Wait()
+	end
+end
+
 local soundGroup = getOrCreateSoundGroup(config.SoundGroupName or "Music")
 local soundName = config.SoundName or "SieglingsGameplayTheme"
 local sound = SoundService:FindFirstChild(soundName)
@@ -138,51 +170,54 @@ local function restartFromLoopPoint()
 	sound:Play()
 end
 
-if not sound.IsLoaded then
-	pcall(function()
-		ContentProvider:PreloadAsync({ sound })
-	end)
-end
+task.spawn(function()
+	waitForStartupReady()
+	waitForGameplayWindow()
 
-waitForGameplayWindow()
+	if not sound.IsLoaded then
+		pcall(function()
+			ContentProvider:PreloadAsync({ sound })
+		end)
+	end
 
-if not sound.IsPlaying then
-	restartFromLoopPoint()
-end
-
-local targetVolume = math.max(0, tonumber(config.Volume) or 0.32)
-local fadeInTime = math.max(0, tonumber(config.FadeInTime) or 0)
-
-if fadeInTime > 0 then
-	TweenService:Create(sound, TweenInfo.new(fadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-		Volume = targetVolume,
-	}):Play()
-else
-	sound.Volume = targetVolume
-end
-
-sound.Ended:Connect(function()
-	if useCustomLoop then
+	if not sound.IsPlaying then
 		restartFromLoopPoint()
 	end
-end)
 
-RunService.Heartbeat:Connect(function()
-	if not useCustomLoop or not sound.IsPlaying then
-		return
+	local targetVolume = math.max(0, tonumber(config.Volume) or 0.32)
+	local fadeInTime = math.max(0, tonumber(config.FadeInTime) or 0)
+
+	if fadeInTime > 0 then
+		TweenService:Create(sound, TweenInfo.new(fadeInTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+			Volume = targetVolume,
+		}):Play()
+	else
+		sound.Volume = targetVolume
 	end
 
-	local soundLength = sound.TimeLength
-	if soundLength <= 0 then
-		return
-	end
+	sound.Ended:Connect(function()
+		if useCustomLoop then
+			restartFromLoopPoint()
+		end
+	end)
 
-	local effectiveLoopEnd = math.min(loopEnd, soundLength)
-	if effectiveLoopEnd <= loopStart + 0.05 then
-		return
-	end
+	RunService.Heartbeat:Connect(function()
+		if not useCustomLoop or not sound.IsPlaying then
+			return
+		end
 
-	if sound.TimePosition >= effectiveLoopEnd - 0.03 then
-		sound.TimePosition = loopStart
-	end
+		local soundLength = sound.TimeLength
+		if soundLength <= 0 then
+			return
+		end
+
+		local effectiveLoopEnd = math.min(loopEnd, soundLength)
+		if effectiveLoopEnd <= loopStart + 0.05 then
+			return
+		end
+
+		if sound.TimePosition >= effectiveLoopEnd - 0.03 then
+			sound.TimePosition = loopStart
+		end
+	end)
 end)

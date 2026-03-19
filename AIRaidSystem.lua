@@ -317,6 +317,9 @@ local function runRaid()
 		end
 		if livingCount == 0 then
 			print("[AIRaid] All raiders killed by defenses!")
+			if PlayerDataManager and PlayerDataManager.NotifyAchievement then
+				PlayerDataManager.NotifyAchievement("OnDefenseSuccess", target, "ai_raid")
+			end
 			break
 		end
 	end

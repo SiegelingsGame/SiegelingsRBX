@@ -155,10 +155,14 @@ local function completeTrade(sess)
 
 	-- Do transfers
 	for _, uid in ipairs(offerA) do
-		PlayerDataManager.TransferCreature(aPlr, bPlr, uid)
+		PlayerDataManager.TransferCreature(aPlr, bPlr, uid, { source = "trade" })
 	end
 	for _, uid in ipairs(offerB) do
-		PlayerDataManager.TransferCreature(bPlr, aPlr, uid)
+		PlayerDataManager.TransferCreature(bPlr, aPlr, uid, { source = "trade" })
+	end
+	if PlayerDataManager.NotifyAchievement then
+		PlayerDataManager.NotifyAchievement("OnTradeCompleted", aPlr)
+		PlayerDataManager.NotifyAchievement("OnTradeCompleted", bPlr)
 	end
 
 	-- Refresh favorite companion models for both players (so traded favorites appear without re-equipping)

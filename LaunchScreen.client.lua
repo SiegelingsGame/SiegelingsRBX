@@ -41,6 +41,8 @@ local ELEMENT_COLOR = {
 	Shadow = Color3.fromRGB(120, 50, 180), Light = Color3.fromRGB(255, 250, 200),
 	Lightning = Color3.fromRGB(255, 230, 60), Water = Color3.fromRGB(50, 150, 255),
 	Psychic = Color3.fromRGB(200, 150, 255),
+	Metal = Color3.fromRGB(160, 170, 180), Poison = Color3.fromRGB(120, 220, 80),
+	Undead = Color3.fromRGB(140, 120, 160),
 }
 local RARITY = {
 	Common = Color3.fromRGB(120, 125, 140), Uncommon = Color3.fromRGB(50, 200, 90),
@@ -95,10 +97,29 @@ contentFrame.Parent = overlay
 
 -- Wait for server data (retry aggressively)
 local data = nil
-for attempt = 1, 10 do
+
+-- Avoid hammering GetInventory during server startup: wait for critical-ready signal first.
+do
+	local criticalReady = Events:FindFirstChild("LoadingCriticalReady")
+	if criticalReady then
+		local signaled = false
+		local conn
+		conn = criticalReady.OnClientEvent:Connect(function()
+			signaled = true
+			if conn then conn:Disconnect() end
+		end)
+		local deadline = tick() + (GameConfig.LoadingCriticalMaxWait or 18)
+		while not signaled and tick() < deadline do
+			task.wait(0.1)
+		end
+		if conn then conn:Disconnect() end
+	end
+end
+
+for attempt = 1, 4 do
 	local ok, r = pcall(function() return getInventory:InvokeServer() end)
 	if ok and r then data = r; break end
-	task.wait(attempt <= 3 and 0.5 or 1)
+	task.wait(attempt == 1 and 0.35 or 0.6)
 end
 if not data then warn("[LaunchScreen] Could not get player data"); sg:Destroy(); return end
 

@@ -1,9 +1,14 @@
 -- RebirthUIClient.lua - StarterPlayer.StarterPlayerScripts (LocalScript)
 -- Pilot Rebirth UI: requirements, what you lose/keep, double verification.
+--
+-- FIX #34: DISABLED — Rebirth content has been merged into the tabbed PlayerProfileClient.
+-- This file is kept as reference. The early return prevents any UI creation or event listeners.
+return
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
+local MobileWindowLayout = require(ReplicatedStorage.Modules:WaitForChild("MobileWindowLayout"))
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -370,8 +375,46 @@ local function refreshUI()
 end
 
 -- Show/hide
+local function applyMainLayout()
+	if MobileWindowLayout.IsMobile() then
+		MobileWindowLayout.ApplyWindow(main, {
+			leftInset = 14,
+			rightInset = 14,
+			topInset = 10,
+			bottomInset = 14,
+			bottomMobileExtra = 20,
+		})
+		main.Draggable = true
+		content.Size = UDim2.new(1, -20, 1, -132)
+		content.Position = UDim2.new(0, 10, 0, 56)
+		bottomBar.Size = UDim2.new(1, -20, 0, 60)
+		bottomBar.Position = UDim2.new(0, 10, 1, -66)
+		closeBtn.Size = UDim2.new(0, 36, 0, 36)
+		closeBtn.Position = UDim2.new(1, -44, 0, 6)
+		closeBtn.TextSize = 16
+		confirmBox.Size = UDim2.new(1, -24, 0, 220)
+		confirmBox.Position = UDim2.new(0, 12, 0.5, -110)
+		return
+	end
+
+	main.Size = UDim2.new(0, 440, 0, 560)
+	main.Position = UDim2.new(0.5, -220, 0.5, -280)
+	content.Size = UDim2.new(1, -28, 1, -120)
+	content.Position = UDim2.new(0, 14, 0, 56)
+	bottomBar.Size = UDim2.new(1, -28, 0, 52)
+	bottomBar.Position = UDim2.new(0, 14, 1, -58)
+	closeBtn.Size = UDim2.new(0, 30, 0, 30)
+	closeBtn.Position = UDim2.new(1, -38, 0, 9)
+	closeBtn.TextSize = 13
+	confirmBox.Size = UDim2.new(0, 320, 0, 200)
+	confirmBox.Position = UDim2.new(0.5, -160, 0.5, -100)
+	MobileWindowLayout.RestoreDesktopWindow(main, { draggable = true })
+end
+
 local function openUI()
+	applyMainLayout()
 	main.Visible = true
+	MobileWindowLayout.NotifyMenuOpened()
 	overlay.Visible = false
 	refreshUI()
 end
@@ -379,6 +422,7 @@ end
 local function closeUI()
 	main.Visible = false
 	overlay.Visible = false
+	MobileWindowLayout.NotifyMenuClosed()
 end
 
 closeBtn.MouseButton1Click:Connect(closeUI)
@@ -436,11 +480,12 @@ playerGui.ChildAdded:Connect(function(child)
 	if child.Name == "HUDToggleMenu" and child:IsA("BindableEvent") then child.Event:Connect(onHUDToggle) end
 end)
 
--- Keyboard Z for Rebirth (fallback; HUDButtonBar also fires HUDToggleMenu)
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
-	if input.KeyCode == Enum.KeyCode.Z then
-		if main.Visible then closeUI() else openUI() end
+MobileWindowLayout.BindViewportUpdate(function()
+	if main.Visible then
+		applyMainLayout()
 	end
 end)
+
+-- FIX #18: Removed fallback Z key handler — HUDButtonBar is the sole keyboard handler.
+-- Having both caused double-toggle (open then immediately close).
 

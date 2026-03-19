@@ -42,7 +42,7 @@ local CREATURE_TAG = "WorldCreature"
 local activeCreatures = {}
 
 -- Tracks boss respawn cooldowns: { [bossPointPart] = lastSpawnTime }
--- Prevents bosses from instantly respawning when defeated
+-- Prevents bosses from instantly respawning when defeatedsdf
 local bossSpawnTimers = {}
 
 -- ======================================
@@ -220,7 +220,7 @@ local function createCreatureModel(creatureId, position)
 		body.Color = data.primaryColor
 		body.Material = Enum.Material.SmoothPlastic
 		body.Anchored = true
-		body.CanCollide = false
+		body.CanCollide = true
 		body.CastShadow = true
 		body.Position = position
 		body.Parent = model

@@ -1,11 +1,11 @@
 -- MainServer.lua - ServerScriptService (Script)
 -- THE SINGLE ENTRY POINT. All remote handlers live HERE.
--- DELETE "EssentialHandlers" and "BattleTeamSystem" if they exist.
+-- DELETE "EssentialdHandlers" and "BattleTeamSystem" if they exist....
 
 print("--------------------------------------")
 print("   MONSTER SIEGE - Server Starting")
 print("--------------------------------------")
--- #region agent log
+-- #region agent logsdds
 print("[DEBUG-1234af] MainServer: before requires")
 -- #endregion
 
@@ -17,7 +17,7 @@ local StarterGui = game:GetService("StarterGui")
 local Workspace = game:GetService("Workspace")
 local TweenService = game:GetService("TweenService")
 
--- Prevent PlayerGui from being cleared on death/respawn so Leaderboard (X), Profile (P),f and HUD button bar shortcuts keep working
+-- Prevent PlayerGud from being cleared odfn death/respawn so Leadesrboard (X), Profile (P),f and HUD button bar shortcuts keep working
 StarterGui.ResetPlayerGuiOnSpawn = false
 
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
@@ -53,6 +53,7 @@ end
 
 -- Inventory
 local getInventory = makeFunc("GetInventory")
+local setCreatureNickname = makeFunc("SetCreatureNickname")
 local assignToBase = makeEvent("AssignToBase")
 local assignToDefense = makeEvent("AssignToDefense")
 local slotAssignComplete = makeEvent("SlotAssignComplete")  -- server -> client: fire after assign/remove so UI can refresh immediately
@@ -82,6 +83,7 @@ makeEvent("GemsUpdate")
 
 -- Capture
 makeEvent("CaptureRequest"); makeEvent("CaptureStart"); makeEvent("CaptureSuccess")
+makeEvent("SigilEarned")  -- FireClient(player, zoneId) when player earns a sigil from defeating a boss
 makeEvent("CaptureCancel"); makeEvent("CaptureFail"); makeEvent("CaptureOutOfRange"); makeEvent("AssignCaptured")
 
 -- AI Raids
@@ -103,6 +105,7 @@ makeEvent("PlayCreatureAnimation")
 
 -- Loading: server fires when creatures/models are ready; client LoadingGate waits for this
 makeEvent("LoadingReady")
+makeEvent("LoadingCriticalReady")
 
 -- PvP (player vs player 1v1; challenge then confirm like trade)
 makeEvent("RequestPvPBattle"); makeEvent("PvPBattleStart"); makeEvent("PvPBattleEnd"); makeEvent("PvPBattleReject")
@@ -112,6 +115,9 @@ makeEvent("PvPChallengeInvite"); makeEvent("PvPAcceptChallenge"); makeEvent("PvP
 -- Player Combat
 makeEvent("PlayerAttack"); makeEvent("PlayerAttackFX")
 makeEvent("ShowDamageNumber")  -- S->C: (position, damage) only to attacker/companion owner for open-world
+
+-- FIX #27: Underwater drowning (client fires when breath runs out)
+local drownDamage = makeEvent("DrownDamage")
 
 -- Buff Shop
 makeFunc("BuyBuff")
@@ -127,6 +133,7 @@ local equipBaseColor = makeFunc("EquipBaseColor")
 
 -- Egg Shop
 makeFunc("BuyEgg"); makeEvent("EggResult")
+local inspectEgg = makeFunc("InspectEgg")
 
 -- Friends List / Laser Door
 makeEvent("AddBaseFriend"); makeEvent("RemoveBaseFriend"); makeFunc("GetFriendsList")
@@ -165,6 +172,17 @@ local getProfile = makeFunc("GetProfile")
 makeEvent("PlayerLevelUp")    -- server → client: level up notification
 makeEvent("PlayerXPGained")   -- server → client: XP gain notification
 
+-- Knight Base Rental (FIX #35)
+makeEvent("KnightBaseRented")    -- server → client: biomeName, duration
+makeEvent("KnightBaseReturned")  -- server → client: rental ended, base returned home
+makeEvent("KnightBaseTimer")     -- server → client: remainingSeconds (every second)
+makeEvent("KnightBaseWarning")   -- server → client: remainingSeconds (30s/10s warning) or "shield_blocked"
+
+-- Achievements
+makeFunc("GetAchievements")
+makeEvent("AchievementProgress") -- server -> client: (entry, reason)
+makeEvent("AchievementUnlocked") -- server -> client: (def summary)
+
 -- Base Interaction (walk-up creature management: pick up, move, swap)
 local moveCreatureSlot = makeFunc("MoveCreatureSlot")    -- client sends: slotType, uid, targetPointIndex → ok, message
 local swapCreatureSlots = makeFunc("SwapCreatureSlots")  -- client sends: slotType, uidA, uidB → ok, message
@@ -188,6 +206,15 @@ print("[MainServer] All RemoteEvents created")
 
 -- === STEP 2: Require modules ===
 local PlayerDataManager = require(ServerScriptService.PlayerDataManager)
+
+local AchievementsSystem = nil
+pcall(function() AchievementsSystem = require(ServerScriptService.AchievementsSystem) end)
+if AchievementsSystem and AchievementsSystem.BindPlayerDataManager then
+	AchievementsSystem.BindPlayerDataManager(PlayerDataManager)
+end
+if PlayerDataManager and PlayerDataManager.BindAchievementObserver then
+	PlayerDataManager.BindAchievementObserver(AchievementsSystem)
+end
 
 local CreatureAI = nil
 pcall(function() CreatureAI = require(ServerScriptService.CreatureAI) end)
@@ -227,6 +254,12 @@ pcall(function() ArenaShieldSystem = require(ServerScriptService.ArenaShieldSyst
 
 local WaterGymSystem = nil
 pcall(function() WaterGymSystem = require(ServerScriptService.WaterGymSystem) end)
+local CaveGymSystem = nil
+pcall(function() CaveGymSystem = require(ServerScriptService.CaveGymSystem) end)
+local DesertGymSystem = nil
+pcall(function() DesertGymSystem = require(ServerScriptService.DesertGymSystem) end)
+local ElectricGymSystem = nil
+pcall(function() ElectricGymSystem = require(ServerScriptService.ElectricGymSystem) end)
 
 local PvPBattleSystem = nil
 pcall(function() PvPBattleSystem = require(ServerScriptService.PvPBattleSystem) end)
@@ -266,6 +299,8 @@ pcall(function() WorldCreatureHP = require(ServerScriptService.WorldCreatureHP) 
 
 local LaserDoorSystem = nil
 pcall(function() LaserDoorSystem = require(ServerScriptService.LaserDoorSystem) end)
+local ZoneDoorSystem = nil
+pcall(function() ZoneDoorSystem = require(ServerScriptService.ZoneDoorSystem) end)
 
 local LeaderboardSystem = nil
 pcall(function() LeaderboardSystem = require(ServerScriptService.LeaderboardSystem) end)
@@ -275,6 +310,9 @@ pcall(function() EvolutionCombineSystem = require(ServerScriptService.EvolutionC
 
 local CombinerRecyclerSystem = nil
 pcall(function() CombinerRecyclerSystem = require(ServerScriptService.CombinerRecyclerSystem) end)
+
+local KnightBaseSystem = nil
+pcall(function() KnightBaseSystem = require(ServerScriptService.KnightBaseSystem) end)
 
 -- === STEP 3: Initialize ===
 PlayerDataManager.Init()
@@ -345,6 +383,18 @@ if WaterGymSystem then
 	local ok, err = pcall(function() WaterGymSystem.Init(PlayerDataManager) end)
 	if ok then print("[MainServer] WaterGymSystem OK") else warn("[MainServer] WaterGymSystem failed: " .. tostring(err)) end
 end
+if CaveGymSystem then
+	local ok, err = pcall(function() CaveGymSystem.Init(PlayerDataManager) end)
+	if ok then print("[MainServer] CaveGymSystem OK") else warn("[MainServer] CaveGymSystem failed: " .. tostring(err)) end
+end
+if DesertGymSystem then
+	local ok, err = pcall(function() DesertGymSystem.Init(PlayerDataManager) end)
+	if ok then print("[MainServer] DesertGymSystem OK") else warn("[MainServer] DesertGymSystem failed: " .. tostring(err)) end
+end
+if ElectricGymSystem then
+	local ok, err = pcall(function() ElectricGymSystem.Init(PlayerDataManager) end)
+	if ok then print("[MainServer] ElectricGymSystem OK") else warn("[MainServer] ElectricGymSystem failed: " .. tostring(err)) end
+end
 if LeaderboardSystem then
 	local ok, err = pcall(function() LeaderboardSystem.Init(PlayerDataManager) end)
 	if ok then print("[MainServer] LeaderboardSystem OK") else warn("[MainServer] LeaderboardSystem failed: " .. tostring(err)) end
@@ -392,6 +442,14 @@ end
 if LaserDoorSystem then
 	local ok, err = pcall(function() LaserDoorSystem.Init(PlayerDataManager) end)
 	if ok then print("[MainServer] LaserDoorSystem OK") else warn("[MainServer] LaserDoorSystem failed: " .. tostring(err)) end
+	if ZoneDoorSystem and ZoneDoorSystem.Init then
+		local okZD, errZD = pcall(function() ZoneDoorSystem.Init(PlayerDataManager) end)
+		if okZD then print("[MainServer] ZoneDoorSystem OK") else warn("[MainServer] ZoneDoorSystem failed: " .. tostring(errZD)) end
+	end
+end
+if KnightBaseSystem then
+	local ok, err = pcall(function() KnightBaseSystem.Init(PlayerDataManager, BasePlacementSystem, LaserDoorSystem) end)
+	if ok then print("[MainServer] KnightBaseSystem OK") else warn("[MainServer] KnightBaseSystem failed: " .. tostring(err)) end
 end
 if EvolutionCombineSystem then
 	local ok, err = pcall(function() EvolutionCombineSystem.Init(PlayerDataManager, FavoriteCreatureSystem) end)
@@ -416,6 +474,52 @@ if DayNightCycle then
 end
 
 print("[MainServer] All systems initialized")
+
+local startupMetricsEnabled = GameConfig.StartupMetricLogEnabled == true
+local joinClockByUserId = {}
+local criticalReadyByUserId = {}
+local loadingCriticalReadyEvent = eventsFolder:FindFirstChild("LoadingCriticalReady")
+
+local function logStartupMetric(userId, label)
+	if not startupMetricsEnabled then return end
+	local joinClock = joinClockByUserId[userId]
+	if not joinClock then return end
+	print(("[StartupMetric] user=%s %s=%.2fs"):format(tostring(userId), label, os.clock() - joinClock))
+end
+
+local function markCriticalReady(plr, reason)
+	if not plr or not plr.Parent then return end
+	local uid = plr.UserId
+	if criticalReadyByUserId[uid] then return end
+	criticalReadyByUserId[uid] = true
+	logStartupMetric(uid, "join_to_critical_ready")
+	if startupMetricsEnabled then
+		print(("[StartupMetric] user=%s critical_reason=%s"):format(tostring(uid), tostring(reason or "unknown")))
+	end
+	if loadingCriticalReadyEvent then
+		loadingCriticalReadyEvent:FireClient(plr)
+	end
+end
+
+-- FIX #27: Underwater drowning damage handler (client fires DrownDamage when breath runs out)
+do
+	local drownCooldowns = {} -- [userId] = lastDrownTick (rate-limit to prevent spam)
+	drownDamage.OnServerEvent:Connect(function(plr, damage)
+		if type(damage) ~= "number" then return end
+		damage = math.clamp(math.floor(damage), 1, 50) -- sanitize (cap at 50 per tick)
+		local now = tick()
+		local last = drownCooldowns[plr.UserId] or 0
+		if now - last < 2 then return end -- min 2s between drown ticks (anti-exploit)
+		drownCooldowns[plr.UserId] = now
+		local char = plr.Character
+		if not char then return end
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if hum and hum.Health > 0 then
+			hum:TakeDamage(damage)
+		end
+	end)
+	Players.PlayerRemoving:Connect(function(plr) drownCooldowns[plr.UserId] = nil end)
+end
 
 -- ── DOME + SIGN HELPER ──
 local function setupPlotForPlayer(plr)
@@ -871,6 +975,7 @@ local function autoAssignAndSetup(plr)
 		warn("[MainServer] Data never loaded for " .. plr.Name)
 		return
 	end
+	logStartupMetric(plr.UserId, "join_to_data_ready")
 
 	-- Assign a random unoccupied base every time (spawn at random base each join)
 	local plotId = PlayerDataManager.AssignPlot(plr)
@@ -889,6 +994,7 @@ local function autoAssignAndSetup(plr)
 	local char = plr.Character or plr.CharacterAdded:Wait()
 	task.wait(0.5)
 	teleportToBase(plr)
+	logStartupMetric(plr.UserId, "join_to_character_spawn")
 
 	-- Debug: double movement speed
 	local function applyWalkSpeed(c)
@@ -900,22 +1006,124 @@ local function autoAssignAndSetup(plr)
 	end
 	applyWalkSpeed(char)
 
+	-- Small area light on right arm so it's not completely dark at night (emanates from right arm)
+	local function attachPlayerArmLight(character)
+		if not character or not character.Parent then return end
+		local rightArm = character:FindFirstChild("Right Arm") or character:FindFirstChild("RightLowerArm") or character:FindFirstChild("RightHand")
+		if not rightArm then return end
+		if rightArm:FindFirstChild("PlayerArmLight") then return end
+		local light = Instance.new("PointLight")
+		light.Name = "PlayerArmLight"
+		light.Brightness = 1.2
+		light.Range = 14
+		light.Color = Color3.fromRGB(255, 235, 200)
+		light.Parent = rightArm
+	end
+	local function ensurePlayerArmLight(character)
+		attachPlayerArmLight(character)
+		if not character or not character.Parent then return end
+		local arm = character:FindFirstChild("Right Arm") or character:FindFirstChild("RightLowerArm") or character:FindFirstChild("RightHand")
+		if not arm or arm:FindFirstChild("PlayerArmLight") then return end
+		task.defer(function()
+			task.wait(0.5)
+			if character and character.Parent then attachPlayerArmLight(character) end
+		end)
+	end
+	ensurePlayerArmLight(char)
+
 	-- Respawn at base on death (no base refresh - creatures persist)
 	plr.CharacterAdded:Connect(function(newChar)
 		task.wait(0.5)
 		teleportToBase(plr)
 		applyWalkSpeed(newChar)
+		ensurePlayerArmLight(newChar)
 	end)
+
+	-- Player can start playing once core setup is done; world warmup continues in background.
+	markCriticalReady(plr, "auto_assign_setup_complete")
 end
 
 -- Handle players who join
 Players.PlayerAdded:Connect(function(plr)
+	joinClockByUserId[plr.UserId] = os.clock()
 	task.spawn(function() autoAssignAndSetup(plr) end)
+	task.delay(GameConfig.LoadingCriticalMaxWait or 18, function()
+		if plr and plr.Parent and not criticalReadyByUserId[plr.UserId] then
+			markCriticalReady(plr, "critical_timeout_fallback")
+		end
+	end)
+end)
+
+-- FIX #24: Clean up base plots when players leave (dome removal, sign reset, floor hiding)
+-- BasePlacementSystem.PlayerRemoving handles orb cleanup + RefreshAllPlotVisibility.
+-- This handler covers MainServer-owned state: dome, sign, companion.
+Players.PlayerRemoving:Connect(function(plr)
+	-- FIX #35: Return knight base rental BEFORE clearing plot data (needs plotId + PlotCenter)
+	if KnightBaseSystem and KnightBaseSystem.IsPlayerRenting and KnightBaseSystem.IsPlayerRenting(plr) then
+		pcall(function() KnightBaseSystem.Cleanup(plr) end)
+	end
+
+	-- Grab plot info BEFORE PlayerDataManager clears it (PDM also listens to PlayerRemoving)
+	local d = PlayerDataManager.GetData(plr)
+	local plotId = d and d.plotId
+	local plotModel = nil
+	if plotId and plotId > 0 then
+		local plotsFolder = Workspace:FindFirstChild("BasePlots")
+		if plotsFolder then
+			plotModel = plotsFolder:FindFirstChild("Plot" .. plotId)
+				or plotsFolder:FindFirstChild("Part" .. plotId)
+		end
+	end
+
+	-- Remove dome shield
+	if plotModel and LaserDoorSystem and LaserDoorSystem.RemoveForPlot then
+		pcall(function() LaserDoorSystem.RemoveForPlot(plotModel) end)
+	end
+
+	-- Reset sign text
+	if plotModel then
+		local signPart = plotModel:FindFirstChild("SignPart")
+		if signPart then
+			local bb = signPart:FindFirstChild("BillboardGui")
+			if bb then
+				local lbl = bb:FindFirstChild("TextLabel")
+				if lbl then lbl.Text = "Available Base" end
+			end
+			local sg = signPart:FindFirstChild("SurfaceGui")
+			if sg then
+				local lbl = sg:FindFirstChild("TextLabel")
+				if lbl then lbl.Text = "Available Base" end
+			end
+		end
+		-- Clear OwnerUserId attribute so client doesn't think this is still owned
+		plotModel:SetAttribute("OwnerUserId", nil)
+	end
+
+	-- Despawn companion (FavoriteCreatureSystem handles its own cleanup via PlayerRemoving,
+	-- but ensure it runs before plot data is gone)
+	if FavoriteCreatureSystem and FavoriteCreatureSystem.DespawnCompanion then
+		pcall(function() FavoriteCreatureSystem.DespawnCompanion(plr) end)
+	end
+
+	-- Cancel home recall if in progress
+	if homeRecallingPlayers and homeRecallingPlayers[plr.UserId] then
+		homeRecallingPlayers[plr.UserId] = nil
+	end
+	joinClockByUserId[plr.UserId] = nil
+	criticalReadyByUserId[plr.UserId] = nil
+
+	print("[MainServer] Cleaned up plot for " .. plr.Name .. " (Plot " .. tostring(plotId) .. ")")
 end)
 
 -- Handle players already in game (Studio test / fast join)
 for _, plr in ipairs(Players:GetPlayers()) do
+	joinClockByUserId[plr.UserId] = os.clock()
 	task.spawn(function() autoAssignAndSetup(plr) end)
+	task.delay(GameConfig.LoadingCriticalMaxWait or 18, function()
+		if plr and plr.Parent and not criticalReadyByUserId[plr.UserId] then
+			markCriticalReady(plr, "critical_timeout_fallback")
+		end
+	end)
 end
 
 -- Start creature spawning independently (wait for any player to exist)
@@ -953,6 +1161,9 @@ if loadingReadyEvent then
 		loadingReady = true
 		local finalCount = #CollectionService:GetTagged(CREATURE_TAG)
 		print("[MainServer] Loading ready! Creatures:", finalCount .. ", elapsed:", string.format("%.1f", tick() - startTime) .. "s")
+		if startupMetricsEnabled then
+			print(("[StartupMetric] world_ready_elapsed=%.2fs creatures=%d"):format(tick() - startTime, finalCount))
+		end
 		for _, plr in ipairs(Players:GetPlayers()) do
 			loadingReadyEvent:FireClient(plr)
 		end
@@ -1015,7 +1226,11 @@ getInventory.OnServerInvoke = function(plr)
 	for _, entry in ipairs(battleTeamSlots) do
 		battleTeamLegacy[entry.slot] = entry.uid
 	end
-	local battleMax = GameConfig.MaxBattleTeamSize or 9
+	local battleMax = GameConfig.MaxBattleTeamCreatures or 5
+	local defenseActiveCount, defenseTotalSpawned = 0, 0
+	if BasePlacementSystem and BasePlacementSystem.GetDefenseActivityForOwner then
+		defenseActiveCount, defenseTotalSpawned = BasePlacementSystem.GetDefenseActivityForOwner(plr.UserId)
+	end
 	return {
 		coins = d.coins, gems = d.gems or 0,
 		inventory = d.inventory,
@@ -1025,6 +1240,9 @@ getInventory.OnServerInvoke = function(plr)
 		filledBaseCount = filledIncome, filledDefenseCount = filledDefense,
 		incomeMax = incomeMax, defenseMax = defenseMax,
 		battleFilled = #battleTeamSlots, battleMax = battleMax,
+		defenseActiveCount = defenseActiveCount,
+		defenseTotalSpawned = defenseTotalSpawned,
+		defenseRaidActive = defenseActiveCount > 0,
 		favoriteUid = d.favoriteUid, battleTeam = battleTeamLegacy, battleTeamSlots = battleTeamSlots,
 		battleTeamEnabled = d.battleTeamEnabled ~= false,
 		plotId = d.plotId or 0, stats = d.stats,
@@ -1034,7 +1252,45 @@ getInventory.OnServerInvoke = function(plr)
 		baseColor = PlayerDataManager.GetBaseColor(plr),
 		ownedFloors = d.ownedFloors or {1},
 		playerLevel = d.playerLevel or 1,
+		sigils = d.sigils or {},
+		firstZoneDoorOpened = d.firstZoneDoorOpened,
+		zoneKeysFromGyms = d.zoneKeysFromGyms or {},
+		doorsUnlocked = d.doorsUnlocked or {},
 	}
+end
+
+setCreatureNickname.OnServerInvoke = function(plr, uid, nickname)
+	if type(uid) ~= "string" or uid == "" then return false, "Invalid creature", 0, nil end
+	local ok, msg, gemCost, finalNickname = PlayerDataManager.SetCreatureNickname(plr, uid, nickname)
+	if ok then
+		-- Nickname is visible in world/base tags, so refresh this player's placed creatures.
+		if BasePlacementSystem then
+			refreshPlayerBase(plr)
+		end
+		local gemsEvt = eventsFolder:FindFirstChild("GemsUpdate")
+		if gemsEvt then gemsEvt:FireClient(plr, PlayerDataManager.GetGems(plr)) end
+	end
+	return ok, msg, gemCost or 0, finalNickname
+end
+
+-- Zone doors: open one door with 4 sigils (client calls from Sigils UI)
+local openZoneDoorWithSigils = makeFunc("OpenZoneDoorWithSigils")
+openZoneDoorWithSigils.OnServerInvoke = function(plr, zoneId)
+	if not plr or not plr.Parent then return false, "Invalid player" end
+	if type(zoneId) ~= "string" or zoneId == "" then return false, "Invalid zone" end
+	local ok = PlayerDataManager.SpendFourSigilsOpenDoor(plr, zoneId)
+	if ok then return true end
+	return false, "Cannot open door (need 4 sigils and no door chosen yet, or invalid zone)"
+end
+
+-- Zone doors: unlock a door with a gym key (client calls from Sigils UI)
+local unlockDoorWithKey = makeFunc("UnlockDoorWithKey")
+unlockDoorWithKey.OnServerInvoke = function(plr, zoneId)
+	if not plr or not plr.Parent then return false, "Invalid player" end
+	if type(zoneId) ~= "string" or zoneId == "" then return false, "Invalid zone" end
+	local ok = PlayerDataManager.UnlockDoorWithKey(plr, zoneId)
+	if ok then return true end
+	return false, "No key for this zone or door already unlocked"
 end
 
 -- Base Exterior: get config by id
@@ -1333,7 +1589,11 @@ toggleBattleTeam.OnServerInvoke = function(plr)
 	if PlayerDataManager.SavePlayer then
 		PlayerDataManager.SavePlayer(plr)  -- Persist immediately so state sticks
 	end
-	refreshPlayerBase(plr)
+	-- Toggle should be backend-only plus BattlePoint color feedback.
+	-- Do not full-refresh base models (prevents flicker/disappear-reappear).
+	if BasePlacementSystem and BasePlacementSystem.UpdateBattlePointVisualState then
+		BasePlacementSystem.UpdateBattlePointVisualState(plr)
+	end
 	return enabled
 end
 
@@ -1391,7 +1651,7 @@ selectStarter.OnServerEvent:Connect(function(plr, starterId)
 	end
 	if not valid then return end
 
-	local uid = PlayerDataManager.AddCreature(plr, starterId)
+	local uid = PlayerDataManager.AddCreature(plr, starterId, nil, nil, nil, nil, { source = "starter" })
 	if uid then
 		PlayerDataManager.SetFavorite(plr, uid)
 		if FavoriteCreatureSystem then
@@ -1458,6 +1718,21 @@ sellCreature.OnServerInvoke = function(plr, uid)
 		if coinsEvt then coinsEvt:FireClient(plr, PlayerDataManager.GetCoins(plr)) end
 	end
 	return ok, coins
+end
+
+inspectEgg.OnServerInvoke = function(plr, uid)
+	if typeof(uid) ~= "string" or uid == "" then
+		return false, "Invalid egg", nil
+	end
+	local ok, msg, egg = PlayerDataManager.InspectEgg(plr, uid)
+	if ok then
+		local gemsEvt = eventsFolder:FindFirstChild("GemsUpdate")
+		if gemsEvt then gemsEvt:FireClient(plr, PlayerDataManager.GetGems(plr)) end
+		if BasePlacementSystem then
+			BasePlacementSystem.PlaceCreatures(plr)
+		end
+	end
+	return ok, msg, egg and egg.creatureId or nil
 end
 
 -- ── BASE INTERACTION: Move / Swap creature slots ──
@@ -1655,4 +1930,3 @@ end)
 print("--------------------------------------")
 print("   MONSTER SIEGE - Server Ready!")
 print("--------------------------------------")
-

@@ -25,7 +25,11 @@ local FACING_X_CORRECTION = math.rad(0)
 
 -- State (gym-only — fully independent from ArenaSystem)
 local gymBattleInProgress = false
-local playerCooldowns = {} -- [UserId] = tick() timestamp when cooldown expires
+-- Per-gym cooldowns: playerCooldowns[cooldownKey][UserId] = tick() when cooldown expires
+local playerCooldowns = {}
+
+-- Current battle gym config (set at StartGymBattle from caller or Water defaults)
+local currentGymConfig = nil
 
 -- Battle context (set per battle)
 local arenaFolder
@@ -86,9 +90,17 @@ local function getPlayerBattleTeam(player)
 	return team
 end
 
+-- For arena: team must be active and have enough creatures (checked by ArenaSystem).
+-- For gym: only require a valid team size; inactive is allowed (arena-only check).
 local function hasEligibleBattleTeam(player)
 	local data = PlayerDataManager and PlayerDataManager.GetData(player)
 	if not data or data.battleTeamEnabled == false then return false end
+	return #getPlayerBattleTeam(player) >= (GameConfig.MinBattleTeamSize or MIN_BATTLE_TEAM_SIZE)
+end
+
+local function hasBattleTeamForGym(player)
+	local data = PlayerDataManager and PlayerDataManager.GetData(player)
+	if not data then return false end
 	return #getPlayerBattleTeam(player) >= (GameConfig.MinBattleTeamSize or MIN_BATTLE_TEAM_SIZE)
 end
 
@@ -176,6 +188,7 @@ local function spawnBattleCreature(creatureId, battlePoint, team, sizeMultiplier
 	bb.Size = UDim2.new(0, 160, 0, 65)
 	bb.StudsOffset = Vector3.new(0, CreatureModelLoader.GetBillboardStudsOffsetForTopOfModel(model, body), 0)
 	bb.AlwaysOnTop = true
+	bb.MaxDistance = GameConfig.ArenaSummaryShowDistance or 80  -- FIX #29: hide individual tags beyond summary distance
 	bb.Parent = model
 
 	local nameLabel = Instance.new("TextLabel")
@@ -505,12 +518,13 @@ local function placeTeam(team, teamFolder, teamColor, sizeMultiplier, enemyFolde
 	return placed
 end
 
-local function generateGymTeam(level)
+local function generateGymTeam(level, elements)
 	level = level or (GameConfig.WaterGymCreatureLevel or 45)
-	local elements = { "Water", "Ice", "Fire" }
+	elements = elements or { "Water", "Ice", "Fire" }
+	if #elements == 0 then elements = { "Water", "Poison" } end
 	local team = {}
 	for i = 1, 5 do
-		local element = elements[(i - 1) % 3 + 1]
+		local element = elements[(i - 1) % #elements + 1]
 		local list = CreatureData.GetCreaturesByElement(element)
 		if not list or #list == 0 then list = CreatureData.Creatures end
 		local candidates = {}
@@ -673,17 +687,25 @@ local function runBattle()
 	local winnerReward
 	local loserReward
 	if winnerTeam == "blue" and currentKing and currentKing.Parent then
-		local gymReward = GameConfig.WaterGymWinReward or 250
+		local gymReward = (currentGymConfig and currentGymConfig.winReward) or (GameConfig.WaterGymWinReward or 250)
 		PlayerDataManager.AddCoins(currentKing, gymReward)
 		winnerReward = { coins = gymReward }
+		local winXP = (currentGymConfig and currentGymConfig.winXP) or (GameConfig.WaterGymWinXP or 75)
 		if PlayerDataManager.AddPlayerXP then
-			pcall(function() PlayerDataManager.AddPlayerXP(currentKing, GameConfig.WaterGymWinXP or 75) end)
+			pcall(function() PlayerDataManager.AddPlayerXP(currentKing, winXP) end)
+		end
+		-- Zone door: grant zone key so player can unlock another zone from Sigils UI
+		local zoneKey = (currentGymConfig and currentGymConfig.zoneKey) or "Ocean"
+		if PlayerDataManager.AddZoneKeyFromGym then
+			PlayerDataManager.AddZoneKeyFromGym(currentKing, zoneKey)
 		end
 	end
 
 	if arenaEvents.ArenaReward then
+		local gymName = (currentGymConfig and currentGymConfig.gymName) or "Water Gym"
 		local payload = {
 			gym = true,
+			gymName = gymName,
 			winner = winnerTeam == "blue" and (currentKing and currentKing.Name or "?") or "Gym Leader",
 			loser = winnerTeam == "blue" and "Gym Leader" or (currentKing and currentKing.Name or "?"),
 			winnerReward = winnerReward,
@@ -739,49 +761,74 @@ function WaterGymBattleSystem.Init(playerDataMgr, basePlacementSys)
 		local arenaInProgress = workspace:GetAttribute("ArenaBattleInProgress") or false
 		local gymInProgress = workspace:GetAttribute("GymBattleInProgress") or false
 		local gymCooldown = WaterGymBattleSystem.GetCooldownRemaining(requestingPlayer)
+		local arenaFighterBlueName = workspace:GetAttribute("ArenaFighterBlueName")
+		local arenaFighterRedName = workspace:GetAttribute("ArenaFighterRedName")
 		return {
 			arenaCountdown = arenaCountdown,
 			arenaBattleInProgress = arenaInProgress,
 			gymBattleInProgress = gymInProgress,
 			gymCooldownRemaining = gymCooldown,
+			arenaFighterBlueName = arenaFighterBlueName,
+			arenaFighterRedName = arenaFighterRedName,
 		}
 	end
 
 	-- Initialize workspace attributes
 	workspace:SetAttribute("GymBattleInProgress", false)
 
-	-- Clean up cooldowns when players leave
+	-- Clean up cooldowns when players leave (per-gym and legacy)
 	Players.PlayerRemoving:Connect(function(plr)
 		playerCooldowns[plr.UserId] = nil
+		for _, byKey in pairs(playerCooldowns) do
+			if type(byKey) == "table" then byKey[plr.UserId] = nil end
+		end
 	end)
 
 	print("[GymBattle] Initialized — cooldown " .. (GameConfig.WaterGymCooldown or 120) .. "s per player")
 end
 
---- Get remaining cooldown seconds for a player (0 = ready).
-function WaterGymBattleSystem.GetCooldownRemaining(player)
+--- Get remaining cooldown seconds for a player (0 = ready). cooldownKey optional (default "WaterGym").
+function WaterGymBattleSystem.GetCooldownRemaining(player, cooldownKey)
 	if not player then return 0 end
-	local cd = playerCooldowns[player.UserId]
-	if not cd or tick() >= cd then return 0 end
-	return math.ceil(cd - tick())
+	cooldownKey = cooldownKey or "WaterGym"
+	local byKey = playerCooldowns[cooldownKey]
+	local exp = byKey and byKey[player.UserId]
+	if not exp then
+		-- Legacy: single global cooldown (WaterGym only)
+		exp = playerCooldowns[player.UserId]
+	end
+	if not exp or tick() >= exp then return 0 end
+	return math.ceil(exp - tick())
 end
 
--- Start a gym battle in the given gymFolder (OceanBiome/WaterGym). Returns: success, errMsg
-function WaterGymBattleSystem.StartGymBattle(player, gymFolder)
+-- Start a gym battle in the given gymFolder. config optional; when nil, uses Water Gym defaults.
+-- config: { gymName, elements, level, winReward, winXP, cooldown, zoneKey, cooldownKey }
+function WaterGymBattleSystem.StartGymBattle(player, gymFolder, config)
 	if not player or not player.Parent then return false, "Invalid player" end
 	if not gymFolder or not (gymFolder:IsA("Folder") or gymFolder:IsA("Model")) then return false, "Invalid gym folder" end
 	if gymBattleInProgress then return false, "A gym battle is already in progress" end
 	-- FIX: Mutual exclusion — can't start gym while arena battle is running
 	if workspace:GetAttribute("ArenaBattleInProgress") then
-		return false, "An arena battle is in progress. Wait for it to finish!"
+		return false, "You cannot fight in a gym and arena at the same time. Wait for the arena battle to finish."
 	end
-	-- FIX: Per-player cooldown between gym challenges
-	local remaining = WaterGymBattleSystem.GetCooldownRemaining(player)
+	-- Default to Ocean/Water Gym config when config is nil (Water + Poison)
+	currentGymConfig = config or {
+		gymName = "Water Gym",
+		elements = { "Water", "Poison" },
+		level = GameConfig.WaterGymCreatureLevel or 45,
+		winReward = GameConfig.WaterGymWinReward or 250,
+		winXP = GameConfig.WaterGymWinXP or 75,
+		cooldown = GameConfig.WaterGymCooldown or 120,
+		zoneKey = "Ocean",
+		cooldownKey = "WaterGym",
+	}
+	local cooldownKey = currentGymConfig.cooldownKey or "WaterGym"
+	local remaining = WaterGymBattleSystem.GetCooldownRemaining(player, cooldownKey)
 	if remaining > 0 then
 		return false, "Gym cooldown: " .. remaining .. "s remaining."
 	end
-	if not hasEligibleBattleTeam(player) then
-		return false, "You need a battle team to challenge the Gym. Set one in your inventory!"
+	if not hasBattleTeamForGym(player) then
+		return false, "Cannot start gym without a battle team. Set one in your inventory (Battle tab)."
 	end
 
 	local gymBlue = gymFolder:FindFirstChild("BlueTeam")
@@ -801,12 +848,13 @@ function WaterGymBattleSystem.StartGymBattle(player, gymFolder)
 		pcall(function() BasePlacementSystem.ClearBattleCreatures(player) end)
 	end
 
+	local gymName = currentGymConfig.gymName or "Water Gym"
 	-- Announce (gym-only)
 	if arenaEvents.ArenaAnnounce then
-		arenaEvents.ArenaAnnounce:FireClient(player, "WATER GYM! Battle the Gym Leader's squad!")
+		arenaEvents.ArenaAnnounce:FireClient(player, (gymName):upper() .. "! Battle the Gym Leader's squad!")
 		for _, p in ipairs(Players:GetPlayers()) do
 			if p ~= player then
-				arenaEvents.ArenaAnnounce:FireClient(p, player.Name .. " is challenging the Water Gym!")
+				arenaEvents.ArenaAnnounce:FireClient(p, player.Name .. " is challenging the " .. gymName .. "!")
 			end
 		end
 	end
@@ -816,7 +864,8 @@ function WaterGymBattleSystem.StartGymBattle(player, gymFolder)
 	if BasePlacementSystem then pcall(function() BasePlacementSystem.ClearBattleCreatures(player) end) end
 
 	local playerTeam = getPlayerBattleTeam(player)
-	local gymTeam = generateGymTeam(GameConfig.WaterGymCreatureLevel or 45)
+	local level = currentGymConfig.level or (GameConfig.WaterGymCreatureLevel or 45)
+	local gymTeam = generateGymTeam(level, currentGymConfig.elements)
 
 	local redCenter = getTeamCenter(redTeamFolder)
 	local blueCenter = getTeamCenter(blueTeamFolder)
@@ -858,11 +907,14 @@ function WaterGymBattleSystem.StartGymBattle(player, gymFolder)
 		clearArena()
 	end
 
-	-- Set per-player cooldown
-	local cooldownDuration = GameConfig.WaterGymCooldown or 120
-	playerCooldowns[player.UserId] = tick() + cooldownDuration
+	-- Set per-player cooldown for this gym type
+	local ck = (currentGymConfig and currentGymConfig.cooldownKey) or "WaterGym"
+	local cooldownDuration = (currentGymConfig and currentGymConfig.cooldown) or (GameConfig.WaterGymCooldown or 120)
+	if not playerCooldowns[ck] then playerCooldowns[ck] = {} end
+	playerCooldowns[ck][player.UserId] = tick() + cooldownDuration
 
 	-- Clear context
+	currentGymConfig = nil
 	currentKing = nil
 	arenaFolder = nil
 	blueTeamFolder = nil

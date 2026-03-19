@@ -9,7 +9,9 @@ local function baseLog(...) if BASE_LAYOUT_DEBUG then print("[BaseLayout]", ...)
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local MobileWindowLayout = require(ReplicatedStorage.Modules:WaitForChild("MobileWindowLayout"))
 local CollectionService = game:GetService("CollectionService")
 
 local player = Players.LocalPlayer
@@ -31,10 +33,27 @@ local PLAY_FAV_ANIM_NAME = "PlayFavoriteCardAnimation"
 ensureBindable(PLAY_FAV_ANIM_NAME)
 ensureBindable("ToggleWeaponMode")
 ensureBindable("WeaponModeChanged")  -- so we can connect before PlayerCombatClient fires; combat client finds and fires current modes
+ensureBindable("ToggleSprint")       -- SprintClient listens; tap or Shift to sprint
+ensureBindable("SprintStateChanged")
 
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
 local Notify = require(ReplicatedStorage.Modules.NotificationManager)
+
+local CodexModelViewer = nil
+if GameConfig.ENABLE_CODEX_3D_VIEWER then
+	local modScript = ReplicatedStorage.Modules:FindFirstChild("CodexModelViewer")
+	if modScript then
+		local ok, mod = pcall(function() return require(modScript) end)
+		if ok and mod and type(mod.new) == "function" then CodexModelViewer = mod end
+	end
+end
+local INV_VIEWER_POOL_SIZE = 12
+local invViewerPool = {}
+local invViewerInUse = {}
+
+-- Map UID -> card frame for fast selection highlight updates (avoids full refresh on select).
+local invCardByUid = {}
 
 local Events = ReplicatedStorage:WaitForChild("Events", 15)
 if not Events then warn("[UI] Events missing") return end
@@ -46,13 +65,12 @@ local function safeGet(n, t)
 end
 
 local getInventory    = safeGet("GetInventory")
+local setCreatureNickname = safeGet("SetCreatureNickname")
 local assignToBase    = safeGet("AssignToBase")
 local assignToDefense = safeGet("AssignToDefense")
 local slotAssignComplete = Events:FindFirstChild("SlotAssignComplete")
 local setFavorite     = safeGet("SetFavorite")
 local captureSuccess  = safeGet("CaptureSuccess")
-local raidRequest     = safeGet("RaidRequest")
-local getRaidTargets  = safeGet("GetRaidTargets")
 local raidStart       = safeGet("RaidStart")
 local raidEnd         = safeGet("RaidEnd")
 local moveCreatureSlot = safeGet("MoveCreatureSlot")
@@ -109,12 +127,151 @@ local ELEMENT_COLOR = {
 	Shadow = Color3.fromRGB(120, 50, 180), Light = Color3.fromRGB(255, 250, 200),
 	Lightning = Color3.fromRGB(255, 230, 60), Water = Color3.fromRGB(50, 150, 255),
 	Psychic = Color3.fromRGB(200, 150, 255),
+	Metal = Color3.fromRGB(160, 170, 180), Poison = Color3.fromRGB(120, 220, 80),
+	Undead = Color3.fromRGB(140, 120, 160),
 }
 local CLASS_COLOR = {
 	Bruiser = Color3.fromRGB(220, 80, 60), Mage = Color3.fromRGB(100, 120, 255),
 	Guardian = Color3.fromRGB(80, 180, 220), Assassin = Color3.fromRGB(200, 60, 200),
 	Support = Color3.fromRGB(100, 220, 120),
 }
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- Base Under-Attack badge (same crest/pulse system as arena badge).
+-- Shows when `GetInventory()` reports `defenseRaidActive == true`.
+-- ══════════════════════════════════════════════════════════════════════════════
+local BADGE_WIDTH       = 30
+local BADGE_HEIGHT      = 34
+local BADGE_GAP         = 8
+local BADGE_BG          = Color3.fromRGB(18, 22, 32)
+local BADGE_RED         = C.defense
+local BADGE_DISPLAY_ORD = 90
+
+local baseBadge = {
+	gui = nil,
+	button = nil,
+	glow = nil,
+	pulseConn = nil,
+	visible = false,
+}
+
+local function startBaseBadgePulse()
+	if baseBadge.pulseConn or not baseBadge.glow then return end
+	local elapsed = 0
+	baseBadge.pulseConn = RunService.RenderStepped:Connect(function(dt)
+		elapsed += dt
+		local t = (math.sin(elapsed * 4 * math.pi) + 1) / 2
+		if baseBadge.glow then
+			baseBadge.glow.Thickness = 2 + t * 2
+			baseBadge.glow.Transparency = t * 0.35
+		end
+	end)
+end
+
+local function stopBaseBadgePulse()
+	if baseBadge.pulseConn then
+		baseBadge.pulseConn:Disconnect()
+		baseBadge.pulseConn = nil
+	end
+	if baseBadge.glow then
+		baseBadge.glow.Thickness = 2
+		baseBadge.glow.Transparency = 0
+	end
+end
+
+local function createBaseUnderAttackBadge()
+	if baseBadge.gui and baseBadge.gui.Parent then return end
+
+	local sg = Instance.new("ScreenGui")
+	sg.Name = "BaseUnderAttackBadge"
+	sg.DisplayOrder = BADGE_DISPLAY_ORD
+	sg.ResetOnSpawn = false
+	sg.IgnoreGuiInset = true
+	sg.Parent = playerGui
+
+	-- Position relative to Notification ticker bar (if present).
+	local notifGui = playerGui:FindFirstChild("NotificationGUI")
+	local tickerBar = notifGui and notifGui:FindFirstChild("TickerBar")
+
+	local btn = Instance.new("TextButton")
+	btn.Name = "BaseRaidButton"
+	btn.Size = UDim2.new(0, BADGE_WIDTH, 0, BADGE_HEIGHT)
+	btn.BackgroundColor3 = BADGE_BG
+	btn.BackgroundTransparency = 0.15
+	btn.BorderSizePixel = 0
+	btn.Text = "\226\154\148" -- same crest glyph used by arena badge
+	btn.TextColor3 = BADGE_RED
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 18
+	btn.AutoButtonColor = false
+	btn.ZIndex = 100
+	btn.Parent = sg
+
+	if tickerBar then
+		local ap = tickerBar.AbsolutePosition
+		local as = tickerBar.AbsoluteSize
+		btn.Position = UDim2.new(0, ap.X + as.X + BADGE_GAP, 0, ap.Y + as.Y / 2)
+		btn.AnchorPoint = Vector2.new(0, 0.5)
+	else
+		btn.Position = UDim2.new(0.86, 0, 0, 18)
+		btn.AnchorPoint = Vector2.new(0.5, 0)
+	end
+
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+	local glow = Instance.new("UIStroke")
+	glow.Color = BADGE_RED
+	glow.Thickness = 2
+	glow.Transparency = 0
+	glow.Parent = btn
+
+	baseBadge.gui = sg
+	baseBadge.button = btn
+	baseBadge.glow = glow
+	btn.Visible = false
+end
+
+local function updateBaseUnderAttackBadgeVisibility(isUnderAttack)
+	if isUnderAttack and not baseBadge.visible then
+		createBaseUnderAttackBadge()
+		if not baseBadge.button then return end
+		baseBadge.visible = true
+		baseBadge.button.Visible = true
+		baseBadge.button.Size = UDim2.new(0, 0, 0, 0)
+		TweenService:Create(baseBadge.button, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+			Size = UDim2.new(0, BADGE_WIDTH, 0, BADGE_HEIGHT),
+		}):Play()
+		startBaseBadgePulse()
+	elseif (not isUnderAttack) and baseBadge.visible then
+		stopBaseBadgePulse()
+		baseBadge.visible = false
+		if baseBadge.button and baseBadge.button.Parent then
+			TweenService:Create(baseBadge.button, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+				Size = UDim2.new(0, 0, 0, 0),
+			}):Play()
+			task.delay(0.3, function()
+				if baseBadge.button then baseBadge.button.Visible = false end
+			end)
+		end
+	end
+end
+
+local lastBadgeRefreshT = 0
+local function refreshBaseUnderAttackBadgeFromServer()
+	-- Debounce: `RaidStart`/`RaidEnd` can arrive back-to-back.
+	local now = tick()
+	if (now - lastBadgeRefreshT) < 0.25 then return end
+	lastBadgeRefreshT = now
+
+	if not getInventory then return end
+	local ok, invData = pcall(function() return getInventory:InvokeServer() end)
+	if ok and invData then
+		updateBaseUnderAttackBadgeVisibility(invData.defenseRaidActive == true)
+	end
+end
+
+-- Initialize badge once (handles cases where player joins mid-raid).
+task.defer(refreshBaseUnderAttackBadgeFromServer)
 
 -- Debounce inventory button actions so double-clicks don't duplicate (e.g. assign then unassign).
 
@@ -140,6 +297,12 @@ local pendingOptimistic = {} -- { [uidStr] = { base = bool|nil, def = bool|nil, 
 local pendingBattleUid = nil
 -- Optimistic battle formation: { [slotIndex] = uid } — show placement instantly before server confirms
 local pendingBattleOptimistic = {}
+local selectedInventoryUid = nil
+local latestInventoryData = nil
+local latestInventoryLookup = {}
+local refreshSelectedInventoryDetails
+local renderInventoryDetails
+local refreshInventory, refreshBattle, refreshRaids, refreshCurrentTab
 local lastFavoriteUid = nil   -- when user removes favorite, store here; Y or orb can re-equip it t
 local lastFavoriteName = nil  -- display name for ReCard label when favorite is unequipped
 local lastFavoriteCreatureId = nil  -- creature id for summon card animation (ReCard)
@@ -166,7 +329,7 @@ sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling; sg.DisplayOrder = 10; sg.Parent
 --[[ PANEL SCALING (viewport-based so window fits on mobile and desktop)
      Design size: width 680 so all text (stats, tabs, battle affinity, buttons) fits; height 640.
      getPanelScale() returns a multiplier so the panel fits in the viewport. ]]
-local PANEL_DESIGN_W = 960   -- Wider for sidebar (monster list)
+local PANEL_DESIGN_W = 1040   -- Wider so inventory + details can coexist on mobile
 local PANEL_DESIGN_H = 640
 local PANEL_SCALE_MIN = 0.52   -- minimum scale so panel stays usable on small phones
 local PANEL_SCALE_MAX = 1      -- never larger than design size
@@ -182,7 +345,7 @@ end
 local function isMobileLayout()
 	local camera = workspace.CurrentCamera
 	local vp = (camera and camera.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
-	return vp.X < MOBILE_BREAKPOINT or vp.Y < 500
+	return MobileWindowLayout.IsMobile() or vp.X < MOBILE_BREAKPOINT or vp.Y < 500
 end
 
 -- B toggle button: shield-shaped, "Battle" / "Menu" on two lines. Under smaller HUD (~76px).
@@ -292,6 +455,53 @@ local function fireWeaponToggle()
 end
 weaponIcon.MouseButton1Click:Connect(fireWeaponToggle)
 weaponIcon.Activated:Connect(fireWeaponToggle)
+
+-- Sprint button: next to Melee/Ranged (right of weaponIcon).
+-- Mobile only: tap to toggle sprint. Desktop uses hold-Shift (no sprint button).
+local SPRINT_BUTTON_GAP = 6
+local MOBILE_SPRINT_Y = 144 -- move sprint button down a bit for touch comfort
+local showMobileSprintButton = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+local sprintBtn = Instance.new("TextButton")
+sprintBtn.Name = "SprintButton"
+sprintBtn.Size = UDim2.new(0, 44, 0, 44)
+sprintBtn.Position = UDim2.new(0, 12 + 44 + SPRINT_BUTTON_GAP, 0, MOBILE_SPRINT_Y)
+sprintBtn.AnchorPoint = Vector2.new(0, 0)
+sprintBtn.BackgroundColor3 = Color3.fromRGB(28, 30, 42)
+sprintBtn.BorderSizePixel = 0
+sprintBtn.Text = ""
+sprintBtn.Visible = showMobileSprintButton
+sprintBtn.Parent = sg
+Instance.new("UICorner", sprintBtn).CornerRadius = UDim.new(1, 0)
+local sprintLbl = Instance.new("TextLabel")
+sprintLbl.Size = UDim2.new(1, -6, 1, -6)
+sprintLbl.Position = UDim2.new(0.5, 0, 0.5, 0)
+sprintLbl.AnchorPoint = Vector2.new(0.5, 0.5)
+sprintLbl.BackgroundTransparency = 1
+sprintLbl.Text = "Sprint"
+sprintLbl.TextColor3 = Color3.new(1, 1, 1)
+sprintLbl.Font = Enum.Font.GothamMedium
+sprintLbl.TextSize = 10
+sprintLbl.TextStrokeTransparency = 0.3
+sprintLbl.TextStrokeColor3 = Color3.new(0, 0, 0)
+sprintLbl.TextXAlignment = Enum.TextXAlignment.Center
+sprintLbl.TextYAlignment = Enum.TextYAlignment.Center
+sprintLbl.Parent = sprintBtn
+local sprintStroke = Instance.new("UIStroke", sprintBtn)
+sprintStroke.Color = Color3.fromRGB(100, 180, 255)
+sprintStroke.Thickness = 1
+sprintStroke.Transparency = 0.5
+local function setSprintButtonActive(active)
+	sprintBtn.BackgroundColor3 = active and Color3.fromRGB(38, 50, 70) or Color3.fromRGB(28, 30, 42)
+	sprintStroke.Transparency = active and 0.2 or 0.5
+end
+local toggleSprintEvt = ensureBindable("ToggleSprint")
+sprintBtn.MouseButton1Click:Connect(function()
+	if showMobileSprintButton then toggleSprintEvt:Fire() end
+end)
+sprintBtn.Activated:Connect(function()
+	if showMobileSprintButton then toggleSprintEvt:Fire() end
+end)
+ensureBindable("SprintStateChanged").Event:Connect(setSprintButtonActive)
 
 local function updateFavOrb()
 	if not getInventory then return end
@@ -537,32 +747,35 @@ countLbl.BackgroundTransparency = 1; countLbl.Text = "0/" .. GameConfig.MaxInven
 countLbl.TextColor3 = C.textSec; countLbl.Font = Enum.Font.GothamMedium
 countLbl.TextSize = 11; countLbl.TextXAlignment = Enum.TextXAlignment.Right; countLbl.Parent = stats
 
--- 3 TABS
+-- 3 TABS (Inventory, Battle, Base)
 local tabC = Instance.new("Frame")
 tabC.Size = UDim2.new(1, -28, 0, 30); tabC.Position = UDim2.new(0, 14, 0, 94)
 tabC.BackgroundTransparency = 1; tabC.Parent = main
 
 local activeTab = "inventory"
+local updateInventoryLayout
 local function mkTab(name, text, px, w)
 	local b = Instance.new("TextButton")
 	b.Name = name; b.Size = UDim2.new(w, -4, 1, 0)
-	b.Position = UDim2.new(px, px > 0 and 3 or 0, 0, 0)
+	b.Position = UDim2.new(px, px > 0 and 2 or 0, 0, 0)
 	b.BackgroundColor3 = C.card; b.Text = text; b.TextColor3 = C.textSec
 	b.Font = Enum.Font.GothamBold; b.TextSize = 12; b.BorderSizePixel = 0; b.Parent = tabC
 	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 7)
 	return b
 end
-local invTab = mkTab("Inv", "INVENTORY", 0, 0.34)
-local battleTab = mkTab("Battle", "BATTLE", 0.34, 0.33)
-local raidTab = mkTab("Base", "Base", 0.67, 0.33)
+local invTab = mkTab("Inv", "SIEGLINGS", 0, 1/3)
+local battleTab = mkTab("Battle", "BATTLE", 1/3, 1/3)
+local raidTab = mkTab("Base", "BASE", 2/3, 1/3)
 
+local tabButtons = { invTab, battleTab, raidTab }
 local function setTab(t)
 	activeTab = t; pendingBattleUid = nil
-	for _, btn in ipairs({invTab, battleTab, raidTab}) do
+	for _, btn in ipairs(tabButtons) do
 		btn.BackgroundColor3 = C.card; btn.TextColor3 = C.textSec
 	end
-	local active = t == "inventory" and invTab or (t == "battle" and battleTab or raidTab)
-	active.BackgroundColor3 = C.accent; active.TextColor3 = Color3.new(1,1,1)
+	local active = (t == "inventory" and invTab) or (t == "battle" and battleTab) or (t == "raids" and raidTab)
+	if active then active.BackgroundColor3 = C.accent; active.TextColor3 = Color3.new(1,1,1) end
+	if updateInventoryLayout then updateInventoryLayout() end
 end
 
 -- Content scroll
@@ -579,6 +792,359 @@ local contentLayout = Instance.new("UIListLayout")
 contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
 contentLayout.Padding = UDim.new(0, 5); contentLayout.Parent = content
 
+local DETAIL_PANEL_W = 295
+local detailPanel = Instance.new("Frame")
+detailPanel.Name = "InventoryDetailPanel"
+detailPanel.Size = UDim2.new(0, DETAIL_PANEL_W, 1, -140)
+detailPanel.Position = UDim2.new(1, -14 - DETAIL_PANEL_W, 0, 130)
+detailPanel.BackgroundColor3 = C.bgLight
+detailPanel.BorderSizePixel = 0
+detailPanel.Visible = false
+detailPanel.Parent = main
+Instance.new("UICorner", detailPanel).CornerRadius = UDim.new(0, 10)
+local detailStroke = Instance.new("UIStroke")
+detailStroke.Color = C.divider
+detailStroke.Transparency = 0.2
+detailStroke.Parent = detailPanel
+
+local detailScroll = Instance.new("ScrollingFrame")
+detailScroll.Size = UDim2.new(1, -12, 1, -12)
+detailScroll.Position = UDim2.new(0, 6, 0, 6)
+detailScroll.BackgroundTransparency = 1
+detailScroll.BorderSizePixel = 0
+detailScroll.ScrollBarThickness = 4
+detailScroll.ScrollBarImageColor3 = C.scroll
+detailScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+detailScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+detailScroll.Parent = detailPanel
+local detailList = Instance.new("UIListLayout")
+detailList.SortOrder = Enum.SortOrder.LayoutOrder
+detailList.Padding = UDim.new(0, 6)
+detailList.Parent = detailScroll
+
+-- Large 3D viewer at top of details panel (cycles animations)
+local detailViewerHost = Instance.new("Frame")
+detailViewerHost.Name = "DetailViewerHost"
+detailViewerHost.Size = UDim2.new(1, -4, 0, 160)
+detailViewerHost.BackgroundColor3 = C.card
+detailViewerHost.BorderSizePixel = 0
+detailViewerHost.LayoutOrder = 2
+detailViewerHost.Parent = detailScroll
+Instance.new("UICorner", detailViewerHost).CornerRadius = UDim.new(0, 10)
+
+local detailViewer = nil
+local detailViewerAnimThread = nil
+local detailViewerCurrentCreatureId = nil
+
+local function mkDetailLabel(height, size, bold, color)
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(1, -4, 0, height)
+	lbl.BackgroundTransparency = 1
+	lbl.TextColor3 = color or C.text
+	lbl.Font = bold and Enum.Font.GothamBold or Enum.Font.GothamMedium
+	lbl.TextSize = size
+	lbl.TextWrapped = true
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.TextYAlignment = Enum.TextYAlignment.Top
+	lbl.Parent = detailScroll
+	return lbl
+end
+
+local detailName = mkDetailLabel(26, 18, true, C.favorite)
+local detailType = mkDetailLabel(18, 11, false, C.textSec)
+local detailWeak = mkDetailLabel(16, 10, false, Color3.fromRGB(255, 120, 120))
+local detailStrong = mkDetailLabel(16, 10, false, Color3.fromRGB(120, 255, 170))
+local detailTraits = mkDetailLabel(32, 10, false, C.textSec)
+local detailDesc = mkDetailLabel(70, 10, false, C.textMut)
+local detailStats = mkDetailLabel(78, 10, false, C.text)
+local detailXP = mkDetailLabel(30, 10, false, Color3.fromRGB(140, 190, 255))
+detailName.LayoutOrder = 0
+detailType.LayoutOrder = 1
+detailWeak.LayoutOrder = 3
+detailStrong.LayoutOrder = 4
+detailTraits.LayoutOrder = 5
+detailDesc.LayoutOrder = 6
+detailStats.LayoutOrder = 7
+detailXP.LayoutOrder = 8
+
+local nickTitle = mkDetailLabel(16, 10, true, C.accent)
+nickTitle.Text = "Nickname"
+nickTitle.LayoutOrder = 9
+
+local nickBox = Instance.new("TextBox")
+nickBox.Size = UDim2.new(1, -4, 0, 28)
+nickBox.BackgroundColor3 = C.card
+nickBox.TextColor3 = C.text
+nickBox.PlaceholderColor3 = C.textMut
+nickBox.PlaceholderText = "Enter nickname..."
+nickBox.Font = Enum.Font.GothamMedium
+nickBox.TextSize = 11
+nickBox.ClearTextOnFocus = false
+nickBox.TextXAlignment = Enum.TextXAlignment.Left
+nickBox.LayoutOrder = 10
+nickBox.Parent = detailScroll
+Instance.new("UICorner", nickBox).CornerRadius = UDim.new(0, 6)
+local nickPad = Instance.new("UIPadding")
+nickPad.PaddingLeft = UDim.new(0, 8)
+nickPad.PaddingRight = UDim.new(0, 8)
+nickPad.Parent = nickBox
+
+local nickBtn = Instance.new("TextButton")
+nickBtn.Size = UDim2.new(1, -4, 0, 24)
+nickBtn.BackgroundColor3 = C.favorite
+nickBtn.TextColor3 = Color3.new(0, 0, 0)
+nickBtn.Font = Enum.Font.GothamBold
+nickBtn.TextSize = 10
+nickBtn.Text = "Set Name (Free)"
+nickBtn.LayoutOrder = 11
+nickBtn.Parent = detailScroll
+Instance.new("UICorner", nickBtn).CornerRadius = UDim.new(0, 6)
+
+local nickHint = mkDetailLabel(26, 9, false, C.textMut)
+nickHint.LayoutOrder = 12
+
+local function getEntryDisplayName(entry, creature)
+	if entry and entry.isEgg == true and entry.mystery == true and entry.inspected ~= true then
+		return "Unknown Egg"
+	end
+	if entry and type(entry.nickname) == "string" and entry.nickname ~= "" then
+		local baseName = (creature and creature.displayName) or (entry and entry.id) or "Siegling"
+		return entry.nickname .. " (" .. baseName .. ")"
+	end
+	return (creature and creature.displayName) or (entry and entry.id) or "Unknown"
+end
+
+local function computeEffectiveStatsClient(creature, entry)
+	local level = (entry and entry.level) or 1
+	local variant = (entry and entry.variant) or "Normal"
+	local baseStats = {
+		health = creature.health or 1,
+		attack = creature.attack or 1,
+		defense = creature.defense or 1,
+		speed = creature.speed or 1,
+	}
+	local statKeys = { "health", "attack", "defense", "speed" }
+	local order = { health = 1, attack = 2, defense = 3, speed = 4 }
+	table.sort(statKeys, function(a, b)
+		if baseStats[a] ~= baseStats[b] then return baseStats[a] > baseStats[b] end
+		return (order[a] or 0) < (order[b] or 0)
+	end)
+	local rankOf = {}
+	for rank, key in ipairs(statKeys) do rankOf[key] = rank end
+	local rankMults = GameConfig.StatGainByRank or { 1.5, 1.25, 1.0, 0.75 }
+	local baseGain = GameConfig.StatGainPerLevel or 0.08
+	local rarityMult = (GameConfig.RarityStatMultipliers and GameConfig.RarityStatMultipliers[creature.rarity]) or 1
+	local variantMult = (CreatureData.GetVariantStatMultiplier and CreatureData.GetVariantStatMultiplier(variant)) or 1
+	local mult = rarityMult * variantMult
+	local out = {}
+	for _, key in ipairs({ "health", "attack", "defense", "speed" }) do
+		local r = rankOf[key] or 4
+		local lm = 1 + (level - 1) * baseGain * (rankMults[r] or 1)
+		out[key] = math.floor((baseStats[key] or 1) * lm * mult)
+	end
+	return out
+end
+
+local function getMatchupText(creature)
+	local weak, strong = {}, {}
+	for elementName, _ in pairs(CreatureData.Elements or {}) do
+		if elementName ~= creature.element then
+			if CreatureData.GetElementalDamageMultiplier(elementName, creature.element) > 1 then
+				table.insert(weak, elementName)
+			end
+			if CreatureData.GetElementalDamageMultiplier(creature.element, elementName) > 1 then
+				table.insert(strong, elementName)
+			end
+		end
+	end
+	table.sort(weak)
+	table.sort(strong)
+	return (#weak > 0 and table.concat(weak, ", ") or "None"), (#strong > 0 and table.concat(strong, ", ") or "None")
+end
+
+renderInventoryDetails = function(data, entry, creature)
+	if not entry or not creature then
+		if detailViewer then
+			detailViewer:SetCreature(nil)
+		end
+		if detailViewerAnimThread then
+			detailViewerAnimThread = nil
+		end
+		detailName.Text = "Select a Siegling"
+		detailType.Text = "Tap a monster cell to inspect details."
+		detailWeak.Text = ""
+		detailStrong.Text = ""
+		detailTraits.Text = ""
+		detailDesc.Text = ""
+		detailStats.Text = ""
+		detailXP.Text = ""
+		nickBox.Text = ""
+		nickBox.Visible = false
+		nickBtn.Visible = false
+		nickHint.Text = ""
+		return
+	end
+
+	local lvl = entry.level or 1
+	local xp = entry.xp or 0
+	local maxLvl = CreatureData.GetMaxCreatureLevel and CreatureData.GetMaxCreatureLevel(entry.id) or (GameConfig.MaxCreatureLevel or 10)
+	local xpNeeded = (lvl >= maxLvl) and 0 or math.floor((GameConfig.BaseXPRequired or 50) * ((GameConfig.XPScaling or 1.5) ^ (lvl - 1)))
+	local statsNow = computeEffectiveStatsClient(creature, entry)
+	local weakText, strongText = getMatchupText(creature)
+	local activeName = getEntryDisplayName(entry, creature)
+	local renameCost = tonumber(GameConfig.CreatureRenameGemCost) or 5
+	local hasNamedBefore = entry.nicknameEverSet == true
+	local canNickname = entry.isEgg ~= true
+	local eggHidden = entry.isEgg == true and entry.mystery == true and entry.inspected ~= true
+
+	if eggHidden then
+		if detailViewer then
+			detailViewer:SetCreature(nil)
+		end
+		if detailViewerAnimThread then
+			detailViewerAnimThread = nil
+		end
+		detailName.Text = "Unknown Egg"
+		detailType.Text = "Unknown | ??? | ???"
+		detailWeak.Text = "Weak vs: ???"
+		detailStrong.Text = "Strong vs: ???"
+		detailTraits.Text = "Traits: Unknown until inspected or hatched"
+		detailDesc.Text = "A mystery egg. Place it on your base to hatch, or inspect it for diamonds."
+		detailStats.Text = ("Stats @ Lv.%d\nHidden until inspected"):format(lvl)
+		detailXP.Text = "XP: Not available while egg is hidden"
+		nickBox.Visible = false
+		nickBtn.Visible = false
+		nickBox.Text = ""
+		nickHint.Text = "Eggs cannot be nicknamed until they hatch."
+		return
+	end
+
+	detailName.Text = activeName
+	detailType.Text = ("%s | %s | %s"):format(creature.rarity or "?", creature.element or "?", creature.class or "?")
+	detailWeak.Text = "Weak vs: " .. weakText
+	detailStrong.Text = "Strong vs: " .. strongText
+	detailTraits.Text = ("Traits: %s behavior | %s rarity | %s variant"):format(creature.behavior or "unknown", creature.rarity or "?", entry.variant or "Normal")
+	detailDesc.Text = creature.description or "No description."
+	detailStats.Text = ("Stats @ Lv.%d\nHP %d | ATK %d\nDEF %d | SPD %d"):format(lvl, statsNow.health, statsNow.attack, statsNow.defense, statsNow.speed)
+	detailXP.Text = (lvl >= maxLvl) and ("XP: MAX LEVEL (" .. tostring(xp) .. " stored)") or ("XP: " .. tostring(xp) .. " / " .. tostring(xpNeeded) .. " to level")
+	nickBox.Visible = canNickname
+	nickBtn.Visible = canNickname
+	nickBox.Text = canNickname and (entry.nickname or "") or ""
+	if canNickname then
+		nickBtn.Text = hasNamedBefore and ("Rename (" .. tostring(renameCost) .. " diamonds)") or "Set Name (Free)"
+		nickHint.Text = hasNamedBefore and "Renaming costs diamonds. Name shows to everyone and follows this creature if stolen." or "First name is free. Name shows to everyone and follows this creature if stolen."
+	else
+		nickHint.Text = "Eggs cannot be nicknamed until they hatch."
+	end
+
+	-- Ensure detail viewer exists and show this creature
+	if CodexModelViewer and not entry.isEgg then
+		if not detailViewer then
+			detailViewer = CodexModelViewer.new(detailViewerHost, {
+				size = UDim2.new(1, -12, 1, -12),
+				autoRotate = false,
+				zoomEnabled = false,
+				showFloor = false,
+				themedLighting = true,
+				-- Ensure we never flash into a bind/T-pose during scroll-driven UI work.
+				-- The animation cycle below will still override this as needed.
+				playIdleAnimation = true,
+				interactable = false,
+			})
+		end
+		if detailViewerCurrentCreatureId ~= entry.id then
+			detailViewerCurrentCreatureId = entry.id
+			detailViewer:SetCreature(entry.id)
+		end
+
+		-- Cycle through animation states: Idle → Move → Income → Attack → Special (CreatureAnimation names)
+		local entryUidStr = tostring(entry.uid or "")
+		local token = {}
+		detailViewerAnimThread = token
+		task.spawn(function()
+			task.wait(0.15)  -- let model load and Setup run once
+			local states = { "Idle", "Move", "Income", "Attack", "Special" }
+			local idx = 1
+			while detailViewerAnimThread == token and selectedInventoryUid == entryUidStr do
+				if detailViewer and detailViewer.PlayAnimationState then
+					detailViewer:PlayAnimationState(states[idx])
+				end
+				idx = idx + 1
+				if idx > #states then idx = 1 end
+				for _ = 1, 40 do
+					if detailViewerAnimThread ~= token or selectedInventoryUid ~= entryUidStr then return end
+					task.wait(0.1)
+				end
+			end
+		end)
+	elseif detailViewer then
+		detailViewerCurrentCreatureId = nil
+		detailViewer:SetCreature(nil)
+	end
+end
+
+refreshSelectedInventoryDetails = function()
+	if activeTab ~= "inventory" then return end
+	if not latestInventoryData or not selectedInventoryUid then
+		renderInventoryDetails(nil, nil, nil)
+		return
+	end
+	local entry = latestInventoryLookup[selectedInventoryUid]
+	if not entry then
+		renderInventoryDetails(nil, nil, nil)
+		return
+	end
+	local creature = CreatureData.GetById(entry.id)
+	if not creature then
+		renderInventoryDetails(nil, nil, nil)
+		return
+	end
+	renderInventoryDetails(latestInventoryData, entry, creature)
+end
+
+updateInventoryLayout = function()
+	local showDetails = activeTab == "inventory"
+	local detailW = isMobileLayout() and 220 or DETAIL_PANEL_W
+	detailPanel.Visible = showDetails
+	detailPanel.Size = UDim2.new(0, detailW, 1, -140)
+	detailPanel.Position = UDim2.new(1, -14 - detailW, 0, 130)
+	if showDetails then
+		content.Size = UDim2.new(1, -(28 + detailW + 10), 1, -140)
+	else
+		content.Size = UDim2.new(1, -28, 1, -140)
+	end
+	content.Position = UDim2.new(0, 14, 0, 130)
+	if showDetails then
+		refreshSelectedInventoryDetails()
+	end
+end
+
+nickBtn.MouseButton1Click:Connect(function()
+	if not selectedInventoryUid or selectedInventoryUid == "" then
+		Notify.Toast("Select a Siegling first.", C.textSec, 2)
+		return
+	end
+	local selectedEntry = latestInventoryLookup[selectedInventoryUid]
+	if selectedEntry and selectedEntry.isEgg then
+		Notify.Toast("Hatch the egg before naming it.", C.textSec, 2)
+		return
+	end
+	local desiredName = nickBox.Text or ""
+	local ok, success, serverMsg = pcall(function()
+		return setCreatureNickname:InvokeServer(selectedInventoryUid, desiredName)
+	end)
+	if not ok then
+		Notify.Toast("Rename failed", C.red, 2)
+		return
+	end
+	if success then
+		Notify.Toast(serverMsg or "Name updated!", C.income, 2)
+		if refreshInventory then refreshInventory() end
+	else
+		Notify.Toast(serverMsg or "Could not rename", C.red, 3)
+	end
+end)
+
 -- Capture scroll position before refresh; call returned function when done to restore
 local function captureScrollPosition()
 	local savedY = content.CanvasPosition.Y
@@ -591,13 +1157,44 @@ local function captureScrollPosition()
 	end
 end
 
-local refreshInventory, refreshBattle, refreshRaids, refreshCurrentTab
+local function scrollSelectedCardIntoView(forceSnap)
+	if not selectedInventoryUid or selectedInventoryUid == "" then return end
+	local card = content:FindFirstChild("InvCard_" .. tostring(selectedInventoryUid))
+	if not card or not card:IsA("GuiObject") then return end
+	task.defer(function()
+		task.wait()
+		if not card.Parent then return end
+		local currentY = content.CanvasPosition.Y
+		local windowH = content.AbsoluteWindowSize.Y
+		local maxScroll = math.max(0, content.CanvasSize.Y.Offset - windowH)
+		local topY = (card.AbsolutePosition.Y - content.AbsolutePosition.Y) + currentY
+		local bottomY = topY + card.AbsoluteSize.Y
+		local targetY = currentY
+		if forceSnap then
+			targetY = topY - 8
+		else
+			local viewTop = currentY
+			local viewBottom = currentY + windowH
+			if topY < viewTop + 8 then
+				targetY = topY - 8
+			elseif bottomY > viewBottom - 8 then
+				targetY = bottomY - windowH + 8
+			else
+				return
+			end
+		end
+		targetY = math.clamp(targetY, 0, maxScroll)
+		content.CanvasPosition = Vector2.new(0, targetY)
+	end)
+end
 
 -- --------------------------------------------
 -- INVENTORY CARD (no Battle button)
 -- --------------------------------------------
 local function mkCard(entry, creature, data, order)
+	local mobile = isMobileLayout()
 	local isEgg = entry.isEgg == true
+	local eggHidden = isEgg and entry.mystery == true and entry.inspected ~= true
 	local rc = RARITY[entry.rarity or creature.rarity] or C.textMut
 	local isBase, isDef, isFav, isBattle = false, false, false, false
 	local battleSlot = nil
@@ -633,6 +1230,20 @@ local function mkCard(entry, creature, data, order)
 	end
 	-- Eggs cannot be favorite or battle
 	if isEgg then isFav = false; isBattle = false end
+	local watermarkText, watermarkColor = nil, nil
+	if isFav then
+		watermarkText = "FAVORITE"
+		watermarkColor = C.favorite
+	elseif isDef then
+		watermarkText = "DEFENSE"
+		watermarkColor = C.defense
+	elseif isBase then
+		watermarkText = "INCOME"
+		watermarkColor = C.income
+	elseif isBattle then
+		watermarkText = battleSlot and ("BATTLE: " .. tostring(battleSlot)) or "BATTLE"
+		watermarkColor = C.battle
+	end
 	-- Dynamic slot limits based on owned floors
 	local numFloors = data.ownedFloors and #data.ownedFloors or 1
 	local maxIncome = numFloors * (GameConfig.IncomePointsPerFloor or 6)
@@ -662,6 +1273,7 @@ local function mkCard(entry, creature, data, order)
 	local xpPct = (xpNeeded > 0) and math.clamp(xp / xpNeeded, 0, 1) or 1
 
 	local card = Instance.new("Frame")
+	card.Name = "InvCard_" .. entryUidStr
 	card.ZIndex = 2  -- base for card so children can sit above
 	-- Cell highlight: dark purple = Battle, dark red = Defense, dark green = Income; Favorite = gold tint; default = card
 	local cardBg = C.card
@@ -671,98 +1283,96 @@ local function mkCard(entry, creature, data, order)
 	elseif isDef then cardBg = Color3.fromRGB(40, 22, 22)
 	elseif isBase then cardBg = Color3.fromRGB(22, 38, 28)
 	end
-	card.Size = UDim2.new(1, 0, 0, 74); card.BackgroundColor3 = cardBg
+	card.Size = UDim2.new(1, 0, 0, mobile and 80 or 74); card.BackgroundColor3 = cardBg
 	card.BorderSizePixel = 0; card.LayoutOrder = order
 	Instance.new("UICorner", card).CornerRadius = UDim.new(0, 9)
+	local stroke = Instance.new("UIStroke")
+	stroke.Name = "SelectionStroke"
+	stroke.Color = C.favorite
+	stroke.Thickness = 2
+	stroke.Transparency = 0.05
+	stroke.Enabled = (selectedInventoryUid and tostring(selectedInventoryUid) == entryUidStr) and true or false
+	stroke.Parent = card
+	invCardByUid[entryUidStr] = card
+	card.ClipsDescendants = true
 
-	-- Rarity bar
-	local bar = Instance.new("Frame")
-	bar.Size = UDim2.new(0, 3, 1, -8); bar.Position = UDim2.new(0, 5, 0, 4)
-	bar.BackgroundColor3 = isEgg and Color3.fromRGB(255, 200, 80) or rc; bar.BorderSizePixel = 0; bar.Parent = card
-	Instance.new("UICorner", bar).CornerRadius = UDim.new(0, 2)
+	local watermark = Instance.new("TextLabel")
+	watermark.Name = "StatusWatermark"
+	watermark.Size = UDim2.new(1, 0, 1, 0)
+	watermark.Position = UDim2.new(0, 0, 0, 0)
+	watermark.BackgroundTransparency = 1
+	watermark.RichText = true
+	watermark.Text = watermarkText and ("<i>" .. watermarkText .. "</i>") or ""
+	watermark.Visible = watermarkText ~= nil and watermarkText ~= ""
+	watermark.TextColor3 = watermarkColor or C.textMut
+	watermark.TextTransparency = mobile and 0.93 or 0.92
+	watermark.Font = Enum.Font.GothamBlack
+	watermark.TextScaled = true
+	watermark.TextXAlignment = Enum.TextXAlignment.Left
+	watermark.TextYAlignment = Enum.TextYAlignment.Center
+	watermark.ZIndex = 1
+	watermark.Parent = card
 
-	-- Orb (variant color stroke: Silver/Gold/Legend)
-	local VARIANT_COLORS = CreatureData.VariantColors or { Silver = Color3.fromRGB(192,192,192), Gold = Color3.fromRGB(255,215,0), Legend = Color3.fromRGB(255,100,255) }
-	local orb = Instance.new("Frame")
-	orb.Size = UDim2.new(0, 28, 0, 28); orb.Position = UDim2.new(0, 16, 0.5, -14)
-	orb.BackgroundColor3 = creature.primaryColor; orb.BorderSizePixel = 0; orb.Parent = card
-	Instance.new("UICorner", orb).CornerRadius = UDim.new(1, 0)
+	-- Creature visual removed from list row; keep variant info for name suffix.
 	local variant = (not isEgg and entry.variant) and entry.variant ~= "Normal" and entry.variant or nil
-	local VARIANT_COLORS = CreatureData.VariantColors or { Silver = Color3.fromRGB(192,192,192), Gold = Color3.fromRGB(255,215,0), Legend = Color3.fromRGB(255,100,255) }
-	if isEgg then
-		local s = Instance.new("UIStroke"); s.Color = Color3.fromRGB(255, 200, 80); s.Thickness = 2; s.Transparency = 0.3; s.Parent = orb
-	elseif variant and VARIANT_COLORS[variant] then
-		local s = Instance.new("UIStroke"); s.Color = VARIANT_COLORS[variant]; s.Thickness = 2; s.Transparency = 0.25; s.Parent = orb
-	elseif creature.rarity ~= "Common" then
-		local s = Instance.new("UIStroke"); s.Color = rc; s.Thickness = 2; s.Transparency = 0.3; s.Parent = orb
-	end
 
 	-- Name (left) and XP bar + label (right) on the same row
 	local variantSuffix = variant and (" · " .. variant) or ""
-	local displayName = isEgg and ("Egg (" .. (creature.displayName or entry.id) .. ")") or (creature.displayName .. variantSuffix)
+	local baseName = getEntryDisplayName(entry, creature)
+	local displayName = isEgg and (eggHidden and "Unknown Egg" or ("Egg (" .. (creature.displayName or entry.id) .. ")")) or (baseName .. variantSuffix)
 	local nm = Instance.new("TextLabel")
-	nm.Size = UDim2.new(0, 140, 0, 18); nm.Position = UDim2.new(0, 52, 0, 6)
+	nm.Size = UDim2.new(0, mobile and 152 or 180, 0, 18); nm.Position = UDim2.new(0, 12, 0, 6)
 	nm.BackgroundTransparency = 1; nm.Text = displayName
 	nm.TextColor3 = C.text; nm.Font = Enum.Font.GothamBold; nm.TextSize = 13
-	nm.TextXAlignment = Enum.TextXAlignment.Left; nm.Parent = card
+	nm.TextXAlignment = Enum.TextXAlignment.Left; nm.ZIndex = 2; nm.Parent = card
 
 	-- XP bar + label (skip for eggs)
 	if not isEgg then
-		local xpBarW, xpLblW = 200, 54
+		local xpBarW, xpLblW = (mobile and 84 or 140), (mobile and 42 or 54)
 		local xpBarBg = Instance.new("Frame")
 		xpBarBg.Size = UDim2.new(0, xpBarW, 0, 6); xpBarBg.Position = UDim2.new(1, -xpBarW - xpLblW - 6, 0, 9)
 		xpBarBg.BackgroundColor3 = Color3.fromRGB(20, 22, 30); xpBarBg.BorderSizePixel = 0
+		xpBarBg.ZIndex = 2
 		xpBarBg.Parent = card
 		Instance.new("UICorner", xpBarBg).CornerRadius = UDim.new(0, 3)
 		local xpBarFill = Instance.new("Frame")
 		xpBarFill.Size = UDim2.new(xpPct, 0, 1, 0); xpBarFill.Position = UDim2.new(0, 0, 0, 0)
 		xpBarFill.BackgroundColor3 = lvl >= maxLvl and C.income or Color3.fromRGB(80, 160, 255)
-		xpBarFill.BorderSizePixel = 0; xpBarFill.Parent = xpBarBg
+		xpBarFill.BorderSizePixel = 0; xpBarFill.ZIndex = 2; xpBarFill.Parent = xpBarBg
 		Instance.new("UICorner", xpBarFill).CornerRadius = UDim.new(0, 3)
 		local xpLbl = Instance.new("TextLabel")
-		xpLbl.Size = UDim2.new(0, xpLblW, 0, 18); xpLbl.Position = UDim2.new(1, -xpLblW, 0, 6)
+		xpLbl.Size = UDim2.new(0, xpLblW, 0, 18); xpLbl.Position = UDim2.new(1, -xpLblW - 3, 0, 6)
 		xpLbl.BackgroundTransparency = 1; xpLbl.Font = Enum.Font.GothamMedium; xpLbl.TextSize = 8
-		xpLbl.TextXAlignment = Enum.TextXAlignment.Right; xpLbl.TextColor3 = C.textMut; xpLbl.Parent = card
+		xpLbl.TextXAlignment = Enum.TextXAlignment.Right; xpLbl.TextColor3 = C.textMut; xpLbl.ZIndex = 2; xpLbl.Parent = card
 		xpLbl.Text = lvl >= maxLvl and "MAX" or (tostring(xp) .. "/" .. tostring(xpNeeded))
 	end
 
 	-- Info line: rarity | element class | income | level (eggs: "Place on point to hatch")
 	local elemClr = ELEMENT_COLOR[creature.element] or C.textMut
 	local lvlText = lvl >= maxLvl and "MAX" or ("Lv." .. lvl)
-	local infoText = isEgg and ((entry.rarity or creature.rarity) .. " | Place on Income or Defense point to hatch") or (creature.rarity .. " | " .. (creature.element or "?") .. " " .. (creature.class or "?") .. " | " .. creature.baseIncome .. " c/t | " .. lvlText)
+	local infoText = isEgg
+		and ((eggHidden and "Unknown" or (entry.rarity or creature.rarity)) .. " | Place on Income or Defense point to hatch")
+		or (creature.rarity .. " | " .. (creature.element or "?") .. " " .. (creature.class or "?") .. " | " .. creature.baseIncome .. " c/t | " .. lvlText)
 	local inf = Instance.new("TextLabel")
-	inf.Size = UDim2.new(0, 250, 0, 14); inf.Position = UDim2.new(0, 52, 0, 24)
+	inf.Size = UDim2.new(0, mobile and 204 or 286, 0, 14); inf.Position = UDim2.new(0, 12, 0, 24)
 	inf.BackgroundTransparency = 1; inf.Text = infoText
-	inf.TextColor3 = isEgg and Color3.fromRGB(255, 200, 80) or rc; inf.Font = Enum.Font.GothamMedium; inf.TextSize = 9
-	inf.TextXAlignment = Enum.TextXAlignment.Left; inf.Parent = card
+	inf.TextColor3 = isEgg and Color3.fromRGB(255, 200, 80) or rc; inf.Font = Enum.Font.GothamMedium; inf.TextSize = mobile and 8 or 9
+	inf.TextXAlignment = Enum.TextXAlignment.Left; inf.ZIndex = 2; inf.Parent = card
 
-	-- Badge
-	local badge = Instance.new("TextLabel")
-	badge.Size = UDim2.new(0, 70, 0, 13); badge.Position = UDim2.new(0, 52, 0, 50)
-	badge.BackgroundTransparency = 0.8; badge.BorderSizePixel = 0
-	badge.Font = Enum.Font.GothamBold; badge.TextSize = 8; badge.Parent = card
-	Instance.new("UICorner", badge).CornerRadius = UDim.new(0, 3)
-	if isEgg and (isBase or isDef) then
-		badge.Text = isBase and "INCOME" or "DEFENSE"
-		badge.TextColor3 = isBase and C.income or C.defense
-		badge.BackgroundColor3 = isBase and C.income or C.defense
-	elseif isFav then
-		badge.Text = "FAVORITE"; badge.TextColor3 = C.favorite; badge.BackgroundColor3 = C.favorite
-	elseif isBase then
-		badge.Text = "INCOME"; badge.TextColor3 = C.income; badge.BackgroundColor3 = C.income
-	elseif isDef then
-		badge.Text = "DEFENSE"; badge.TextColor3 = C.defense; badge.BackgroundColor3 = C.defense
-	elseif isBattle then
-		badge.Text = "BATTLE [" .. (battleSlot or "?") .. "]"; badge.TextColor3 = C.battle; badge.BackgroundColor3 = C.battle
-	else
-		badge.Text = isEgg and "EGG" or "UNASSIGNED"; badge.TextColor3 = isEgg and Color3.fromRGB(255, 200, 80) or C.textMut; badge.BackgroundColor3 = isEgg and Color3.fromRGB(255, 200, 80) or C.textMut
+	local BTN_W = mobile and 44 or 48
+	local BTN_H = mobile and 21 or 22
+	local BTN_GAP = mobile and 6 or 8
+	local RIGHT_MARGIN = 6
+	local BTN_ROW_Y = mobile and 48 or 47  -- fixed Y keeps row clear of status watermark
+	local function btnLeft(index)
+		return RIGHT_MARGIN + (index - 1) * (BTN_W + BTN_GAP)
 	end
 
 	-- Codex: click creature icon/name to open Codex (when feature flag on)
-	if GameConfig.ENABLE_CODEX_UI then
+	if GameConfig.ENABLE_CODEX_UI and not eggHidden then
 		local codexBtn = Instance.new("TextButton")
-		codexBtn.Size = UDim2.new(0, 190, 0, 48)
-		codexBtn.Position = UDim2.new(0, 12, 0, 6)
+		codexBtn.Size = UDim2.new(0, mobile and 188 or 220, 0, 48)
+		codexBtn.Position = UDim2.new(0, 8, 0, 6)
 		codexBtn.BackgroundTransparency = 1
 		codexBtn.Text = ""
 		codexBtn.ZIndex = 2
@@ -775,12 +1385,38 @@ local function mkCard(entry, creature, data, order)
 		end
 	end
 
-	-- Button row: align with FAVORITE/DEFENSE badge (Y 50) so buttons don't overlap description
-	local BTN_W = 48
-	local BTN_H = 22
-	local BTN_GAP = 8
-	local RIGHT_MARGIN = 6
-	local BTN_ROW_Y = 47  -- fixed Y so row lines up with badge (badge at 50, height 13)
+	-- Full-row selection target (sits above row body, below action buttons).
+	local selectBtn = Instance.new("TextButton")
+	selectBtn.Size = UDim2.new(1, 0, 1, 0)
+	selectBtn.BackgroundTransparency = 1
+	selectBtn.Text = ""
+	selectBtn.AutoButtonColor = false
+	selectBtn.ZIndex = 1
+	selectBtn.Parent = card
+	selectBtn.MouseButton1Click:Connect(function()
+		if not entry.uid then return end
+		local newUid = tostring(entry.uid)
+		-- Update highlight locally (don’t refresh the whole inventory on selection;
+		-- refresh causes viewport resets and can duplicate pooled viewers during scroll).
+		if selectedInventoryUid and invCardByUid[tostring(selectedInventoryUid)] then
+			local prev = invCardByUid[tostring(selectedInventoryUid)]
+			local prevStroke = prev:FindFirstChild("SelectionStroke")
+			if prevStroke and prevStroke:IsA("UIStroke") then
+				prevStroke.Enabled = false
+			end
+		end
+		selectedInventoryUid = newUid
+		local cur = invCardByUid[newUid]
+		if cur then
+			local curStroke = cur:FindFirstChild("SelectionStroke")
+			if curStroke and curStroke:IsA("UIStroke") then
+				curStroke.Enabled = true
+			end
+		end
+		if renderInventoryDetails then renderInventoryDetails(data, entry, creature) end
+	end)
+
+	-- Button row: fixed lower row so buttons don't overlap description text
 	local function mkBtn(text, leftOffset, color, enabled)
 		-- leftOffset = distance from card right edge to this button's left edge (positive = inset)
 		local b = Instance.new("TextButton")
@@ -788,17 +1424,14 @@ local function mkCard(entry, creature, data, order)
 		b.Position = UDim2.new(1, -leftOffset - BTN_W, 0, BTN_ROW_Y)
 		b.BackgroundColor3 = enabled and color or C.divider
 		b.Text = text; b.TextColor3 = enabled and Color3.new(1,1,1) or C.textMut
-		b.Font = Enum.Font.GothamBold; b.TextSize = 9; b.BorderSizePixel = 0
+		b.Font = Enum.Font.GothamBold; b.TextSize = mobile and 8 or 9; b.BorderSizePixel = 0
 		b.Active = enabled
 		b.ZIndex = 10  -- above Codex/overlays so clicks always register
 		b.Parent = card
 		Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
 		return b
 	end
-	-- Right-to-left: Evolve, Def, Inc, Fav, Sell — each left edge = prev left - BTN_W - BTN_GAP t
-	local function btnLeft(index)
-		return RIGHT_MARGIN + (index - 1) * (BTN_W + BTN_GAP)
-	end
+	-- Right-to-left: Evolve, Def, Inc, Fav, Sell — each left edge = prev left - BTN_W - BTN_GAP
 
 	if isEgg then
 		-- Eggs: Income and Defense are toggles (Inc/Rem, Def/Rem). When ADDING, pass nil so server u5ses first empty slot (not selected slot).
@@ -981,6 +1614,8 @@ refreshBattle = function()
 	-- Read server battle team: prefer battleTeamSlots (array) so sparse keys are never lost over remotes
 	local serverBT = invData.battleTeam or {}
 	local battleTeamSlots = invData.battleTeamSlots or {}
+	local battleCreatureCap = tonumber(invData.battleMax) or tonumber(GameConfig.MaxBattleTeamCreatures) or 5
+	if battleCreatureCap < 1 then battleCreatureCap = 5 end
 	local uidToEntry = {}
 	for _, e in ipairs(invData.inventory) do uidToEntry[e.uid] = e end
 
@@ -1053,6 +1688,33 @@ refreshBattle = function()
 	end
 	for slot, uid in pairs(mergedSlots) do addSlotEntry(slot, uid) end
 	table.sort(battleTeam, function(a, b) return a.slotIndex < b.slotIndex end)
+	local activeSynergies = {}
+	if CreatureData.CalculateSynergies then
+		local teamIds = {}
+		for _, c in ipairs(battleTeam) do
+			table.insert(teamIds, c.id)
+		end
+		local syn = nil
+		local okSyn, errSyn = pcall(function()
+			syn = select(1, CreatureData.CalculateSynergies(teamIds))
+		end)
+		if okSyn and type(syn) == "table" then
+			activeSynergies = syn
+		elseif not okSyn then
+			warn("[InventoryUI] CalculateSynergies failed: " .. tostring(errSyn))
+		end
+	end
+	table.sort(activeSynergies, function(a, b)
+		local at = (a and a.traitType) or ""
+		local bt = (b and b.traitType) or ""
+		if at ~= bt then return at < bt end
+		local ac = (a and a.count) or 0
+		local bc = (b and b.count) or 0
+		if ac ~= bc then return ac > bc end
+		return tostring((a and a.trait) or "") < tostring((b and b.trait) or "")
+	end)
+	local canPlaceMore = #battleTeam < battleCreatureCap
+	if pendingBattleUid and not canPlaceMore then pendingBattleUid = nil end
 
 	-- Find unassigned creatures (use gridData so battle-assigned matches what we displayed)
 	local assigned = {}
@@ -1104,6 +1766,29 @@ refreshBattle = function()
 	leftList.SortOrder = Enum.SortOrder.LayoutOrder
 	leftList.Padding = UDim.new(0, 5)
 	leftList.Parent = leftCol
+
+	-- Tooltip: no battle team — create one to fight in arena and gym
+	if #battleTeam == 0 then
+		local noTeamTip = Instance.new("Frame")
+		noTeamTip.Size = UDim2.new(1, 0, 0, 44)
+		noTeamTip.BackgroundColor3 = Color3.fromRGB(50, 55, 75)
+		noTeamTip.BackgroundTransparency = 0.2
+		noTeamTip.BorderSizePixel = 0
+		noTeamTip.LayoutOrder = -1
+		noTeamTip.Parent = leftCol
+		Instance.new("UICorner", noTeamTip).CornerRadius = UDim.new(0, 8)
+		local noTeamLbl = Instance.new("TextLabel")
+		noTeamLbl.Size = UDim2.new(1, -16, 1, 0)
+		noTeamLbl.Position = UDim2.new(0, 8, 0, 0)
+		noTeamLbl.BackgroundTransparency = 1
+		noTeamLbl.Text = "Create a battle team to fight in the arena and in gym battles. Tap 'Set Battle Team' or place creatures in the grid below."
+		noTeamLbl.TextColor3 = C.battle
+		noTeamLbl.Font = Enum.Font.GothamBold
+		noTeamLbl.TextSize = 10
+		noTeamLbl.TextWrapped = true
+		noTeamLbl.TextXAlignment = Enum.TextXAlignment.Left
+		noTeamLbl.Parent = noTeamTip
+	end
 
 	-- Monster sidebar: hidden on mobile (use Add Monster modal instead)
 	local rightSidebar = Instance.new("ScrollingFrame")
@@ -1160,8 +1845,30 @@ refreshBattle = function()
 		modalTitle.BackgroundTransparency = 1; modalTitle.Text = "Select Monster to Place"
 		modalTitle.TextColor3 = C.accent; modalTitle.Font = Enum.Font.GothamBold; modalTitle.TextSize = 12
 		modalTitle.ZIndex = 52; modalTitle.Parent = inner
+		-- Viewport: show selected creature in confirmation area
+		local modalViewerHost = Instance.new("Frame")
+		modalViewerHost.Name = "ModalViewerHost"
+		modalViewerHost.Size = UDim2.new(1, -24, 0, 120)
+		modalViewerHost.Position = UDim2.new(0, 12, 0, 38)
+		modalViewerHost.BackgroundColor3 = C.card
+		modalViewerHost.BorderSizePixel = 0
+		modalViewerHost.ZIndex = 51
+		modalViewerHost.Parent = inner
+		Instance.new("UICorner", modalViewerHost).CornerRadius = UDim.new(0, 8)
+		local modalViewer = nil
+		if CodexModelViewer then
+			modalViewer = CodexModelViewer.new(modalViewerHost, {
+				size = UDim2.new(1, -8, 1, -8),
+				autoRotate = true,
+				zoomEnabled = false,
+				showFloor = false,
+				themedLighting = true,
+				playIdleAnimation = true,
+				interactable = false,
+			})
+		end
 		local scroll = Instance.new("ScrollingFrame")
-		scroll.Size = UDim2.new(1, -16, 1, -50); scroll.Position = UDim2.new(0, 8, 0, 44)
+		scroll.Size = UDim2.new(1, -16, 1, -174); scroll.Position = UDim2.new(0, 8, 0, 164)
 		scroll.BackgroundTransparency = 1; scroll.BorderSizePixel = 0
 		scroll.ScrollBarThickness = 4; scroll.ZIndex = 52
 		scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
@@ -1170,16 +1877,49 @@ refreshBattle = function()
 		scrollList.SortOrder = Enum.SortOrder.LayoutOrder
 		scrollList.Padding = UDim.new(0, 4)
 		scrollList.Parent = scroll
+		local selectedModalUid = nil
+		local rowByUid = {}
+		local function setModalSelection(uid, creatureId, creatureName)
+			selectedModalUid = tostring(uid)
+			for rowUid, rowFrame in pairs(rowByUid) do
+				rowFrame.BackgroundColor3 = (rowUid == selectedModalUid) and Color3.fromRGB(40, 44, 62) or C.card
+			end
+			if creatureName and creatureName ~= "" then
+				modalTitle.Text = "Select Monster to Place: " .. creatureName
+			end
+			-- Force a reset before applying the next model so stale model state
+			-- never persists between submenu selections.
+			if modalViewer then
+				modalViewer:SetCreature(nil)
+				task.defer(function()
+					if modalViewer and selectedModalUid == tostring(uid) then
+						modalViewer:SetCreature(creatureId)
+					end
+				end)
+			end
+		end
 		for i, av in ipairs(available) do
 			local cr = av.cr
 			local rc = RARITY[cr.rarity] or C.textMut
+			local uidStr = tostring(av.uid)
 			local row = Instance.new("Frame")
 			row.Size = UDim2.new(1, -8, 0, 52); row.BackgroundColor3 = C.card
 			row.BorderSizePixel = 0; row.LayoutOrder = i; row.Parent = scroll
+			rowByUid[uidStr] = row
 			Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
 			local pad = Instance.new("UIPadding", row)
 			pad.PaddingLeft = UDim.new(0, 6); pad.PaddingRight = UDim.new(0, 6)
 			pad.PaddingTop = UDim.new(0, 4); pad.PaddingBottom = UDim.new(0, 4)
+			-- Select row: show this creature in the viewport above
+			if modalViewer then
+				local selectBtn = Instance.new("TextButton")
+				selectBtn.Size = UDim2.new(1, -60, 1, 0); selectBtn.Position = UDim2.new(0, 0, 0, 0)
+				selectBtn.BackgroundTransparency = 1; selectBtn.Text = ""; selectBtn.ZIndex = 2
+				selectBtn.Parent = row
+				selectBtn.MouseButton1Click:Connect(function()
+					setModalSelection(av.uid, cr.id, cr.displayName)
+				end)
+			end
 			local mo2 = Instance.new("Frame")
 			mo2.Size = UDim2.new(0, 24, 0, 24); mo2.Position = UDim2.new(0, 4, 0, 0)
 			mo2.BackgroundColor3 = cr.primaryColor; mo2.BorderSizePixel = 0; mo2.Parent = row
@@ -1203,26 +1943,37 @@ refreshBattle = function()
 			st2.TextColor3 = C.textSec; st2.Font = Enum.Font.GothamMedium; st2.TextSize = 8
 			st2.TextXAlignment = Enum.TextXAlignment.Left; st2.Parent = row
 			local placeBtn = Instance.new("TextButton")
-			placeBtn.Size = UDim2.new(0, 52, 0, 24); placeBtn.Position = UDim2.new(1, -56, 0.5, -12)
-			placeBtn.BackgroundColor3 = #battleTeam < (GameConfig.MaxBattleTeamSize or 9) and C.battle or C.divider
-			placeBtn.Text = "Place"; placeBtn.TextColor3 = Color3.new(1,1,1)
-			placeBtn.Font = Enum.Font.GothamBold; placeBtn.TextSize = 10; placeBtn.BorderSizePixel = 0
-			placeBtn.Active = #battleTeam < (GameConfig.MaxBattleTeamSize or 9); placeBtn.Parent = row
-			Instance.new("UICorner", placeBtn).CornerRadius = UDim.new(0, 5)
-			placeBtn.MouseButton1Click:Connect(function()
-				if #battleTeam < (GameConfig.MaxBattleTeamSize or 9) then
-					if targetSlotIndex and assignToBattle then
-						assignToBattle:FireServer(av.uid, targetSlotIndex)
-						pendingBattleOptimistic[targetSlotIndex] = av.uid  -- instant UI update before server confirms
-					else
-						pendingBattleUid = av.uid
+			if canPlaceMore then
+				placeBtn.Size = UDim2.new(0, 52, 0, 24); placeBtn.Position = UDim2.new(1, -56, 0.5, -12)
+				placeBtn.BackgroundColor3 = C.battle
+				placeBtn.Text = "Place"; placeBtn.TextColor3 = Color3.new(1,1,1)
+				placeBtn.Font = Enum.Font.GothamBold; placeBtn.TextSize = 10; placeBtn.BorderSizePixel = 0
+				placeBtn.Active = true; placeBtn.Parent = row
+				Instance.new("UICorner", placeBtn).CornerRadius = UDim.new(0, 5)
+				placeBtn.MouseButton1Click:Connect(function()
+					if canPlaceMore then
+						setModalSelection(av.uid, cr.id, cr.displayName)
+						if targetSlotIndex and assignToBattle then
+							assignToBattle:FireServer(av.uid, targetSlotIndex)
+							pendingBattleOptimistic[targetSlotIndex] = av.uid  -- instant UI update before server confirms
+						else
+							pendingBattleUid = av.uid
+						end
+						modal:Destroy()
+						refreshBattle()
 					end
-					modal:Destroy()
-					refreshBattle()
-				end
-			end)
+				end)
+			end
+		end
+		-- Show first creature in viewport by default
+		if modalViewer and available[1] then
+			setModalSelection(available[1].uid, available[1].cr.id, available[1].cr.displayName)
 		end
 		local function closeModal()
+			if modalViewer and modalViewer.Destroy then
+				modalViewer:SetCreature(nil)
+				modalViewer:Destroy()
+			end
 			modal:Destroy()
 		end
 		closeBtn.MouseButton1Click:Connect(closeModal)
@@ -1257,171 +2008,124 @@ refreshBattle = function()
 		cancelBtn.MouseButton1Click:Connect(function() pendingBattleUid = nil; refreshBattle() end)
 	end
 
-	-- King status
-	local kingFrame = Instance.new("Frame")
-	kingFrame.Size = UDim2.new(1, 0, 0, 30); kingFrame.BackgroundColor3 = C.card
-	kingFrame.BorderSizePixel = 0; kingFrame.LayoutOrder = 0; kingFrame.Parent = leftCol
-	Instance.new("UICorner", kingFrame).CornerRadius = UDim.new(0, 8)
+	-- Unified battle header card:
+	-- - Row 1: status strip (inactive queue message OR king/arena/gym status).
+	-- - Row 2: formation label + Set Battle Team + Active toggle.
+	local function escapeRichText(s)
+		return tostring(s or ""):gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;")
+	end
+
+	local battleHeader = Instance.new("Frame")
+	battleHeader.Size = UDim2.new(1, 0, 0, 62)
+	battleHeader.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
+	battleHeader.BackgroundTransparency = 0
+	battleHeader.BorderSizePixel = 0
+	battleHeader.LayoutOrder = 0
+	battleHeader.Parent = leftCol
+	Instance.new("UICorner", battleHeader).CornerRadius = UDim.new(0, 8)
+
+	local statusStrip = Instance.new("Frame")
+	statusStrip.Size = UDim2.new(1, -8, 0, 28)
+	statusStrip.Position = UDim2.new(0, 4, 0, 4)
+	statusStrip.BackgroundColor3 = battleTeamEnabled and Color3.fromRGB(18, 20, 30) or Color3.fromRGB(80, 40, 40)
+	statusStrip.BackgroundTransparency = battleTeamEnabled and 0 or 0.3
+	statusStrip.BorderSizePixel = 0
+	statusStrip.Parent = battleHeader
+	Instance.new("UICorner", statusStrip).CornerRadius = UDim.new(0, 8)
+
+	local statusLbl = Instance.new("TextLabel")
+	statusLbl.Size = UDim2.new(1, -16, 1, 0)
+	statusLbl.Position = UDim2.new(0, 8, 0, 0)
+	statusLbl.BackgroundTransparency = 1
+	statusLbl.Font = Enum.Font.GothamBold
+	statusLbl.TextSize = 10
+	statusLbl.TextXAlignment = Enum.TextXAlignment.Left
+	statusLbl.TextYAlignment = Enum.TextYAlignment.Center
+	statusLbl.TextWrapped = false
+	statusLbl.TextTruncate = Enum.TextTruncate.AtEnd
+	statusLbl.RichText = true
+	statusLbl.Parent = statusStrip
 
 	local kingName = arenaInfo and arenaInfo.kingName
-	local kLbl = Instance.new("TextLabel")
-	kLbl.Size = UDim2.new(0.5, 0, 1, 0); kLbl.Position = UDim2.new(0, 12, 0, 0)
-	kLbl.BackgroundTransparency = 1
-	kLbl.Text = kingName and ("King: " .. kingName) or "No current King"
-	kLbl.TextColor3 = C.favorite; kLbl.Font = Enum.Font.GothamBold; kLbl.TextSize = 11
-	kLbl.TextXAlignment = Enum.TextXAlignment.Left; kLbl.Parent = kingFrame
 
-	local sLbl = Instance.new("TextLabel")
-	sLbl.Size = UDim2.new(0.5, -10, 1, 0); sLbl.Position = UDim2.new(0.5, 0, 0, 0)
-	sLbl.BackgroundTransparency = 1
-	sLbl.Text = (arenaInfo and arenaInfo.battleInProgress) and "BATTLE IN PROGRESS" or "Waiting for next round"
-	sLbl.TextColor3 = C.textSec; sLbl.Font = Enum.Font.GothamMedium; sLbl.TextSize = 10
-	sLbl.TextXAlignment = Enum.TextXAlignment.Right; sLbl.Parent = kingFrame
-
-	-- ── BATTLE TIMER BAR: shows arena countdown + gym status side by side ──
-	local timerFrame = Instance.new("Frame")
-	timerFrame.Size = UDim2.new(1, 0, 0, 28)
-	timerFrame.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
-	timerFrame.BorderSizePixel = 0; timerFrame.LayoutOrder = 0.3
-	timerFrame.Parent = leftCol
-	Instance.new("UICorner", timerFrame).CornerRadius = UDim.new(0, 8)
-
-	local arenaTimerLbl = Instance.new("TextLabel")
-	arenaTimerLbl.Size = UDim2.new(0.5, -4, 1, 0)
-	arenaTimerLbl.Position = UDim2.new(0, 8, 0, 0)
-	arenaTimerLbl.BackgroundTransparency = 1
-	arenaTimerLbl.Text = "Arena: --"
-	arenaTimerLbl.TextColor3 = C.blue; arenaTimerLbl.Font = Enum.Font.GothamBold
-	arenaTimerLbl.TextSize = 10; arenaTimerLbl.TextXAlignment = Enum.TextXAlignment.Left
-	arenaTimerLbl.Parent = timerFrame
-
-	local gymTimerLbl = Instance.new("TextLabel")
-	gymTimerLbl.Size = UDim2.new(0.5, -12, 1, 0)
-	gymTimerLbl.Position = UDim2.new(0.5, 4, 0, 0)
-	gymTimerLbl.BackgroundTransparency = 1
-	gymTimerLbl.Text = "Gym: --"
-	gymTimerLbl.TextColor3 = Color3.fromRGB(100, 200, 255); gymTimerLbl.Font = Enum.Font.GothamBold
-	gymTimerLbl.TextSize = 10; gymTimerLbl.TextXAlignment = Enum.TextXAlignment.Right
-	gymTimerLbl.Parent = timerFrame
-
-	-- Live-update loop: polls GetBattleTimers every 2s while this tab is visible
-	task.spawn(function()
-		while timerFrame and timerFrame.Parent do
+	if not battleTeamEnabled then
+		statusLbl.RichText = false
+		statusLbl.TextColor3 = C.text
+		statusLbl.Text = "Battle Team INACTIVE - Press ACTIVE below to rejoin arena queue."
+	else
+		local function updateActiveStatusLine()
 			local timers = nil
 			if getBattleTimers then
 				local ok, result = pcall(function() return getBattleTimers:InvokeServer() end)
 				if ok and result then timers = result end
 			end
-			-- Fallback to workspace attributes if remote not available yet
 			if not timers then
 				timers = {
 					arenaCountdown = workspace:GetAttribute("ArenaCountdown") or 0,
 					arenaBattleInProgress = workspace:GetAttribute("ArenaBattleInProgress") or false,
 					gymBattleInProgress = workspace:GetAttribute("GymBattleInProgress") or false,
 					gymCooldownRemaining = 0,
+					arenaFighterBlueName = workspace:GetAttribute("ArenaFighterBlueName"),
+					arenaFighterRedName = workspace:GetAttribute("ArenaFighterRedName"),
 				}
 			end
 
-			-- Arena timer text
+			local kingPart = kingName and ("<font color='#F5CD55'>KING</font> " .. escapeRichText(kingName))
+				or "<font color='#AAB3C5'>KING None</font>"
+			local arenaPart
 			if timers.arenaBattleInProgress then
-				arenaTimerLbl.Text = "Arena: FIGHTING"
-				arenaTimerLbl.TextColor3 = C.red
+				local blueName = timers.arenaFighterBlueName
+				local redName = timers.arenaFighterRedName
+				if blueName and redName and blueName ~= "" and redName ~= "" then
+					arenaPart = "<font color='#F15F5F'>ARENA </font>"
+						.. "<font color='#F5CD55'>" .. escapeRichText(blueName) .. "</font>"
+						.. "<font color='#D0D6E2'> vs </font>"
+						.. "<font color='#F15F5F'>" .. escapeRichText(redName) .. "</font>"
+				else
+					arenaPart = "<font color='#F15F5F'>ARENA Fighting</font>"
+				end
 			elseif timers.arenaCountdown and timers.arenaCountdown > 0 then
-				arenaTimerLbl.Text = "Arena: " .. timers.arenaCountdown .. "s"
-				arenaTimerLbl.TextColor3 = timers.arenaCountdown <= 10 and C.favorite or C.blue
+				local arenaColor = (timers.arenaCountdown <= 10) and "#F5CD55" or "#5AAFFF"
+				arenaPart = string.format("<font color='%s'>ARENA %ss</font>", arenaColor, tostring(timers.arenaCountdown))
 			else
-				arenaTimerLbl.Text = "Arena: Starting..."
-				arenaTimerLbl.TextColor3 = C.blue
+				arenaPart = "<font color='#5AAFFF'>ARENA Starting</font>"
 			end
-
-			-- Gym timer text
+			local gymPart
 			if timers.gymBattleInProgress then
-				gymTimerLbl.Text = "Gym: FIGHTING"
-				gymTimerLbl.TextColor3 = C.red
+				gymPart = "<font color='#F15F5F'>GYM Fighting</font>"
 			elseif timers.gymCooldownRemaining and timers.gymCooldownRemaining > 0 then
-				gymTimerLbl.Text = "Gym: Cooldown " .. timers.gymCooldownRemaining .. "s"
-				gymTimerLbl.TextColor3 = C.textMut
+				gymPart = "<font color='#AAB3C5'>GYM CD " .. tostring(timers.gymCooldownRemaining) .. "s</font>"
 			else
-				gymTimerLbl.Text = "Gym: Ready"
-				gymTimerLbl.TextColor3 = Color3.fromRGB(80, 200, 100)
+				gymPart = "<font color='#6AD78A'>GYM Ready</font>"
 			end
 
-			task.wait(2)
+			statusLbl.TextColor3 = C.text
+			statusLbl.Text = table.concat({ kingPart, arenaPart, gymPart }, "   <font color='#4A5368'>|</font>   ")
 		end
-	end)
 
-	-- Inactive team banner (shown when team is out of arena queue)
-	if not battleTeamEnabled then
-		local inactiveBanner = Instance.new("Frame")
-		inactiveBanner.Size = UDim2.new(1, 0, 0, 36); inactiveBanner.BackgroundColor3 = Color3.fromRGB(80, 40, 40)
-		inactiveBanner.BackgroundTransparency = 0.3; inactiveBanner.BorderSizePixel = 0
-		inactiveBanner.LayoutOrder = 0.5; inactiveBanner.Parent = leftCol
-		Instance.new("UICorner", inactiveBanner).CornerRadius = UDim.new(0, 8)
-		local inactiveLbl = Instance.new("TextLabel")
-		inactiveLbl.Size = UDim2.new(1, -16, 1, 0); inactiveLbl.Position = UDim2.new(0, 8, 0, 0)
-		inactiveLbl.BackgroundTransparency = 1
-		inactiveLbl.Text = "Your battle team is INACTIVE — taken out of arena queue. Press the button below to re-enable."
-		inactiveLbl.TextColor3 = C.text; inactiveLbl.Font = Enum.Font.GothamBold
-		inactiveLbl.TextSize = 10; inactiveLbl.TextXAlignment = Enum.TextXAlignment.Left
-		inactiveLbl.TextWrapped = true; inactiveLbl.Parent = inactiveBanner
+		updateActiveStatusLine()
+		task.spawn(function()
+			while statusStrip and statusStrip.Parent and battleTeamEnabled do
+				updateActiveStatusLine()
+				task.wait(2)
+			end
+		end)
 	end
 
-	-- AFFINITY / SYNERGY DISPLAY (scrollable on mobile so all elements visible)
-	local synergyFrame = Instance.new(mobile and "ScrollingFrame" or "Frame")
-	synergyFrame.Size = UDim2.new(1, 0, 0, 42)
-	synergyFrame.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
-	synergyFrame.BorderSizePixel = 0
-	synergyFrame.LayoutOrder = 1
-	synergyFrame.Parent = leftCol
-	Instance.new("UICorner", synergyFrame).CornerRadius = UDim.new(0, 8)
-	if mobile then
-		synergyFrame.ScrollBarThickness = 4
-		synergyFrame.ScrollingDirection = Enum.ScrollingDirection.X
-		synergyFrame.CanvasSize = UDim2.new(0, 520, 0, 42)  -- wide enough for elements+classes
-	end
-
-	-- Element counts row
-	local elemX = 8
-	for elem, clr in pairs(ELEMENT_COLOR) do
-		local cnt = elementCounts[elem] or 0
-		local eLbl = Instance.new("TextLabel")
-		eLbl.Size = UDim2.new(0, 70, 0, 16); eLbl.Position = UDim2.new(0, elemX, 0, 3)
-		eLbl.BackgroundTransparency = 1
-		eLbl.Text = elem .. ": " .. cnt
-		eLbl.TextColor3 = cnt > 0 and clr or C.textMut
-		eLbl.Font = cnt >= 2 and Enum.Font.GothamBold or Enum.Font.GothamMedium
-		eLbl.TextSize = 9; eLbl.TextXAlignment = Enum.TextXAlignment.Left
-		eLbl.Parent = synergyFrame
-		elemX = elemX + 74
-	end
-
-	-- Class counts row
-	local clsX = 8
-	for cls, clr in pairs(CLASS_COLOR) do
-		local cnt = classCounts[cls] or 0
-		local cLbl = Instance.new("TextLabel")
-		cLbl.Size = UDim2.new(0, 80, 0, 16); cLbl.Position = UDim2.new(0, clsX, 0, 22)
-		cLbl.BackgroundTransparency = 1
-		cLbl.Text = cls .. ": " .. cnt
-		cLbl.TextColor3 = cnt > 0 and clr or C.textMut
-		cLbl.Font = cnt >= 2 and Enum.Font.GothamBold or Enum.Font.GothamMedium
-		cLbl.TextSize = 9; cLbl.TextXAlignment = Enum.TextXAlignment.Left
-		cLbl.Parent = synergyFrame
-		clsX = clsX + 85
-	end
-
-	-- GRID LABEL + SET BATTLE TEAM (mobile) + TEAM ACTIVE TOGGLE
+	-- Formation controls are in the same header card as status.
 	local gridLabelRow = Instance.new("Frame")
-	gridLabelRow.Size = UDim2.new(1, 0, 0, 28); gridLabelRow.BackgroundTransparency = 1
-	gridLabelRow.LayoutOrder = 2; gridLabelRow.Parent = leftCol
+	gridLabelRow.Size = UDim2.new(1, -8, 0, 24)
+	gridLabelRow.Position = UDim2.new(0, 4, 0, 34)
+	gridLabelRow.BackgroundTransparency = 1
+	gridLabelRow.Parent = battleHeader
 
 	local gridLabel = Instance.new("TextLabel")
 	-- Shrink when Set Battle Team button is shown (leaves room for both buttons)
-	local hasSetBtn = (#available > 0 and not pendingBattleUid and #battleTeam < (GameConfig.MaxBattleTeamSize or 9))
+	local hasSetBtn = (#available > 0 and not pendingBattleUid and canPlaceMore)
 	gridLabel.Size = UDim2.new(1, hasSetBtn and -240 or -120, 1, 0)
 	gridLabel.Position = UDim2.new(0, 0, 0, 0)
 	gridLabel.BackgroundTransparency = 1
-	gridLabel.Text = "YOUR BATTLE FORMATION (" .. #battleTeam .. "/" .. (GameConfig.MaxBattleTeamSize or 9) .. ")"
+	gridLabel.Text = "YOUR BATTLE FORMATION (" .. #battleTeam .. "/" .. battleCreatureCap .. ")"
 	gridLabel.TextColor3 = C.battle; gridLabel.Font = Enum.Font.GothamBold
 	gridLabel.TextSize = 11; gridLabel.TextXAlignment = Enum.TextXAlignment.Left
 	gridLabel.TextTruncate = Enum.TextTruncate.AtEnd
@@ -1429,7 +2133,7 @@ refreshBattle = function()
 
 	-- Set Battle Team button: to the left of Active/Inactive (mobile: opens modal; desktop: also opens modal)
 	local setBattleTeamBtn = nil
-	if #available > 0 and not pendingBattleUid and #battleTeam < (GameConfig.MaxBattleTeamSize or 9) then
+	if #available > 0 and not pendingBattleUid and canPlaceMore then
 		setBattleTeamBtn = Instance.new("TextButton")
 		setBattleTeamBtn.Size = UDim2.new(0, 105, 0, 24)
 		setBattleTeamBtn.Position = UDim2.new(1, -229, 0, 2)  -- left of Active/Inactive
@@ -1469,12 +2173,14 @@ refreshBattle = function()
 		end
 	end)
 
-	-- GRID + STATS PANEL (mobile: stats stack below grid so monster details visible when placed)
+	-- GRID + STATS PANEL
+	-- Mobile now uses side-by-side layout so the stats panel fills the empty
+	-- space next to the 3x3 map instead of sitting below it.
 	local mapFrame = Instance.new("Frame")
-	local mapH = mobile and 380 or 195  -- mobile: grid + stats stacked
+	local mapH = mobile and 205 or 195
 	mapFrame.Size = UDim2.new(1, 0, 0, mapH)
 	mapFrame.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
-	mapFrame.BorderSizePixel = 0; mapFrame.LayoutOrder = 3; mapFrame.Parent = leftCol
+	mapFrame.BorderSizePixel = 0; mapFrame.LayoutOrder = 1; mapFrame.Parent = leftCol
 	Instance.new("UICorner", mapFrame).CornerRadius = UDim.new(0, 10)
 
 	-- 3x3 grid
@@ -1507,11 +2213,48 @@ refreshBattle = function()
 			local ce = gridData[idx]
 			if ce then
 				local rc = RARITY[ce.rarity] or C.textMut
-				local orbF = Instance.new("Frame")
-				orbF.Size = UDim2.new(0, 28, 0, 28); orbF.Position = UDim2.new(0.5, -14, 0, 2)
-				orbF.BackgroundColor3 = ce.primaryColor; orbF.BorderSizePixel = 0; orbF.Parent = slot
-				Instance.new("UICorner", orbF).CornerRadius = UDim.new(1, 0)
-				Instance.new("UIStroke", orbF).Color = rc
+				-- Circular ring + masked viewport so creature stays inside circumference.
+				local viewerRing = Instance.new("Frame")
+				viewerRing.Name = "ViewerRing"
+				viewerRing.Size = UDim2.new(0, 44, 0, 44)
+				viewerRing.Position = UDim2.new(0.5, -22, 0, 2)
+				viewerRing.BackgroundColor3 = Color3.fromRGB(16, 18, 24)
+				viewerRing.BorderSizePixel = 0
+				viewerRing.ZIndex = 3
+				viewerRing.Parent = slot
+				Instance.new("UICorner", viewerRing).CornerRadius = UDim.new(1, 0)
+				local stroke = Instance.new("UIStroke", viewerRing)
+				stroke.Color = rc
+				stroke.Thickness = 2
+				stroke.Transparency = 0.2
+
+				local viewerHost = Instance.new("Frame")
+				viewerHost.Name = "ViewerHost"
+				viewerHost.Size = UDim2.new(1, -4, 1, -4)
+				viewerHost.Position = UDim2.new(0, 2, 0, 2)
+				viewerHost.BackgroundColor3 = Color3.fromRGB(16, 18, 24)
+				viewerHost.BorderSizePixel = 0
+				viewerHost.ClipsDescendants = true
+				viewerHost.ZIndex = 2
+				viewerHost.Parent = viewerRing
+				Instance.new("UICorner", viewerHost).CornerRadius = UDim.new(1, 0)
+				if CodexModelViewer then
+					local slotViewer = CodexModelViewer.new(viewerHost, {
+						size = UDim2.new(1, 0, 1, 0),
+						autoRotate = true,
+						zoomEnabled = false,
+						showFloor = false,
+						themedLighting = true,
+						playIdleAnimation = true,
+						interactable = false,
+					})
+					slotViewer:SetCreature(ce.id)
+				else
+					local orbF = Instance.new("Frame")
+					orbF.Size = UDim2.new(1, 0, 1, 0); orbF.BackgroundColor3 = ce.primaryColor
+					orbF.BorderSizePixel = 0; orbF.Parent = viewerHost
+					Instance.new("UICorner", orbF).CornerRadius = UDim.new(1, 0)
+				end
 
 				-- Element/class indicator dot
 				local elemClr = ELEMENT_COLOR[ce.element]
@@ -1560,7 +2303,7 @@ refreshBattle = function()
 							pendingBattleOptimistic[slotIdx] = uid  -- instant UI update before server confirms
 							pendingBattleUid = nil; task.wait(0.3); refreshBattle()
 						end)
-					elseif #available > 0 and #battleTeam < (GameConfig.MaxBattleTeamSize or 9) then
+					elseif #available > 0 and canPlaceMore then
 						-- Tap empty slot to open monster selection; Place assigns directly to this slot (one tap)
 						openMonsterSelectionModal(slotIdx)
 					end
@@ -1569,11 +2312,11 @@ refreshBattle = function()
 		end
 	end
 
-	-- Stats panel: desktop = right of grid; mobile = below grid (so monster details visible when placed)
+	-- Stats panel: desktop + mobile both sit to the right of the 3x3 grid.
 	local statsBox = Instance.new("Frame")
 	if mobile then
-		statsBox.Size = UDim2.new(1, -16, 0, 175)
-		statsBox.Position = UDim2.new(0, 8, 0, 200)
+		statsBox.Size = UDim2.new(1, -208, 0, 185)
+		statsBox.Position = UDim2.new(0, 200, 0, 5)
 	else
 		statsBox.Size = UDim2.new(0, 330, 0, 185)
 		statsBox.Position = UDim2.new(0, 200, 0, 5)
@@ -1584,7 +2327,7 @@ refreshBattle = function()
 
 	local yOff = 6
 	for i, c in ipairs(battleTeam) do
-		if i > (GameConfig.MaxBattleTeamSize or 9) then break end
+		if i > battleCreatureCap then break end
 		local rc = RARITY[c.rarity] or C.textMut
 		local miniRow = Instance.new("Frame")
 		miniRow.Size = UDim2.new(1, -12, 0, 30); miniRow.Position = UDim2.new(0, 6, 0, yOff)
@@ -1659,6 +2402,116 @@ refreshBattle = function()
 		emptyLbl.TextSize = 10; emptyLbl.TextWrapped = true; emptyLbl.Parent = statsBox
 	end
 
+	-- AFFINITY / SYNERGY DISPLAY (moved below team view)
+	local synergyFrame = Instance.new(mobile and "ScrollingFrame" or "Frame")
+	synergyFrame.Size = UDim2.new(1, 0, 0, 42)
+	synergyFrame.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
+	synergyFrame.BorderSizePixel = 0
+	synergyFrame.LayoutOrder = 2
+	synergyFrame.Parent = leftCol
+	Instance.new("UICorner", synergyFrame).CornerRadius = UDim.new(0, 8)
+	if mobile then
+		synergyFrame.ScrollBarThickness = 4
+		synergyFrame.ScrollingDirection = Enum.ScrollingDirection.X
+		synergyFrame.CanvasSize = UDim2.new(0, 520, 0, 42)  -- wide enough for elements+classes
+	end
+
+	-- Element counts row
+	local elemX = 8
+	for elem, clr in pairs(ELEMENT_COLOR) do
+		local cnt = elementCounts[elem] or 0
+		local eLbl = Instance.new("TextLabel")
+		eLbl.Size = UDim2.new(0, 70, 0, 16); eLbl.Position = UDim2.new(0, elemX, 0, 3)
+		eLbl.BackgroundTransparency = 1
+		eLbl.Text = elem .. ": " .. cnt
+		eLbl.TextColor3 = cnt > 0 and clr or C.textMut
+		eLbl.Font = cnt >= 2 and Enum.Font.GothamBold or Enum.Font.GothamMedium
+		eLbl.TextSize = 9; eLbl.TextXAlignment = Enum.TextXAlignment.Left
+		eLbl.Parent = synergyFrame
+		elemX = elemX + 74
+	end
+
+	-- Class counts row
+	local clsX = 8
+	for cls, clr in pairs(CLASS_COLOR) do
+		local cnt = classCounts[cls] or 0
+		local cLbl = Instance.new("TextLabel")
+		cLbl.Size = UDim2.new(0, 80, 0, 16); cLbl.Position = UDim2.new(0, clsX, 0, 22)
+		cLbl.BackgroundTransparency = 1
+		cLbl.Text = cls .. ": " .. cnt
+		cLbl.TextColor3 = cnt > 0 and clr or C.textMut
+		cLbl.Font = cnt >= 2 and Enum.Font.GothamBold or Enum.Font.GothamMedium
+		cLbl.TextSize = 9; cLbl.TextXAlignment = Enum.TextXAlignment.Left
+		cLbl.Parent = synergyFrame
+		clsX = clsX + 85
+	end
+
+	-- Active bonus details (shown only when any synergy is active)
+	if #activeSynergies > 0 then
+		local bonusFrame = Instance.new("Frame")
+		local bonusRows = math.min(#activeSynergies, 6)
+		bonusFrame.Size = UDim2.new(1, 0, 0, 24 + bonusRows * 16)
+		bonusFrame.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
+		bonusFrame.BorderSizePixel = 0
+		bonusFrame.LayoutOrder = 3
+		bonusFrame.Parent = leftCol
+		Instance.new("UICorner", bonusFrame).CornerRadius = UDim.new(0, 8)
+
+		local bonusTitle = Instance.new("TextLabel")
+		bonusTitle.Size = UDim2.new(1, -12, 0, 16)
+		bonusTitle.Position = UDim2.new(0, 8, 0, 4)
+		bonusTitle.BackgroundTransparency = 1
+		bonusTitle.Text = "ACTIVE BONUSES"
+		bonusTitle.TextColor3 = C.favorite
+		bonusTitle.Font = Enum.Font.GothamBold
+		bonusTitle.TextSize = 10
+		bonusTitle.TextXAlignment = Enum.TextXAlignment.Left
+		bonusTitle.Parent = bonusFrame
+
+		local function formatBonusText(bonuses)
+			local out = {}
+			local order = { "health", "attack", "defense", "speed" }
+			local labelByStat = { health = "HP", attack = "ATK", defense = "DEF", speed = "SPD" }
+			for _, stat in ipairs(order) do
+				local v = bonuses and bonuses[stat]
+				if type(v) == "number" and v ~= 0 then
+					local sign = v > 0 and "+" or ""
+					table.insert(out, string.format("%s%s%.0f%%", labelByStat[stat], sign, v * 100))
+				end
+			end
+			return (#out > 0) and table.concat(out, "  ") or "No stat changes"
+		end
+
+		for i = 1, bonusRows do
+			local syn = activeSynergies[i]
+			local row = Instance.new("TextLabel")
+			row.Size = UDim2.new(1, -12, 0, 14)
+			row.Position = UDim2.new(0, 8, 0, 8 + i * 16)
+			row.BackgroundTransparency = 1
+			row.TextXAlignment = Enum.TextXAlignment.Left
+			row.Font = Enum.Font.GothamMedium
+			row.TextSize = 9
+			row.TextColor3 = C.text
+			row.RichText = true
+			local traitColor = "#CFCFCF"
+			if syn and syn.color then
+				traitColor = string.format("#%02X%02X%02X", math.floor(syn.color.R * 255), math.floor(syn.color.G * 255), math.floor(syn.color.B * 255))
+			end
+			local traitText = escapeRichText((syn and syn.trait) or "?")
+			local labelText = escapeRichText((syn and syn.label) or "Bonus")
+			local bonusText = escapeRichText(formatBonusText(syn and syn.bonuses))
+			row.Text = string.format(
+				"<font color='%s'>%s x%d</font> - %s: <font color='#D7DCEC'>%s</font>",
+				traitColor,
+				traitText,
+				tonumber((syn and syn.count) or 0) or 0,
+				labelText,
+				bonusText
+			)
+			row.Parent = bonusFrame
+		end
+	end
+
 	-- SIDEBAR: AVAILABLE CREATURES (desktop only - mobile uses Set Battle Team button + tap empty slot)
 	if not mobile and #available > 0 and not pendingBattleUid then
 		local availHeader = Instance.new("TextLabel")
@@ -1727,17 +2580,19 @@ refreshBattle = function()
 			end
 
 			local placeBtn = Instance.new("TextButton")
-			placeBtn.Size = UDim2.new(0, 44, 0, 20); placeBtn.Position = UDim2.new(1, -48, 0.5, -10)
-			placeBtn.BackgroundColor3 = #battleTeam < (GameConfig.MaxBattleTeamSize or 9) and C.battle or C.divider
-			placeBtn.Text = "Place"; placeBtn.TextColor3 = #battleTeam < (GameConfig.MaxBattleTeamSize or 9) and Color3.new(1,1,1) or C.textMut
-			placeBtn.Font = Enum.Font.GothamBold; placeBtn.TextSize = 8; placeBtn.BorderSizePixel = 0
-			placeBtn.Active = #battleTeam < (GameConfig.MaxBattleTeamSize or 9); placeBtn.Parent = row
-			Instance.new("UICorner", placeBtn).CornerRadius = UDim.new(0, 4)
-			placeBtn.MouseButton1Click:Connect(function()
-				if #battleTeam < (GameConfig.MaxBattleTeamSize or 9) then
-					pendingBattleUid = av.uid; refreshBattle()
-				end
-			end)
+			if canPlaceMore then
+				placeBtn.Size = UDim2.new(0, 44, 0, 20); placeBtn.Position = UDim2.new(1, -48, 0.5, -10)
+				placeBtn.BackgroundColor3 = C.battle
+				placeBtn.Text = "Place"; placeBtn.TextColor3 = Color3.new(1,1,1)
+				placeBtn.Font = Enum.Font.GothamBold; placeBtn.TextSize = 8; placeBtn.BorderSizePixel = 0
+				placeBtn.Active = true; placeBtn.Parent = row
+				Instance.new("UICorner", placeBtn).CornerRadius = UDim.new(0, 4)
+				placeBtn.MouseButton1Click:Connect(function()
+					if canPlaceMore then
+						pendingBattleUid = av.uid; refreshBattle()
+					end
+				end)
+			end
 		end
 	else
 		-- Empty sidebar when no available creatures or during placement
@@ -1805,7 +2660,15 @@ local function buildBaseLayoutPanel(parent, invData)
 		if e.uid ~= k then uidToEntry[e.uid] = e end
 	end
 	for _, egg in ipairs(invData.eggs or {}) do
-		local row = { uid = egg.uid, id = egg.creatureId, level = egg.level, isEgg = true, rarity = egg.rarity }
+		local row = {
+			uid = egg.uid,
+			id = egg.creatureId,
+			level = egg.level,
+			isEgg = true,
+			rarity = egg.rarity,
+			mystery = egg.mystery == true,
+			inspected = egg.inspected == true,
+		}
 		local k = tostring(egg.uid)
 		uidToEntry[k] = row
 		if egg.uid ~= k then uidToEntry[egg.uid] = row end
@@ -1830,7 +2693,7 @@ local function buildBaseLayoutPanel(parent, invData)
 	local title = Instance.new("TextLabel")
 	title.Size = UDim2.new(1, 0, 0, 20)
 	title.BackgroundTransparency = 1
-	title.Text = "Base Layout"
+	title.Text = "BASE"
 	title.TextColor3 = C.textSec
 	title.Font = Enum.Font.GothamBold
 	title.TextSize = 11
@@ -1838,18 +2701,44 @@ local function buildBaseLayoutPanel(parent, invData)
 	title.LayoutOrder = 0
 	title.Parent = container
 
-	-- Hint: select slot for replace, or click creature then another slot to move
-	local hint = Instance.new("TextLabel")
-	hint.Size = UDim2.new(1, 0, 0, 32)
-	hint.BackgroundTransparency = 1
-	hint.Text = "Assign from Inventory tab (Inc/Def). Here: click a creature slot, then another slot to move. Same data as world placement."
-	hint.TextColor3 = C.textMut
-	hint.Font = Enum.Font.GothamMedium
-	hint.TextSize = 9
-	hint.TextWrapped = true
-	hint.TextXAlignment = Enum.TextXAlignment.Left
-	hint.LayoutOrder = 1
-	hint.Parent = container
+	-- Base summary metrics
+	local incomePerTick = 0
+	for _, uid in ipairs(baseSlots) do
+		if uid and uid ~= "" then
+			local entry = uidToEntry[tostring(uid)] or uidToEntry[uid]
+			if entry and not entry.isEgg then
+				local cr = CreatureData.GetById(entry.id)
+				if cr then incomePerTick = incomePerTick + (cr.baseIncome or 0) end
+			end
+		end
+	end
+	local tickSec = tonumber(GameConfig.IncomeTickSeconds) or 10
+	local incomePerSec = incomePerTick / math.max(1, tickSec)
+	local incomePerMin = incomePerTick * (60 / math.max(1, tickSec))
+	local filledTotal = (filledIncome + filledDef)
+	local pointTotal = (slotCountIncome + slotCountDefense)
+
+	local baseStatsRow = Instance.new("Frame")
+	baseStatsRow.Size = UDim2.new(1, 0, 0, 52)
+	baseStatsRow.BackgroundColor3 = Color3.fromRGB(22, 24, 35)
+	baseStatsRow.BorderSizePixel = 0
+	baseStatsRow.LayoutOrder = 1
+	baseStatsRow.Parent = container
+	Instance.new("UICorner", baseStatsRow).CornerRadius = UDim.new(0, 6)
+
+	local baseStatsLbl = Instance.new("TextLabel")
+	baseStatsLbl.Size = UDim2.new(1, -10, 1, -8)
+	baseStatsLbl.Position = UDim2.new(0, 8, 0, 4)
+	baseStatsLbl.BackgroundTransparency = 1
+	baseStatsLbl.TextColor3 = C.textSec
+	baseStatsLbl.Font = Enum.Font.GothamMedium
+	baseStatsLbl.TextSize = 10
+	baseStatsLbl.TextXAlignment = Enum.TextXAlignment.Left
+	baseStatsLbl.TextYAlignment = Enum.TextYAlignment.Top
+	baseStatsLbl.TextWrapped = true
+	baseStatsLbl.Text = ("INC/sec: %.2f   INC/min: %d\nPoints: %d/%d   Income: %d/%d   Defense: %d/%d")
+		:format(incomePerSec, math.floor(incomePerMin), filledTotal, pointTotal, filledIncome, slotCountIncome, filledDef, slotCountDefense)
+	baseStatsLbl.Parent = baseStatsRow
 
 	-- Pending move: { track, slotIndex, uid } when user picked a creature to move
 	local pendingBaseMove = nil
@@ -1900,9 +2789,10 @@ local function buildBaseLayoutPanel(parent, invData)
 			if not entry then baseLog("mkSlotCell no entry for uid", tostring(assignedUid), "track=" .. track, "slotIndex=" .. slotIndex) end
 			local cr = entry and CreatureData.GetById(entry.id)
 			local isEgg = entry and entry.isEgg
+			local eggHidden = isEgg and entry.mystery == true and entry.inspected ~= true
 			local variant = (not isEgg and entry and entry.variant and entry.variant ~= "Normal") and entry.variant or nil
 			local VARIANT_COLORS = CreatureData.VariantColors or { Silver = Color3.fromRGB(192,192,192), Gold = Color3.fromRGB(255,215,0), Legend = Color3.fromRGB(255,100,255) }
-			local color = (cr and cr.primaryColor) or (isEgg and Color3.fromRGB(255, 200, 80)) or C.textMut
+			local color = (eggHidden and Color3.fromRGB(235, 225, 180)) or (cr and cr.primaryColor) or (isEgg and Color3.fromRGB(255, 200, 80)) or C.textMut
 			local orb = Instance.new("Frame")
 			orb.Size = UDim2.new(0, 22, 0, 22)
 			orb.Position = UDim2.new(0.5, -11, 0, 2)
@@ -1911,7 +2801,7 @@ local function buildBaseLayoutPanel(parent, invData)
 			orb.Parent = cell
 			Instance.new("UICorner", orb).CornerRadius = UDim.new(1, 0)
 			-- Creature name on point (truncate to fit)
-			local displayName = (cr and cr.displayName) or (isEgg and "Egg") or "?"
+			local displayName = eggHidden and "Unknown Egg" or ((cr and cr.displayName) or (isEgg and "Egg") or "?")
 			if #displayName > 6 then displayName = displayName:sub(1, 5) .. "…" end
 			local nameLbl = Instance.new("TextLabel")
 			nameLbl.Size = UDim2.new(1, -2, 0, 10)
@@ -2051,29 +2941,64 @@ local function buildBaseLayoutPanel(parent, invData)
 	Instance.new("UICorner", hpRow).CornerRadius = UDim.new(0, 6)
 
 	local totalMaxHP = 0
+	local totalCurrentHP = 0
+	local totalDefenseDps = 0
 	for _, uid in ipairs(defenseSlots or {}) do
 		if not uid or uid == "" then continue end
 		local entry = uidToEntry[tostring(uid)]
 		if entry and not entry.isEgg then
 			local cr = CreatureData.GetById(entry.id)
-			if cr and cr.health then totalMaxHP = totalMaxHP + (cr.health or 0) end
+			if cr and cr.health then
+				local lvl = entry.level or 1
+				local statsScaled = computeEffectiveStatsClient(cr, entry)
+				local hp = statsScaled and statsScaled.health or (cr.health or 0)
+				local atk = statsScaled and statsScaled.attack or (cr.attack or 0)
+				totalMaxHP = totalMaxHP + hp
+				totalCurrentHP = totalCurrentHP + hp
+				local dmgPerShot = math.max(3, math.floor(atk * (tonumber(GameConfig.DefenseBaseDamage) or 12) / 10))
+				local attackCd = tonumber(GameConfig.DefenseAttackCD) or 2.5
+				totalDefenseDps = totalDefenseDps + (dmgPerShot / math.max(0.1, attackCd))
+			end
 		end
 	end
 
+	-- Prefer live world HP from active defense models if present (client-side read of replicated attributes).
+	local liveHpSum, liveHpMaxSum, liveCount = 0, 0, 0
+	for _, model in ipairs(CollectionService:GetTagged("BaseDefenseCreature")) do
+		if model and model.Parent and tonumber(model:GetAttribute("OwnerUserId")) == player.UserId then
+			local mh = tonumber(model:GetAttribute("MaxHealth")) or tonumber(model:GetAttribute("Health")) or 0
+			local ch = tonumber(model:GetAttribute("Health")) or mh
+			if mh > 0 then
+				liveHpMaxSum = liveHpMaxSum + mh
+				liveHpSum = liveHpSum + math.clamp(ch, 0, mh)
+				liveCount = liveCount + 1
+			end
+		end
+	end
+	if liveCount > 0 and liveHpMaxSum > 0 then
+		totalCurrentHP = liveHpSum
+		totalMaxHP = liveHpMaxSum
+	end
+	local defendedCount = ((invData.stats or {}).defenseKills) or 0
+	local defenseActiveCount = tonumber(invData.defenseActiveCount) or 0
+	local defenseRaidActive = invData.defenseRaidActive == true
+
 	local hpLbl = Instance.new("TextLabel")
-	hpLbl.Size = UDim2.new(0, 140, 1, 0)
+	hpLbl.Size = UDim2.new(1, -10, 1, 0)
 	hpLbl.Position = UDim2.new(0, 8, 0, 0)
 	hpLbl.BackgroundTransparency = 1
-	hpLbl.Text = "Defense HP (Max): " .. tostring(totalMaxHP)
+	hpLbl.Text = ("HP: %d/%d   DPS: %.1f   Raids Defended: %d%s")
+		:format(math.floor(totalCurrentHP), math.floor(totalMaxHP), totalDefenseDps, defendedCount, defenseRaidActive and "   UNDER ATTACK" or "")
 	hpLbl.TextColor3 = C.textSec
 	hpLbl.Font = Enum.Font.GothamMedium
-	hpLbl.TextSize = 11
+	hpLbl.TextSize = 10
 	hpLbl.TextXAlignment = Enum.TextXAlignment.Left
+	hpLbl.TextYAlignment = Enum.TextYAlignment.Center
 	hpLbl.Parent = hpRow
 
 	local barBg = Instance.new("Frame")
-	barBg.Size = UDim2.new(1, -160, 0, 12)
-	barBg.Position = UDim2.new(0, 150, 0.5, -6)
+	barBg.Size = UDim2.new(1, -16, 0, 10)
+	barBg.Position = UDim2.new(0, 8, 1, -12)
 	barBg.BackgroundColor3 = C.divider
 	barBg.BorderSizePixel = 0
 	barBg.Parent = hpRow
@@ -2085,7 +3010,11 @@ local function buildBaseLayoutPanel(parent, invData)
 	barFill.Parent = barBg
 	Instance.new("UICorner", barFill).CornerRadius = UDim.new(0, 4)
 	-- Static max HP bar (no live HP in this UI)
-	barFill.Size = UDim2.new(1, 0, 1, 0)
+	local hpRatio = (totalMaxHP > 0) and math.clamp(totalCurrentHP / totalMaxHP, 0, 1) or 0
+	barFill.Size = UDim2.new(hpRatio, 0, 1, 0)
+	if defenseRaidActive then
+		hpLbl.TextColor3 = C.defense
+	end
 
 	return container
 end
@@ -2100,73 +3029,19 @@ refreshRaids = function()
 		if not ch:IsA("UIListLayout") then ch:Destroy() end
 	end
 
-	local layoutOrderNext = 1
-
 	if GameConfig.ENABLE_BASE_LAYOUT_OVERVIEW and getInventory then
 		local ok, invData = pcall(function() return getInventory:InvokeServer() end)
 		baseLog("GetInventory: ok=" .. tostring(ok), invData and "has invData" or "invData nil")
 		if ok and invData then
 			baseLog("buildBaseLayoutPanel: baseSlots type=" .. type(invData.baseSlots), "defenseSlots type=" .. type(invData.defenseSlots), "ownedFloors=" .. tostring(invData.ownedFloors and #invData.ownedFloors or "nil"))
+			updateBaseUnderAttackBadgeVisibility(invData.defenseRaidActive == true)
 			buildBaseLayoutPanel(content, invData)
-			layoutOrderNext = 10
 		else
 			if not ok then baseLog("GetInventory pcall failed or returned nil") end
 		end
 	else
 		if not GameConfig.ENABLE_BASE_LAYOUT_OVERVIEW then baseLog("ENABLE_BASE_LAYOUT_OVERVIEW is false") end
 		if not getInventory then baseLog("getInventory is nil") end
-	end
-
-	if not getRaidTargets then restoreScroll(); return end
-	local ok, targets = pcall(function() return getRaidTargets:InvokeServer() end)
-	if not ok or not targets or #targets == 0 then
-		local n = Instance.new("TextLabel")
-		n.Size = UDim2.new(1, 0, 0, 50)
-		n.BackgroundTransparency = 1
-		n.Text = "No other players online."
-		n.TextColor3 = C.textMut
-		n.Font = Enum.Font.GothamMedium
-		n.TextSize = 13
-		n.LayoutOrder = layoutOrderNext
-		n.Parent = content
-		restoreScroll()
-		return
-	end
-	for i, t in ipairs(targets) do
-		local card = Instance.new("Frame")
-		card.Size = UDim2.new(1, 0, 0, 46)
-		card.BackgroundColor3 = C.card
-		card.BorderSizePixel = 0
-		card.LayoutOrder = layoutOrderNext + i
-		card.Parent = content
-		Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
-		local nm = Instance.new("TextLabel")
-		nm.Size = UDim2.new(0.4, 0, 1, 0)
-		nm.Position = UDim2.new(0, 12, 0, 0)
-		nm.BackgroundTransparency = 1
-		nm.Text = t.name
-		nm.TextColor3 = t.canRaid and C.text or C.textMut
-		nm.Font = Enum.Font.GothamBold
-		nm.TextSize = 12
-		nm.TextXAlignment = Enum.TextXAlignment.Left
-		nm.Parent = card
-		local rb = Instance.new("TextButton")
-		rb.Size = UDim2.new(0, 56, 0, 26)
-		rb.Position = UDim2.new(1, -66, 0.5, -13)
-		rb.BackgroundColor3 = t.canRaid and C.raidBtn or C.divider
-		rb.Text = "RAID"
-		rb.TextColor3 = t.canRaid and Color3.new(1,1,1) or C.textMut
-		rb.Font = Enum.Font.GothamBlack
-		rb.TextSize = 11
-		rb.BorderSizePixel = 0
-		rb.Active = t.canRaid
-		rb.Parent = card
-		Instance.new("UICorner", rb).CornerRadius = UDim.new(0, 6)
-		if t.canRaid then
-			rb.MouseButton1Click:Connect(function()
-				if raidRequest then raidRequest:FireServer(t.name) end
-			end)
-		end
 	end
 	restoreScroll()
 end
@@ -2187,6 +3062,9 @@ refreshInventory = function(overrideBaseStr, overrideDefStr)
 	refreshLock = true
 	local restoreScroll = captureScrollPosition()
 
+	-- Clear selection cache (cards will be recreated below)
+	table.clear(invCardByUid)
+
 	for _, ch in ipairs(content:GetChildren()) do
 		if not ch:IsA("UIListLayout") then ch:Destroy() end
 	end
@@ -2194,6 +3072,9 @@ refreshInventory = function(overrideBaseStr, overrideDefStr)
 	local ok, data = pcall(function() return getInventory:InvokeServer() end)
 	baseLog("refreshInventory GetInventory: ok=" .. tostring(ok), ok and data and ("inventory=" .. #(data.inventory or {}) .. " baseSlots=" .. type(data.baseSlots) .. " defenseSlots=" .. type(data.defenseSlots)) or "")
 	if not ok or not data then refreshLock = false; restoreScroll(); return end
+	latestInventoryData = data
+	updateBaseUnderAttackBadgeVisibility(data.defenseRaidActive == true)
+	latestInventoryLookup = {}
 
 	local function normalizeSlots(raw, slotCount)
 		if not raw then return {} end
@@ -2309,7 +3190,15 @@ refreshInventory = function(overrideBaseStr, overrideDefStr)
 	for _, e in ipairs(data.inventory) do table.insert(sorted, e) end
 	for _, egg in ipairs(data.eggs or {}) do
 		if not statusOf[tostring(egg.uid)] and not statusOf[egg.uid] then
-			table.insert(sorted, { uid = egg.uid, id = egg.creatureId, level = egg.level, isEgg = true, rarity = egg.rarity })
+			table.insert(sorted, {
+				uid = egg.uid,
+				id = egg.creatureId,
+				level = egg.level,
+				isEgg = true,
+				rarity = egg.rarity,
+				mystery = egg.mystery == true,
+				inspected = egg.inspected == true,
+			})
 		end
 	end
 	table.sort(sorted, function(a, b)
@@ -2331,14 +3220,68 @@ refreshInventory = function(overrideBaseStr, overrideDefStr)
 		e.TextColor3 = C.textMut; e.Font = Enum.Font.GothamMedium; e.TextSize = 12
 		e.TextWrapped = true; e.Parent = content
 		refreshLock = false
+		selectedInventoryUid = nil
+		renderInventoryDetails(nil, nil, nil)
 		restoreScroll()
 		if refreshQueued then refreshQueued = false; task.defer(refreshInventory) end
 		return
 	end
 
+	local hasSelected = false
+	for _, entry in ipairs(sorted) do
+		local uidStr = tostring(entry.uid or "")
+		if uidStr ~= "" then
+			latestInventoryLookup[uidStr] = entry
+			if selectedInventoryUid and selectedInventoryUid == uidStr then
+				hasSelected = true
+			end
+		end
+	end
+	if not hasSelected then
+		selectedInventoryUid = tostring(sorted[1].uid or "")
+	end
+
+	local invCards = {}
 	for i, entry in ipairs(sorted) do
 		local cr = CreatureData.GetById(entry.id)
-		if cr then mkCard(entry, cr, data, i).Parent = content end
+		if cr then
+			local cardFrame = mkCard(entry, cr, data, i)
+			cardFrame.Parent = content
+			local viewerHost = cardFrame:FindFirstChild("IconSlot") and cardFrame.IconSlot:FindFirstChild("OrbWindow") and cardFrame.IconSlot.OrbWindow:FindFirstChild("ViewerHost")
+			if viewerHost and CodexModelViewer and not (entry.isEgg == true) then
+				table.insert(invCards, { frame = cardFrame, slot = viewerHost, creatureId = entry.id })
+			end
+		end
+	end
+	refreshSelectedInventoryDetails()
+	scrollSelectedCardIntoView(true)
+
+	-- Populate visible inventory cards with 3D viewport models (pooled)
+	if CodexModelViewer and #invCards > 0 then
+		task.defer(function()
+			for i = 1, math.min(INV_VIEWER_POOL_SIZE, #invCards) do
+				local card = invCards[i]
+				if not invViewerPool[i] then
+					invViewerPool[i] = CodexModelViewer.new(card.slot, {
+						size = UDim2.new(1, 0, 1, 0),
+						autoRotate = false,
+						zoomEnabled = false,
+						showFloor = false,
+						themedLighting = true,
+						playIdleAnimation = true,
+					})
+				end
+				invViewerPool[i]:GetViewportFrame().Parent = card.slot
+				invViewerPool[i]:SetCreature(card.creatureId)
+				invViewerInUse[i] = card.creatureId
+			end
+			for i = #invCards + 1, INV_VIEWER_POOL_SIZE do
+				if invViewerPool[i] then
+					invViewerPool[i]:SetCreature(nil)
+					invViewerPool[i]:GetViewportFrame().Parent = nil
+				end
+			end
+		end)
 	end
 
 	refreshLock = false
@@ -2362,18 +3305,54 @@ end)
 -- TOGGLE (open/close use viewport scale so panel fits on mobile)
 -- --------------------------------------------
 local isVis = false
+local function getPanelOpenRect()
+	if MobileWindowLayout.IsMobile() then
+		local bounds = MobileWindowLayout.GetBounds({
+			leftInset = 14,
+			rightInset = 14,
+			topInset = 10,
+			bottomInset = 14,
+			bottomMobileExtra = 20,
+		})
+		return math.floor(bounds.left), math.floor(bounds.top), math.floor(bounds.width), math.floor(bounds.height), true
+	end
+
+	local scale = getPanelScale()
+	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
+	local x = math.floor(0.5 * ((workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.X) or PANEL_DESIGN_W) - w / 2)
+	local y = math.floor(0.5 * ((workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.Y) or PANEL_DESIGN_H) - h / 2)
+	return x, y, w, h, false
+end
+
+local function applyMainFrameLayout()
+	local x, y, w, h, mobile = getPanelOpenRect()
+	main.AnchorPoint = Vector2.new(0, 0)
+	main.Position = UDim2.fromOffset(x, y)
+	main.Size = UDim2.fromOffset(w, h)
+	if mobile then
+		main.Draggable = true
+	else
+		MobileWindowLayout.RestoreDesktopWindow(main, { draggable = true })
+	end
+end
 -- defaultTab: "inventory" (I / HUD Inventory button) or "battle" (B / B button)
 local function openUI(defaultTab)
 	defaultTab = defaultTab or "inventory"
-	local scale = getPanelScale()
-	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
-	main.Size = UDim2.new(0, w, 0, 10)
-	main.Position = UDim2.new(0.5, -w/2, 0.5, -h/2)
+	local x, y, w, h, mobile = getPanelOpenRect()
+	main.AnchorPoint = Vector2.new(0, 0)
+	main.Position = UDim2.fromOffset(x, y)
+	main.Size = UDim2.fromOffset(w, 10)
+	if mobile then
+		main.Draggable = true
+	else
+		MobileWindowLayout.RestoreDesktopWindow(main, { draggable = true })
+	end
 	isVis = true; main.Visible = true
+	MobileWindowLayout.NotifyMenuOpened()
 	task.defer(updateFavOrb)
 	task.delay(0.5, updateFavOrb)  -- refresh again in case GetInventory was stale (e.g. favorite set before UI loaded)
 	TweenService:Create(main, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		Size = UDim2.new(0, w, 0, h)
+		Size = UDim2.fromOffset(w, h)
 	}):Play()
 	if defaultTab == "battle" then
 		setTab("battle"); refreshBattle()
@@ -2386,8 +3365,8 @@ local function closeUI()
 	TweenService:Create(main, TweenInfo.new(0.12), { Size = UDim2.new(0, w, 0, 10) }):Play()
 	task.delay(0.13, function()
 		isVis = false; main.Visible = false
-		main.Size = UDim2.new(0, PANEL_DESIGN_W, 0, PANEL_DESIGN_H)
-		main.Position = UDim2.new(0.5, -PANEL_DESIGN_W/2, 0.5, -PANEL_DESIGN_H/2)
+		MobileWindowLayout.NotifyMenuClosed()
+		applyMainFrameLayout()
 	end)
 end
 
@@ -2421,6 +3400,18 @@ end
 getHUDToggle().Event:Connect(onHUDToggle)
 playerGui.ChildAdded:Connect(function(child)
 	if child.Name == "HUDToggleMenu" and child:IsA("BindableEvent") then child.Event:Connect(onHUDToggle) end
+end)
+
+MobileWindowLayout.BindViewportUpdate(function()
+	if isVis then
+		applyMainFrameLayout()
+		if updateInventoryLayout then
+			updateInventoryLayout()
+		end
+		if activeTab == "inventory" then
+			refreshSelectedInventoryDetails()
+		end
+	end
 end)
 
 invTab.MouseButton1Click:Connect(function() setTab("inventory"); refreshInventory() end)
@@ -2457,8 +3448,22 @@ if evolveResult then evolveResult.OnClientEvent:Connect(function(success, payloa
 			Notify.Toast(payload or "Evolution failed", C.red, 3)
 		end
 	end) end
+if raidStart then raidStart.OnClientEvent:Connect(function()
+		task.defer(function()
+			task.wait(0.25)
+			refreshBaseUnderAttackBadgeFromServer()
+			-- If the user is currently viewing the base overview, refresh it
+			-- so the "RAID" label + HP bar color update immediately.
+			if isVis and activeTab == "raids" then refreshRaids() end
+		end)
+	end) end
 if raidEnd then raidEnd.OnClientEvent:Connect(function()
-		task.defer(function() task.wait(0.5); if isVis then refreshCurrentTab() end; updateFavOrb() end)
+		task.defer(function()
+			task.wait(0.5)
+			refreshBaseUnderAttackBadgeFromServer()
+			if isVis then refreshCurrentTab() end
+			updateFavOrb()
+		end)
 	end) end
 -- Income received: do NOT refresh inventory (coins update on next button/tab action).
 -- Refreshing here caused constant scroll resets on mobile when income ticks fired.
@@ -2496,6 +3501,15 @@ if gymBattleEnd then gymBattleEnd.OnClientEvent:Connect(function(winName, winTea
 			4
 		)
 		if isVis and activeTab == "battle" then task.wait(1); refreshBattle() end
+	end) end
+
+local zoneDoorLocked = Events:FindFirstChild("ZoneDoorLocked")
+if zoneDoorLocked then zoneDoorLocked.OnClientEvent:Connect(function(zoneId, msg)
+		if type(msg) == "string" and msg ~= "" then Notify.Toast(msg, C.textSec, 5) end
+	end) end
+local sigilEarned = Events:FindFirstChild("SigilEarned")
+if sigilEarned then sigilEarned.OnClientEvent:Connect(function(zoneId)
+		Notify.Toast("Sigil earned: " .. tostring(zoneId), C.income, 3)
 	end) end
 
 -- No auto-refresh loop: inventory only refreshes on tab/button press or when

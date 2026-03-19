@@ -60,16 +60,17 @@ invLabel.Name = "InvLabel"
 invLabel.Size = UDim2.new(0.35, -10, 1, 0)
 invLabel.Position = UDim2.new(0, 10, 0, 0)
 invLabel.BackgroundTransparency = 1
-invLabel.Text = "0/" .. GameConfig.MaxInventorySize
+invLabel.Text = "Sieglings: 0/" .. GameConfig.MaxInventorySize
 invLabel.TextColor3 = Color3.fromRGB(200, 200, 210)
 invLabel.Font = Enum.Font.GothamMedium; invLabel.TextSize = 9
 invLabel.TextXAlignment = Enum.TextXAlignment.Left; invLabel.Parent = invFrame
 
--- Income / Defense / Battle active counts (right side of row)
+-- Income / Defense / Battle active counts (right side of row)nghg
 local invSlotsLbl = Instance.new("TextLabel")
 invSlotsLbl.Name = "InvSlotsLabel"
-invSlotsLbl.Size = UDim2.new(0.62, -10, 1, 0)
-invSlotsLbl.Position = UDim2.new(0.35, 0, 0, 0)
+-- Nudge right slightly so it never overlaps the "Sieglings" label at smaller widths.
+invSlotsLbl.Size = UDim2.new(0.62, -18, 1, 0)
+invSlotsLbl.Position = UDim2.new(0.35, 8, 0, 0)
 invSlotsLbl.BackgroundTransparency = 1
 invSlotsLbl.Text = "Income: 0/6  Defense: 0/6  Battle: 0/5"
 invSlotsLbl.TextColor3 = Color3.fromRGB(160, 170, 190)
@@ -118,7 +119,7 @@ local function computeIncomePerMin(data)
 	return math.floor(ipt * (60 / tickSec))
 end
 
-local BATTLE_TEAM_DISPLAY_MAX = 5  -- show "Battle: X/5" in HUD
+local BATTLE_TEAM_DISPLAY_MAX = 5  -- show "Battle: X/5" in HUDsdfs
 
 local function refreshData()
 	local gi = GetInventory or (Events and Events:FindFirstChild("GetInventory"))
@@ -133,7 +134,7 @@ local function refreshData()
 	-- Creature count (defensive: data.inventory can be nil)
 	local invCount = data.inventory and #data.inventory or 0
 	local invMax = GameConfig.MaxInventorySize or 50
-	invLabel.Text = invCount .. "/" .. invMax
+	invLabel.Text = ("Sieglings: %d/%d"):format(invCount, invMax)
 	-- Income points: filled/available, Defense: filled/available, Battle: filled/5
 	local inc = data.filledBaseCount or 0
 	local incMax = data.incomeMax or 6
@@ -234,15 +235,30 @@ if BaseDefenseTargeted then
 	end)
 end
 
--- Initial load: retry until we get data (in case Events/GetInventory appear late)
+local function waitForStartupReady()
+	local events = ReplicatedStorage:FindFirstChild("Events") or ReplicatedStorage:WaitForChild("Events", 15)
+	if not events then return end
+	local criticalReady = events:FindFirstChild("LoadingCriticalReady")
+	local worldReady = events:FindFirstChild("LoadingReady")
+	if criticalReady then
+		criticalReady.OnClientEvent:Wait()
+	elseif worldReady then
+		worldReady.OnClientEvent:Wait()
+	end
+end
+
+-- Initial load + periodic refresh are deferred until startup gate clears.
 task.spawn(function()
-	for i = 1, 15 do
+	waitForStartupReady()
+	for i = 1, 10 do
 		task.wait(1)
 		refreshData()
 		if coinLabel.Text and coinLabel.Text ~= "Coins: 0" then break end
 	end
 end)
 task.spawn(function()
+	waitForStartupReady()
+	task.wait(5)
 	while true do
 		task.wait(15)
 		refreshData()

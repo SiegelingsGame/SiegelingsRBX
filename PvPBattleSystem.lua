@@ -69,6 +69,9 @@ local ELEMENT_COLORS = {
 	Lightning = Color3.fromRGB(255, 230, 60),
 	Water = Color3.fromRGB(50, 150, 255),
 	Psychic = Color3.fromRGB(200, 150, 255),
+	Metal = Color3.fromRGB(160, 170, 180),
+	Poison = Color3.fromRGB(120, 220, 80),
+	Undead = Color3.fromRGB(140, 120, 160),
 }
 
 local function spawnPvPCreature(creatureId, battlePoint, team, parentFolder, sizeMultiplier, faceTowardPos)
@@ -152,6 +155,7 @@ local function spawnPvPCreature(creatureId, battlePoint, team, parentFolder, siz
 	bb.Size = UDim2.new(0, 160, 0, 65)
 	bb.StudsOffset = Vector3.new(0, CreatureModelLoader.GetBillboardStudsOffsetForTopOfModel(model, body), 0)
 	bb.AlwaysOnTop = true
+	bb.MaxDistance = GameConfig.ArenaSummaryShowDistance or 80  -- FIX #29: hide individual tags beyond summary distance
 	bb.Parent = model
 
 	local nameLabel = Instance.new("TextLabel")

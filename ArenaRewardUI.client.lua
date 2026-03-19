@@ -32,7 +32,8 @@ local function showRewardPopup(data)
 	if not isMe and not isLoser then
 		-- Spectator toast
 		if isGym then
-			Notify.Toast(data.winner .. " won the Water Gym!", GOLD, 4)
+			local gymName = data.gymName or "Water Gym"
+			Notify.Toast(data.winner .. " won the " .. gymName .. "!", GOLD, 4)
 		else
 			Notify.Toast(data.winner .. " wins! (Streak: " .. (data.streak or 1) .. ")", GOLD, 4)
 		end
@@ -40,7 +41,8 @@ local function showRewardPopup(data)
 	end
 
 	local myReward = isMe and data.winnerReward or data.loserReward
-	local titleText = isGym and (isMe and "WATER GYM VICTORY!" or "GYM DEFEATED") or (isMe and "?? VICTORY!" or "DEFEATED")
+	local gymName = (data.gymName or "Water Gym"):upper()
+	local titleText = isGym and (isMe and (gymName .. " VICTORY!") or "GYM DEFEATED") or (isMe and "?? VICTORY!" or "DEFEATED")
 	local titleColor = isMe and GOLD or RED
 
 	-- Badge notification summary for participants
@@ -106,7 +108,10 @@ if GymArenaReward then
 end
 if GymReject then
 	GymReject.OnClientEvent:Connect(function(message)
-		Notify.Toast(message or "Cannot challenge the Gym.", RED, 4)
+		local msg = message or "Cannot challenge the Gym."
+		Notify.Toast(msg, RED, 4, nil, "arena")
+		local lines = { { text = msg, color = MUTED, font = Enum.Font.GothamMedium, textSize = 12, size = 36 } }
+		Notify.RewardPopup("Cannot start gym", RED, lines, 4)
 	end)
 end
 

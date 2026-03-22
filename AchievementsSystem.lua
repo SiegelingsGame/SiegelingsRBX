@@ -160,6 +160,7 @@ end
 local function backfillMetricsFromCurrentData(data)
 	local metrics = getOrInitMetrics(data)
 	local inventoryCount = 0
+	local stats = data.stats or {}
 
 	for _, entry in ipairs(data.inventory or {}) do
 		inventoryCount += 1
@@ -211,6 +212,13 @@ local function backfillMetricsFromCurrentData(data)
 	if inferredGymWins > (tonumber(metrics.counters["battle.gymWins"]) or 0) then
 		metrics.counters["battle.gymWins"] = inferredGymWins
 	end
+
+	local arenaWins = tonumber(stats.arenaWins) or 0
+	if arenaWins > (tonumber(metrics.counters["battle.arenaWins"]) or 0) then
+		metrics.counters["battle.arenaWins"] = arenaWins
+	end
+
+	setBest(metrics, "battle.arenaStreak", tonumber(stats.arenaMaxStreak) or 0)
 end
 
 local function getCompletedFamiliesCount(data)
@@ -459,11 +467,15 @@ function AchievementsSystem.OnEvolution(player, fromCreatureId, toCreatureId)
 	if not data then return end
 
 	local metrics = getOrInitMetrics(data)
-	local creature = toCreatureId and CreatureData.GetById(toCreatureId) or CreatureData.GetById(fromCreatureId)
+	local sourceCreature = fromCreatureId and CreatureData.GetById(fromCreatureId) or nil
+	local evolvedCreature = toCreatureId and CreatureData.GetById(toCreatureId) or sourceCreature
 
 	incrementCounter(metrics, "evolution.total", 1)
-	if creature and creature.element then
-		incrementCounter(metrics, "evolution.element." .. tostring(creature.element), 1)
+	if evolvedCreature and evolvedCreature.element then
+		incrementCounter(metrics, "evolution.element." .. tostring(evolvedCreature.element), 1)
+	end
+	if sourceCreature and sourceCreature.rarity then
+		incrementCounter(metrics, "evolution.rarity." .. tostring(sourceCreature.rarity), 1)
 	end
 
 	if toCreatureId then
@@ -509,7 +521,14 @@ function AchievementsSystem.OnSlotAssigned(player, slotType, uid)
 	AchievementsSystem.RecomputeAndUnlock(player, "slot")
 end
 
-function AchievementsSystem.OnArenaWin(player)
+function AchievementsSystem.OnArenaWin(player, winStreak)
+	if not PlayerDataManager then return end
+	local data = PlayerDataManager.GetData(player)
+	if not data then return end
+
+	local metrics = getOrInitMetrics(data)
+	incrementCounter(metrics, "battle.arenaWins", 1)
+	setBest(metrics, "battle.arenaStreak", winStreak or readPath(data, { "stats", "arenaMaxStreak" }))
 	AchievementsSystem.RecomputeAndUnlock(player, "arena")
 end
 

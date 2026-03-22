@@ -27,6 +27,12 @@ local nearestTarget = nil
 local promptGui = nil
 local promptLabel = nil
 
+-- FIX #20: Forward-declare onEKey so the tapButton.Activated closure inside
+-- updatePrompt() can reference it. Previously onEKey was defined as a
+-- `local function` AFTER updatePrompt, making it invisible to earlier code.
+-- The closure captured a nil global, so tapping the prompt on mobile did nothing.
+local onEKey
+
 local function getRoot(p)
 	local char = p and p.Character
 	if not char then return nil end
@@ -63,15 +69,24 @@ local function updatePrompt()
 			nearestTarget = target
 		end
 		if not promptGui then
-			-- Create prompt (top-center or above hotbar)
+			-- Create prompt (above hotbar area, centered on screen)
 			local sg = player:FindFirstChild("PlayerGui") and player.PlayerGui:FindFirstChild("NotificationGUI")
 			if not sg then sg = player:WaitForChild("PlayerGui"):FindFirstChild("NotificationGUI") or player.PlayerGui:GetChildren()[1] end
 			if not sg then return end
 
 			promptGui = Instance.new("Frame")
 			promptGui.Name = "PvPPrompt"
-			promptGui.Size = UDim2.new(0, 320, 0, 44)
-			promptGui.Position = UDim2.new(0.5, -160, 0.75, 0)
+			-- FIX: Use scale-based width so the prompt fits on mobile screens.
+			-- Old code used (0,320) width with AnchorPoint(0.5,0) + offset(-160), which
+			-- double-offset on mobile, pushing the prompt off the left edge of the screen.
+			local isTouch = UserInputService.TouchEnabled
+			if isTouch then
+				-- Mobile: 90% of screen width, capped at 320px via ClipDescendants
+				promptGui.Size = UDim2.new(0.9, 0, 0, 44)
+			else
+				promptGui.Size = UDim2.new(0, 320, 0, 44)
+			end
+			promptGui.Position = UDim2.new(0.5, 0, 0.75, 0)
 			promptGui.AnchorPoint = Vector2.new(0.5, 0)
 			promptGui.BackgroundColor3 = Color3.fromRGB(25, 28, 45)
 			promptGui.BackgroundTransparency = 0.2
@@ -91,12 +106,14 @@ local function updatePrompt()
 			promptLabel.Parent = promptGui
 
 			-- Tap/click button so mobile can open profile (Activated = mouse click or touch tap)
+			-- ZIndex ensures the invisible button sits above the label to receive input
 			local tapButton = Instance.new("TextButton")
 			tapButton.Name = "TapButton"
 			tapButton.Size = UDim2.new(1, 0, 1, 0)
 			tapButton.Position = UDim2.new(0, 0, 0, 0)
 			tapButton.BackgroundTransparency = 1
 			tapButton.Text = ""
+			tapButton.ZIndex = 2
 			tapButton.Parent = promptGui
 			tapButton.Activated:Connect(function()
 				onEKey()
@@ -116,7 +133,8 @@ local function updatePrompt()
 	end
 end
 
-local function onEKey()
+-- FIX #20: Assignment (not `local function`) so the forward declaration above is used.
+onEKey = function()
 	if not nearestTarget then return end
 	local _, dist = findNearestOtherPlayer()
 	if dist > INTERACTION_RANGE then return end

@@ -91,6 +91,16 @@
 	CRAWLING (crawling field):
 		true = Model rotated 90 degrees forward (pitch); use when walk anim is belly-crawl but rig idles upright.
 		omit = Normal upright orientation.
+
+	MOUNTING (mount fields):
+		mountable = true     — Creature can be ridden by the player as a mount.
+		mountType = string   — "Ground" (default), "Flying", "Swimming", or "Special".
+		                       Auto-derived from flying/element if omitted.
+		mountOffset = {x,y,z} — Player seat offset from Body center (studs). Default {0,3,-1}.
+		mountScale = number  — Visual scale multiplier when mounted (default 2.0).
+		mountSpeedBonus = number — Extra flat speed bonus on top of base formula (default 0).
+		Only creatures with mountable = true can be mounted.
+		Common/Uncommon are generally too small; Rare+ creatures are recommended.
 ]]
 
 local CreatureData = {}
@@ -117,8 +127,8 @@ CreatureData.VariantColors = {
 	Legend = Color3.fromRGB(255, 100, 255),
 }
 
--- Starter creatures the player can choose on first join
-CreatureData.Starters = { "cacty", "pursula", "spoutyl", "sundile", "ceeponee" }
+-- Starter creatures the player can choose on first join (4 starters, one per element)
+CreatureData.Starters = { "cacty", "pursula", "sundile", "ceeponee" }
 
 -- Zone preferences by element (creatures spawn in zone with SpawnPoints/DungeonPoint/BossPoint)
 -- Psychic+Undead=Desert, Shadow+Metal=Cave, Electric+Light=Electric, Poison+Water=Ocean; rest unchanged
@@ -347,7 +357,7 @@ CreatureData.Creatures = {
 	-- Fire Uncommon (4)
 	{
 		id = "emberpup", displayName = "Emberpup", rarity = "Uncommon",
-		element = "Fire", class = "Bruiser", behavior = "aggressive",
+		element = "Fire", class = "Bruiser", behavior = "pack",
 		spawnWeight = 10, baseIncome = 3, captureTime = 1.0,
 		health = 90, attack = 18, defense = 10, speed = 8,
 		description = "A fiery puppy that leaves scorch marks wherever it walks. Attacks on sight!",
@@ -374,12 +384,13 @@ CreatureData.Creatures = {
 		modelName = "Hotty", primaryColor = Color3.fromRGB(255, 160, 80),
 	},
 	{
-		id = "sootfang", displayName = "Sootfang", rarity = "Uncommon",
+		id = "emberfin", displayName = "Emberfin", rarity = "Uncommon",
 		element = "Fire", class = "Assassin", behavior = "aggressive",
 		spawnWeight = 8, baseIncome = 3, captureTime = 1.2,
 		health = 70, attack = 16, defense = 8, speed = 13,
 		description = "A predator that hides in smoke clouds, striking with superheated fangs before vanishing again.",
-		modelName = "Sootfang", primaryColor = Color3.fromRGB(80, 50, 40),
+		modelName = "Emberfin", primaryColor = Color3.fromRGB(80, 50, 40),
+		evolvesTo = "Cindergil"
 	},
 
 	-- Fire Rare (3)
@@ -391,25 +402,26 @@ CreatureData.Creatures = {
 		description = "Dracoil's leave the safety of the pack to travel alone, but they are known to return when the pack is in danger",
 		modelName = "Dracoil", primaryColor = Color3.fromRGB(255, 60, 20),
 		spawnPointType = "dungeon",evolvesFrom = "draco",
-		modelDisplaySize = 5.0,modelScaleMultiplier = 1.5
-
+		modelDisplaySize = 5.0,modelScaleMultiplier = 1.5,
+		mountable = true, mountOffset = {0, 3, -1.5}, mountScale = 2.0,
 	},
 	{
-		id = "cinderstag", displayName = "Cinderstag", rarity = "Rare",
+		id = "cindergil", displayName = "Cindergil", rarity = "Rare",
 		element = "Fire", class = "Support", behavior = "skittish",
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
 		health = 110, attack = 15, defense = 20, speed = 14,
 		description = "A majestic stag with antlers of living flame. It heals allies as it runs, but catching it requires persistence.",
-		modelName = "Cinderstag", primaryColor = Color3.fromRGB(255, 180, 60),
+		modelName = "Cindergil", primaryColor = Color3.fromRGB(255, 180, 60),
+		mountable = true, mountOffset = {0, 3, -1.5}, mountScale = 2.0,
 	},
 	{
-		id = "furnacejaw", displayName = "Furnacejaw", rarity = "Rare",
-		element = "Fire", class = "Bruiser", behavior = "aggressive",
+		id = "hotdog", displayName = "Hotdog", rarity = "Rare",
+		element = "Fire", class = "Bruiser", behavior = "pack",
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
 		health = 140, attack = 25, defense = 18, speed = 7,
 		description = "Its gullet is a literal furnace. Once it locks its jaws, the heat alone does half the work.",
-		modelName = "Furnacejaw", primaryColor = Color3.fromRGB(220, 50, 10),
-		spawnPointType = "dungeon",
+		modelName = "Hotdog", primaryColor = Color3.fromRGB(220, 50, 10),
+		spawnPointType = "dungeon",modelDisplaySize = 8,modelScaleMultiplier = 1.5
 	},
 
 	-- Fire Epic (2)
@@ -421,7 +433,8 @@ CreatureData.Creatures = {
 		description = "The pylook's evolved form, formed on many pylook's fused into a single ghastly creature",
 		modelName = "Pyleer", primaryColor = Color3.fromRGB(255, 50, 0),
 		spawnPointType = "dungeon",modelDisplaySize = 8.0,modelScaleMultiplier = 2.0,
-		evolvesFrom = "pylook", flying = true
+		evolvesFrom = "pylook", flying = true,
+		mountable = true, mountType = "Flying", mountOffset = {0, 3.5, -1.5}, mountScale = 2.2,
 	},
 	{
 		id = "solgator", displayName = "Solgator", rarity = "Epic",
@@ -432,6 +445,7 @@ CreatureData.Creatures = {
 		modelName = "Solgator", primaryColor = Color3.fromRGB(180, 40, 10),
 		spawnPointType = "dungeon",
 		evolvesFrom = "raydile", crawling = true,modelDisplaySize = 8.0,modelScaleMultiplier = 2.0,
+		mountable = true, mountOffset = {0, 3, -2}, mountScale = 2.2, mountType = "Ground",
 	},
 
 	-- Fire Legendary (1)
@@ -443,7 +457,7 @@ CreatureData.Creatures = {
 		description = "This ancient Siegling is said to be the soul of a powerful SiegLord who jumped into the Volcano to become Fire itself",
 		modelName = "Pylord", primaryColor = Color3.fromRGB(255, 200, 30),
 		spawnPointType = "boss",modelDisplaySize = 16.0,
-
+		mountable = true, mountType = "Ground", mountOffset = {0, 4, -2}, mountScale = 2.5,
 	},
 
 	-- ============================
@@ -571,6 +585,7 @@ CreatureData.Creatures = {
 		modelName = "Frostag", primaryColor = Color3.fromRGB(50, 120, 220),
 		spawnPointType = "dungeon", modelDisplaySize = 8.0, modelScaleMultiplier = 2.0,
 		evolvesFrom = "chilldoe",
+		mountable = true, mountOffset = {0, 3.5, -1.5}, mountScale = 2.2,
 	},
 	{
 		id = "ceesteed", displayName = "Ceesteed", rarity = "Epic",
@@ -580,6 +595,7 @@ CreatureData.Creatures = {
 		description = "A massive yeti-like creature of compacted snow. It ignores most threats, but when provoked, nothing stops it.",
 		modelName = "Ceesteed", primaryColor = Color3.fromRGB(180, 210, 240),
 		spawnPointType = "dungeon",evolvesFrom = "ceehorcee",modelDisplaySize = 8.0,modelScaleMultiplier = 2.0,
+		mountable = true, mountOffset = {0, 3.5, -1.5}, mountScale = 2.2,
 	},
 
 	-- Ice Legendary (1)
@@ -591,6 +607,7 @@ CreatureData.Creatures = {
 		description = "An ancient ice wyrm that commands blizzards with a thought. Entire regions freeze in its wake. The undisputed ruler of the frozen wastes.",
 		modelName = "Glaciemperor", primaryColor = Color3.fromRGB(40, 100, 200),
 		spawnPointType = "boss",modelDisplaySize = 15.0,
+		mountable = true, mountOffset = {0, 4, -2}, mountScale = 2.5,
 	},
 
 	-- ============================
@@ -691,7 +708,8 @@ CreatureData.Creatures = {
 		flying = true,
 		description = "A manta ray that swims through the sky, trailing stormclouds. Its wing sweeps conjure devastating gales.",
 		modelName = "Hurricrane", primaryColor = Color3.fromRGB(100, 180, 200),
-		evolvesFrom = "gagglestand",modelDisplaySize = 8.0,modelScaleMultiplier = 2.0,crawling = true
+		evolvesFrom = "gagglestand",modelDisplaySize = 8.0,modelScaleMultiplier = 2.0,crawling = true,
+		mountable = true, mountType = "Flying", mountOffset = {0, 3, -1.5}, mountScale = 2.0,
 	},
 	{
 		id = "cloudsprite", displayName = "Cloudsprite", rarity = "Rare",
@@ -730,7 +748,8 @@ CreatureData.Creatures = {
 		health = 160, attack = 18, defense = 25, speed = 16,
 		description = "Weaves healing currents from the wind itself. Extremely hard to catch.",
 		modelName = "Skydon", primaryColor = Color3.fromRGB(200, 255, 220),
-		spawnPointType = "dungeon", flying = true,modelDisplaySize = 15.0
+		spawnPointType = "dungeon", flying = true,modelDisplaySize = 15.0,
+		mountable = true, mountType = "Flying", mountOffset = {0, 3.5, -1.5}, mountScale = 2.2,
 	},
 	{
 		id = "strikehawk", displayName = "Strikehawk", rarity = "Epic",
@@ -739,7 +758,8 @@ CreatureData.Creatures = {
 		health = 190, attack = 38, defense = 22, speed = 14,
 		description = "A massive gryphon wreathed in perpetual hurricane winds. It hunts from the eye of its own personal storm.",
 		modelName = "Strikehawk", primaryColor = Color3.fromRGB(80, 200, 150),
-		spawnPointType = "dungeon",modelDisplaySize = 15.0,flying = true, evolvesFrom = "shellshock"
+		spawnPointType = "dungeon",modelDisplaySize = 15.0,flying = true, evolvesFrom = "shellshock",
+		mountable = true, mountType = "Flying", mountOffset = {0, 3, -1.5}, mountScale = 2.0,
 	},
 
 	-- Wind Legendary (1)
@@ -750,11 +770,12 @@ CreatureData.Creatures = {
 		health = 290, attack = 55, defense = 35, speed = 14,
 		description = "The sovereign of all skies. Aerovane moves faster than sight and strikes harder than a thunderbolt. Legends say it can split mountains with a wingbeat.",
 		modelName = "Aerovane", primaryColor = Color3.fromRGB(80, 255, 180),
-		spawnPointType = "boss", flying = true,modelDisplaySize = 16.0
+		spawnPointType = "boss", flying = true,modelDisplaySize = 16.0,
+		mountable = true, mountType = "Flying", mountOffset = {0, 4, -2}, mountScale = 2.5,
 	},
 
 	-- ============================
-	-- EARTH CREATURES (5C, 4U, 3R, 2E, 1L)
+	-- EARTH CREATURES (5C, 4U, 3R, 2E, 1L)f
 	-- ============================
 
 	-- Earth Common (5)
@@ -880,7 +901,7 @@ CreatureData.Creatures = {
 		spawnPointType = "dungeon",
 	},
 
-	-- Earth Epic (2)
+	-- Earth Epic (2)rfr
 	{
 		id = "cactyjackedty", displayName = "CactyJackedty", rarity = "Epic",
 		element = "Earth", class = "Bruiser", behavior = "aggressive",
@@ -891,6 +912,7 @@ CreatureData.Creatures = {
 		spawnPointType = "dungeon",
 		evolvesFrom = "jackedty", modelDisplaySize = 8.0, modelScaleMultiplier = 2.0,
 		modelPlacementYOffset = 2,  -- limbs extend below base; lift so feet sit on point
+		mountable = true, mountOffset = {0, 3.5, -1.5}, mountScale = 2.2,
 	},
 	{
 		id = "sheenx", displayName = "Sheenx", rarity = "Epic",
@@ -900,6 +922,7 @@ CreatureData.Creatures = {
 		description = "A living garden on legs. Flowers and herbs grow across its shell, providing potent healing to all nearby allies.",
 		modelName = "Sheenx", primaryColor = Color3.fromRGB(70, 180, 70),
 		spawnPointType = "dungeon",
+		mountable = true, mountOffset = {0, 3.5, -1.5}, mountScale = 2.2,
 	},
 
 	-- Earth Legendary (1)s
@@ -911,6 +934,7 @@ CreatureData.Creatures = {
 		description = "Forged in the planet's core. An immovable gentle giant.",
 		modelName = "Gymstone", primaryColor = Color3.fromRGB(200, 160, 60),
 		spawnPointType = "boss",modelDisplaySize = 10, modelScaleMultiplier = 2.0,
+		mountable = true, mountOffset = {0, 5, -2}, mountScale = 2.5,
 	},
 
 	-- ============================
@@ -1032,6 +1056,7 @@ CreatureData.Creatures = {
 		description = "A serpentine wyrm made of living darkness. It devours light itself, casting devastating shadow magic from the void.",
 		modelName = "Umbralwyrm", primaryColor = Color3.fromRGB(50, 20, 80),
 		spawnPointType = "dungeon",
+		mountable = true, mountType = "Flying", mountOffset = {0, 3.5, -2}, mountScale = 2.2,
 	},
 	{
 		id = "doomshield", displayName = "Doomshield", rarity = "Epic",
@@ -1041,6 +1066,7 @@ CreatureData.Creatures = {
 		description = "An ancient sentinel forged from crystallized nightmares. It stands motionless for centuries until something disturbs its vigil.",
 		modelName = "Doomshield", primaryColor = Color3.fromRGB(40, 10, 65),
 		spawnPointType = "dungeon",
+		mountable = true, mountOffset = {0, 3.5, -1.5}, mountScale = 2.2,
 	},
 
 	-- Shadow Legendary (1)
@@ -1052,6 +1078,7 @@ CreatureData.Creatures = {
 		description = "An ancient horror from the space between worlds. Extremely rare and dangerous.",
 		modelName = "Voidmaw", primaryColor = Color3.fromRGB(30, 0, 50),
 		spawnPointType = "boss",
+		mountable = true, mountOffset = {0, 4, -2}, mountScale = 2.5,
 	},
 
 	-- ============================
@@ -1068,12 +1095,12 @@ CreatureData.Creatures = {
 		modelName = "Monkwatt", primaryColor = Color3.fromRGB(255, 240, 100),
 	},
 	{
-		id = "boltant", displayName = "Boltant", rarity = "Common",
-		element = "Lightning", class = "Bruiser", behavior = "pack",
+		id = "newt", displayName = "Newt", rarity = "Common",
+		element = "Lightning", class = "Bruiser", behavior = "lone",
 		spawnWeight = 18, baseIncome = 1, captureTime = 0.5, packSize = {3, 5},
 		health = 50, attack = 9, defense = 8, speed = 8,
 		description = "Electrified ants that march in formation. Their synchronized shocks can stun creatures many times their size.",
-		modelName = "Boltant", primaryColor = Color3.fromRGB(240, 220, 60),
+		modelName = "Newt", primaryColor = Color3.fromRGB(240, 220, 60),
 	},
 	{
 		id = "voltpecker", displayName = "Voltpecker", rarity = "Common",
@@ -1144,15 +1171,16 @@ CreatureData.Creatures = {
 		health = 90, attack = 28, defense = 12, speed = 15,
 		description = "A serpent of pure plasma that moves like living lightning. Its strikes paralyze, and it never stops hunting once it has a target.",
 		modelName = "Kilokong", primaryColor = Color3.fromRGB(160, 120, 255),
-		spawnPointType = "dungeon",modelDisplaySize = 12,modelScaleMultiplier = 1.5
+		spawnPointType = "dungeon",modelDisplaySize = 12,modelScaleMultiplier = 1.5,
+		mountable = true, mountOffset = {0, 3.5, -2}, mountScale = 2.0,
 	},
 	{
-		id = "voltadon", displayName = "Voltadon", rarity = "Rare",
+		id = "newton", displayName = "New Ton", rarity = "Rare",
 		element = "Lightning", class = "Bruiser", behavior = "lone",
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
 		health = 140, attack = 22, defense = 24, speed = 6,
 		description = "A rhinoceros-like beast with a horn that acts as a lightning rod. Its charges are accompanied by deafening thunderclaps.",
-		modelName = "Voltadon", primaryColor = Color3.fromRGB(200, 180, 60),
+		modelName = "Newton", primaryColor = Color3.fromRGB(200, 180, 60),modelDisplaySize = 12,modelScaleMultiplier = 1.5
 	},
 	{
 		id = "tempestweave", displayName = "Tempestweave", rarity = "Rare",
@@ -1173,6 +1201,7 @@ CreatureData.Creatures = {
 		description = "Lightning crackles between its claws. Hunts anything that moves.",
 		modelName = "Stormclaw", primaryColor = Color3.fromRGB(100, 80, 255),
 		spawnPointType = "dungeon",
+		mountable = true, mountOffset = {0, 3.5, -1.5}, mountScale = 2.2,
 	},
 	{
 		id = "ionwarden", displayName = "Ionwarden", rarity = "Epic",
@@ -1182,6 +1211,7 @@ CreatureData.Creatures = {
 		description = "An ancient construct that projects a dome of crackling energy, shielding and supercharging all allies within. Passive until its charges are threatened.",
 		modelName = "Ionwarden", primaryColor = Color3.fromRGB(180, 160, 255),
 		spawnPointType = "dungeon",
+		mountable = true, mountOffset = {0, 3.5, -1.5}, mountScale = 2.2,
 	},
 
 	-- Lightning Legendary (1)
@@ -1193,6 +1223,7 @@ CreatureData.Creatures = {
 		description = "The living embodiment of the storm. Thunderlord calls down apocalyptic lightning from perpetual thunderheads. Where it walks, the sky itself obeys.",
 		modelName = "Thunderlord", primaryColor = Color3.fromRGB(120, 80, 255),
 		spawnPointType = "boss",
+		mountable = true, mountType = "Flying", mountOffset = {0, 4, -2}, mountScale = 2.5,
 	},
 
 	-- ============================
@@ -1216,14 +1247,16 @@ CreatureData.Creatures = {
 		health = 38, attack = 12, defense = 4, speed = 12,
 		description = "A sleek creature that darts across water surfaces. Vanishes beneath the surface when startled.",
 		modelName = "Shellpack", primaryColor = Color3.fromRGB(60, 160, 220),
+		evolvesTo = "torqlander",
 	},
 	{
-		id = "kelpcrawler", displayName = "Kelpcrawler", rarity = "Common",
+		id = "jawby", displayName = "Jawby", rarity = "Common",
 		element = "Water", class = "Guardian", behavior = "gentle",
 		spawnWeight = 16, baseIncome = 1, captureTime = 0.5,
 		health = 70, attack = 5, defense = 14, speed = 4,
 		description = "A creature draped in kelp-like fronds. Its thick hide absorbs blows while it waits in tide pools.",
-		modelName = "Kelpcrawler", primaryColor = Color3.fromRGB(40, 140, 100),
+		modelName = "Jawby", primaryColor = Color3.fromRGB(40, 140, 100),
+		evolvesTo = "jawbite",
 	},
 	{
 		id = "tidepup", displayName = "Tidepup", rarity = "Common",
@@ -1245,12 +1278,12 @@ CreatureData.Creatures = {
 	-- Water Uncommon (4)
 	{
 		id = "droxyl", displayName = "Droxyl", rarity = "Uncommon",
-		element = "Water", class = "Assassin", behavior = "lone",
+		element = "Water", class = "Assassin", behavior = "pack",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.1,
 		health = 68, attack = 18, defense = 8, speed = 14,
 		description = "A fox adapted to river life. Strikes with razor-sharp water blades from the shadows of rapids.",
 		modelName = "Droxyl", primaryColor = Color3.fromRGB(90, 180, 240),
-		evolvesTo = "hydroxyl", evolvesFrom = "spoutyl",modelDisplaySize = 6.0,modelScaleMultiplier = 1.5
+		evolvesTo = "hydroxyl", evolvesFrom = "spoutyl",modelDisplaySize = 6.0,modelScaleMultiplier = 1.5,
 	},
 	{
 		id = "clawkid", displayName = "Clawkid", rarity = "Uncommon",
@@ -1259,7 +1292,7 @@ CreatureData.Creatures = {
 		health = 115, attack = 8, defense = 22, speed = 3,
 		description = "A turtle-like creature with a coral shell. Its hardened armor deflects most attacks.",
 		modelName = "Clawkid", primaryColor = Color3.fromRGB(255, 100, 100),
-		evolvesTo = "clawqueen",modelDisplaySize = 5.0,modelScaleMultiplier = 1.5
+		evolvesTo = "clawqueen",modelDisplaySize = 5.0,modelScaleMultiplier = 1.5,
 	},
 	{
 		id = "torqlander", displayName = "Torqlander", rarity = "Uncommon",
@@ -1268,6 +1301,8 @@ CreatureData.Creatures = {
 		health = 72, attack = 16, defense = 10, speed = 10,
 		description = "Emerges from morning mist to strike with condensed water bolts. Fades back into fog when threatened.",
 		modelName = "Torqlander", primaryColor = Color3.fromRGB(180, 210, 255),
+		evolvesTo = "shellnaut",modelDisplaySize = 4.0,modelScaleMultiplier = 1.5,
+		evolvesFrom = "shellpack",flying = true,
 	},
 	{
 		id = "brinepup", displayName = "Brinepup", rarity = "Uncommon",
@@ -1295,15 +1330,17 @@ CreatureData.Creatures = {
 		health = 145, attack = 12, defense = 28, speed = 6,
 		description = "A massive crab-like guardian. Rises with the tide to shield allies behind walls of water.",
 		modelName = "Shellnaut", primaryColor = Color3.fromRGB(60, 140, 220),
-		spawnPointType = "dungeon",
+		spawnPointType = "dungeon",modelDisplaySize = 10,modelScaleMultiplier = 1.5,
+		evolvesFrom = "torqlander",
 	},
 	{
-		id = "brinecaller", displayName = "Brinecaller", rarity = "Rare",
+		id = "jawbite", displayName = "Jawbite", rarity = "Rare",
 		element = "Water", class = "Support", behavior = "gentle",
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
 		health = 100, attack = 14, defense = 18, speed = 11,
 		description = "Summons healing rains and cleansing waves. Allies fight longer when a Brinecaller watches over them.",
-		modelName = "Brinecaller", primaryColor = Color3.fromRGB(80, 160, 240),
+		modelName = "Jawbite", primaryColor = Color3.fromRGB(80, 160, 240),modelDisplaySize = 10,modelScaleMultiplier = 1.5,
+		evolvesFrom = "jawby",
 	},
 
 	-- Water Epic (2)
@@ -1314,7 +1351,9 @@ CreatureData.Creatures = {
 		health = 135, attack = 40, defense = 16, speed = 11,
 		description = "Commands storm surges and lightning-struck seas. Its tidal blasts devastate entire shorelines.",
 		modelName = "ClawQueen", primaryColor = Color3.fromRGB(50, 100, 200),
-		spawnPointType = "dungeon",modelDisplaySize = 12,modelScaleMultiplier = 1.5
+		spawnPointType = "dungeon",modelDisplaySize = 12,modelScaleMultiplier = 1.5,
+		mountable = true, mountType = "Swimming", mountOffset = {0, 3.5, -1.5}, mountScale = 2.2,
+		evolvesFrom = "clawkid",
 	},
 	{
 		id = "leviathan", displayName = "Leviathan", rarity = "Epic",
@@ -1324,17 +1363,19 @@ CreatureData.Creatures = {
 		description = "A colossal beast of the deep. One sweep of its tail creates tsunamis that swallow ships whole.",
 		modelName = "Leviathan", primaryColor = Color3.fromRGB(30, 80, 160),
 		spawnPointType = "dungeon",
+		mountable = true, mountType = "Swimming", mountOffset = {0, 4, -2}, mountScale = 2.5,
 	},
 
 	-- Water Legendary (1)
 	{
-		id = "abyssalking", displayName = "Abyssalking", rarity = "Legendary",
+		id = "conchious", displayName = "Conchious", rarity = "Legendary",
 		element = "Water", class = "Mage", behavior = "lone",
 		spawnWeight = 1, baseIncome = 50, captureTime = 3.5,
 		health = 350, attack = 52, defense = 42, speed = 10,
 		description = "The sovereign of the darkest depths. Abyssalking controls pressure, cold, and crushing darkness. Few who dive deep ever return.",
-		modelName = "Abyssalking", primaryColor = Color3.fromRGB(20, 50, 120),
-		spawnPointType = "boss",
+		modelName = "Conchious", primaryColor = Color3.fromRGB(20, 50, 120),
+		spawnPointType = "boss",modelDisplaySize = 13,modelScaleMultiplier = 1.5,
+		mountable = true, mountType = "Swimming", mountOffset = {0, 4, -2}, mountScale = 2.5,
 	},
 
 	-- ============================
@@ -1348,7 +1389,7 @@ CreatureData.Creatures = {
 		spawnWeight = 1, baseIncome = 1, captureTime = 0.5,
 		health = 50, attack = 6, defense = 8, speed = 6,
 		description = "A radiant placeholder Siegling. Full Light roster coming soon.",
-		modelName = "Firsky", primaryColor = Color3.fromRGB(255, 250, 200),
+		modelName = "Egg", primaryColor = Color3.fromRGB(255, 250, 200),
 	},
 	-- Psychic stand-in
 	{
@@ -1357,7 +1398,7 @@ CreatureData.Creatures = {
 		spawnWeight = 1, baseIncome = 1, captureTime = 0.5,
 		health = 48, attack = 10, defense = 6, speed = 7,
 		description = "A mind-touched placeholder Siegling. Full Psychic roster coming soon.",
-		modelName = "Firsky", primaryColor = Color3.fromRGB(200, 150, 255),
+		modelName = "mentaroo", primaryColor = Color3.fromRGB(200, 150, 255),
 	},
 	-- Metal stand-in
 	{
@@ -1366,7 +1407,7 @@ CreatureData.Creatures = {
 		spawnWeight = 1, baseIncome = 1, captureTime = 0.5,
 		health = 60, attack = 7, defense = 14, speed = 4,
 		description = "A metallic placeholder Siegling. Full Metal roster coming soon.",
-		modelName = "Firsky", primaryColor = Color3.fromRGB(160, 170, 180),
+		modelName = "Egg", primaryColor = Color3.fromRGB(160, 170, 180),
 	},
 	-- Poison stand-in
 	{
@@ -1375,7 +1416,7 @@ CreatureData.Creatures = {
 		spawnWeight = 1, baseIncome = 1, captureTime = 0.5,
 		health = 42, attack = 11, defense = 5, speed = 9,
 		description = "A toxic placeholder Siegling. Full Poison roster coming soon.",
-		modelName = "Firsky", primaryColor = Color3.fromRGB(120, 220, 80),
+		modelName = "Egg", primaryColor = Color3.fromRGB(120, 220, 80),
 	},
 	-- Undead stand-in
 	{
@@ -1384,7 +1425,7 @@ CreatureData.Creatures = {
 		spawnWeight = 1, baseIncome = 1, captureTime = 0.5,
 		health = 55, attack = 10, defense = 9, speed = 5,
 		description = "An undead placeholder Siegling. Full Undead roster coming soon.",
-		modelName = "Firsky", primaryColor = Color3.fromRGB(140, 120, 160),
+		modelName = "Ragguette", primaryColor = Color3.fromRGB(140, 120, 160),
 	},
 }
 
@@ -1566,6 +1607,70 @@ end
 function CreatureData.CrawlOnlyOnMove(creatureId)
 	local info = CreatureData.GetById(creatureId)
 	return info and info.crawlOnlyOnMove == true
+end
+
+-- ======================================
+-- MOUNT HELPERS
+-- ======================================
+
+-- Returns true if creature can be ridden as a mount
+function CreatureData.IsMountable(creatureId)
+	local info = CreatureData.GetById(creatureId)
+	return info and info.mountable == true
+end
+
+-- Returns mount type: "Ground", "Flying", "Swimming", or "Special".
+-- Auto-derives from flying/element if mountType not explicitly set.
+function CreatureData.GetMountType(creatureId)
+	local info = CreatureData.GetById(creatureId)
+	if not info or not info.mountable then return nil end
+	if info.mountType then return info.mountType end
+	if info.flying then return "Flying" end
+	if info.element == "Water" or info.element == "Ice" then return "Swimming" end
+	return "Ground"
+end
+
+-- Returns Vector3 offset for player seat position relative to creature body center.
+-- Accepts {x,y,z} table or Vector3 in data. Default {0, 3, -1}.
+function CreatureData.GetMountOffset(creatureId)
+	local info = CreatureData.GetById(creatureId)
+	if not info then return Vector3.new(0, 3, -1) end
+	local o = info.mountOffset
+	if not o then return Vector3.new(0, 3, -1) end
+	if typeof(o) == "Vector3" then return o end
+	if type(o) == "table" and o[1] then return Vector3.new(o[1], o[2] or 0, o[3] or 0) end
+	return Vector3.new(0, 3, -1)
+end
+
+-- Returns visual scale multiplier for mount model (default 2.0)
+function CreatureData.GetMountScale(creatureId)
+	local info = CreatureData.GetById(creatureId)
+	return (info and info.mountScale) or 2.0
+end
+
+-- Returns flat speed bonus for mount (default 0)
+function CreatureData.GetMountSpeedBonus(creatureId)
+	local info = CreatureData.GetById(creatureId)
+	return (info and info.mountSpeedBonus) or 0
+end
+
+-- Returns array of elemental bonuses active while riding this creature.
+-- Bonus strings: "LavaImmunity", "NoOxygenLoss", "IcePenaltyImmunity",
+--   "ElectricHazardImmunity", "GlideBonus", "Flight", "SwimMount"
+function CreatureData.GetMountBonuses(creatureId)
+	local info = CreatureData.GetById(creatureId)
+	if not info then return {} end
+	local bonuses = {}
+	local elem = info.element
+	if elem == "Fire" then table.insert(bonuses, "LavaImmunity") end
+	if elem == "Water" then table.insert(bonuses, "NoOxygenLoss") end
+	if elem == "Ice" then table.insert(bonuses, "IcePenaltyImmunity") end
+	if elem == "Lightning" then table.insert(bonuses, "ElectricHazardImmunity") end
+	if elem == "Wind" then table.insert(bonuses, "GlideBonus") end
+	local mountType = CreatureData.GetMountType(creatureId)
+	if mountType == "Flying" then table.insert(bonuses, "Flight") end
+	if mountType == "Swimming" then table.insert(bonuses, "SwimMount") end
+	return bonuses
 end
 
 -- Returns true if creature has a model in ReplicatedStorage.CreatureModels

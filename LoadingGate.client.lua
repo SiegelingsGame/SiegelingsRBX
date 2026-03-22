@@ -1,6 +1,6 @@
 -- LoadingGate.client.lua - StarterPlayer.StarterPlayerScripts (LocalScript)
 -- Name this "!LoadingGate" in Roblox so it runs first.
--- Shows loading screen, freezes player, waits for character + events, done.sdfsf
+-- Shows loading screen, freezes player, waits for character + events, then releases.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -183,9 +183,6 @@ if quickSpawnDebug then
 	quoteLbl.Text = "Bypassing loading gate for testing"
 	serverReady = true
 	loadingStatusReason = "quick_spawn_debug"
-	-- #region agent log
-	print("[DEBUG-1234af] LoadingGate: QuickSpawnDebugMode — bypassing loading gate")
-	-- #endregion
 else
 	statusLbl.Text = pickRandomLoadingMsg()
 	quoteLbl.Text = pickRandomQuote()
@@ -200,9 +197,6 @@ else
 
 	task.spawn(function()
 		local eventsFolder = ReplicatedStorage:WaitForChild("Events", 15)
-		-- #region agent log
-		print("[DEBUG-1234af] LoadingGate: Events folder " .. (eventsFolder and "received" or "TIMEOUT"))
-		-- #endregion
 		if not eventsFolder then
 			serverReady = true
 			loadingStatusReason = "events_timeout_fallback"
@@ -268,7 +262,6 @@ if not characterReady then
 	loadingStatusReason = "character_timeout_fallback"
 end
 logMetric("join_to_control_release")
-print("[DEBUG-1234af] LoadingGate: proceeding reason=" .. tostring(loadingStatusReason))
 
 -- Done
 statusLbl.Text = "Track 'Em Down!"

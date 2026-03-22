@@ -29,6 +29,7 @@ local CreatureAnimation = require(ReplicatedStorage.Modules.CreatureAnimation)
 
 local PlayerDataManager
 local BasePlacementSystem
+local GymBattleSystem  -- Set via ArenaSystem.SetGymBattleSystem() after init
 
 local ArenaSystem = {}
 
@@ -1970,10 +1971,21 @@ function ArenaSystem.Init(playerDataMgr, basePlacementSys)
 			end
 			workspace:SetAttribute("ArenaCountdown", 0)
 
-			-- FIX: Skip arena round if a gym battle is currently running (mutual exclusion)
-			if workspace:GetAttribute("GymBattleInProgress") then
-				print("[Arena] Gym battle in progress — skipping this arena round")
-				continue
+			-- FIX #20: Wait for any active gym battles to finish before starting
+			-- arena round. If a player who would fight in the arena is in a gym
+			-- battle, delay (don't skip) until it completes. Max 120s wait.
+			if GymBattleSystem and GymBattleSystem.AnyGymBattleActive() then
+				print("[Arena] Gym battle in progress — waiting for it to finish...")
+				local gymWaitStart = tick()
+				local GYM_WAIT_TIMEOUT = 120
+				while GymBattleSystem.AnyGymBattleActive() do
+					task.wait(1)
+					if tick() - gymWaitStart > GYM_WAIT_TIMEOUT then
+						warn("[Arena] Gym battle wait timed out after " .. GYM_WAIT_TIMEOUT .. "s — proceeding")
+						break
+					end
+				end
+				print("[Arena] Gym battle finished, starting arena round")
 			end
 
 			-- Run the round in a protected call so errors never stall the loop
@@ -2007,6 +2019,19 @@ function ArenaSystem.Init(playerDataMgr, basePlacementSys)
 	end)
 
 	print("[Arena] Initialized - rounds every " .. ROUND_INTERVAL .. "s")
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- SetGymBattleSystem(gymBattleSys)
+-- Called from MainServer AFTER both ArenaSystem and GymBattleSystem are
+-- initialized. Gives ArenaSystem a reference to GymBattleSystem so it can
+-- check IsPlayerInGymBattle / AnyGymBattleActive before starting rounds.
+--
+-- @param gymBattleSys GymBattleSystem module
+-- ═══════════════════════════════════════════════════════════════════════════════
+function ArenaSystem.SetGymBattleSystem(gymBattleSys)
+	GymBattleSystem = gymBattleSys
+	print("[Arena] GymBattleSystem reference set for mutual exclusion")
 end
 
 return ArenaSystem

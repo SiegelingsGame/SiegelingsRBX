@@ -463,7 +463,10 @@ invLayout.Parent = invScroll
 
 -- Left column: Your Offer (fills top to bottom)
 local myOfferFrame = Instance.new("Frame")
-myOfferFrame.Size = UDim2.new(0.5, -14, 0, 238)
+-- FIX: Use scale-based height so the offer columns fill the available space
+-- between the inventory strip (y=132) and the accept/cancel buttons (46px from bottom).
+-- Old hardcoded 238px caused the buttons to overflow off-screen on mobile.
+myOfferFrame.Size = UDim2.new(0.5, -14, 1, -178)
 myOfferFrame.Position = UDim2.new(0, 12, 0, 132)
 myOfferFrame.BackgroundTransparency = 1
 myOfferFrame.Parent = tradeUI
@@ -492,7 +495,8 @@ myOfferLayout.Parent = myOfferScroll
 
 -- Right column: Their Offer (fills top to bottom)
 local theirOfferFrame = Instance.new("Frame")
-theirOfferFrame.Size = UDim2.new(0.5, -14, 0, 238)
+-- FIX: Same scale-based height as myOfferFrame — fills from inventory to buttons
+theirOfferFrame.Size = UDim2.new(0.5, -14, 1, -178)
 theirOfferFrame.Position = UDim2.new(0.5, 2, 0, 132)
 theirOfferFrame.BackgroundTransparency = 1
 theirOfferFrame.Parent = tradeUI
@@ -543,8 +547,61 @@ cancelBtn.BorderSizePixel = 0
 cancelBtn.Parent = tradeUI
 Instance.new("UICorner", cancelBtn).CornerRadius = UDim.new(0, 10)
 
+-- ── TRADE WINDOW MOBILE LAYOUT ──────────────────────────────────────────────
+-- FIX: On mobile the hardcoded 560×400 trade window exceeds screen width and
+-- pushes the accept/cancel buttons off the bottom edge. Apply MobileWindowLayout
+-- so the trade window fills the safe area, same as every other menu panel.
+local TRADE_DESIGN_W = 560
+local TRADE_DESIGN_H = 400
+
+local function applyTradeLayout()
+	if MobileWindowLayout.IsMobile() then
+		-- FIX: Increased bottomMobileExtra from 20 → 50 to account for iPhone
+		-- home indicator (34px) and Roblox bottom UI. The accept/cancel buttons
+		-- at Position=(1,-40) were being pushed off the visible screen edge.
+		MobileWindowLayout.ApplyWindow(tradeUI, {
+			leftInset = 10,
+			rightInset = 10,
+			topInset = 10,
+			bottomInset = 10,
+			bottomMobileExtra = 50,
+		})
+		tradeUI.Draggable = true
+		-- Slightly reduce text sizes and shrink inventory strip on mobile for better fit
+		tradeTitle.TextSize = 13
+		invLabel.TextSize = 9
+		acceptBtn.TextSize = 11
+		cancelBtn.TextSize = 11
+		-- Compact the inventory strip on mobile to reclaim vertical space
+		invScroll.Size = UDim2.new(1, -24, 0, 52)
+		myOfferFrame.Position = UDim2.new(0, 12, 0, 116)
+		myOfferFrame.Size = UDim2.new(0.5, -14, 1, -162)
+		theirOfferFrame.Position = UDim2.new(0.5, 2, 0, 116)
+		theirOfferFrame.Size = UDim2.new(0.5, -14, 1, -162)
+	else
+		-- Desktop: restore original fixed-size layout
+		tradeUI.AnchorPoint = Vector2.new(0, 0)
+		tradeUI.Size = UDim2.new(0, TRADE_DESIGN_W, 0, TRADE_DESIGN_H)
+		tradeUI.Position = UDim2.new(0.5, -TRADE_DESIGN_W / 2, 0.5, -TRADE_DESIGN_H / 2)
+		tradeTitle.TextSize = 14
+		invLabel.TextSize = 10
+		acceptBtn.TextSize = 12
+		cancelBtn.TextSize = 12
+		-- Restore desktop inventory strip and offer column sizes
+		invScroll.Size = UDim2.new(1, -24, 0, 68)
+		myOfferFrame.Position = UDim2.new(0, 12, 0, 132)
+		myOfferFrame.Size = UDim2.new(0.5, -14, 1, -178)
+		theirOfferFrame.Position = UDim2.new(0.5, 2, 0, 132)
+		theirOfferFrame.Size = UDim2.new(0.5, -14, 1, -178)
+		MobileWindowLayout.RestoreDesktopWindow(tradeUI, { draggable = true })
+	end
+end
+
 local function setTradeVisible(v)
 	tradeUI.Visible = v
+	if v then
+		applyTradeLayout()
+	end
 	if not v then
 		tradeIdActive = nil
 		myOffered = {}
@@ -684,9 +741,13 @@ if tradeInvite then
 		local tid = payload.tradeId
 		Notify.Toast(fromName .. " wants to trade (open Friends to accept)", C.blue, 4, nil, "trade")
 		-- Simple auto-accept UI: show popup prompt
+		-- FIX: Use AnchorPoint for centering instead of manual pixel offset,
+		-- and cap width to 90% on mobile so it fits small screens.
 		local prompt = Instance.new("Frame")
-		prompt.Size = UDim2.new(0, 320, 0, 120)
-		prompt.Position = UDim2.new(0.5, -160, 0.5, -60)
+		local isMobile = MobileWindowLayout.IsMobile()
+		prompt.Size = isMobile and UDim2.new(0.9, 0, 0, 120) or UDim2.new(0, 320, 0, 120)
+		prompt.AnchorPoint = Vector2.new(0.5, 0.5)
+		prompt.Position = UDim2.new(0.5, 0, 0.5, 0)
 		prompt.BackgroundColor3 = C.bg
 		prompt.BackgroundTransparency = 0.03
 		prompt.BorderSizePixel = 0
@@ -755,9 +816,12 @@ if pvpChallengeInvite then
 	pvpChallengeInvite.OnClientEvent:Connect(function(fromUserId, fromName)
 		fromName = fromName or ("User#" .. tostring(fromUserId))
 		Notify.Toast(fromName .. " wants to battle you!", Color3.fromRGB(255, 130, 80), 4, nil, "pvp")
+		-- FIX: Use AnchorPoint for centering; cap width to 90% on mobile
 		local prompt = Instance.new("Frame")
-		prompt.Size = UDim2.new(0, 320, 0, 120)
-		prompt.Position = UDim2.new(0.5, -160, 0.5, -60)
+		local isMobilePvP = MobileWindowLayout.IsMobile()
+		prompt.Size = isMobilePvP and UDim2.new(0.9, 0, 0, 120) or UDim2.new(0, 320, 0, 120)
+		prompt.AnchorPoint = Vector2.new(0.5, 0.5)
+		prompt.Position = UDim2.new(0.5, 0, 0.5, 0)
 		prompt.BackgroundColor3 = C.bg
 		prompt.BackgroundTransparency = 0.03
 		prompt.BorderSizePixel = 0
@@ -1090,6 +1154,10 @@ MobileWindowLayout.BindViewportUpdate(function()
 	if panel.Visible then
 		applyPanelScale(panel)
 		applyResponsiveContentLayout()
+	end
+	-- Re-layout trade window on viewport/orientation change so it stays within safe area
+	if tradeUI.Visible then
+		applyTradeLayout()
 	end
 end)
 

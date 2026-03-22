@@ -83,31 +83,66 @@ local function createDungeonBlock(position)
 	return model
 end
 
+-- Collect all DungeonPoint parts from biomes (same structure as CreatureSpawner)
+local function getAllDungeonPoints()
+	local points = {}
+	local biomesFolder = Workspace:FindFirstChild("Biomes")
+	if not biomesFolder then return points end
+
+	for _, biomeFolder in ipairs(biomesFolder:GetChildren()) do
+		if biomeFolder:IsA("Folder") then
+			for _, child in ipairs(biomeFolder:GetChildren()) do
+				if child:IsA("BasePart") and child.Name == "DungeonPoint" then
+					table.insert(points, child)
+				end
+			end
+		end
+	end
+	return points
+end
+
 -- -- SPAWN DUNGEON --
 
 local function spawnDungeon()
 	if activeDungeon then return end
 
-	-- Pick a random position at the outskirts
-	local radius = GameConfig.DungeonSpawnRadius
-	local angle = math.random() * math.pi * 2
-	local x = math.cos(angle) * radius
-	local z = math.sin(angle) * radius
+	local spawnPos
+	local dungeonPoints = getAllDungeonPoints()
 
-	-- Raycast down to find ground
-	local rayOrigin = Vector3.new(x, 500, z)
-	local rayDir = Vector3.new(0, -600, 0)
-	local rayParams = RaycastParams.new()
-	rayParams.FilterType = Enum.RaycastFilterType.Exclude
-	local result = Workspace:Raycast(rayOrigin, rayDir, rayParams)
-	local groundY = result and result.Position.Y or 5
-	local spawnPos = Vector3.new(x, groundY + 1, z)
+	if #dungeonPoints > 0 then
+		-- Spawn on top of a random DungeonPoint placed in the world
+		local chosen = dungeonPoints[math.random(1, #dungeonPoints)]
+		local pt = chosen.Position
+		-- Raycast down from slightly above the point to find ground (exclude DungeonPoint so we hit floor)
+		local rayOrigin = Vector3.new(pt.X, pt.Y + 20, pt.Z)
+		local rayDir = Vector3.new(0, -150, 0)
+		local rayParams = RaycastParams.new()
+		rayParams.FilterType = Enum.RaycastFilterType.Exclude
+		rayParams.FilterDescendantsInstances = { chosen }
+		local result = Workspace:Raycast(rayOrigin, rayDir, rayParams)
+		local groundY = result and result.Position.Y or pt.Y
+		spawnPos = Vector3.new(pt.X, groundY + 1, pt.Z)
+	else
+		-- Fallback: random position at outskirts when no DungeonPoints exist
+		local radius = GameConfig.DungeonSpawnRadius or 250
+		local angle = math.random() * math.pi * 2
+		local x = math.cos(angle) * radius
+		local z = math.sin(angle) * radius
+
+		local rayOrigin = Vector3.new(x, 500, z)
+		local rayDir = Vector3.new(0, -600, 0)
+		local rayParams = RaycastParams.new()
+		rayParams.FilterType = Enum.RaycastFilterType.Exclude
+		local result = Workspace:Raycast(rayOrigin, rayDir, rayParams)
+		local groundY = result and result.Position.Y or 5
+		spawnPos = Vector3.new(x, groundY + 1, z)
+	end
 
 	-- Create dungeon structure
 	local dungeonModel = createDungeonBlock(spawnPos)
 	activeDungeon = dungeonModel
 
-	print("[Dungeon] Spawned at (" .. math.floor(x) .. ", " .. math.floor(groundY) .. ", " .. math.floor(z) .. ")")
+	print("[Dungeon] Spawned at (" .. math.floor(spawnPos.X) .. ", " .. math.floor(spawnPos.Y) .. ", " .. math.floor(spawnPos.Z) .. ")")
 
 	-- Spawn legendary creatures on the platform
 	local minC, maxC = GameConfig.DungeonCreatureCount[1], GameConfig.DungeonCreatureCount[2]

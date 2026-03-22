@@ -1,3 +1,4 @@
+-- Last updated: 2026-03-21 00:34
 -- CaptureSystem.lua - ServerScriptService (ModuleScript)
 -- Capture fainted creatures for a gold cost based on rarity.
 -- After capture, sends slot availability so client can prompt for assignment.
@@ -7,6 +8,7 @@ local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
 local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
@@ -21,6 +23,28 @@ local CaptureSystem = {}
 local CREATURE_TAG = "WorldCreature"
 local captureCooldowns = {}
 local capturesInProgress = {}
+
+local badlandsSystemCache = nil
+
+local function getBadlandsSystem()
+	if badlandsSystemCache then
+		return badlandsSystemCache
+	end
+
+	local mod = ServerScriptService:FindFirstChild("BadlandsSystem")
+	if not mod then
+		return nil
+	end
+
+	local ok, result = pcall(require, mod)
+	if ok then
+		badlandsSystemCache = result
+		return result
+	end
+
+	warn("[CaptureSystem] Failed to require BadlandsSystem: " .. tostring(result))
+	return nil
+end
 
 -- Distance from a point to the closest point on the model's bounding box (so tall creatures can be captured from underneath).
 local function getDistanceToModel(point, creatureModel)
@@ -81,24 +105,40 @@ function CaptureSystem.TryCapture(player, creatureModel)
 		return false, "Must defeat creature first! Use your companion to faint it."
 	end
 
-	local data = PlayerDataManager.GetData(player)
-	if not data then return false, "Player data not loaded" end
-	if #data.inventory >= GameConfig.MaxInventorySize then
-		return false, "Inventory full"
+	local isBadlandsCapture = player:GetAttribute("InBadlands") == true
+		and creatureModel:GetAttribute("BadlandsCreature") == true
+
+	if isBadlandsCapture and player:GetAttribute("BadlandsLoading") then
+		return false, "Still loading into The Badlands..."
 	end
 
-	local creatureId = CreatureSpawner.GetCreatureId(creatureModel)
+	local creatureId = creatureModel:GetAttribute("CreatureId")
+	if not creatureId and CreatureSpawner and CreatureSpawner.GetCreatureId then
+		creatureId = CreatureSpawner.GetCreatureId(creatureModel)
+	end
 	if not creatureId then return false, "Unknown creature" end
 	local creatureInfo = CreatureData.GetById(creatureId)
 	if not creatureInfo then return false, "Invalid creature data" end
 
-	local cost = CreatureData.GetCaptureCost(creatureId)
-	-- Lucky buff: 25% capture cost reduction
-	if PlayerDataManager.HasBuff and PlayerDataManager.HasBuff(player, "lucky") then
-		cost = math.floor(cost * 0.75)
+	local data = nil
+	if not isBadlandsCapture then
+		data = PlayerDataManager.GetData(player)
+		if not data then return false, "Player data not loaded" end
+		if #data.inventory >= GameConfig.MaxInventorySize then
+			return false, "Inventory full"
+		end
 	end
-	if data.coins < cost then
-		return false, "Need " .. cost .. " gold (you have " .. data.coins .. ")"
+
+	local cost = 0
+	if not isBadlandsCapture then
+		cost = CreatureData.GetCaptureCost(creatureId)
+		-- Lucky buff: 25% capture cost reduction
+		if PlayerDataManager.HasBuff and PlayerDataManager.HasBuff(player, "lucky") then
+			cost = math.floor(cost * 0.75)
+		end
+		if data.coins < cost then
+			return false, "Need " .. cost .. " gold (you have " .. data.coins .. ")"
+		end
 	end
 
 	capturesInProgress[creatureModel] = player
@@ -140,6 +180,32 @@ function CaptureSystem.TryCapture(player, creatureModel)
 				return false, "Lost the capture! Return to the creature before the countdown ends."
 			end
 		end
+	end
+
+	if isBadlandsCapture then
+		local badlandsSystem = getBadlandsSystem()
+		if not badlandsSystem or not badlandsSystem.CaptureCreatureToBag then
+			capturesInProgress[creatureModel] = nil
+			return false, "Badlands bag system unavailable"
+		end
+
+		local ok, msg, bagInfo = badlandsSystem.CaptureCreatureToBag(player, creatureModel)
+		capturesInProgress[creatureModel] = nil
+		if not ok then
+			return false, msg or "Badlands capture failed"
+		end
+
+		local successEvent = events and events:FindFirstChild("CaptureSuccess")
+		if successEvent then
+			successEvent:FireClient(player, creatureId, bagInfo and bagInfo.uid or "", 0, {
+				badlands = true,
+				bagCount = bagInfo and bagInfo.bagCount or 0,
+				bagMax = bagInfo and bagInfo.bagMax or 0,
+				activeSlot = bagInfo and bagInfo.activeIndex or nil,
+			}, captureSessionId)
+		end
+
+		return true, msg or "Captured!"
 	end
 
 	-- Check if this was a leveled creature (freed from a base by AI raid)

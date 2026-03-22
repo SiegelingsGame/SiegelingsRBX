@@ -64,12 +64,13 @@ local function getDefaultData()
 		baseCreaturePositions = {},
 		friendsList  = {},  -- {userId1, userId2, ...} allowed through laser door
 		activeBuffs  = {},  -- {buffId = {expiresAt = tick, ...}, ...}
-		cosmetics    = {},  -- {owned = {id1=true, ...}, equipped = {trail="", aura=""}}
-		exterior     = {},  -- {owned = {id1=true, ...}, equipped = "HauntedHouse" or nil}
-		baseColor    = {},  -- {owned = {id1=true, ...}, equipped = "base_red" or nil}
+		cosmetics    = {owned = {}, equipped = {}},  -- {owned = {id1=true, ...}, equipped = {trail="", aura=""}}
+		exterior     = {owned = {}, equipped = nil}, -- nil equipped = standard gray base
+		baseColor    = {owned = {}, equipped = nil}, -- {owned = {id1=true, ...}, equipped = "base_red" or nil}
 		playerLevel  = 1,
 		playerXP     = 0,
 		ownedFloors  = {1},  -- array of floor numbers owned; starts with Floor 1
+		decorSlots   = {},   -- { [slotIndex] = { creatureId = "firsky" } } Floor 4 creature statues
 		eggs         = {},   -- { { uid, creatureId, level, rarity, hatchMinutes, createdAt }, ... }; place on base/defense to hatch
 		rebirthLevel = 0,    -- pilot rebirth level (0 = never rebirthed); bonuses apply to passive gold, damage, health
 		-- Zone doors / sigils: 4 boss sieglings (Ocean, Desert, Electric, Cave); 4 sigils open one door; gym win grants key for another
@@ -112,6 +113,58 @@ local function normalizeSlotArray(slots)
 		local v = slots[i] or slots[tostring(i)]
 		fixed[i] = (v and v ~= "") and tostring(v) or ""
 	end
+	return fixed
+end
+
+local function normalizeOwnedLookup(raw)
+	local fixed = {}
+	if type(raw) ~= "table" then
+		return fixed
+	end
+
+	for key, value in pairs(raw) do
+		if type(key) == "string" and key ~= "" and (value == true or value == "true" or value == 1) then
+			fixed[key] = true
+		elseif type(value) == "string" and value ~= "" then
+			fixed[value] = true
+		end
+	end
+
+	return fixed
+end
+
+local function normalizeCosmeticsData(cosmetics)
+	local fixed = { owned = {}, equipped = {} }
+	if type(cosmetics) ~= "table" then
+		return fixed
+	end
+
+	fixed.owned = normalizeOwnedLookup(cosmetics.owned or cosmetics)
+	if type(cosmetics.equipped) == "table" then
+		for slot, cosmeticId in pairs(cosmetics.equipped) do
+			if type(slot) == "string" and type(cosmeticId) == "string" and cosmeticId ~= "" then
+				fixed.equipped[slot] = cosmeticId
+				fixed.owned[cosmeticId] = true
+			end
+		end
+	end
+
+	return fixed
+end
+
+local function normalizeSingleUnlockData(data)
+	local fixed = { owned = {}, equipped = nil }
+	if type(data) ~= "table" then
+		return fixed
+	end
+
+	fixed.owned = normalizeOwnedLookup(data.owned or data)
+	local equipped = data.equipped
+	if type(equipped) == "string" and equipped ~= "" then
+		fixed.equipped = equipped
+		fixed.owned[equipped] = true
+	end
+
 	return fixed
 end
 
@@ -1385,6 +1438,9 @@ function PlayerDataManager.OnPlayerJoin(player)
 		if type(data.achievementMetrics.counters) ~= "table" then data.achievementMetrics.counters = {} end
 		if type(data.achievementMetrics.best) ~= "table" then data.achievementMetrics.best = {} end
 		if type(data.achievementMetrics.sets) ~= "table" then data.achievementMetrics.sets = {} end
+		data.cosmetics = normalizeCosmeticsData(data.cosmetics)
+		data.exterior = normalizeSingleUnlockData(data.exterior)
+		data.baseColor = normalizeSingleUnlockData(data.baseColor)
 		-- CRITICAL: normalize battleTeam keys from strings to numbers ONCE on load
 		data.battleTeam = normalizeBattleTeam(data.battleTeam)
 		if data.battleTeamEnabled == nil then data.battleTeamEnabled = true end  -- backfill for existing players
@@ -1698,16 +1754,47 @@ function PlayerDataManager.OwnsFloor(player, floorNum)
 	return false
 end
 
+-- Floor purchase config lookup tables (generalized for any number of floors)
+-- Maps floorNum → { cost, levelReq, prerequisiteFloor }
+local FLOOR_CONFIG = {
+	[2] = {
+		cost = function() return GameConfig.Floor2Cost or 500 end,
+		levelReq = function() return (GameConfig.DebugFloor2Level2 and 2) or GameConfig.Floor2LevelReq or 2 end,
+		prereq = nil, -- Floor 2 has no prerequisite floor
+	},
+	[3] = {
+		cost = function() return GameConfig.Floor3Cost or 5000 end,
+		levelReq = function() return GameConfig.Floor3LevelReq or 10 end,
+		prereq = 2,   -- Must own Floor 2
+	},
+	[4] = {
+		cost = function() return GameConfig.Floor4Cost or 25000 end,
+		levelReq = function() return GameConfig.Floor4LevelReq or 20 end,
+		prereq = 3,   -- Must own Floor 3 (Siegelord Arena)
+	},
+}
+
 function PlayerDataManager.BuyFloor(player, floorNum)
 	local d = playerCache[player.UserId]
 	if not d then return false, "No data" end
 	if PlayerDataManager.OwnsFloor(player, floorNum) then return false, "Already owned" end
-	local floor2Req = (GameConfig.DebugFloor2Level2 and 2) or GameConfig.Floor2LevelReq
-	local reqLevel = floorNum == 2 and floor2Req or GameConfig.Floor3LevelReq
+
+	local cfg = FLOOR_CONFIG[floorNum]
+	if not cfg then return false, "Invalid floor" end
+
+	-- Check level requirement
+	local reqLevel = cfg.levelReq()
 	if (d.playerLevel or 1) < reqLevel then return false, "Requires level " .. reqLevel end
-	if floorNum == 3 and not PlayerDataManager.OwnsFloor(player, 2) then return false, "Buy Floor 2 first" end
-	local cost = floorNum == 2 and GameConfig.Floor2Cost or GameConfig.Floor3Cost
+
+	-- Check prerequisite floor
+	if cfg.prereq and not PlayerDataManager.OwnsFloor(player, cfg.prereq) then
+		return false, "Buy Floor " .. cfg.prereq .. " first"
+	end
+
+	-- Check coins
+	local cost = cfg.cost()
 	if d.coins < cost then return false, "Not enough coins" end
+
 	d.coins = d.coins - cost
 	table.insert(d.ownedFloors, floorNum)
 	PlayerDataManager.NotifyAchievement("OnFloorUnlocked", player, floorNum)
@@ -1721,6 +1808,60 @@ function PlayerDataManager.GetMaxSlots(player, slotType)
 	local floors = d.ownedFloors or {1}
 	local perFloor = slotType == "defense" and GameConfig.DefensePointsPerFloor or GameConfig.IncomePointsPerFloor
 	return #floors * perFloor
+end
+
+-- -- DECOR SYSTEM (Floor 4 creature statues) --
+
+--- Place a creature statue on a DecorPoint slot.
+--- Deducts gold based on creature rarity from GameConfig.DecorCostByRarity.
+--- @param player  Player
+--- @param slotIndex number  Which DecorPoint (1-6)
+--- @param creatureId string  Creature ID from CreatureData (e.g. "firsky")
+--- @return boolean success, string message
+function PlayerDataManager.PlaceDecor(player, slotIndex, creatureId)
+	local d = playerCache[player.UserId]
+	if not d then return false, "No data" end
+	if not PlayerDataManager.OwnsFloor(player, 4) then return false, "Floor 4 required" end
+
+	local maxSlots = GameConfig.DecorPointsPerFloor4 or 6
+	if type(slotIndex) ~= "number" or slotIndex < 1 or slotIndex > maxSlots then
+		return false, "Invalid slot"
+	end
+
+	-- Look up creature rarity for cost
+	local CreatureData = require(game.ReplicatedStorage.Modules.CreatureData)
+	local info = CreatureData.GetById(creatureId)
+	if not info then return false, "Unknown creature" end
+
+	local costTable = GameConfig.DecorCostByRarity or {}
+	local cost = costTable[info.rarity] or 1000
+	if d.coins < cost then return false, "Need " .. cost .. " coins" end
+
+	d.coins = d.coins - cost
+	if not d.decorSlots then d.decorSlots = {} end
+	d.decorSlots[slotIndex] = { creatureId = creatureId }
+	return true, "Statue placed!"
+end
+
+--- Remove a creature statue from a DecorPoint slot. No refund.
+--- @param player  Player
+--- @param slotIndex number  Which DecorPoint (1-6)
+--- @return boolean success, string message
+function PlayerDataManager.RemoveDecor(player, slotIndex)
+	local d = playerCache[player.UserId]
+	if not d then return false, "No data" end
+	if not d.decorSlots or not d.decorSlots[slotIndex] then return false, "Slot empty" end
+	d.decorSlots[slotIndex] = nil
+	return true, "Statue removed"
+end
+
+--- Get all decor slots for a player.
+--- @param player Player
+--- @return table  { [slotIndex] = { creatureId = "..." }, ... }
+function PlayerDataManager.GetDecorSlots(player)
+	local d = playerCache[player.UserId]
+	if not d then return {} end
+	return d.decorSlots or {}
 end
 
 -- -- SELL CREATURE --

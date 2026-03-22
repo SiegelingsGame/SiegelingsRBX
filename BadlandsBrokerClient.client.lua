@@ -1,0 +1,994 @@
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- BadlandsBrokerClient.client.lua
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- Client-side UI for The Broker NPC in the Arena Hub.
+-- Listens for BadlandsContractData from the server (fired when player presses E
+-- on The Broker), then shows:
+--   • Broker dialogue text (typewriter effect)
+--   • ViewportFrame of the WANTED creature (the contract creature)
+--   • Scrolling list of qualifying creatures from the player's inventory
+--   • "Place" button (green) → selects a creature → "Accept" button
+--   • Accept triggers a 10-second recall vortex animation, then fires
+--     BadlandsOfferCreature to the server to sacrifice the creature and queue.
+--
+-- FIX #20: No client script existed to handle BadlandsContractData — pressing E
+--          on the Broker did nothing because no UI was created client-side.
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- Module requires
+-- ═══════════════════════════════════════════════════════════════════════════════
+local Modules = ReplicatedStorage:WaitForChild("Modules")
+local GameConfig = require(Modules:WaitForChild("GameConfig"))
+local CreatureData = require(Modules:WaitForChild("CreatureData"))
+local MobileWindowLayout = require(Modules:WaitForChild("MobileWindowLayout"))
+
+-- CodexModelViewer for 3D creature viewport
+local CodexModelViewer = nil
+do
+	local modScript = Modules:FindFirstChild("CodexModelViewer")
+	if modScript then
+		local ok, result = pcall(require, modScript)
+		if ok then CodexModelViewer = result end
+	end
+end
+
+-- NotificationManager for toasts
+local Notify = nil
+do
+	local notifScript = Modules:FindFirstChild("NotificationManager")
+	if notifScript then
+		local ok, result = pcall(require, notifScript)
+		if ok then Notify = result end
+	end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- Events folder
+-- ═══════════════════════════════════════════════════════════════════════════════
+local eventsFolder = ReplicatedStorage:WaitForChild("Events", 15)
+if not eventsFolder then
+	warn("[BadlandsBrokerClient] Events folder not found")
+	return
+end
+
+local contractDataEvt = eventsFolder:WaitForChild("BadlandsContractData", 10)
+local offerCreatureEvt = eventsFolder:WaitForChild("BadlandsOfferCreature", 10)
+local queueRejectEvt = eventsFolder:WaitForChild("BadlandsQueueReject", 10)
+local runStartEvt = eventsFolder:WaitForChild("BadlandsRunStart", 10)
+
+if not contractDataEvt then
+	warn("[BadlandsBrokerClient] BadlandsContractData event not found")
+	return
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- Color palette (matches game-wide UI)
+-- ═══════════════════════════════════════════════════════════════════════════════
+local C = {
+	bg        = Color3.fromRGB(14, 15, 22),
+	bgLight   = Color3.fromRGB(22, 24, 35),
+	card      = Color3.fromRGB(28, 30, 42),
+	accent    = Color3.fromRGB(180, 80, 255),   -- Broker purple
+	green     = Color3.fromRGB(80, 200, 100),
+	red       = Color3.fromRGB(220, 60, 60),
+	gold      = Color3.fromRGB(255, 200, 50),
+	white     = Color3.fromRGB(240, 240, 245),
+	textSec   = Color3.fromRGB(140, 145, 160),
+	grey      = Color3.fromRGB(80, 85, 100),
+	divider   = Color3.fromRGB(40, 42, 55),
+}
+
+-- Rarity colors for creature cards
+local RARITY_COLORS = {
+	Common    = Color3.fromRGB(160, 160, 160),
+	Uncommon  = Color3.fromRGB(80, 200, 80),
+	Rare      = Color3.fromRGB(60, 140, 255),
+	Epic      = Color3.fromRGB(180, 60, 255),
+	Legendary = Color3.fromRGB(255, 180, 30),
+}
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- State
+-- ═══════════════════════════════════════════════════════════════════════════════
+local screenGui = nil         -- ScreenGui instance
+local mainFrame = nil         -- Main broker panel
+local wantedViewer = nil      -- CodexModelViewer for wanted creature
+local selectedUid = nil       -- UID of creature player has selected to offer
+local selectedCreatureId = nil -- creature id of selected creature
+local isAnimating = false     -- True during recall animation
+local isBusy = false          -- Debounce
+local viewportLayoutUnbind = nil
+local brokerMenuVisible = false
+-- Set while Broker UI is open: recomputes inner layout for small mobile panels.
+local syncBrokerMobileContent = nil
+
+local function applyBrokerWindowLayout()
+	if not mainFrame then return end
+
+	if MobileWindowLayout.IsMobile() then
+		MobileWindowLayout.ApplyWindow(mainFrame, {
+			leftInset = 14,
+			rightInset = 14,
+			topInset = 10,
+			bottomInset = 14,
+			bottomMobileExtra = 20,
+			mobileDraggable = true,
+		})
+		mainFrame.AnchorPoint = Vector2.new(0, 0)
+		-- Inner content uses fixed pixel stacks; reflow after outer bounds are known.
+		if syncBrokerMobileContent then
+			task.defer(function()
+				syncBrokerMobileContent()
+				-- One more pass next frame (AbsoluteSize can settle after ApplyWindow).
+				task.defer(syncBrokerMobileContent)
+			end)
+		end
+		return
+	end
+
+	mainFrame.Size = UDim2.new(0, 520, 0, 480)
+	mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+	mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+	MobileWindowLayout.RestoreDesktopWindow(mainFrame, { draggable = true })
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- Helper: create rounded button
+-- ═══════════════════════════════════════════════════════════════════════════════
+local function makeButton(parent, text, color, size, position)
+	local btn = Instance.new("TextButton")
+	btn.Size = size
+	btn.Position = position
+	btn.BackgroundColor3 = color
+	btn.BackgroundTransparency = 0.1
+	btn.BorderSizePixel = 0
+	btn.Text = text
+	btn.TextColor3 = C.white
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 14
+	btn.AutoButtonColor = true
+	btn.Parent = parent
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+	return btn
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- Helper: typewriter text effect
+-- ═══════════════════════════════════════════════════════════════════════════════
+local function typewriterText(label, fullText, speed)
+	speed = speed or 0.03
+	label.Text = ""
+	for i = 1, #fullText do
+		label.Text = fullText:sub(1, i)
+		task.wait(speed)
+	end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- Close / cleanup the broker UI
+-- ═══════════════════════════════════════════════════════════════════════════════
+local function closeBrokerUI()
+	if viewportLayoutUnbind then
+		viewportLayoutUnbind()
+		viewportLayoutUnbind = nil
+	end
+	if brokerMenuVisible then
+		MobileWindowLayout.NotifyMenuClosed()
+		brokerMenuVisible = false
+	end
+	syncBrokerMobileContent = nil
+	if wantedViewer and wantedViewer.Destroy then
+		pcall(function() wantedViewer:Destroy() end)
+		wantedViewer = nil
+	end
+	if screenGui then
+		screenGui:Destroy()
+		screenGui = nil
+	end
+	mainFrame = nil
+	selectedUid = nil
+	selectedCreatureId = nil
+	isBusy = false
+	isAnimating = false
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- Play the 10-second recall vortex animation over the player character
+-- Vortex particles spiral upward, screen darkens, then the player is "pulled in"
+-- After 10 seconds, fires BadlandsOfferCreature to finalize the sacrifice
+-- ═══════════════════════════════════════════════════════════════════════════════
+local function playRecallAnimation(uid, onComplete)
+	isAnimating = true
+
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root then
+		isAnimating = false
+		if onComplete then onComplete() end
+		return
+	end
+
+	-- ── Screen overlay (darkens gradually) ──
+	local overlay = Instance.new("Frame")
+	overlay.Name = "RecallOverlay"
+	overlay.Size = UDim2.new(1, 0, 1, 0)
+	overlay.Position = UDim2.new(0, 0, 0, 0)
+	overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	overlay.BackgroundTransparency = 1
+	overlay.BorderSizePixel = 0
+	overlay.ZIndex = 100
+	overlay.Parent = screenGui
+
+	-- "Entering The Badlands..." text
+	local recallLabel = Instance.new("TextLabel")
+	recallLabel.Name = "RecallText"
+	recallLabel.Size = UDim2.new(0.6, 0, 0, 50)
+	recallLabel.Position = UDim2.new(0.2, 0, 0.4, 0)
+	recallLabel.BackgroundTransparency = 1
+	recallLabel.Text = ""
+	recallLabel.TextColor3 = C.accent
+	recallLabel.Font = Enum.Font.GothamBlack
+	recallLabel.TextSize = 28
+	recallLabel.TextTransparency = 0
+	recallLabel.ZIndex = 101
+	recallLabel.Parent = overlay
+
+	-- Countdown label
+	local countdownLabel = Instance.new("TextLabel")
+	countdownLabel.Name = "Countdown"
+	countdownLabel.Size = UDim2.new(0.4, 0, 0, 30)
+	countdownLabel.Position = UDim2.new(0.3, 0, 0.48, 0)
+	countdownLabel.BackgroundTransparency = 1
+	countdownLabel.Text = "10"
+	countdownLabel.TextColor3 = C.white
+	countdownLabel.Font = Enum.Font.GothamMedium
+	countdownLabel.TextSize = 22
+	countdownLabel.TextTransparency = 0
+	countdownLabel.ZIndex = 101
+	countdownLabel.Parent = overlay
+
+	-- Progress bar background
+	local barBg = Instance.new("Frame")
+	barBg.Name = "BarBG"
+	barBg.Size = UDim2.new(0.5, 0, 0, 8)
+	barBg.Position = UDim2.new(0.25, 0, 0.54, 0)
+	barBg.BackgroundColor3 = C.grey
+	barBg.BackgroundTransparency = 0.5
+	barBg.BorderSizePixel = 0
+	barBg.ZIndex = 101
+	barBg.Parent = overlay
+	Instance.new("UICorner", barBg).CornerRadius = UDim.new(0, 4)
+
+	local barFill = Instance.new("Frame")
+	barFill.Name = "BarFill"
+	barFill.Size = UDim2.new(0, 0, 1, 0)
+	barFill.BackgroundColor3 = C.accent
+	barFill.BorderSizePixel = 0
+	barFill.ZIndex = 102
+	barFill.Parent = barBg
+	Instance.new("UICorner", barFill).CornerRadius = UDim.new(0, 4)
+
+	-- ── 3D vortex particles around the player ──
+	local vortexParts = {}
+	local vortexFolder = Instance.new("Folder")
+	vortexFolder.Name = "RecallVortex"
+	vortexFolder.Parent = workspace
+
+	-- Create a ring of glowing particles around the player
+	local RING_COUNT = 12
+	for i = 1, RING_COUNT do
+		local p = Instance.new("Part")
+		p.Name = "VortexOrb" .. i
+		p.Shape = Enum.PartType.Ball
+		p.Size = Vector3.new(0.6, 0.6, 0.6)
+		p.Material = Enum.Material.Neon
+		p.Color = C.accent
+		p.Anchored = true
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p.CastShadow = false
+		p.Transparency = 0.3
+		p.Parent = vortexFolder
+		table.insert(vortexParts, p)
+	end
+
+	-- Main particle emitter on character
+	local emitterPart = Instance.new("Part")
+	emitterPart.Name = "RecallEmitter"
+	emitterPart.Size = Vector3.new(1, 1, 1)
+	emitterPart.Transparency = 1
+	emitterPart.Anchored = true
+	emitterPart.CanCollide = false
+	emitterPart.CanQuery = false
+	emitterPart.CanTouch = false
+	emitterPart.Parent = vortexFolder
+
+	local pe = Instance.new("ParticleEmitter")
+	pe.Name = "RecallParticles"
+	pe.Texture = "rbxassetid://5860841663" -- Star texture
+	pe.Color = ColorSequence.new(C.accent, Color3.fromRGB(100, 40, 180))
+	pe.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.2),
+		NumberSequenceKeypoint.new(0.8, 0.5),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	pe.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.3),
+		NumberSequenceKeypoint.new(0.5, 0.8),
+		NumberSequenceKeypoint.new(1, 0.1),
+	})
+	pe.Lifetime = NumberRange.new(0.8, 1.5)
+	pe.Rate = 60
+	pe.Speed = NumberRange.new(3, 8)
+	pe.SpreadAngle = Vector2.new(180, 180)
+	pe.LightEmission = 1
+	pe.LightInfluence = 0
+	pe.Acceleration = Vector3.new(0, 15, 0) -- Particles spiral upward
+	pe.Parent = emitterPart
+
+	-- ── Animation loop: 10 seconds ──
+	local RECALL_DURATION = 10
+	local startTime = tick()
+	local heartbeatConn
+
+	-- Typewriter the text
+	task.spawn(function()
+		typewriterText(recallLabel, "Entering The Badlands...", 0.06)
+	end)
+
+	heartbeatConn = RunService.Heartbeat:Connect(function()
+		local elapsed = tick() - startTime
+		local progress = math.clamp(elapsed / RECALL_DURATION, 0, 1)
+
+		-- Update countdown
+		local remaining = math.ceil(RECALL_DURATION - elapsed)
+		if remaining < 0 then remaining = 0 end
+		countdownLabel.Text = tostring(remaining)
+
+		-- Progress bar
+		barFill.Size = UDim2.new(progress, 0, 1, 0)
+
+		-- Darken overlay gradually (0 → 0.7 transparency → 0.3 transparency = more opaque)
+		overlay.BackgroundTransparency = 1 - (progress * 0.8)
+
+		-- Spin vortex orbs around the player with increasing speed + rising
+		local rootPos = root and root.Position or Vector3.new(0, 5, 0)
+		emitterPart.Position = rootPos
+
+		local angularSpeed = 2 + progress * 8 -- speeds up over time
+		local radius = 5 - progress * 3        -- closes in from 5 to 2 studs
+		local rise = progress * 10              -- rises from 0 to 10 studs
+
+		for idx, orb in ipairs(vortexParts) do
+			local angle = (idx / RING_COUNT) * math.pi * 2 + elapsed * angularSpeed
+			local orbRadius = math.max(0.5, radius)
+			local x = rootPos.X + math.cos(angle) * orbRadius
+			local z = rootPos.Z + math.sin(angle) * orbRadius
+			local y = rootPos.Y + (idx / RING_COUNT) * rise
+			orb.Position = Vector3.new(x, y, z)
+
+			-- Orbs shrink and brighten as they converge
+			local orbSize = 0.6 - progress * 0.3
+			orb.Size = Vector3.new(orbSize, orbSize, orbSize)
+			orb.Transparency = progress * 0.5
+		end
+
+		-- Done
+		if elapsed >= RECALL_DURATION then
+			heartbeatConn:Disconnect()
+
+			-- Flash white
+			overlay.BackgroundColor3 = Color3.fromRGB(200, 150, 255)
+			overlay.BackgroundTransparency = 0
+
+			-- Clean up vortex
+			vortexFolder:Destroy()
+
+			-- Fade out overlay after a beat
+			task.delay(0.5, function()
+				local fadeOut = TweenService:Create(overlay, TweenInfo.new(1, Enum.EasingStyle.Quad), {
+					BackgroundTransparency = 1,
+				})
+				fadeOut:Play()
+				fadeOut.Completed:Connect(function()
+					if overlay and overlay.Parent then overlay:Destroy() end
+				end)
+			end)
+
+			isAnimating = false
+			if onComplete then onComplete() end
+		end
+	end)
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- Build the Broker UI
+-- Called when BadlandsContractData arrives from the server.
+-- @param data table — { rarity, element, minLevel, description, dateKey,
+--                        qualifying, wantedCreatureId, brokerDialogue }
+-- ═══════════════════════════════════════════════════════════════════════════════
+local function showBrokerUI(data)
+	-- Close any existing UI
+	closeBrokerUI()
+
+	local qualifying = data.qualifying or {}
+	local dialogue = data.brokerDialogue or {}
+
+	-- ── ScreenGui ──
+	screenGui = Instance.new("ScreenGui")
+	screenGui.Name = "BadlandsBrokerUI"
+	screenGui.ResetOnSpawn = false
+	screenGui.DisplayOrder = 45
+	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	screenGui.Parent = playerGui
+
+	-- ── Main panel (centered, dark bg with purple accent stroke) ──
+	mainFrame = Instance.new("Frame")
+	mainFrame.Name = "BrokerPanel"
+	mainFrame.Size = UDim2.new(0, 520, 0, 480)
+	mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+	mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+	mainFrame.BackgroundColor3 = C.bg
+	mainFrame.BackgroundTransparency = 0.05
+	mainFrame.BorderSizePixel = 0
+	mainFrame.Active = true
+	mainFrame.Draggable = true
+	mainFrame.Parent = screenGui
+	Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 10)
+
+	local stroke = Instance.new("UIStroke", mainFrame)
+	stroke.Color = C.accent
+	stroke.Thickness = 2
+
+	-- ── Title bar ──
+	local titleBar = Instance.new("Frame")
+	titleBar.Name = "TitleBar"
+	titleBar.Size = UDim2.new(1, 0, 0, 40)
+	titleBar.BackgroundColor3 = C.bgLight
+	titleBar.BackgroundTransparency = 0.3
+	titleBar.BorderSizePixel = 0
+	titleBar.Parent = mainFrame
+	Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0, 10)
+
+	local titleLabel = Instance.new("TextLabel")
+	titleLabel.Size = UDim2.new(1, -80, 1, 0)
+	titleLabel.Position = UDim2.new(0, 16, 0, 0)
+	titleLabel.BackgroundTransparency = 1
+	titleLabel.Text = "⬥ The Broker ⬥"
+	titleLabel.TextColor3 = C.accent
+	titleLabel.Font = Enum.Font.GothamBlack
+	titleLabel.TextSize = 18
+	titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+	titleLabel.Parent = titleBar
+
+	-- Close button (X)
+	local closeBtn = Instance.new("TextButton")
+	closeBtn.Name = "CloseBtn"
+	closeBtn.Size = UDim2.new(0, 36, 0, 36)
+	closeBtn.Position = UDim2.new(1, -40, 0, 2)
+	closeBtn.BackgroundColor3 = C.red
+	closeBtn.BackgroundTransparency = 0.6
+	closeBtn.BorderSizePixel = 0
+	closeBtn.Text = "X"
+	closeBtn.TextColor3 = C.white
+	closeBtn.Font = Enum.Font.GothamBold
+	closeBtn.TextSize = 16
+	closeBtn.AutoButtonColor = true
+	closeBtn.Parent = titleBar
+	Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
+
+	closeBtn.MouseButton1Click:Connect(function()
+		if not isAnimating then
+			closeBrokerUI()
+		end
+	end)
+
+	-- ═══════════════════════════════════════════════════════════════════
+	-- LEFT COLUMN: Dialogue + Wanted Creature Viewport
+	-- ═══════════════════════════════════════════════════════════════════
+	local leftCol = Instance.new("Frame")
+	leftCol.Name = "LeftColumn"
+	leftCol.Size = UDim2.new(0.5, -8, 1, -48)
+	leftCol.Position = UDim2.new(0, 8, 0, 44)
+	leftCol.BackgroundTransparency = 1
+	leftCol.Parent = mainFrame
+
+	-- ── Dialogue box ──
+	local dialogueFrame = Instance.new("Frame")
+	dialogueFrame.Name = "DialogueFrame"
+	dialogueFrame.Size = UDim2.new(1, 0, 0, 80)
+	dialogueFrame.Position = UDim2.new(0, 0, 0, 0)
+	dialogueFrame.BackgroundColor3 = C.card
+	dialogueFrame.BackgroundTransparency = 0.3
+	dialogueFrame.BorderSizePixel = 0
+	dialogueFrame.Parent = leftCol
+	Instance.new("UICorner", dialogueFrame).CornerRadius = UDim.new(0, 8)
+
+	local dialogueLabel = Instance.new("TextLabel")
+	dialogueLabel.Name = "DialogueText"
+	dialogueLabel.Size = UDim2.new(1, -16, 1, -8)
+	dialogueLabel.Position = UDim2.new(0, 8, 0, 4)
+	dialogueLabel.BackgroundTransparency = 1
+	dialogueLabel.Text = ""
+	dialogueLabel.TextColor3 = C.white
+	dialogueLabel.Font = Enum.Font.GothamMedium
+	dialogueLabel.TextSize = 13
+	dialogueLabel.TextWrapped = true
+	dialogueLabel.TextXAlignment = Enum.TextXAlignment.Left
+	dialogueLabel.TextYAlignment = Enum.TextYAlignment.Top
+	dialogueLabel.Parent = dialogueFrame
+
+	-- Play dialogue typewriter (concatenate lines)
+	task.spawn(function()
+		local fullDialogue = table.concat(dialogue, "\n")
+		typewriterText(dialogueLabel, fullDialogue, 0.025)
+	end)
+
+	-- ── "WANTED" label ──
+	local wantedLabel = Instance.new("TextLabel")
+	wantedLabel.Name = "WantedLabel"
+	wantedLabel.Size = UDim2.new(1, 0, 0, 24)
+	wantedLabel.Position = UDim2.new(0, 0, 0, 86)
+	wantedLabel.BackgroundTransparency = 1
+	wantedLabel.Text = "WANTED"
+	wantedLabel.TextColor3 = C.gold
+	wantedLabel.Font = Enum.Font.GothamBlack
+	wantedLabel.TextSize = 16
+	wantedLabel.Parent = leftCol
+
+	-- ── Contract info label ──
+	local contractLabel = Instance.new("TextLabel")
+	contractLabel.Name = "ContractInfo"
+	contractLabel.Size = UDim2.new(1, 0, 0, 18)
+	contractLabel.Position = UDim2.new(0, 0, 0, 110)
+	contractLabel.BackgroundTransparency = 1
+	contractLabel.Text = (data.rarity or "?") .. " • " .. (data.element or "?") .. " • Lv" .. (data.minLevel or 1) .. "+"
+	contractLabel.TextColor3 = RARITY_COLORS[data.rarity] or C.textSec
+	contractLabel.Font = Enum.Font.GothamMedium
+	contractLabel.TextSize = 13
+	contractLabel.Parent = leftCol
+
+	-- ── ViewportFrame for wanted creature ──
+	local viewportContainer = Instance.new("Frame")
+	viewportContainer.Name = "ViewportContainer"
+	viewportContainer.Size = UDim2.new(1, 0, 0, 200)
+	viewportContainer.Position = UDim2.new(0, 0, 0, 134)
+	viewportContainer.BackgroundColor3 = C.card
+	viewportContainer.BackgroundTransparency = 0.2
+	viewportContainer.BorderSizePixel = 0
+	viewportContainer.ClipsDescendants = true
+	viewportContainer.Parent = leftCol
+	Instance.new("UICorner", viewportContainer).CornerRadius = UDim.new(0, 8)
+
+	local vpStroke = Instance.new("UIStroke", viewportContainer)
+	vpStroke.Color = RARITY_COLORS[data.rarity] or C.accent
+	vpStroke.Thickness = 1.5
+
+	-- Use CodexModelViewer if available for full 3D preview with themed lighting
+	if CodexModelViewer and data.wantedCreatureId then
+		wantedViewer = CodexModelViewer.new(viewportContainer, {
+			size = UDim2.new(1, 0, 1, 0),
+			autoRotate = true,
+			autoRotateSpeed = 0.4,
+			showFloor = true,
+			themedLighting = true,
+			interactable = true,
+			playIdleAnimation = true,
+		})
+		wantedViewer:SetCreature(data.wantedCreatureId)
+	else
+		-- Fallback: show a "?" placeholder
+		local placeholder = Instance.new("TextLabel")
+		placeholder.Size = UDim2.new(1, 0, 1, 0)
+		placeholder.BackgroundTransparency = 1
+		placeholder.Text = "?"
+		placeholder.TextColor3 = C.accent
+		placeholder.Font = Enum.Font.GothamBlack
+		placeholder.TextSize = 72
+		placeholder.Parent = viewportContainer
+	end
+
+	-- ═══════════════════════════════════════════════════════════════════
+	-- RIGHT COLUMN: Qualifying Creatures List + Action Button
+	-- ═══════════════════════════════════════════════════════════════════
+	local rightCol = Instance.new("Frame")
+	rightCol.Name = "RightColumn"
+	rightCol.Size = UDim2.new(0.5, -8, 1, -48)
+	rightCol.Position = UDim2.new(0.5, 4, 0, 44)
+	rightCol.BackgroundTransparency = 1
+	rightCol.Parent = mainFrame
+
+	-- ── "Your Sieglings" header ──
+	local listHeader = Instance.new("TextLabel")
+	listHeader.Name = "ListHeader"
+	listHeader.Size = UDim2.new(1, 0, 0, 24)
+	listHeader.Position = UDim2.new(0, 0, 0, 0)
+	listHeader.BackgroundTransparency = 1
+	listHeader.Text = "Your Qualifying Sieglings"
+	listHeader.TextColor3 = C.white
+	listHeader.Font = Enum.Font.GothamBold
+	listHeader.TextSize = 14
+	listHeader.TextXAlignment = Enum.TextXAlignment.Left
+	listHeader.Parent = rightCol
+
+	-- ── Scrolling list frame ──
+	local listFrame = Instance.new("ScrollingFrame")
+	listFrame.Name = "CreatureList"
+	listFrame.Size = UDim2.new(1, 0, 0, 310)
+	listFrame.Position = UDim2.new(0, 0, 0, 28)
+	listFrame.BackgroundColor3 = C.card
+	listFrame.BackgroundTransparency = 0.4
+	listFrame.BorderSizePixel = 0
+	listFrame.ScrollBarThickness = 6
+	listFrame.ScrollBarImageColor3 = C.grey
+	listFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+	listFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	listFrame.Parent = rightCol
+	Instance.new("UICorner", listFrame).CornerRadius = UDim.new(0, 8)
+
+	local listLayout = Instance.new("UIListLayout")
+	listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	listLayout.Padding = UDim.new(0, 4)
+	listLayout.Parent = listFrame
+
+	local listPadding = Instance.new("UIPadding")
+	listPadding.PaddingLeft = UDim.new(0, 4)
+	listPadding.PaddingRight = UDim.new(0, 4)
+	listPadding.PaddingTop = UDim.new(0, 4)
+	listPadding.PaddingBottom = UDim.new(0, 4)
+	listPadding.Parent = listFrame
+
+	-- ── Action button (Place / Accept) ──
+	local actionBtn = makeButton(
+		rightCol,
+		"Select a Siegling",
+		C.grey,
+		UDim2.new(1, 0, 0, 40),
+		UDim2.new(0, 0, 1, -44)
+	)
+	actionBtn.TextSize = 16
+	actionBtn.Name = "ActionBtn"
+
+	-- Track which creature card is currently highlighted
+	local selectedCard = nil
+
+	-- ── Update action button state ──
+	local actionState = "none" -- "none" | "place" | "accept"
+
+	local function updateActionButton()
+		if actionState == "none" then
+			actionBtn.Text = "Select a Siegling"
+			actionBtn.BackgroundColor3 = C.grey
+			actionBtn.BackgroundTransparency = 0.4
+		elseif actionState == "place" then
+			actionBtn.Text = "Place"
+			actionBtn.BackgroundColor3 = C.green
+			actionBtn.BackgroundTransparency = 0.1
+		elseif actionState == "accept" then
+			actionBtn.Text = "Accept — Sacrifice & Enter"
+			actionBtn.BackgroundColor3 = C.green
+			actionBtn.BackgroundTransparency = 0.1
+		end
+	end
+
+	-- ── Populate creature list ──
+	if #qualifying == 0 then
+		local noCreatures = Instance.new("TextLabel")
+		noCreatures.Size = UDim2.new(1, -8, 0, 60)
+		noCreatures.BackgroundTransparency = 1
+		noCreatures.Text = "You have no Sieglings that match today's contract.\n\nThe Broker demands:\n" .. (data.description or "???")
+		noCreatures.TextColor3 = C.textSec
+		noCreatures.Font = Enum.Font.GothamMedium
+		noCreatures.TextSize = 12
+		noCreatures.TextWrapped = true
+		noCreatures.Parent = listFrame
+	else
+		local MAX_QUALIFYING_SHOWN = 5
+		for i, creature in ipairs(qualifying) do
+			if i > MAX_QUALIFYING_SHOWN then break end
+			local card = Instance.new("TextButton")
+			card.Name = "Card_" .. (creature.uid or i)
+			card.Size = UDim2.new(1, -8, 0, 50)
+			card.BackgroundColor3 = C.bgLight
+			card.BackgroundTransparency = 0.2
+			card.BorderSizePixel = 0
+			card.Text = ""
+			card.AutoButtonColor = true
+			card.LayoutOrder = i
+			card.Parent = listFrame
+			Instance.new("UICorner", card).CornerRadius = UDim.new(0, 6)
+
+			local cardStroke = Instance.new("UIStroke", card)
+			cardStroke.Color = C.divider
+			cardStroke.Thickness = 1
+
+			-- Rarity indicator bar (left edge)
+			local rarityBar = Instance.new("Frame")
+			rarityBar.Name = "RarityBar"
+			rarityBar.Size = UDim2.new(0, 4, 1, -4)
+			rarityBar.Position = UDim2.new(0, 2, 0, 2)
+			rarityBar.BackgroundColor3 = RARITY_COLORS[creature.rarity] or C.grey
+			rarityBar.BorderSizePixel = 0
+			rarityBar.Parent = card
+			Instance.new("UICorner", rarityBar).CornerRadius = UDim.new(0, 2)
+
+			-- Creature name
+			local nameLabel = Instance.new("TextLabel")
+			nameLabel.Size = UDim2.new(1, -80, 0, 22)
+			nameLabel.Position = UDim2.new(0, 14, 0, 4)
+			nameLabel.BackgroundTransparency = 1
+			nameLabel.Text = creature.displayName or creature.id or "???"
+			nameLabel.TextColor3 = C.white
+			nameLabel.Font = Enum.Font.GothamBold
+			nameLabel.TextSize = 13
+			nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+			nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+			nameLabel.Parent = card
+
+			-- Details line: Lv, variant, element
+			local detailLabel = Instance.new("TextLabel")
+			detailLabel.Size = UDim2.new(1, -80, 0, 16)
+			detailLabel.Position = UDim2.new(0, 14, 0, 26)
+			detailLabel.BackgroundTransparency = 1
+			detailLabel.Text = "Lv" .. (creature.level or 1)
+				.. " • " .. (creature.variant or "Normal")
+				.. " • " .. (creature.element or "?")
+			detailLabel.TextColor3 = C.textSec
+			detailLabel.Font = Enum.Font.GothamMedium
+			detailLabel.TextSize = 11
+			detailLabel.TextXAlignment = Enum.TextXAlignment.Left
+			detailLabel.Parent = card
+
+			-- Rarity label (right side)
+			local rarityLabel = Instance.new("TextLabel")
+			rarityLabel.Size = UDim2.new(0, 70, 1, 0)
+			rarityLabel.Position = UDim2.new(1, -72, 0, 0)
+			rarityLabel.BackgroundTransparency = 1
+			rarityLabel.Text = creature.rarity or "?"
+			rarityLabel.TextColor3 = RARITY_COLORS[creature.rarity] or C.textSec
+			rarityLabel.Font = Enum.Font.GothamBold
+			rarityLabel.TextSize = 11
+			rarityLabel.TextXAlignment = Enum.TextXAlignment.Right
+			rarityLabel.Parent = card
+
+			-- Click handler: select this creature
+			card.MouseButton1Click:Connect(function()
+				if isBusy or isAnimating then return end
+
+				-- Deselect previous
+				if selectedCard then
+					local prevStroke = selectedCard:FindFirstChildWhichIsA("UIStroke")
+					if prevStroke then
+						prevStroke.Color = C.divider
+						prevStroke.Thickness = 1
+					end
+				end
+
+				-- Select this one
+				selectedCard = card
+				selectedUid = creature.uid
+				selectedCreatureId = creature.id
+				cardStroke.Color = C.green
+				cardStroke.Thickness = 2
+
+				-- Show the selected creature in the viewport
+				if wantedViewer and creature.id then
+					wantedViewer:SetCreature(creature.id)
+				end
+
+				-- Update button to "Place"
+				actionState = "place"
+				updateActionButton()
+			end)
+		end
+	end
+
+	-- ── Action button click handler ──
+	actionBtn.MouseButton1Click:Connect(function()
+		if isBusy or isAnimating then return end
+
+		if actionState == "place" and selectedUid then
+			-- Player clicked Place → advance to Accept
+			actionState = "accept"
+			updateActionButton()
+
+		elseif actionState == "accept" and selectedUid then
+			-- Player clicked Accept → start recall animation, then fire sacrifice
+			isBusy = true
+			actionBtn.Text = "Channeling..."
+			actionBtn.BackgroundColor3 = C.accent
+			actionBtn.BackgroundTransparency = 0.3
+
+			-- Hide the main panel
+			if mainFrame then
+				mainFrame.Visible = false
+			end
+
+			-- Play the 10-second recall animation
+			local uidToSacrifice = selectedUid
+			playRecallAnimation(uidToSacrifice, function()
+				-- Animation complete → fire the sacrifice to the server
+				if offerCreatureEvt then
+					offerCreatureEvt:FireServer(uidToSacrifice)
+				end
+				-- The server will validate, remove creature, queue, and teleport.
+				-- We keep the overlay for the server's BadlandsRunStart event to handle.
+				-- Close the broker UI after a short delay (server will teleport us)
+				task.delay(2, function()
+					closeBrokerUI()
+				end)
+			end)
+		end
+	end)
+
+	-- Initial button state
+	updateActionButton()
+
+	-- Mobile: fixed desktop pixel layout overflows short panels — size from AbsoluteSize,
+	-- shrink 3D viewport ~20%, let the creature list fill remaining height.
+	syncBrokerMobileContent = function()
+		if not mainFrame or not mainFrame.Parent then return end
+		if not MobileWindowLayout.IsMobile() then return end
+
+		local totalH = mainFrame.AbsoluteSize.Y
+		local totalW = mainFrame.AbsoluteSize.X
+		if totalH < 24 or totalW < 24 then return end
+
+		local margin = 6
+		local titleH = 36
+		titleBar.Size = UDim2.new(1, 0, 0, titleH)
+		titleLabel.TextSize = 16
+		closeBtn.Size = UDim2.new(0, 32, 0, 32)
+		closeBtn.Position = UDim2.new(1, -36, 0, 2)
+		closeBtn.TextSize = 15
+
+		local contentTop = titleH + 2
+		local contentH = totalH - contentTop - margin
+		local colGap = margin
+		local halfW = math.floor((totalW - margin * 2 - colGap) / 2)
+
+		leftCol.Size = UDim2.new(0, halfW, 0, contentH)
+		leftCol.Position = UDim2.new(0, margin, 0, contentTop)
+		rightCol.Size = UDim2.new(0, halfW, 0, contentH)
+		rightCol.Position = UDim2.new(0, margin + halfW + colGap, 0, contentTop)
+
+		-- Left stack: dialogue → wanted → contract → viewport (viewport ~20% shorter than filling remainder)
+		local dialogueH = math.clamp(math.floor(contentH * 0.15), 44, 64)
+		dialogueFrame.Size = UDim2.new(1, 0, 0, dialogueH)
+		dialogueFrame.Position = UDim2.new(0, 0, 0, 0)
+		dialogueLabel.TextSize = 11
+
+		local y = dialogueH + 3
+		wantedLabel.Size = UDim2.new(1, 0, 0, 17)
+		wantedLabel.Position = UDim2.new(0, 0, 0, y)
+		wantedLabel.TextSize = 13
+		y = y + 17
+
+		contractLabel.Size = UDim2.new(1, 0, 0, 15)
+		contractLabel.Position = UDim2.new(0, 0, 0, y)
+		contractLabel.TextSize = 11
+		y = y + 15 + 4
+
+		local remainingForVp = math.max(0, contentH - y - margin)
+		-- ~20% smaller than filling the leftover column (was fixed 200px; cap ~160)
+		local vpH = math.floor(remainingForVp * 0.80)
+		vpH = math.clamp(vpH, 72, math.min(160, remainingForVp))
+		viewportContainer.Position = UDim2.new(0, 0, 0, y)
+		viewportContainer.Size = UDim2.new(1, 0, 0, vpH)
+
+		local ph = viewportContainer:FindFirstChildWhichIsA("TextLabel")
+		if ph and ph.Name ~= "DialogueText" then
+			ph.TextSize = 48
+		end
+
+		-- Right: header + flexible ScrollingFrame + pinned action button
+		local headerH = 20
+		listHeader.Size = UDim2.new(1, 0, 0, headerH)
+		listHeader.TextSize = 12
+
+		local actionH = 36
+		actionBtn.Size = UDim2.new(1, 0, 0, actionH)
+		actionBtn.Position = UDim2.new(0, 0, 1, -(actionH + 4))
+
+		local listTop = headerH + 4
+		local listPadBottom = actionH + 10
+		local listH = contentH - listTop - listPadBottom
+		listFrame.Position = UDim2.new(0, 0, 0, listTop)
+		listFrame.Size = UDim2.new(1, 0, 0, math.max(72, listH))
+		listFrame.ScrollBarThickness = 5
+
+		-- Long "no creatures" copy must scroll, not clip
+		for _, child in ipairs(listFrame:GetChildren()) do
+			if child:IsA("TextLabel") then
+				child.Size = UDim2.new(1, -8, 0, 0)
+				child.AutomaticSize = Enum.AutomaticSize.Y
+			end
+		end
+	end
+
+	applyBrokerWindowLayout()
+	if viewportLayoutUnbind then
+		viewportLayoutUnbind()
+		viewportLayoutUnbind = nil
+	end
+	viewportLayoutUnbind = MobileWindowLayout.BindViewportUpdate(function()
+		applyBrokerWindowLayout()
+		if syncBrokerMobileContent then
+			task.defer(syncBrokerMobileContent)
+		end
+	end)
+	MobileWindowLayout.NotifyMenuOpened()
+	brokerMenuVisible = true
+
+	-- ── Entrance animation: slide+fade desktop, fade mobile ──
+	if MobileWindowLayout.IsMobile() then
+		mainFrame.BackgroundTransparency = 1
+		TweenService:Create(mainFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			BackgroundTransparency = 0.05,
+		}):Play()
+	else
+		mainFrame.Position = UDim2.new(0.5, 0, 0.6, 0)
+		mainFrame.BackgroundTransparency = 1
+		local entranceTween = TweenService:Create(mainFrame, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+			Position = UDim2.new(0.5, 0, 0.5, 0),
+			BackgroundTransparency = 0.05,
+		})
+		entranceTween:Play()
+	end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- EVENT LISTENERS
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+-- BadlandsContractData: Server sends contract info when player presses E on Broker
+contractDataEvt.OnClientEvent:Connect(function(data)
+	if not data then return end
+	showBrokerUI(data)
+end)
+
+-- BadlandsQueueReject: Server rejected the sacrifice or queue attempt
+if queueRejectEvt then
+	queueRejectEvt.OnClientEvent:Connect(function(message)
+		if Notify and Notify.Toast then
+			Notify.Toast(message or "Rejected by The Broker.", C.red, 4)
+		end
+		-- If we're in the recall animation, cancel it
+		if isAnimating then
+			isAnimating = false
+		end
+		closeBrokerUI()
+	end)
+end
+
+-- BadlandsRunStart: Server accepted the sacrifice (or run actually started)
+if runStartEvt then
+	runStartEvt.OnClientEvent:Connect(function(data)
+		if not data then return end
+		if data.accepted and data.sacrificeMessage then
+			-- Sacrifice was accepted — show toast
+			if Notify and Notify.Toast then
+				Notify.Toast(data.sacrificeMessage, C.accent, 5)
+			end
+		end
+		-- If a full run is starting (has runId), close the UI
+		if data.runId then
+			closeBrokerUI()
+			if Notify and Notify.Toast then
+				Notify.Toast("The Badlands await...", C.accent, 3)
+			end
+		end
+	end)
+end
+
+print("[BadlandsBrokerClient] Initialized — listening for Broker interactions")

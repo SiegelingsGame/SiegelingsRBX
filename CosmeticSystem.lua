@@ -13,6 +13,18 @@ local CosmeticSystem = {}
 
 local PlayerDataManager
 
+local function savePlayerCustomization(player)
+	if not player or not PlayerDataManager or not PlayerDataManager.SavePlayer then
+		return
+	end
+
+	task.spawn(function()
+		pcall(function()
+			PlayerDataManager.SavePlayer(player)
+		end)
+	end)
+end
+
 -- Cosmetic config lookup
 local function getCosmeticConfig(cosmeticId)
 	for _, item in ipairs(GameConfig.CosmeticItems) do
@@ -252,6 +264,7 @@ function CosmeticSystem.Init(pdm)
 			-- Auto-equip on purchase
 			PlayerDataManager.EquipCosmetic(player, config.slot, cosmeticId)
 			applyAllCosmetics(player)
+			savePlayerCustomization(player)
 
 			-- Update coins
 			local d = PlayerDataManager.GetData(player)
@@ -293,6 +306,7 @@ function CosmeticSystem.Init(pdm)
 			end
 			PlayerDataManager.EquipCosmetic(player, slot, cosmeticId)
 			applyAllCosmetics(player)
+			savePlayerCustomization(player)
 			return true, cosmeticId and "Equipped!" or "Unequipped"
 		end
 	end

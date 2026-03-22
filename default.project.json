@@ -139,6 +139,18 @@
       },
       "KnightBaseSystem": {
         "$path": "KnightBaseSystem.lua"
+      },
+      "MountSystem": {
+        "$path": "MountSystem.lua"
+      },
+      "GymBattleSystem": {
+        "$path": "GymBattleSystem.lua"
+      },
+      "BadlandsSystem": {
+        "$path": "BadlandsSystem.lua"
+      },
+      "DecorSystem": {
+        "$path": "DecorSystem.lua"
       }
     },
 
@@ -236,6 +248,21 @@
         },
         "KnightBaseClient": {
           "$path": "KnightBaseClient.client.lua"
+        },
+        "MountClient": {
+          "$path": "MountClient.client.lua"
+        },
+        "DecorClient": {
+          "$path": "DecorClient.client.lua"
+        },
+        "GymJumbotronClient": {
+          "$path": "GymJumbotronClient.client.lua"
+        },
+        "BadlandsBrokerClient": {
+          "$path": "BadlandsBrokerClient.client.lua"
+        },
+        "BadlandsClient": {
+          "$path": "BadlandsClient.client.lua"
         }
       }
     },

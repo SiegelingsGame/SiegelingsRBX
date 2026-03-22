@@ -271,6 +271,7 @@ local COMPANION_STAND_UP_ANGLES = {
 	purseus = {-180, 0, 0},
 	pursepursula = {-180, 0, 0},
 	skydon = {-180, 0, 0},
+	applehead = {-90, 0, 0},
 }
 
 local function needsFacingCorrection(model)
@@ -1448,6 +1449,9 @@ end
 
 function FavoriteCreatureSystem.SpawnCompanion(player)
 	local userId = player.UserId
+	if player:GetAttribute("InBadlands") then return end
+	-- Don't spawn companion while player is mounted (mount and companion are mutually exclusive)
+	if player:GetAttribute("IsMounted") == true then return end
 	if spawnLocks[userId] then return end -- prevent double spawn (e.g. SetFavorite + CharacterAdded)
 	spawnLocks[userId] = true
 	FavoriteCreatureSystem.DespawnCompanion(player)
@@ -1872,5 +1876,8 @@ function FavoriteCreatureSystem.Init(playerDataMgr, creatureSpawnerRef, creature
 	end)
 
 end
+
+-- Exported so MountSystem can apply the same rotation to mounted creatures
+FavoriteCreatureSystem.GetCompanionRotationOffset = getCompanionRotationOffset
 
 return FavoriteCreatureSystem

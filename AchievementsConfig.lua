@@ -90,6 +90,11 @@ end
 local STANDARD_THRESHOLDS = { 1, 10, 25, 50, 100 }
 local EVOLUTION_THRESHOLDS = { 1, 5, 15, 30, 60 }
 local ELEMENT_EVOLUTION_THRESHOLDS = { 1, 3, 8, 15, 30 }
+local EVOLUTION_RARITY_THRESHOLDS = {
+	Common = { 1, 3, 8, 15, 30 },
+	Uncommon = { 1, 3, 8, 15, 30 },
+	Rare = { 1, 2, 5, 10, 20 },
+}
 local HOLDING_THRESHOLDS = { 5, 10, 20, 35, 50 }
 local SPECIES_THRESHOLDS = { 5, 15, 30, 50, 75 }
 local DISTINCT_ELEMENT_THRESHOLDS = { 1, 2, 3, 5, 7 }
@@ -394,6 +399,29 @@ for _, element in ipairs(AchievementsConfig.EvolvingElements) do
 	})
 end
 
+local evolutionRarityChains = {
+	{ rarity = "Common", glyph = "C" },
+	{ rarity = "Uncommon", glyph = "U" },
+	{ rarity = "Rare", glyph = "R" },
+}
+
+for _, rarityEntry in ipairs(evolutionRarityChains) do
+	local rarity = rarityEntry.rarity
+	addChain({
+		id = "evolution_rarity_" .. string.lower(rarity),
+		category = "Evolution",
+		subcategory = "Rarity Evolution",
+		chainName = rarity .. " Ascension",
+		badgeGlyph = rarityEntry.glyph,
+		thresholds = EVOLUTION_RARITY_THRESHOLDS[rarity],
+		titles = makeTitles(rarity, ASCENT_LADDER),
+		description = function(required)
+			return ("Evolve %d %s Sieglings."):format(required, rarity)
+		end,
+		metric = metricCounter("evolution.rarity." .. rarity),
+	})
+end
+
 addChain({
 	id = "evolution_families_total",
 	category = "Evolution",
@@ -489,7 +517,7 @@ addChain({
 	description = function(required)
 		return ("Win %d arena battles."):format(required)
 	end,
-	metric = metricDataPath({ "stats", "arenaWins" }),
+	metric = metricCounter("battle.arenaWins"),
 })
 
 addChain({
@@ -518,7 +546,7 @@ addChain({
 		return ("Win %d total battles across arena and gyms."):format(required)
 	end,
 	metric = metricSum({
-		metricDataPath({ "stats", "arenaWins" }),
+		metricCounter("battle.arenaWins"),
 		metricCounter("battle.gymWins"),
 	}),
 })
@@ -534,7 +562,7 @@ addChain({
 	description = function(required)
 		return ("Reach an arena win streak of %d."):format(required)
 	end,
-	metric = metricDataPath({ "stats", "arenaMaxStreak" }),
+	metric = metricBest("battle.arenaStreak"),
 })
 
 addChain({

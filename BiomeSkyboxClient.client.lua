@@ -33,7 +33,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local localPlayer = Players.LocalPlayer
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- CONFIGURATION
+-- CONFIGURATION.
 -- ══════════════════════════════════════════════════════════════════════════════
 
 --- Maximum studs above a baseplate/part that still counts as "over" it
@@ -262,6 +262,29 @@ local function isOverPart(position, part, verticalBuffer)
 	return true
 end
 
+--- Check if a world position is within a Part's XZ footprint, ignoring height.
+--- Used to ensure outer baseplates always take priority over inner wedges even
+--- when the player is far above the baseplate (beyond VERTICAL_BUFFER).
+--- FIX: Prevents inner wedge skybox from showing when the player is above an
+--- outer baseplate but beyond its vertical buffer.
+--- @param position Vector3 — player world position
+--- @param part     BasePart
+--- @return boolean
+local function isOverPartXZ(position, part)
+	local cf = part.CFrame
+	local size = part.Size
+	local localPos = cf:PointToObjectSpace(position)
+
+	local halfX = size.X / 2
+	local halfZ = size.Z / 2
+
+	-- XZ bounds only — no height check
+	if math.abs(localPos.X) > halfX then return false end
+	if math.abs(localPos.Z) > halfZ then return false end
+
+	return true
+end
+
 --- Normalize an angle to the range (-π, π].
 --- @param a number — angle in radians
 --- @return number
@@ -324,6 +347,17 @@ local function getSkyForPosition(position)
 	for _, part in ipairs(roadPartList) do
 		if isOverPart(position, part, GROUND_VERTICAL_BUFFER) then
 			return DEFAULT_SKY
+		end
+	end
+
+	-- Priority 3.5: XZ-only outer baseplate check (no height limit)
+	-- FIX: If the player is anywhere above an outer baseplate's XZ footprint
+	-- (even far above it, beyond VERTICAL_BUFFER), use the outer sky.
+	-- This prevents inner wedge radial detection from overriding the outer
+	-- baseplate skybox when the inner wedge radius extends into outer territory.
+	for _, zone in ipairs(outerZones) do
+		if isOverPartXZ(position, zone.part) then
+			return zone.sky
 		end
 	end
 
@@ -426,6 +460,8 @@ local function setSky(skyName)
 	if not currentSkyName then
 		newSky.Parent = Lighting
 		currentSkyName = skyName
+		-- Publish sky name so other systems (e.g. GameplayMusic) can react to biome changes
+		localPlayer:SetAttribute("CurrentSkyName", skyName)
 		return
 	end
 
@@ -433,6 +469,8 @@ local function setSky(skyName)
 	local oldSkyName = currentSkyName
 	local oldSky = skyCache[oldSkyName]
 	currentSkyName = skyName
+	-- Publish sky name so other systems (e.g. GameplayMusic) can react to biome changes
+	localPlayer:SetAttribute("CurrentSkyName", skyName)
 
 	-- Bump transition ID so any in-progress transition cancels itself
 	transitionId += 1
@@ -510,6 +548,12 @@ setSky(DEFAULT_SKY)
 -- Runs on Heartbeat with a configurable check interval for performance.
 -- ══════════════════════════════════════════════════════════════════════════════
 
+-- DEBUG: Print sky detection every few seconds to diagnose biome detection issues.
+-- Set to false to disable. Prints position, detected sky, and which priority matched.
+local DEBUG_SKY_DETECTION = true
+local debugLastPrint = 0
+local DEBUG_PRINT_INTERVAL = 3  -- seconds between debug prints
+
 task.spawn(function()
 	local interval = math.max(0.05, CHECK_INTERVAL)
 	while true do
@@ -525,6 +569,26 @@ task.spawn(function()
 		end
 
 		local skyName = getSkyForPosition(rootPart.Position)
+
+		-- Debug: log what we're detecting
+		if DEBUG_SKY_DETECTION and (os.clock() - debugLastPrint) > DEBUG_PRINT_INTERVAL then
+			debugLastPrint = os.clock()
+			local pos = rootPart.Position
+			print(string.format("[BiomeSkybox] DEBUG pos=(%.0f, %.0f, %.0f) → sky=%s (current=%s)",
+				pos.X, pos.Y, pos.Z, tostring(skyName), tostring(currentSkyName)))
+			-- Also check each outer zone individually
+			for _, zone in ipairs(outerZones) do
+				local hit = isOverPart(pos, zone.part, VERTICAL_BUFFER)
+				local hitXZ = isOverPartXZ(pos, zone.part)
+				if hit or hitXZ then
+					print(string.format("  [Outer] %s: overPart=%s, overPartXZ=%s, partPos=(%.0f,%.0f,%.0f), partSize=(%.0f,%.0f,%.0f)",
+						zone.sky, tostring(hit), tostring(hitXZ),
+						zone.part.Position.X, zone.part.Position.Y, zone.part.Position.Z,
+						zone.part.Size.X, zone.part.Size.Y, zone.part.Size.Z))
+				end
+			end
+		end
+
 		setSky(skyName)
 	end
 end)

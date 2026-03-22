@@ -4,6 +4,7 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local MobileWindowLayout = require(ReplicatedStorage.Modules:WaitForChild("MobileWindowLayout"))
@@ -32,6 +33,53 @@ local C = {
 	muted = Color3.fromRGB(120, 125, 140),
 	white = Color3.new(1, 1, 1),
 }
+
+local TOP_BADGE_WIDTH = 36
+local TOP_BADGE_HEIGHT = 42
+local TOP_BADGE_GAP = 8
+local TOP_BADGE_START_SLOT = 2
+local TOP_BADGE_DISPLAY_ORD = 96
+local TOP_BADGE_BG = Color3.fromRGB(18, 22, 32)
+local TOP_BADGE_ACCENT = Color3.fromRGB(220, 180, 60)
+
+local function emoji(...)
+	return utf8.char(...)
+end
+
+local BUFF_EMOJIS = {
+	shield = emoji(0x1F6E1, 0xFE0F),
+	highjump = emoji(0x1F680),
+	speed = emoji(0x26A1, 0xFE0F),
+	invuln = emoji(0x2728),
+	invis = emoji(0x1F47B),
+	swap = emoji(0x1F504),
+	lowgrav = emoji(0x1F319),
+	regen = emoji(0x2764, 0xFE0F),
+	doublejump = emoji(0x1F45F),
+	glide = emoji(0x1FA82),
+	xpboost = emoji(0x2B50),
+	coinboost = emoji(0x1F4B0),
+	haste = emoji(0x1F4A8),
+	giant = emoji(0x1F5FF),
+	glow = emoji(0x1F31F),
+	antifall = emoji(0x1FAB6),
+	swimspeed = emoji(0x1F42C),
+	lucky = emoji(0x1F340),
+}
+
+local buffConfigById = {}
+for _, item in ipairs(GameConfig.BuffShopItems) do
+	buffConfigById[item.id] = item
+end
+
+local function getBuffDisplayName(buffId)
+	local config = buffConfigById[buffId]
+	return (config and config.name) or buffId
+end
+
+local function getBuffEmoji(buffId)
+	return BUFF_EMOJIS[buffId] or emoji(0x2728)
+end
 
 -- Panel scales with viewport (same pattern as InventoryUIManager); width +25%
 local PANEL_DESIGN_W = 550
@@ -67,6 +115,7 @@ local function applyPanelScale(pnl)
 end
 
 -- Simple full-screen FX when a buff activates
+local sg
 local function playBuffActivatedFX(buffId)
 	local existing = sg:FindFirstChild("BuffFX")
 	if existing then
@@ -107,12 +156,23 @@ local function playBuffActivatedFX(buffId)
 	lbl.Size = UDim2.new(1, -16, 1, -16)
 	lbl.Position = UDim2.new(0, 8, 0, 8)
 	lbl.BackgroundTransparency = 1
-	lbl.Text = "BUFF ACTIVE"
+	lbl.Text = getBuffEmoji(buffId)
 	lbl.TextColor3 = Color3.new(1, 1, 1)
 	lbl.Font = Enum.Font.GothamBlack
-	lbl.TextScaled = true
+	lbl.TextSize = 54
 	lbl.ZIndex = 52
 	lbl.Parent = circle
+
+	local subLbl = Instance.new("TextLabel")
+	subLbl.Size = UDim2.new(1, -16, 0, 20)
+	subLbl.Position = UDim2.new(0, 8, 1, -34)
+	subLbl.BackgroundTransparency = 1
+	subLbl.Text = "BUFF ACTIVE"
+	subLbl.TextColor3 = Color3.new(1, 1, 1)
+	subLbl.Font = Enum.Font.GothamBlack
+	subLbl.TextSize = 13
+	subLbl.ZIndex = 52
+	subLbl.Parent = circle
 
 	-- Pulse + fade out
 	local tweenIn = TweenService:Create(circle, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
@@ -139,6 +199,7 @@ local function playBuffActivatedFX(buffId)
 			Transparency = 1,
 		}):Play()
 		TweenService:Create(lbl, TweenInfo.new(0.3), { TextTransparency = 1 }):Play()
+		TweenService:Create(subLbl, TweenInfo.new(0.3), { TextTransparency = 1 }):Play()
 		task.delay(0.45, function()
 			if fx.Parent then
 				fx:Destroy()
@@ -148,7 +209,7 @@ local function playBuffActivatedFX(buffId)
 end
 
 -- -- SCREEN GUI --
-local sg = Instance.new("ScreenGui")
+sg = Instance.new("ScreenGui")
 sg.Name = "BuffShopGUI"; sg.ResetOnSpawn = false; sg.DisplayOrder = 30; sg.Parent = playerGui
 
 -- Main panel (size/position set on open via applyPanelScale)
@@ -202,7 +263,6 @@ scroll.BackgroundTransparency = 1; scroll.BorderSizePixel = 0
 scroll.ScrollBarThickness = 4; scroll.ScrollBarImageColor3 = C.muted
 scroll.Parent = panel
 
-local buffBar
 local function applyResponsiveContentLayout()
 	local mobile = MobileWindowLayout.IsMobile()
 	titleLbl.TextSize = mobile and 22 or 18
@@ -212,137 +272,219 @@ local function applyResponsiveContentLayout()
 	closeBtn.TextSize = mobile and 16 or 14
 	scroll.Size = mobile and UDim2.new(1, -12, 1, -60) or UDim2.new(1, -20, 1, -55)
 	scroll.Position = mobile and UDim2.new(0, 6, 0, 50) or UDim2.new(0, 10, 0, 48)
-	buffBar.Position = mobile and UDim2.new(0.5, 0, 1, -164) or UDim2.new(0.5, 0, 1, -120)
 end
 
 local layout = Instance.new("UIListLayout")
 layout.SortOrder = Enum.SortOrder.LayoutOrder
 layout.Padding = UDim.new(0, 6); layout.Parent = scroll
 
--- -- ACTIVE BUFFS HUD (badge style) - defined before buildShopItems so click handlers can call updateActiveBuffsDisplay
-buffBar = Instance.new("Frame")
-buffBar.Name = "ActiveBuffs"
-buffBar.Size = UDim2.new(0, 400, 0, 52)
-buffBar.AnchorPoint = Vector2.new(0.5, 1)
-buffBar.Position = UDim2.new(0.5, 0, 1, -120)
-buffBar.BackgroundTransparency = 1
-buffBar.Parent = sg
+local topBuffBadgeGui
+local topBuffBadgeRow
+local topBuffBadgeEntries = {}
+local topBuffPulseConn
 
-local buffLayout = Instance.new("UIListLayout")
-buffLayout.FillDirection = Enum.FillDirection.Horizontal
-buffLayout.Padding = UDim.new(0, 8)
-buffLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-buffLayout.SortOrder = Enum.SortOrder.LayoutOrder
-buffLayout.Parent = buffBar
+local function ensureTopBuffBadgeGui()
+	if topBuffBadgeGui and topBuffBadgeGui.Parent then
+		return
+	end
 
-local function getBuffShortName(buffId)
-	for _, item in ipairs(GameConfig.BuffShopItems) do
-		if item.id == buffId then
-			local n = item.name or buffId
-			if #n > 8 then n = n:sub(1, 8) end
-			return n
+	topBuffBadgeGui = Instance.new("ScreenGui")
+	topBuffBadgeGui.Name = "ActiveBuffTopBadges"
+	topBuffBadgeGui.DisplayOrder = TOP_BADGE_DISPLAY_ORD
+	topBuffBadgeGui.ResetOnSpawn = false
+	topBuffBadgeGui.IgnoreGuiInset = true
+	topBuffBadgeGui.Parent = playerGui
+
+	topBuffBadgeRow = Instance.new("Frame")
+	topBuffBadgeRow.Name = "BadgeRow"
+	topBuffBadgeRow.Size = UDim2.fromOffset(0, TOP_BADGE_HEIGHT)
+	topBuffBadgeRow.AutomaticSize = Enum.AutomaticSize.X
+	topBuffBadgeRow.BackgroundTransparency = 1
+	topBuffBadgeRow.AnchorPoint = Vector2.new(0, 0.5)
+	topBuffBadgeRow.Visible = false
+	topBuffBadgeRow.Parent = topBuffBadgeGui
+
+	local rowLayout = Instance.new("UIListLayout")
+	rowLayout.FillDirection = Enum.FillDirection.Horizontal
+	rowLayout.Padding = UDim.new(0, TOP_BADGE_GAP)
+	rowLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	rowLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	rowLayout.Parent = topBuffBadgeRow
+end
+
+local function positionTopBuffBadgeRow()
+	ensureTopBuffBadgeGui()
+
+	local notifGui = playerGui:FindFirstChild("NotificationGUI")
+	local tickerBar = notifGui and notifGui:FindFirstChild("TickerBar")
+
+	if tickerBar then
+		local ap = tickerBar.AbsolutePosition
+		local as = tickerBar.AbsoluteSize
+		local xOffset = ap.X + as.X + TOP_BADGE_GAP + TOP_BADGE_START_SLOT * (TOP_BADGE_WIDTH + TOP_BADGE_GAP)
+		topBuffBadgeRow.Position = UDim2.fromOffset(xOffset, math.floor(ap.Y + as.Y / 2))
+		topBuffBadgeRow.AnchorPoint = Vector2.new(0, 0.5)
+	else
+		local fallbackX = 0.86 + (TOP_BADGE_START_SLOT * 0.04)
+		topBuffBadgeRow.Position = UDim2.new(fallbackX, 0, 0, 18 + math.floor(TOP_BADGE_HEIGHT * 0.5))
+		topBuffBadgeRow.AnchorPoint = Vector2.new(0.5, 0.5)
+	end
+end
+
+local function refreshTopBuffPulse()
+	local hasBadges = next(topBuffBadgeEntries) ~= nil
+	if hasBadges and not topBuffPulseConn then
+		local elapsed = 0
+		topBuffPulseConn = RunService.RenderStepped:Connect(function(dt)
+			elapsed += dt
+			local t = (math.sin(elapsed * 4 * math.pi) + 1) / 2
+			for _, entry in pairs(topBuffBadgeEntries) do
+				if entry.stroke and entry.button and entry.button.Parent then
+					entry.stroke.Thickness = 2 + t * 1.5
+					entry.stroke.Transparency = t * 0.25
+				end
+			end
+		end)
+	elseif (not hasBadges) and topBuffPulseConn then
+		topBuffPulseConn:Disconnect()
+		topBuffPulseConn = nil
+	end
+end
+
+local function createTopBuffBadge(buffId, order)
+	ensureTopBuffBadgeGui()
+
+	local btn = Instance.new("TextButton")
+	btn.Name = "BuffBadge_" .. buffId
+	btn.Size = UDim2.fromOffset(0, 0)
+	btn.LayoutOrder = order
+	btn.BackgroundColor3 = TOP_BADGE_BG
+	btn.BackgroundTransparency = 1
+	btn.BorderSizePixel = 0
+	btn.Text = getBuffEmoji(buffId)
+	btn.TextColor3 = C.white
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 20
+	btn.AutoButtonColor = false
+	btn.ZIndex = 100
+	btn.Parent = topBuffBadgeRow
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = TOP_BADGE_ACCENT
+	stroke.Thickness = 2
+	stroke.Transparency = 0
+	stroke.Parent = btn
+
+	local entry = {
+		button = btn,
+		stroke = stroke,
+		name = getBuffDisplayName(buffId),
+		remaining = 0,
+	}
+	topBuffBadgeEntries[buffId] = entry
+
+	btn.MouseButton1Click:Connect(function()
+		local liveEntry = topBuffBadgeEntries[buffId]
+		if not liveEntry then
+			return
+		end
+		Notify.Toast(liveEntry.name .. " active - " .. tostring(liveEntry.remaining) .. "s left", C.green, 2)
+	end)
+
+	TweenService:Create(btn, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Size = UDim2.fromOffset(TOP_BADGE_WIDTH, TOP_BADGE_HEIGHT),
+		BackgroundTransparency = 0.15,
+	}):Play()
+
+	return entry
+end
+
+local function collectActiveBuffs()
+	if not getInventory then
+		return nil
+	end
+
+	local ok, data = pcall(function()
+		return getInventory:InvokeServer()
+	end)
+	if not ok or not data then
+		return nil
+	end
+
+	local now = tick()
+	local active = {}
+	for buffId, info in pairs(type(data.activeBuffs) == "table" and data.activeBuffs or {}) do
+		if type(info) == "table" and info.expiresAt and info.expiresAt > now then
+			table.insert(active, {
+				id = buffId,
+				remaining = math.max(1, math.ceil(info.expiresAt - now)),
+				activatedAt = tonumber(info.activatedAt) or math.huge,
+			})
 		end
 	end
-	return buffId:sub(1, 6)
+
+	table.sort(active, function(a, b)
+		if a.activatedAt == b.activatedAt then
+			return getBuffDisplayName(a.id) < getBuffDisplayName(b.id)
+		end
+		return a.activatedAt < b.activatedAt
+	end)
+
+	return active
 end
 
 local function updateActiveBuffsDisplay()
-	for _, ch in ipairs(buffBar:GetChildren()) do
-		if not ch:IsA("UIListLayout") then ch:Destroy() end
+	local activeBuffs = collectActiveBuffs()
+	if not activeBuffs then
+		return
+	end
+	local activeLookup = {}
+
+	ensureTopBuffBadgeGui()
+	positionTopBuffBadgeRow()
+
+	for order, buff in ipairs(activeBuffs) do
+		activeLookup[buff.id] = true
+
+		local entry = topBuffBadgeEntries[buff.id]
+		if not entry or not entry.button or not entry.button.Parent then
+			entry = createTopBuffBadge(buff.id, order)
+		end
+
+		entry.button.LayoutOrder = order
+		entry.button.Text = getBuffEmoji(buff.id)
+		entry.name = getBuffDisplayName(buff.id)
+		entry.remaining = buff.remaining
+		entry.button.Visible = true
 	end
 
-	if not getInventory then return end
-	local ok, data = pcall(function() return getInventory:InvokeServer() end)
-	if not ok or not data or not data.activeBuffs then return end
-
-	local now = tick()
-	local order = 0
-	for buffId, info in pairs(data.activeBuffs) do
-		if info.expiresAt and info.expiresAt > now then
-			order = order + 1
-			local remaining = math.ceil(info.expiresAt - now)
-			local shortName = getBuffShortName(buffId)
-
-			local badge = Instance.new("Frame")
-			badge.Name = "BuffBadge_" .. buffId
-			badge.Size = UDim2.new(0, 0, 0, 40)
-			badge.AutomaticSize = Enum.AutomaticSize.X
-			badge.LayoutOrder = order
-			badge.BackgroundColor3 = Color3.fromRGB(28, 34, 52)
-			badge.BorderSizePixel = 0
-			badge.Parent = buffBar
-
-			local corner = Instance.new("UICorner")
-			corner.CornerRadius = UDim.new(0, 20)
-			corner.Parent = badge
-
-			local stroke = Instance.new("UIStroke")
-			stroke.Color = Color3.fromRGB(70, 180, 100)
-			stroke.Thickness = 1.5
-			stroke.Parent = badge
-
-			local padding = Instance.new("UIPadding")
-			padding.PaddingLeft = UDim.new(0, 12)
-			padding.PaddingRight = UDim.new(0, 12)
-			padding.PaddingTop = UDim.new(0, 6)
-			padding.PaddingBottom = UDim.new(0, 6)
-			padding.Parent = badge
-
-			local inner = Instance.new("Frame")
-			inner.Size = UDim2.new(0, 0, 1, 0)
-			inner.AutomaticSize = Enum.AutomaticSize.X
-			inner.BackgroundTransparency = 1
-			inner.Parent = badge
-
-			local innerLayout = Instance.new("UIListLayout")
-			innerLayout.FillDirection = Enum.FillDirection.Horizontal
-			innerLayout.Padding = UDim.new(0, 6)
-			innerLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-			innerLayout.SortOrder = Enum.SortOrder.LayoutOrder
-			innerLayout.Parent = inner
-
-			local nameLbl = Instance.new("TextLabel")
-			nameLbl.Size = UDim2.new(0, 0, 0, 18)
-			nameLbl.AutomaticSize = Enum.AutomaticSize.X
-			nameLbl.LayoutOrder = 1
-			nameLbl.BackgroundTransparency = 1
-			nameLbl.Text = shortName
-			nameLbl.TextColor3 = Color3.fromRGB(180, 230, 180)
-			nameLbl.Font = Enum.Font.GothamBold
-			nameLbl.TextSize = 11
-			nameLbl.TextXAlignment = Enum.TextXAlignment.Left
-			nameLbl.Parent = inner
-
-			local timePill = Instance.new("Frame")
-			timePill.Size = UDim2.new(0, 0, 0, 20)
-			timePill.AutomaticSize = Enum.AutomaticSize.X
-			timePill.LayoutOrder = 2
-			timePill.BackgroundColor3 = Color3.fromRGB(20, 45, 30)
-			timePill.BorderSizePixel = 0
-			timePill.Parent = inner
-
-			local timeCorner = Instance.new("UICorner")
-			timeCorner.CornerRadius = UDim.new(0, 10)
-			timeCorner.Parent = timePill
-
-			local timePad = Instance.new("UIPadding")
-			timePad.PaddingLeft = UDim.new(0, 8)
-			timePad.PaddingRight = UDim.new(0, 8)
-			timePad.PaddingTop = UDim.new(0, 2)
-			timePad.PaddingBottom = UDim.new(0, 2)
-			timePad.Parent = timePill
-
-			local timeLbl = Instance.new("TextLabel")
-			timeLbl.Size = UDim2.new(0, 0, 1, 0)
-			timeLbl.AutomaticSize = Enum.AutomaticSize.X
-			timeLbl.BackgroundTransparency = 1
-			timeLbl.Text = remaining .. "s"
-			timeLbl.TextColor3 = C.green
-			timeLbl.Font = Enum.Font.GothamBold
-			timeLbl.TextSize = 10
-			timeLbl.Parent = timePill
+	local staleBuffIds = {}
+	for buffId in pairs(topBuffBadgeEntries) do
+		if not activeLookup[buffId] then
+			table.insert(staleBuffIds, buffId)
 		end
 	end
+
+	for _, buffId in ipairs(staleBuffIds) do
+		local entry = topBuffBadgeEntries[buffId]
+		topBuffBadgeEntries[buffId] = nil
+		if entry and entry.button and entry.button.Parent then
+			local button = entry.button
+			TweenService:Create(button, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+				Size = UDim2.fromOffset(0, 0),
+				BackgroundTransparency = 1,
+			}):Play()
+			task.delay(0.22, function()
+				if button.Parent then
+					button:Destroy()
+				end
+			end)
+		end
+	end
+
+	topBuffBadgeRow.Visible = #activeBuffs > 0
+	refreshTopBuffPulse()
 end
 
 -- Update buff display every 2 seconds
@@ -497,10 +639,12 @@ MobileWindowLayout.BindViewportUpdate(function()
 		applyPanelScale(panel)
 		applyResponsiveContentLayout()
 	end
+	positionTopBuffBadgeRow()
 end)
 
 -- FIX #18: Removed fallback G key handler — HUDButtonBar is the sole keyboard handler.
 -- Having both caused double-toggle (open then immediately close).
 
 buildShopItems()
-print("[BuffShopClient] Loaded - open via [G] Shop > Swag Shop")
+task.defer(updateActiveBuffsDisplay)
+print("[BuffShopClient] Loaded - open via [G] Shop > Buff Shop")

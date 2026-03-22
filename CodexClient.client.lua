@@ -1452,51 +1452,8 @@ MobileWindowLayout.BindViewportUpdate(function()
 	end
 end)
 
--- Auto-show Guide when game starts (once per session)
-local guideShownThisSession = false
-task.spawn(function()
-	local events = ReplicatedStorage:FindFirstChild("Events") or ReplicatedStorage:WaitForChild("Events", 15)
-	if events then
-		local criticalReady = events:FindFirstChild("LoadingCriticalReady")
-		local worldReady = events:FindFirstChild("LoadingReady")
-		if criticalReady then
-			criticalReady.OnClientEvent:Wait()
-		elseif worldReady then
-			worldReady.OnClientEvent:Wait()
-		end
-	end
-	task.wait(3)
-	if playerGui:FindFirstChild("LoadingScreen") or playerGui:FindFirstChild("LaunchScreen") then
-		task.wait(3)
-	end
-	if guideShownThisSession then return end
-	guideShownThisSession = true
-
-	-- On first load, open Codex on the player's favorite creature.
-	local favCreatureId = nil
-	if events then
-		local getInv = events:FindFirstChild("GetInventory")
-		if getInv then
-			local ok, data = pcall(function() return getInv:InvokeServer() end)
-			if ok and data then
-				local favUid = data.favoriteUid
-				if favUid ~= nil and favUid ~= "" then
-					for _, e in ipairs(data.inventory or {}) do
-						if e and e.uid ~= nil and tostring(e.uid) == tostring(favUid) then
-							favCreatureId = e.id
-							break
-						end
-					end
-				end
-			end
-		end
-	end
-
-	if type(favCreatureId) == "string" and favCreatureId ~= "" and CreatureData.GetById(favCreatureId) then
-		OpenCodex(favCreatureId)
-	else
-		OpenCodex("guide")
-	end
-end)
+-- Auto-show disabled.
+-- Codex panel will only open via `OpenCodex(...)` (creature click / HUD toggle),
+-- so it won't interrupt players right after spawn.
 
 print("[CodexClient] Loaded — OpenCodex(creatureId) or OpenCodex(\"guide\") when ENABLE_CODEX_UI is true")

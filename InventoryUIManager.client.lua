@@ -8,6 +8,7 @@ local function baseLog(...) if BASE_LAYOUT_DEBUG then print("[BaseLayout]", ...)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TextService = game:GetService("TextService")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -64,39 +65,52 @@ local function safeGet(n, t)
 	return o
 end
 
-local getInventory    = safeGet("GetInventory")
-local setCreatureNickname = safeGet("SetCreatureNickname")
-local assignToBase    = safeGet("AssignToBase")
-local assignToDefense = safeGet("AssignToDefense")
-local slotAssignComplete = Events:FindFirstChild("SlotAssignComplete")
-local setFavorite     = safeGet("SetFavorite")
-local captureSuccess  = safeGet("CaptureSuccess")
-local raidStart       = safeGet("RaidStart")
-local raidEnd         = safeGet("RaidEnd")
-local moveCreatureSlot = safeGet("MoveCreatureSlot")
-local creatureStolen  = safeGet("CreatureStolen")
-local incomeReceived  = safeGet("IncomeReceived")
-local getBattleInfo   = safeGet("GetBattleInfo")
-local arenaAnnounce   = safeGet("ArenaAnnounce")
-local battleEnd       = safeGet("BattleEnd")
-local battleKill      = safeGet("BattleKill")
--- Gym battle events (separate system from standard arena battles)
-local gymAnnounce     = Events:FindFirstChild("GymArenaAnnounce")
-local gymBattleEnd    = Events:FindFirstChild("GymBattleEnd")
-local gymBattleKill   = Events:FindFirstChild("GymBattleKill")
-local getBattleTimers = Events:FindFirstChild("GetBattleTimers") -- RemoteFunction for arena/gym timers
-local assignToBattle  = safeGet("AssignToBattle")
-local removeFromBattle = safeGet("RemoveFromBattle")
-local toggleBattleTeam = safeGet("ToggleBattleTeam")
-local getBattleTeam   = safeGet("GetBattleTeam")
-local sellCreature    = safeGet("SellCreature")
-local evolveCreature  = safeGet("EvolveCreature")
-local evolveResult    = safeGet("EvolveResult")
-local companionSpawnedEvt = safeGet("CompanionSpawned")
-local companionRecalledEvt = Events:FindFirstChild("CompanionRecalled")  -- water recall: favorite carded (non-water in water)
--- FIX #17: Recall/Summon companion without changing favorite (Y / ReCard button)
-local recallCompanionEvt = safeGet("RecallCompanion")
-local summonCompanionEvt = safeGet("SummonCompanion")
+-- FIX #23: Consolidate event references into a single table to stay under Luau's
+-- 200 local-register limit. Previously each event was its own local variable (~40),
+-- pushing the script past the cap and crashing at line ~3760 before input handlers loaded.
+local Evt = {
+	getInventory        = safeGet("GetInventory"),
+	setCreatureNickname = safeGet("SetCreatureNickname"),
+	assignToBase        = safeGet("AssignToBase"),
+	assignToDefense     = safeGet("AssignToDefense"),
+	slotAssignComplete  = Events:FindFirstChild("SlotAssignComplete"),
+	setFavorite         = safeGet("SetFavorite"),
+	captureSuccess      = safeGet("CaptureSuccess"),
+	raidStart           = safeGet("RaidStart"),
+	raidEnd             = safeGet("RaidEnd"),
+	moveCreatureSlot    = safeGet("MoveCreatureSlot"),
+	creatureStolen      = safeGet("CreatureStolen"),
+	incomeReceived      = safeGet("IncomeReceived"),
+	getBattleInfo       = safeGet("GetBattleInfo"),
+	arenaAnnounce       = safeGet("ArenaAnnounce"),
+	battleEnd           = safeGet("BattleEnd"),
+	battleKill          = safeGet("BattleKill"),
+	-- Gym battle events (separate system from standard arena battles)
+	gymAnnounce         = Events:FindFirstChild("GymArenaAnnounce"),
+	gymBattleEnd        = Events:FindFirstChild("GymBattleEnd"),
+	gymBattleKill       = Events:FindFirstChild("GymBattleKill"),
+	getBattleTimers     = Events:FindFirstChild("GetBattleTimers"),
+	assignToBattle      = safeGet("AssignToBattle"),
+	removeFromBattle    = safeGet("RemoveFromBattle"),
+	toggleBattleTeam    = safeGet("ToggleBattleTeam"),
+	getBattleTeam       = safeGet("GetBattleTeam"),
+	sellCreature        = safeGet("SellCreature"),
+	evolveCreature      = safeGet("EvolveCreature"),
+	-- Badlands bag events
+	badlandsBagUpdate   = Events:FindFirstChild("BadlandsBagUpdate"),
+	badlandsBagSwitch   = Events:FindFirstChild("BadlandsBagSwitch"),
+	badlandsSacrifice   = Events:FindFirstChild("BadlandsSacrificeCreature"),
+	badlandsSacrificeResult = Events:FindFirstChild("BadlandsSacrificeResult"),
+	evolveResult        = safeGet("EvolveResult"),
+	companionSpawned    = safeGet("CompanionSpawned"),
+	companionRecalled   = Events:FindFirstChild("CompanionRecalled"),
+	-- FIX #17: Recall/Summon companion without changing favorite (Y / ReCard button)
+	recallCompanion     = safeGet("RecallCompanion"),
+	summonCompanion     = safeGet("SummonCompanion"),
+	-- Mount system
+	mountRequest        = Events:FindFirstChild("MountRequest"),
+	dismountRequest     = Events:FindFirstChild("DismountRequest"),
+}
 -- Colors
 local C = {
 	bg = Color3.fromRGB(14, 15, 22),
@@ -263,8 +277,8 @@ local function refreshBaseUnderAttackBadgeFromServer()
 	if (now - lastBadgeRefreshT) < 0.25 then return end
 	lastBadgeRefreshT = now
 
-	if not getInventory then return end
-	local ok, invData = pcall(function() return getInventory:InvokeServer() end)
+	if not Evt.getInventory then return end
+	local ok, invData = pcall(function() return Evt.getInventory:InvokeServer() end)
 	if ok and invData then
 		updateBaseUnderAttackBadgeVisibility(invData.defenseRaidActive == true)
 	end
@@ -303,6 +317,7 @@ local latestInventoryLookup = {}
 local refreshSelectedInventoryDetails
 local renderInventoryDetails
 local refreshInventory, refreshBattle, refreshRaids, refreshCurrentTab
+local badBagState = { count = 0, capacity = 0, activeIndex = nil, slots = {} }
 local lastFavoriteUid = nil   -- when user removes favorite, store here; Y or orb can re-equip it t
 local lastFavoriteName = nil  -- display name for ReCard label when favorite is unequipped
 local lastFavoriteCreatureId = nil  -- creature id for summon card animation (ReCard)
@@ -350,6 +365,7 @@ end
 
 -- B toggle button: shield-shaped, "Battle" / "Menu" on two lines. Under smaller HUD (~76px).
 local toggleBtn = Instance.new("TextButton")
+toggleBtn.Name = "BattleMenuToggle"
 toggleBtn.Size = UDim2.new(0, 46, 0, 54)
 toggleBtn.Position = UDim2.new(0, 12, 0, 76)
 toggleBtn.AnchorPoint = Vector2.new(0, 0)
@@ -371,6 +387,7 @@ toggleStroke.Transparency = 0.5
 
 -- Favorite card (Y): rectangle/card shape, "Summon [name]" or "ReCard [name]", color by creature type.
 local favOrbBtn = Instance.new("TextButton")
+favOrbBtn.Name = "FavoriteSummonCard"
 favOrbBtn.Size = UDim2.new(0, 50, 0, 72)
 favOrbBtn.Position = UDim2.new(0, 66, 0, 76)
 favOrbBtn.AnchorPoint = Vector2.new(0, 0)
@@ -504,8 +521,8 @@ end)
 ensureBindable("SprintStateChanged").Event:Connect(setSprintButtonActive)
 
 local function updateFavOrb()
-	if not getInventory then return end
-	local ok, data = pcall(function() return getInventory:InvokeServer() end)
+	if not Evt.getInventory then return end
+	local ok, data = pcall(function() return Evt.getInventory:InvokeServer() end)
 	if not ok or not data then return end
 	-- Sync companionOut with world: if our companion model exists, it's out (handles missed CompanionSpawned)
 	local ourCompanionInWorld = false
@@ -562,8 +579,8 @@ end
 -- Y button / ReCard card toggles companion between summoned ↔ recalled WITHOUT clearing favoriteUid.
 -- The creature STAYS as favorite throughout. Only the inventory "Unfav" button clears the favorite.
 local function toggleFavorite()
-	if not getInventory then return end
-	local ok, data = pcall(function() return getInventory:InvokeServer() end)
+	if not Evt.getInventory then return end
+	local ok, data = pcall(function() return Evt.getInventory:InvokeServer() end)
 	if not ok or not data then return end
 	local favUid = data.favoriteUid
 
@@ -591,8 +608,8 @@ local function toggleFavorite()
 
 		if companionOut then
 			-- RECALL: companion is in the world → card it (despawn model, keep favorite)
-			if recallCompanionEvt then
-				recallCompanionEvt:FireServer()
+			if Evt.recallCompanion then
+				Evt.recallCompanion:FireServer()
 			end
 			companionOut = false
 			Notify.Toast("Companion recalled", C.textSec, 2)
@@ -603,8 +620,8 @@ local function toggleFavorite()
 			-- SUMMON: companion is recalled/carded → bring it back out
 			local playEvt = playerGui:FindFirstChild("PlayFavoriteCardAnimation")
 			if playEvt and playEvt:IsA("BindableEvent") then playEvt:Fire(lastFavoriteCreatureId) end
-			if summonCompanionEvt then
-				summonCompanionEvt:FireServer()
+			if Evt.summonCompanion then
+				Evt.summonCompanion:FireServer()
 			end
 			companionOut = true
 			Notify.Toast("Companion summoned", C.favorite, 2)
@@ -637,7 +654,7 @@ local function toggleFavorite()
 		TweenService:Create(effectOverlay, TweenInfo.new(0.25), { BackgroundTransparency = 0.88 }):Play()
 		local playEvt = playerGui:FindFirstChild("PlayFavoriteCardAnimation")
 		if playEvt and playEvt:IsA("BindableEvent") then playEvt:Fire(lastFavoriteCreatureId) end
-		if setFavorite then setFavorite:FireServer(lastFavoriteUid) end
+		if Evt.setFavorite then Evt.setFavorite:FireServer(lastFavoriteUid) end
 		Notify.Toast("Favorite re-equipped", C.favorite, 2)
 		if not isVis then openUI("inventory") end
 		task.wait(0.4)
@@ -661,15 +678,15 @@ end
 
 favOrbBtn.MouseButton1Click:Connect(toggleFavorite)
 task.defer(updateFavOrb)
-if companionSpawnedEvt then
-	companionSpawnedEvt.OnClientEvent:Connect(function()
+if Evt.companionSpawned then
+	Evt.companionSpawned.OnClientEvent:Connect(function()
 		companionOut = true
 		task.defer(updateFavOrb)
 	end)
 end
 -- When non-water favorite enters water: companion is carded (turns into card, flies to player); update UI to show "Summon [name]"
-if companionRecalledEvt and companionRecalledEvt:IsA("RemoteEvent") then
-	companionRecalledEvt.OnClientEvent:Connect(function()
+if Evt.companionRecalled and Evt.companionRecalled:IsA("RemoteEvent") then
+	Evt.companionRecalled.OnClientEvent:Connect(function()
 		companionOut = false
 		Notify.Toast("Companion carded (water)", C.textSec, 2.5)
 		task.defer(updateFavOrb)
@@ -747,13 +764,14 @@ countLbl.BackgroundTransparency = 1; countLbl.Text = "0/" .. GameConfig.MaxInven
 countLbl.TextColor3 = C.textSec; countLbl.Font = Enum.Font.GothamMedium
 countLbl.TextSize = 11; countLbl.TextXAlignment = Enum.TextXAlignment.Right; countLbl.Parent = stats
 
--- 3 TABS (Inventory, Battle, Base)
+-- TABS (Inventory, Battle, Base, BadBag)
 local tabC = Instance.new("Frame")
 tabC.Size = UDim2.new(1, -28, 0, 30); tabC.Position = UDim2.new(0, 14, 0, 94)
 tabC.BackgroundTransparency = 1; tabC.Parent = main
 
 local activeTab = "inventory"
 local updateInventoryLayout
+local refreshBadBag  -- forward-declare
 local function mkTab(name, text, px, w)
 	local b = Instance.new("TextButton")
 	b.Name = name; b.Size = UDim2.new(w, -4, 1, 0)
@@ -763,18 +781,47 @@ local function mkTab(name, text, px, w)
 	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 7)
 	return b
 end
-local invTab = mkTab("Inv", "SIEGLINGS", 0, 1/3)
-local battleTab = mkTab("Battle", "BATTLE", 1/3, 1/3)
-local raidTab = mkTab("Base", "BASE", 2/3, 1/3)
+local invTab = mkTab("Inv", "SIEGLINGS", 0, 1/4)
+local battleTab = mkTab("Battle", "BATTLE", 1/4, 1/4)
+local raidTab = mkTab("Base", "BASE", 2/4, 1/4)
+local badBagTab = mkTab("BadBag", "BADBAG", 3/4, 1/4)
+badBagTab.Visible = false  -- hidden until Badlands
 
-local tabButtons = { invTab, battleTab, raidTab }
+local tabButtons = { invTab, battleTab, raidTab, badBagTab }
+
+local function updateTabVisibility()
+	local inBL = player:GetAttribute("InBadlands") == true
+	badBagTab.Visible = inBL
+	if inBL then
+		invTab.Size = UDim2.new(1/4, -4, 1, 0); invTab.Position = UDim2.new(0, 0, 0, 0)
+		battleTab.Size = UDim2.new(1/4, -4, 1, 0); battleTab.Position = UDim2.new(1/4, 2, 0, 0)
+		raidTab.Size = UDim2.new(1/4, -4, 1, 0); raidTab.Position = UDim2.new(2/4, 2, 0, 0)
+		badBagTab.Size = UDim2.new(1/4, -4, 1, 0); badBagTab.Position = UDim2.new(3/4, 2, 0, 0)
+	else
+		invTab.Size = UDim2.new(1/3, -4, 1, 0); invTab.Position = UDim2.new(0, 0, 0, 0)
+		battleTab.Size = UDim2.new(1/3, -4, 1, 0); battleTab.Position = UDim2.new(1/3, 2, 0, 0)
+		raidTab.Size = UDim2.new(1/3, -4, 1, 0); raidTab.Position = UDim2.new(2/3, 2, 0, 0)
+	end
+end
+
 local function setTab(t)
+	local inBL = player:GetAttribute("InBadlands") == true
+	if inBL and t == "inventory" then t = "badbag" end
 	activeTab = t; pendingBattleUid = nil
 	for _, btn in ipairs(tabButtons) do
 		btn.BackgroundColor3 = C.card; btn.TextColor3 = C.textSec
 	end
-	local active = (t == "inventory" and invTab) or (t == "battle" and battleTab) or (t == "raids" and raidTab)
+	local active = (t == "inventory" and invTab) or (t == "battle" and battleTab) or (t == "raids" and raidTab) or (t == "badbag" and badBagTab)
 	if active then active.BackgroundColor3 = C.accent; active.TextColor3 = Color3.new(1,1,1) end
+
+	if inBL then
+		invTab.BackgroundTransparency = 0.5
+		invTab.AutoButtonColor = false
+	else
+		invTab.BackgroundTransparency = 0
+		invTab.AutoButtonColor = true
+	end
+
 	if updateInventoryLayout then updateInventoryLayout() end
 end
 
@@ -1131,7 +1178,7 @@ nickBtn.MouseButton1Click:Connect(function()
 	end
 	local desiredName = nickBox.Text or ""
 	local ok, success, serverMsg = pcall(function()
-		return setCreatureNickname:InvokeServer(selectedInventoryUid, desiredName)
+		return Evt.setCreatureNickname:InvokeServer(selectedInventoryUid, desiredName)
 	end)
 	if not ok then
 		Notify.Toast("Rename failed", C.red, 2)
@@ -1283,7 +1330,7 @@ local function mkCard(entry, creature, data, order)
 	elseif isDef then cardBg = Color3.fromRGB(40, 22, 22)
 	elseif isBase then cardBg = Color3.fromRGB(22, 38, 28)
 	end
-	card.Size = UDim2.new(1, 0, 0, mobile and 80 or 74); card.BackgroundColor3 = cardBg
+	card.Size = UDim2.new(1, 0, 0, mobile and 86 or 80); card.BackgroundColor3 = cardBg
 	card.BorderSizePixel = 0; card.LayoutOrder = order
 	Instance.new("UICorner", card).CornerRadius = UDim.new(0, 9)
 	local stroke = Instance.new("UIStroke")
@@ -1359,13 +1406,27 @@ local function mkCard(entry, creature, data, order)
 	inf.TextColor3 = isEgg and Color3.fromRGB(255, 200, 80) or rc; inf.Font = Enum.Font.GothamMedium; inf.TextSize = mobile and 8 or 9
 	inf.TextXAlignment = Enum.TextXAlignment.Left; inf.ZIndex = 2; inf.Parent = card
 
-	local BTN_W = mobile and 44 or 48
-	local BTN_H = mobile and 21 or 22
-	local BTN_GAP = mobile and 6 or 8
-	local RIGHT_MARGIN = 6
-	local BTN_ROW_Y = mobile and 48 or 47  -- fixed Y keeps row clear of status watermark
-	local function btnLeft(index)
-		return RIGHT_MARGIN + (index - 1) * (BTN_W + BTN_GAP)
+	local BTN_MIN_W = mobile and 44 or 48
+	local BTN_MAX_W = mobile and 82 or 94
+	local BTN_H = mobile and 22 or 24
+	local BTN_GAP = mobile and 4 or 6
+	local BTN_TEXT_SIZE = mobile and 8 or 9
+	local BTN_TEXT_PADDING = mobile and 12 or 18
+	local RIGHT_MARGIN = mobile and 8 or 6
+	local BTN_ROW_Y = mobile and 54 or 52  -- extra gap keeps the action row clear of the card copy
+	local nextBtnLeft = RIGHT_MARGIN
+	local function getButtonWidth(text)
+		local ok, textBounds = pcall(function()
+			return TextService:GetTextSize(tostring(text or ""), BTN_TEXT_SIZE, Enum.Font.GothamBold, Vector2.new(1000, BTN_H))
+		end)
+		local measuredWidth = ok and textBounds.X or (#tostring(text or "") * (BTN_TEXT_SIZE + 1))
+		return math.clamp(math.max(BTN_MIN_W, measuredWidth + BTN_TEXT_PADDING), BTN_MIN_W, BTN_MAX_W)
+	end
+	local function reserveButtonSlot(text)
+		local width = getButtonWidth(text)
+		local leftOffset = nextBtnLeft
+		nextBtnLeft += width + BTN_GAP
+		return leftOffset, width
 	end
 
 	-- Codex: click creature icon/name to open Codex (when feature flag on)
@@ -1417,14 +1478,14 @@ local function mkCard(entry, creature, data, order)
 	end)
 
 	-- Button row: fixed lower row so buttons don't overlap description text
-	local function mkBtn(text, leftOffset, color, enabled)
+	local function mkBtn(text, leftOffset, width, color, enabled)
 		-- leftOffset = distance from card right edge to this button's left edge (positive = inset)
 		local b = Instance.new("TextButton")
-		b.Size = UDim2.new(0, BTN_W, 0, BTN_H)
-		b.Position = UDim2.new(1, -leftOffset - BTN_W, 0, BTN_ROW_Y)
+		b.Size = UDim2.new(0, width, 0, BTN_H)
+		b.Position = UDim2.new(1, -leftOffset - width, 0, BTN_ROW_Y)
 		b.BackgroundColor3 = enabled and color or C.divider
 		b.Text = text; b.TextColor3 = enabled and Color3.new(1,1,1) or C.textMut
-		b.Font = Enum.Font.GothamBold; b.TextSize = mobile and 8 or 9; b.BorderSizePixel = 0
+		b.Font = Enum.Font.GothamBold; b.TextSize = BTN_TEXT_SIZE; b.BorderSizePixel = 0
 		b.Active = enabled
 		b.ZIndex = 10  -- above Codex/overlays so clicks always register
 		b.Parent = card
@@ -1439,24 +1500,13 @@ local function mkCard(entry, creature, data, order)
 		local defLabelEgg = isDef and "Rem" or "Def"
 		-- print("[InvRem] egg buttons: incLabel=" .. incLabelEgg, "defLabel=" .. defLabelEgg, "isBase=" .. tostring(isBase), "isDef=" .. tostring(isDef))
 		local incEnabled = (isBase or (not baseFull and not isDef))
-		local incBtn = mkBtn(incLabelEgg, btnLeft(2), isBase and Color3.fromRGB(50,55,60) or C.income, incEnabled)
-		incBtn.MouseButton1Click:Connect(function()
-			if not assignToBase or not incEnabled then return end
-			invButtonDebounce(entry.uid, "base", function()
-				assignToBase:FireServer(entry.uid, isBase and 0 or nil)
-				pendingOptimistic[tostring(entry.uid)] = { base = not isBase, t = tick() }
-				isBase = not isBase
-				incBtn.Text = isBase and "Rem" or "Inc"
-				incBtn.BackgroundColor3 = isBase and Color3.fromRGB(50,55,60) or C.income
-				task.delay(0.35, function() if refreshInventory then refreshInventory() end end)
-			end)
-		end)
 		local defEnabled = (isDef or (not defFull and not isBase))
-		local defBtn = mkBtn(defLabelEgg, btnLeft(1), isDef and Color3.fromRGB(55,50,50) or C.defense, defEnabled)
+		local defLeft, defWidth = reserveButtonSlot(defLabelEgg)
+		local defBtn = mkBtn(defLabelEgg, defLeft, defWidth, isDef and Color3.fromRGB(55,50,50) or C.defense, defEnabled)
 		defBtn.MouseButton1Click:Connect(function()
-			if not assignToDefense or not defEnabled then return end
+			if not Evt.assignToDefense or not defEnabled then return end
 			invButtonDebounce(entry.uid, "defense", function()
-				assignToDefense:FireServer(entry.uid, isDef and 0 or nil)
+				Evt.assignToDefense:FireServer(entry.uid, isDef and 0 or nil)
 				pendingOptimistic[tostring(entry.uid)] = { def = not isDef, t = tick() }
 				isDef = not isDef
 				defBtn.Text = isDef and "Rem" or "Def"
@@ -1464,61 +1514,47 @@ local function mkCard(entry, creature, data, order)
 				task.delay(0.35, function() if refreshInventory then refreshInventory() end end)
 			end)
 		end)
-	elseif isBattle then
-		-- Battle team creatures: Dismiss + Sell buttons
-		local dismissBtn = mkBtn("Dismiss", btnLeft(2), Color3.fromRGB(120, 60, 60), true)
-		dismissBtn.MouseButton1Click:Connect(function()
-			if not removeFromBattle then return end
-			invButtonDebounce(entry.uid, "dismiss", function()
-				removeFromBattle:FireServer(entry.uid); task.wait(0.3); refreshInventory()
+		local incLeft, incWidth = reserveButtonSlot(incLabelEgg)
+		local incBtn = mkBtn(incLabelEgg, incLeft, incWidth, isBase and Color3.fromRGB(50,55,60) or C.income, incEnabled)
+		incBtn.MouseButton1Click:Connect(function()
+			if not Evt.assignToBase or not incEnabled then return end
+			invButtonDebounce(entry.uid, "base", function()
+				Evt.assignToBase:FireServer(entry.uid, isBase and 0 or nil)
+				pendingOptimistic[tostring(entry.uid)] = { base = not isBase, t = tick() }
+				isBase = not isBase
+				incBtn.Text = isBase and "Rem" or "Inc"
+				incBtn.BackgroundColor3 = isBase and Color3.fromRGB(50,55,60) or C.income
+				task.delay(0.35, function() if refreshInventory then refreshInventory() end end)
 			end)
 		end)
-		local sellBtn = mkBtn("Sell", btnLeft(1), Color3.fromRGB(200, 60, 60), true)
+	elseif isBattle then
+		-- Battle team creatures: Dismiss + Sell buttons
+		local sellLeft, sellWidth = reserveButtonSlot("Sell")
+		local sellBtn = mkBtn("Sell", sellLeft, sellWidth, Color3.fromRGB(200, 60, 60), true)
 		sellBtn.MouseButton1Click:Connect(function()
-			if not sellCreature then return end
+			if not Evt.sellCreature then return end
 			invButtonDebounce(entry.uid, "sell", function()
-				local ok, coins = sellCreature:InvokeServer(entry.uid)
+				local ok, coins = Evt.sellCreature:InvokeServer(entry.uid)
 				if ok then Notify.Toast("Sold for " .. coins .. " coins!", Color3.fromRGB(255, 200, 50), 2) end
 				task.wait(0.3); refreshInventory()
 			end)
 		end)
-	else
-		-- Normal creatures: Sell, Fav, Inc, Def, Evolve (right-to-left: Evolve nearest right edge, then Def, Inc, Fav, Sell)
-		local sellBtn = mkBtn("Sell", btnLeft(5), Color3.fromRGB(200, 60, 60), not isFav)
-		sellBtn.MouseButton1Click:Connect(function()
-			if not isFav and sellCreature then
-				invButtonDebounce(entry.uid, "sell", function()
-					local ok, coins = sellCreature:InvokeServer(entry.uid)
-					if ok then Notify.Toast("Sold for " .. coins .. " coins!", Color3.fromRGB(255, 200, 50), 2) end
-					task.wait(0.3); refreshInventory()
-				end)
-			end
-		end)
-
-		local favBtn = mkBtn(isFav and "Unfav" or "Fav", btnLeft(4), isFav and Color3.fromRGB(60,55,30) or C.favorite, true)
-		favBtn.MouseButton1Click:Connect(function()
-			if not setFavorite then return end
-			invButtonDebounce(entry.uid, "fav", function()
-				-- FIX #20: Clear any optimistic Inc/Def state for this creature since
-				-- setFavorite calls removeFromAllSlots on the server (clears base/defense).
-				pendingOptimistic[tostring(entry.uid)] = nil
-				if isFav then
-					setFavorite:FireServer("")
-					task.wait(0.4)
-					refreshInventory()
-					updateFavOrb()
-					return
-				end
-				local playEvt = playerGui:FindFirstChild("PlayFavoriteCardAnimation")
-				if playEvt and playEvt:IsA("BindableEvent") then playEvt:Fire(entry.id) end
-				setFavorite:FireServer(entry.uid)
-				task.wait(0.4)
-				refreshInventory()
-				companionOut = true
-				updateFavOrb()
-				task.delay(0.5, function() refreshInventory(); updateFavOrb() end)
+		local dismissLeft, dismissWidth = reserveButtonSlot("Dismiss")
+		local dismissBtn = mkBtn("Dismiss", dismissLeft, dismissWidth, Color3.fromRGB(120, 60, 60), true)
+		dismissBtn.MouseButton1Click:Connect(function()
+			if not Evt.removeFromBattle then return end
+			invButtonDebounce(entry.uid, "dismiss", function()
+				Evt.removeFromBattle:FireServer(entry.uid); task.wait(0.3); refreshInventory()
 			end)
 		end)
+	else
+		-- Normal creatures: Sell, Mount/Fav, Inc, Def, Evolve (right-to-left)
+		local isMountable = isFav and CreatureData.IsMountable and CreatureData.IsMountable(entry.id)
+		local isMounted = isFav and player:GetAttribute("IsMounted") == true
+		local sellLabel = "Sell"
+		local favLabel = isFav and "Unfav" or "Fav"
+		local mountLabel = isMounted and "Dismount" or "Mount"
+		local mountColor = isMounted and Color3.fromRGB(180, 80, 50) or Color3.fromRGB(50, 180, 120)
 
 		-- Inc/Def: Rem = remove (send 0), Inc/Def = add to first empty slot (send nil). Server uses 0 as explicit remove.
 		-- Disable Rem when creature is favorited (isFav and in that slot).
@@ -1528,11 +1564,77 @@ local function mkCard(entry, creature, data, order)
 		-- #region agent log [InvRem] button labels for normal creatures (Rem = grey remove) (commented after UI fixes verified)
 		-- print("[InvRem] normal creature buttons: incLabel=" .. incLabel, "defLabel=" .. defLabel, "isBase=" .. tostring(isBase), "isDef=" .. tostring(isDef))
 		-- #endregion
-		local incBtn = mkBtn(incLabel, btnLeft(3), isBase and Color3.fromRGB(50,55,60) or C.income, incEnabled)
+
+		-- Evolve: only when creature can evolve in-game and meets level requirement (10 for base, 25 for evolved)
+		local minEvolveLvl = CreatureData.GetEvolvesFrom and CreatureData.GetEvolvesFrom(entry.id) and (GameConfig.EvolutionMinLevel2 or 25) or (GameConfig.EvolutionMinLevel or 10)
+		local canEvolve = (lvl >= minEvolveLvl) and CreatureData.CanEvolveInGame and CreatureData.CanEvolveInGame(entry.id)
+
+		local evolveLeft, evolveWidth = reserveButtonSlot("Evolve")
+		local defLeft, defWidth = reserveButtonSlot(defLabel)
+		local incLeft, incWidth = reserveButtonSlot(incLabel)
+		local mountLeft, mountWidth = nil, nil
+		if isMountable then
+			mountLeft, mountWidth = reserveButtonSlot(mountLabel)
+		end
+		local favLeft, favWidth = reserveButtonSlot(favLabel)
+		local sellLeft, sellWidth = reserveButtonSlot(sellLabel)
+
+		local sellBtn = mkBtn(sellLabel, sellLeft, sellWidth, Color3.fromRGB(200, 60, 60), not isFav)
+		sellBtn.MouseButton1Click:Connect(function()
+			if not isFav and Evt.sellCreature then
+				invButtonDebounce(entry.uid, "sell", function()
+					local ok, coins = Evt.sellCreature:InvokeServer(entry.uid)
+					if ok then Notify.Toast("Sold for " .. coins .. " coins!", Color3.fromRGB(255, 200, 50), 2) end
+					task.wait(0.3); refreshInventory()
+				end)
+			end
+		end)
+
+		local favBtn = mkBtn(favLabel, favLeft, favWidth, isFav and Color3.fromRGB(60,55,30) or C.favorite, true)
+		favBtn.MouseButton1Click:Connect(function()
+			if not Evt.setFavorite then return end
+			invButtonDebounce(entry.uid, "fav", function()
+				-- FIX #20: Clear any optimistic Inc/Def state for this creature since
+				-- setFavorite calls removeFromAllSlots on the server (clears base/defense).
+				pendingOptimistic[tostring(entry.uid)] = nil
+				if isFav then
+					Evt.setFavorite:FireServer("")
+					task.wait(0.4)
+					refreshInventory()
+					updateFavOrb()
+					return
+				end
+				local playEvt = playerGui:FindFirstChild("PlayFavoriteCardAnimation")
+				if playEvt and playEvt:IsA("BindableEvent") then playEvt:Fire(entry.id) end
+				Evt.setFavorite:FireServer(entry.uid)
+				task.wait(0.4)
+				refreshInventory()
+				companionOut = true
+				updateFavOrb()
+				task.delay(0.5, function() refreshInventory(); updateFavOrb() end)
+			end)
+		end)
+
+		if isMountable then
+			local mountBtn = mkBtn(mountLabel, mountLeft, mountWidth, mountColor, true)
+			mountBtn.MouseButton1Click:Connect(function()
+				invButtonDebounce(entry.uid, "mount", function()
+					if isMounted then
+						if Evt.dismountRequest then Evt.dismountRequest:FireServer() end
+					else
+						if Evt.mountRequest then Evt.mountRequest:FireServer() end
+					end
+					task.wait(0.5)
+					refreshInventory()
+				end)
+			end)
+		end
+
+		local incBtn = mkBtn(incLabel, incLeft, incWidth, isBase and Color3.fromRGB(50,55,60) or C.income, incEnabled)
 		incBtn.MouseButton1Click:Connect(function()
-			if not assignToBase or not incEnabled then return end
+			if not Evt.assignToBase or not incEnabled then return end
 			invButtonDebounce(entry.uid, "base", function()
-				assignToBase:FireServer(entry.uid, isBase and 0 or nil)
+				Evt.assignToBase:FireServer(entry.uid, isBase and 0 or nil)
 				pendingOptimistic[tostring(entry.uid)] = { base = not isBase, t = tick() }
 				isBase = not isBase
 				incBtn.Text = isBase and "Rem" or "Inc"
@@ -1542,11 +1644,11 @@ local function mkCard(entry, creature, data, order)
 		end)
 
 		local defEnabled = (isDef or (not defFull and not isFav and not isBase)) and not (isFav and isDef)
-		local defBtn = mkBtn(defLabel, btnLeft(2), isDef and Color3.fromRGB(55,50,50) or C.defense, defEnabled)
+		local defBtn = mkBtn(defLabel, defLeft, defWidth, isDef and Color3.fromRGB(55,50,50) or C.defense, defEnabled)
 		defBtn.MouseButton1Click:Connect(function()
-			if not assignToDefense or not defEnabled then return end
+			if not Evt.assignToDefense or not defEnabled then return end
 			invButtonDebounce(entry.uid, "defense", function()
-				assignToDefense:FireServer(entry.uid, isDef and 0 or nil)
+				Evt.assignToDefense:FireServer(entry.uid, isDef and 0 or nil)
 				pendingOptimistic[tostring(entry.uid)] = { def = not isDef, t = tick() }
 				isDef = not isDef
 				defBtn.Text = isDef and "Rem" or "Def"
@@ -1555,14 +1657,11 @@ local function mkCard(entry, creature, data, order)
 			end)
 		end)
 
-		-- Evolve: only when creature can evolve in-game and meets level requirement (10 for base, 25 for evolved)
-		local minEvolveLvl = CreatureData.GetEvolvesFrom and CreatureData.GetEvolvesFrom(entry.id) and (GameConfig.EvolutionMinLevel2 or 25) or (GameConfig.EvolutionMinLevel or 10)
-		local canEvolve = (lvl >= minEvolveLvl) and CreatureData.CanEvolveInGame and CreatureData.CanEvolveInGame(entry.id)
-		local evolveBtn = mkBtn("Evolve", btnLeft(1), Color3.fromRGB(180, 100, 255), canEvolve)
+		local evolveBtn = mkBtn("Evolve", evolveLeft, evolveWidth, Color3.fromRGB(180, 100, 255), canEvolve)
 		evolveBtn.MouseButton1Click:Connect(function()
-			if canEvolve and evolveCreature then
+			if canEvolve and Evt.evolveCreature then
 				invButtonDebounce(entry.uid, "evolve", function()
-					evolveCreature:FireServer(entry.uid)
+					Evt.evolveCreature:FireServer(entry.uid)
 				end)
 			end
 		end)
@@ -1581,8 +1680,8 @@ refreshBattle = function()
 	end
 
 	local invData = nil
-	if getInventory then
-		local ok, r = pcall(function() return getInventory:InvokeServer() end)
+	if Evt.getInventory then
+		local ok, r = pcall(function() return Evt.getInventory:InvokeServer() end)
 		if ok and r then invData = r end
 	end
 	if not invData then
@@ -1733,8 +1832,8 @@ refreshBattle = function()
 
 	-- Arena info
 	local arenaInfo = nil
-	if getBattleInfo then
-		local ok2, r2 = pcall(function() return getBattleInfo:InvokeServer() end)
+	if Evt.getBattleInfo then
+		local ok2, r2 = pcall(function() return Evt.getBattleInfo:InvokeServer() end)
 		if ok2 and r2 then arenaInfo = r2 end
 	end
 
@@ -1953,8 +2052,8 @@ refreshBattle = function()
 				placeBtn.MouseButton1Click:Connect(function()
 					if canPlaceMore then
 						setModalSelection(av.uid, cr.id, cr.displayName)
-						if targetSlotIndex and assignToBattle then
-							assignToBattle:FireServer(av.uid, targetSlotIndex)
+						if targetSlotIndex and Evt.assignToBattle then
+							Evt.assignToBattle:FireServer(av.uid, targetSlotIndex)
 							pendingBattleOptimistic[targetSlotIndex] = av.uid  -- instant UI update before server confirms
 						else
 							pendingBattleUid = av.uid
@@ -2055,8 +2154,8 @@ refreshBattle = function()
 	else
 		local function updateActiveStatusLine()
 			local timers = nil
-			if getBattleTimers then
-				local ok, result = pcall(function() return getBattleTimers:InvokeServer() end)
+			if Evt.getBattleTimers then
+				local ok, result = pcall(function() return Evt.getBattleTimers:InvokeServer() end)
 				if ok and result then timers = result end
 			end
 			if not timers then
@@ -2155,13 +2254,13 @@ refreshBattle = function()
 	toggleBtn.BorderSizePixel = 0; toggleBtn.Parent = gridLabelRow
 	Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 6)
 	toggleBtn.MouseButton1Click:Connect(function()
-		if not toggleBattleTeam then return end
+		if not Evt.toggleBattleTeam then return end
 		-- Optimistic update: flip button immediately
 		local newState = not battleTeamEnabled
 		toggleBtn.Text = newState and "ACTIVE" or "INACTIVE"
 		toggleBtn.BackgroundColor3 = newState and C.battle or C.divider
 		toggleBtn.TextColor3 = newState and Color3.new(1,1,1) or C.textSec
-		local ok = pcall(function() return toggleBattleTeam:InvokeServer() end)
+		local ok = pcall(function() return Evt.toggleBattleTeam:InvokeServer() end)
 		if ok then
 			-- Refresh so the inactive banner text goes away (or appears) and UI matches server
 			refreshBattle()
@@ -2276,19 +2375,19 @@ refreshBattle = function()
 				-- Right-click to remove (click while not placing)
 				slot.MouseButton1Click:Connect(function()
 					if pendingBattleUid then
-						if assignToBattle then
+						if Evt.assignToBattle then
 							invButtonDebounce(tostring(pendingBattleUid) .. "_" .. tostring(slotIdx), "assignBattle", function()
 								local uid = pendingBattleUid
-								assignToBattle:FireServer(uid, slotIdx)
+								Evt.assignToBattle:FireServer(uid, slotIdx)
 								pendingBattleOptimistic[slotIdx] = uid  -- instant UI update before server confirms
 								pendingBattleUid = nil; task.wait(0.3); refreshBattle()
 							end)
 						end
 					else
 						-- Click on occupied slot = remove from battle
-						if removeFromBattle then
+						if Evt.removeFromBattle then
 							invButtonDebounce(ce.uid, "dismiss", function()
-								removeFromBattle:FireServer(ce.uid); task.wait(0.3); refreshBattle()
+								Evt.removeFromBattle:FireServer(ce.uid); task.wait(0.3); refreshBattle()
 							end)
 						end
 					end
@@ -2296,10 +2395,10 @@ refreshBattle = function()
 			else
 				-- Empty slot: place from pending, or tap/click to open monster selection
 				slot.MouseButton1Click:Connect(function()
-					if pendingBattleUid and assignToBattle then
+					if pendingBattleUid and Evt.assignToBattle then
 						invButtonDebounce(tostring(pendingBattleUid) .. "_" .. tostring(slotIdx), "assignBattle", function()
 							local uid = pendingBattleUid
-							assignToBattle:FireServer(uid, slotIdx)
+							Evt.assignToBattle:FireServer(uid, slotIdx)
 							pendingBattleOptimistic[slotIdx] = uid  -- instant UI update before server confirms
 							pendingBattleUid = nil; task.wait(0.3); refreshBattle()
 						end)
@@ -2841,10 +2940,10 @@ local function buildBaseLayoutPanel(parent, invData)
 		cell.MouseButton1Click:Connect(function()
 			-- Move creature: if we had a pending move to same track, try move to this slot
 			if pendingBaseMove and pendingBaseMove.track == track then
-				if pendingBaseMove.slotIndex ~= slotIndex and pendingBaseMove.uid and moveCreatureSlot then
+				if pendingBaseMove.slotIndex ~= slotIndex and pendingBaseMove.uid and Evt.moveCreatureSlot then
 					-- targetPointIndex: server expects point index; slot index 1-based matches point order
 					baseLog("moveCreatureSlot request: track=" .. tostring(track), "uid=" .. tostring(pendingBaseMove.uid), "targetSlotIndex=" .. tostring(slotIndex))
-					local ok, msg = moveCreatureSlot:InvokeServer(track, pendingBaseMove.uid, slotIndex)
+					local ok, msg = Evt.moveCreatureSlot:InvokeServer(track, pendingBaseMove.uid, slotIndex)
 					baseLog("moveCreatureSlot result: ok=" .. tostring(ok), msg and ("msg=" .. tostring(msg)) or "")
 					if ok then
 						pendingBaseMove = nil
@@ -3020,6 +3119,308 @@ local function buildBaseLayoutPanel(parent, invData)
 end
 
 -- --------------------------------------------
+-- BADBAG TAB (Badlands bag: captured creatures, set favorite, sacrifice)
+-- --------------------------------------------
+local badBagSacrificeModal = nil
+
+local function showBadBagSacrificeModal(slotIndex, creatureName)
+	if badBagSacrificeModal and badBagSacrificeModal.Parent then
+		badBagSacrificeModal:Destroy()
+	end
+
+	local overlay = Instance.new("Frame")
+	overlay.Name = "BadBagSacrificeModal"
+	overlay.Size = UDim2.new(1, 0, 1, 0)
+	overlay.BackgroundColor3 = Color3.new(0, 0, 0)
+	overlay.BackgroundTransparency = 0.5
+	overlay.BorderSizePixel = 0
+	overlay.ZIndex = 80
+	overlay.Parent = sg
+
+	local panel = Instance.new("Frame")
+	panel.Size = UDim2.new(0, 300, 0, 240)
+	panel.Position = UDim2.new(0.5, 0, 0.5, 0)
+	panel.AnchorPoint = Vector2.new(0.5, 0.5)
+	panel.BackgroundColor3 = C.bg
+	panel.BorderSizePixel = 0
+	panel.ZIndex = 81
+	panel.Parent = overlay
+	Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 10)
+	local pStroke = Instance.new("UIStroke", panel)
+	pStroke.Color = C.red or Color3.fromRGB(220, 60, 60)
+	pStroke.Thickness = 2
+
+	local titleLbl = Instance.new("TextLabel")
+	titleLbl.Size = UDim2.new(1, -16, 0, 28)
+	titleLbl.Position = UDim2.new(0, 8, 0, 8)
+	titleLbl.BackgroundTransparency = 1
+	titleLbl.Text = "Sacrifice " .. creatureName
+	titleLbl.TextColor3 = C.red or Color3.fromRGB(220, 60, 60)
+	titleLbl.Font = Enum.Font.GothamBlack
+	titleLbl.TextSize = 15
+	titleLbl.TextTruncate = Enum.TextTruncate.AtEnd
+	titleLbl.ZIndex = 82
+	titleLbl.Parent = panel
+
+	local subLbl = Instance.new("TextLabel")
+	subLbl.Size = UDim2.new(1, -16, 0, 18)
+	subLbl.Position = UDim2.new(0, 8, 0, 38)
+	subLbl.BackgroundTransparency = 1
+	subLbl.Text = "Choose a stat to boost:"
+	subLbl.TextColor3 = C.textSec
+	subLbl.Font = Enum.Font.GothamMedium
+	subLbl.TextSize = 12
+	subLbl.ZIndex = 82
+	subLbl.Parent = panel
+
+	local STATS = { "Health", "Attack", "Defense", "MovementSpeed" }
+	local STAT_LABELS = { Health = "Health", Attack = "Attack", Defense = "Defense", MovementSpeed = "Movement Speed" }
+	local STAT_COLORS = {
+		Health = Color3.fromRGB(220, 80, 80),
+		Attack = Color3.fromRGB(255, 120, 50),
+		Defense = Color3.fromRGB(80, 150, 255),
+		MovementSpeed = Color3.fromRGB(100, 255, 120),
+	}
+
+	local btnY = 64
+	for _, stat in ipairs(STATS) do
+		local btn = Instance.new("TextButton")
+		btn.Size = UDim2.new(1, -24, 0, 32)
+		btn.Position = UDim2.new(0, 12, 0, btnY)
+		btn.BackgroundColor3 = STAT_COLORS[stat] or C.accent
+		btn.BackgroundTransparency = 0.35
+		btn.BorderSizePixel = 0
+		btn.Text = "+" .. STAT_LABELS[stat]
+		btn.TextColor3 = Color3.new(1, 1, 1)
+		btn.Font = Enum.Font.GothamBold
+		btn.TextSize = 13
+		btn.ZIndex = 83
+		btn.Parent = panel
+		Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+		btnY = btnY + 36
+
+		btn.MouseButton1Click:Connect(function()
+			if Evt.badlandsSacrifice then
+				Evt.badlandsSacrifice:FireServer(slotIndex, stat)
+			end
+			overlay:Destroy()
+			badBagSacrificeModal = nil
+		end)
+	end
+
+	local cancelBtn = Instance.new("TextButton")
+	cancelBtn.Size = UDim2.new(1, -24, 0, 26)
+	cancelBtn.Position = UDim2.new(0, 12, 0, btnY + 4)
+	cancelBtn.BackgroundColor3 = C.card
+	cancelBtn.BackgroundTransparency = 0.2
+	cancelBtn.BorderSizePixel = 0
+	cancelBtn.Text = "Cancel"
+	cancelBtn.TextColor3 = C.textSec
+	cancelBtn.Font = Enum.Font.GothamMedium
+	cancelBtn.TextSize = 12
+	cancelBtn.ZIndex = 83
+	cancelBtn.Parent = panel
+	Instance.new("UICorner", cancelBtn).CornerRadius = UDim.new(0, 6)
+	cancelBtn.MouseButton1Click:Connect(function()
+		overlay:Destroy()
+		badBagSacrificeModal = nil
+	end)
+
+	badBagSacrificeModal = overlay
+end
+
+refreshBadBag = function()
+	for _, ch in ipairs(content:GetChildren()) do
+		if not ch:IsA("UIListLayout") then ch:Destroy() end
+	end
+
+	-- Hide detail panel
+	if detailPanel then detailPanel.Visible = false end
+
+	-- Adjust content width (full width, no detail panel)
+	content.Size = UDim2.new(1, -28, 1, -140)
+	content.Position = UDim2.new(0, 14, 0, 130)
+
+	-- Header
+	local hdrFrame = Instance.new("Frame")
+	hdrFrame.Name = "BadBagHeader"
+	hdrFrame.Size = UDim2.new(1, 0, 0, 56)
+	hdrFrame.BackgroundColor3 = C.card
+	hdrFrame.BackgroundTransparency = 0.2
+	hdrFrame.BorderSizePixel = 0
+	hdrFrame.LayoutOrder = 0
+	hdrFrame.Parent = content
+	Instance.new("UICorner", hdrFrame).CornerRadius = UDim.new(0, 8)
+
+	local bagTitle = Instance.new("TextLabel")
+	bagTitle.Size = UDim2.new(1, -16, 0, 24)
+	bagTitle.Position = UDim2.new(0, 8, 0, 4)
+	bagTitle.BackgroundTransparency = 1
+	bagTitle.Text = "BADLANDS BAG"
+	bagTitle.TextColor3 = Color3.fromRGB(180, 80, 255)
+	bagTitle.Font = Enum.Font.GothamBlack
+	bagTitle.TextSize = 16
+	bagTitle.TextXAlignment = Enum.TextXAlignment.Left
+	bagTitle.Parent = hdrFrame
+
+	local bagSub = Instance.new("TextLabel")
+	bagSub.Size = UDim2.new(1, -16, 0, 18)
+	bagSub.Position = UDim2.new(0, 8, 0, 30)
+	bagSub.BackgroundTransparency = 1
+	bagSub.Text = ("Captured: %d / %d  |  Tap to set favorite  |  Sacrifice for stat boosts"):format(
+		tonumber(badBagState.count) or 0, tonumber(badBagState.capacity) or 0
+	)
+	bagSub.TextColor3 = C.textSec
+	bagSub.Font = Enum.Font.GothamMedium
+	bagSub.TextSize = 11
+	bagSub.TextXAlignment = Enum.TextXAlignment.Left
+	bagSub.TextTruncate = Enum.TextTruncate.AtEnd
+	bagSub.Parent = hdrFrame
+
+	local slots = badBagState.slots or {}
+	if #slots == 0 then
+		local emptyLbl = Instance.new("TextLabel")
+		emptyLbl.Size = UDim2.new(1, 0, 0, 60)
+		emptyLbl.BackgroundTransparency = 1
+		emptyLbl.LayoutOrder = 1
+		emptyLbl.Text = "Your Badlands bag is empty.\nCapture creatures in The Badlands to fill it."
+		emptyLbl.TextColor3 = C.textMut
+		emptyLbl.Font = Enum.Font.GothamMedium
+		emptyLbl.TextSize = 13
+		emptyLbl.TextWrapped = true
+		emptyLbl.Parent = content
+		return
+	end
+
+	for slotIndex, slot in ipairs(slots) do
+		local occupied = slot and not slot.empty and slot.id ~= nil
+		local isFav = slot and slot.active
+
+		local card = Instance.new("Frame")
+		card.Name = "BagSlot_" .. slotIndex
+		card.Size = UDim2.new(1, 0, 0, 62)
+		card.BackgroundColor3 = isFav and Color3.fromRGB(30, 38, 28) or (occupied and C.bgLight or C.card)
+		card.BackgroundTransparency = occupied and 0 or 0.3
+		card.BorderSizePixel = 0
+		card.LayoutOrder = slotIndex
+		card.Parent = content
+		Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
+
+		local cStroke = Instance.new("UIStroke", card)
+		if isFav then
+			cStroke.Color = C.income or Color3.fromRGB(50, 220, 120)
+			cStroke.Thickness = 2
+		else
+			cStroke.Color = occupied and Color3.fromRGB(60, 64, 80) or Color3.fromRGB(40, 42, 55)
+			cStroke.Thickness = 1
+		end
+
+		-- Rarity bar
+		if occupied then
+			local rarColor = RARITY[slot.rarity] or C.textMut
+			local rarBar = Instance.new("Frame")
+			rarBar.Size = UDim2.new(0, 4, 1, -8)
+			rarBar.Position = UDim2.new(0, 4, 0, 4)
+			rarBar.BackgroundColor3 = rarColor
+			rarBar.BorderSizePixel = 0
+			rarBar.Parent = card
+			Instance.new("UICorner", rarBar).CornerRadius = UDim.new(0, 2)
+		end
+
+		-- Slot number
+		local slotLbl = Instance.new("TextLabel")
+		slotLbl.Size = UDim2.new(0, 32, 1, 0)
+		slotLbl.Position = UDim2.new(0, 14, 0, 0)
+		slotLbl.BackgroundTransparency = 1
+		slotLbl.Text = "#" .. slotIndex
+		slotLbl.TextColor3 = isFav and (C.income or Color3.fromRGB(50, 220, 120)) or C.textSec
+		slotLbl.Font = Enum.Font.GothamBold
+		slotLbl.TextSize = 13
+		slotLbl.Parent = card
+
+		-- Name
+		local nameLbl = Instance.new("TextLabel")
+		nameLbl.Size = UDim2.new(1, -200, 0, 22)
+		nameLbl.Position = UDim2.new(0, 50, 0, 6)
+		nameLbl.BackgroundTransparency = 1
+		nameLbl.Text = occupied and (slot.displayName or slot.id or "Unknown") or "Empty slot"
+		nameLbl.TextColor3 = occupied and C.text or C.textMut
+		nameLbl.Font = Enum.Font.GothamBold
+		nameLbl.TextSize = 14
+		nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+		nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+		nameLbl.Parent = card
+
+		-- Details
+		local detLbl = Instance.new("TextLabel")
+		detLbl.Size = UDim2.new(1, -200, 0, 16)
+		detLbl.Position = UDim2.new(0, 50, 0, 30)
+		detLbl.BackgroundTransparency = 1
+		detLbl.Text = occupied
+			and ("Lv" .. tostring(slot.level or 1) .. "  •  " .. tostring(slot.variant or "Normal") .. "  •  " .. tostring(slot.rarity or "Common"))
+			or "Capture a creature to fill this slot."
+		detLbl.TextColor3 = C.textSec
+		detLbl.Font = Enum.Font.GothamMedium
+		detLbl.TextSize = 11
+		detLbl.TextXAlignment = Enum.TextXAlignment.Left
+		detLbl.TextTruncate = Enum.TextTruncate.AtEnd
+		detLbl.Parent = card
+
+		-- Status badge
+		local statusLbl = Instance.new("TextLabel")
+		statusLbl.Size = UDim2.new(0, 60, 0, 18)
+		statusLbl.Position = UDim2.new(1, -145, 0, 6)
+		statusLbl.BackgroundTransparency = 1
+		statusLbl.Text = isFav and "FAVORITE" or (occupied and "READY" or "EMPTY")
+		statusLbl.TextColor3 = isFav and (C.income or Color3.fromRGB(50, 220, 120)) or (occupied and C.text or C.textMut)
+		statusLbl.Font = Enum.Font.GothamBold
+		statusLbl.TextSize = 10
+		statusLbl.TextXAlignment = Enum.TextXAlignment.Right
+		statusLbl.Parent = card
+
+		if occupied then
+			-- Set as favorite button
+			local favBtn = Instance.new("TextButton")
+			favBtn.Size = UDim2.new(0, 64, 0, 24)
+			favBtn.Position = UDim2.new(1, -144, 0, 30)
+			favBtn.BackgroundColor3 = isFav and (C.income or Color3.fromRGB(50, 220, 120)) or C.accent
+			favBtn.BackgroundTransparency = isFav and 0.5 or 0.3
+			favBtn.BorderSizePixel = 0
+			favBtn.Text = isFav and "Active" or "Equip"
+			favBtn.TextColor3 = Color3.new(1, 1, 1)
+			favBtn.Font = Enum.Font.GothamBold
+			favBtn.TextSize = 11
+			favBtn.Parent = card
+			Instance.new("UICorner", favBtn).CornerRadius = UDim.new(0, 5)
+			favBtn.MouseButton1Click:Connect(function()
+				if Evt.badlandsBagSwitch then
+					Evt.badlandsBagSwitch:FireServer(slotIndex)
+				end
+			end)
+
+			-- Sacrifice button (only non-favorite)
+			if not isFav and Evt.badlandsSacrifice then
+				local sacBtn = Instance.new("TextButton")
+				sacBtn.Size = UDim2.new(0, 64, 0, 24)
+				sacBtn.Position = UDim2.new(1, -72, 0, 30)
+				sacBtn.BackgroundColor3 = C.red or Color3.fromRGB(255, 70, 70)
+				sacBtn.BackgroundTransparency = 0.3
+				sacBtn.BorderSizePixel = 0
+				sacBtn.Text = "Sacrifice"
+				sacBtn.TextColor3 = Color3.new(1, 1, 1)
+				sacBtn.Font = Enum.Font.GothamBold
+				sacBtn.TextSize = 10
+				sacBtn.Parent = card
+				Instance.new("UICorner", sacBtn).CornerRadius = UDim.new(0, 5)
+				sacBtn.MouseButton1Click:Connect(function()
+					showBadBagSacrificeModal(slotIndex, slot.displayName or slot.id or "Creature")
+				end)
+			end
+		end
+	end
+end
+
+-- --------------------------------------------
 -- RAID TAB
 -- --------------------------------------------
 refreshRaids = function()
@@ -3029,8 +3430,8 @@ refreshRaids = function()
 		if not ch:IsA("UIListLayout") then ch:Destroy() end
 	end
 
-	if GameConfig.ENABLE_BASE_LAYOUT_OVERVIEW and getInventory then
-		local ok, invData = pcall(function() return getInventory:InvokeServer() end)
+	if GameConfig.ENABLE_BASE_LAYOUT_OVERVIEW and Evt.getInventory then
+		local ok, invData = pcall(function() return Evt.getInventory:InvokeServer() end)
 		baseLog("GetInventory: ok=" .. tostring(ok), invData and "has invData" or "invData nil")
 		if ok and invData then
 			baseLog("buildBaseLayoutPanel: baseSlots type=" .. type(invData.baseSlots), "defenseSlots type=" .. type(invData.defenseSlots), "ownedFloors=" .. tostring(invData.ownedFloors and #invData.ownedFloors or "nil"))
@@ -3041,7 +3442,7 @@ refreshRaids = function()
 		end
 	else
 		if not GameConfig.ENABLE_BASE_LAYOUT_OVERVIEW then baseLog("ENABLE_BASE_LAYOUT_OVERVIEW is false") end
-		if not getInventory then baseLog("getInventory is nil") end
+		if not Evt.getInventory then baseLog("getInventory is nil") end
 	end
 	restoreScroll()
 end
@@ -3068,8 +3469,8 @@ refreshInventory = function(overrideBaseStr, overrideDefStr)
 	for _, ch in ipairs(content:GetChildren()) do
 		if not ch:IsA("UIListLayout") then ch:Destroy() end
 	end
-	if not getInventory then refreshLock = false; restoreScroll(); return end
-	local ok, data = pcall(function() return getInventory:InvokeServer() end)
+	if not Evt.getInventory then refreshLock = false; restoreScroll(); return end
+	local ok, data = pcall(function() return Evt.getInventory:InvokeServer() end)
 	baseLog("refreshInventory GetInventory: ok=" .. tostring(ok), ok and data and ("inventory=" .. #(data.inventory or {}) .. " baseSlots=" .. type(data.baseSlots) .. " defenseSlots=" .. type(data.defenseSlots)) or "")
 	if not ok or not data then refreshLock = false; restoreScroll(); return end
 	latestInventoryData = data
@@ -3291,7 +3692,7 @@ end
 
 -- Refresh inventory as soon as server finishes assign/remove so Inc/Def/Rem buttons update immediately
 task.spawn(function()
-	local evt = slotAssignComplete or Events:WaitForChild("SlotAssignComplete", 10)
+	local evt = Evt.slotAssignComplete or Events:WaitForChild("SlotAssignComplete", 10)
 	if evt and evt:IsA("RemoteEvent") then
 		evt.OnClientEvent:Connect(function(baseStr, defStr)
 			lastSlotBaseStr, lastSlotDefStr = baseStr, defStr
@@ -3305,6 +3706,62 @@ end)
 -- TOGGLE (open/close use viewport scale so panel fits on mobile)
 -- --------------------------------------------
 local isVis = false
+local function getLivePlayerGui()
+	local live = player:FindFirstChildOfClass("PlayerGui") or player:WaitForChild("PlayerGui")
+	if playerGui ~= live then
+		playerGui = live
+	end
+	return playerGui
+end
+
+local function ensureInventoryGuiReady()
+	-- PlayerGui can be reset on spawn on some clients; reattach persistent UI objects before toggling.
+	local livePlayerGui = getLivePlayerGui()
+	if sg.Parent ~= livePlayerGui then
+		local ok = pcall(function()
+			sg.Parent = livePlayerGui
+		end)
+		if not ok then
+			return false
+		end
+	end
+	if main and main.Parent ~= sg then
+		local ok = pcall(function()
+			main.Parent = sg
+		end)
+		if not ok then
+			return false
+		end
+	end
+	return sg.Parent == livePlayerGui and main and main.Parent == sg
+end
+
+local function syncVisibleStateFromGui()
+	local guiOk = ensureInventoryGuiReady()
+	if not guiOk then
+		warn("[InventoryUI] ensureInventoryGuiReady failed — attempting recovery")
+		-- FIX #21b: Don't hard-block on GUI check. Try to recover by re-parenting.
+		pcall(function()
+			local live = player:FindFirstChildOfClass("PlayerGui") or player:WaitForChild("PlayerGui", 2)
+			if live and sg then
+				sg.Parent = live
+				if main then main.Parent = sg end
+				playerGui = live
+			end
+		end)
+		-- Re-check after recovery attempt
+		guiOk = (sg and sg.Parent and main and main.Parent == sg)
+		if not guiOk then
+			isVis = false
+			return false
+		end
+	end
+	if isVis and (not main.Visible) then
+		isVis = false
+	end
+	return true
+end
+
 local function getPanelOpenRect()
 	if MobileWindowLayout.IsMobile() then
 		local bounds = MobileWindowLayout.GetBounds({
@@ -3335,9 +3792,11 @@ local function applyMainFrameLayout()
 		MobileWindowLayout.RestoreDesktopWindow(main, { draggable = true })
 	end
 end
--- defaultTab: "inventory" (I / HUD Inventory button) or "battle" (B / B button)
+-- defaultTab: "inventory" (I / HUD Inventory button) or "battle" (B / B button) or "badbag" (Badlands)
 local function openUI(defaultTab)
+	if not syncVisibleStateFromGui() then return end
 	defaultTab = defaultTab or "inventory"
+	updateTabVisibility()
 	local x, y, w, h, mobile = getPanelOpenRect()
 	main.AnchorPoint = Vector2.new(0, 0)
 	main.Position = UDim2.fromOffset(x, y)
@@ -3350,17 +3809,31 @@ local function openUI(defaultTab)
 	isVis = true; main.Visible = true
 	MobileWindowLayout.NotifyMenuOpened()
 	task.defer(updateFavOrb)
-	task.delay(0.5, updateFavOrb)  -- refresh again in case GetInventory was stale (e.g. favorite set before UI loaded)
+	task.delay(0.5, updateFavOrb)
 	TweenService:Create(main, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 		Size = UDim2.fromOffset(w, h)
 	}):Play()
-	if defaultTab == "battle" then
-		setTab("battle"); refreshBattle()
-	else
-		setTab("inventory"); refreshInventory()
+	-- FIX #21: Wrap tab switch + refresh in pcall so a rendering error in one tab
+	-- (e.g. mkCard button layout) doesn't kill the thread and leave the UI invisible.
+	local tabOk, tabErr = pcall(function()
+		if defaultTab == "badbag" then
+			setTab("badbag"); if refreshBadBag then refreshBadBag() end
+		elseif defaultTab == "battle" then
+			setTab("battle"); refreshBattle()
+		else
+			setTab("inventory"); refreshInventory()
+		end
+	end)
+	if not tabOk then
+		warn("[InventoryUI] openUI tab refresh error: " .. tostring(tabErr))
 	end
 end
 local function closeUI()
+	if not syncVisibleStateFromGui() then return end
+	if not main.Visible then
+		isVis = false
+		return
+	end
 	local w = main.AbsoluteSize.X
 	TweenService:Create(main, TweenInfo.new(0.12), { Size = UDim2.new(0, w, 0, 10) }):Play()
 	task.delay(0.13, function()
@@ -3370,36 +3843,113 @@ local function closeUI()
 	end)
 end
 
-toggleBtn.MouseButton1Click:Connect(function() if isVis then closeUI() else openUI("battle") end end)
+toggleBtn.MouseButton1Click:Connect(function()
+	print("[InventoryUI] toggleBtn clicked, syncCheck...")
+	if not syncVisibleStateFromGui() then warn("[InventoryUI] toggleBtn sync failed"); return end
+	if isVis then closeUI() else
+		if player:GetAttribute("InBadlands") then openUI("badbag") else openUI("battle") end
+	end
+end)
 closeBtn.MouseButton1Click:Connect(closeUI)
--- Q key handled by HUDButtonBar -> HUDToggleMenu -> onHUDToggle (no duplicate handler)
+-- Q key handled by HUDButtonBar -> HUDToggleMenu -> onHUDToggle (direct handler below as fallback)
+local lastQKeyTick = 0
+local lastHUDInventoryToggleTick = 0
 
--- B/Y keys: battle tab and toggle favorite (menu-internal)
+-- Q/B/Y keys: direct inventory toggle, battle tab, and toggle favorite
+print("[InventoryUI] InputBegan handler registered — Q/B/Y keys active")
 UserInputService.InputBegan:Connect(function(input)
 	if UserInputService:GetFocusedTextBox() then return end
 	if input.UserInputType ~= Enum.UserInputType.Keyboard or not input.KeyCode then return end
-	if input.KeyCode == Enum.KeyCode.B then if isVis then closeUI() else openUI("battle") end
-	elseif input.KeyCode == Enum.KeyCode.Y then toggleFavorite() end
+	if input.KeyCode == Enum.KeyCode.Q or input.KeyCode == Enum.KeyCode.B then
+		print("[InventoryUI] Key pressed:", input.KeyCode.Name, "isVis=", isVis, "InBadlands=", player:GetAttribute("InBadlands"))
+	end
+	if not syncVisibleStateFromGui() then
+		warn("[InventoryUI] syncVisibleStateFromGui returned false — Q/B key blocked")
+		return
+	end
+	if input.KeyCode == Enum.KeyCode.Q then
+		-- If HUDButtonBar already handled this exact Q press first, ignore direct fallback to avoid open->close flip.
+		if (tick() - lastHUDInventoryToggleTick) < 0.12 then return end
+		lastQKeyTick = tick()
+		if player:GetAttribute("InBadlands") then
+			if isVis then closeUI() else openUI("badbag") end
+		else
+			if isVis then closeUI() else openUI("inventory") end
+		end
+	elseif input.KeyCode == Enum.KeyCode.B then
+		if isVis then closeUI() else openUI("battle") end
+	elseif input.KeyCode == Enum.KeyCode.Y then
+		if player:GetAttribute("InBadlands") then return end
+		toggleFavorite()
+	end
 end)
 
 -- HUD button bar toggle: use/create event; reconnect when HUDToggleMenu is re-added (e.g. after respawn)
 local function getHUDToggle()
-	local evt = playerGui:FindFirstChild("HUDToggleMenu")
+	local livePlayerGui = getLivePlayerGui()
+	local evt = livePlayerGui:FindFirstChild("HUDToggleMenu")
 	if not evt or not evt:IsA("BindableEvent") then
 		evt = Instance.new("BindableEvent")
 		evt.Name = "HUDToggleMenu"
-		evt.Parent = playerGui
+		evt.Parent = livePlayerGui
 	end
 	return evt
 end
 local function onHUDToggle(menuName)
+	if not syncVisibleStateFromGui() then
+		warn("[InventoryUI] onHUDToggle syncVisibleStateFromGui failed for:", menuName)
+		return
+	end
 	if menuName == "InventoryUI" then
-		if isVis then closeUI() else openUI("inventory") end
+		lastHUDInventoryToggleTick = tick()
+		-- Skip if Q key was just handled directly (prevents double-toggle from keyboard path)
+		if (tick() - lastQKeyTick) < 0.15 then return end
+		if player:GetAttribute("InBadlands") then
+			if isVis then closeUI() else openUI("badbag") end
+		else
+			if isVis then closeUI() else openUI("inventory") end
+		end
 	end
 end
-getHUDToggle().Event:Connect(onHUDToggle)
-playerGui.ChildAdded:Connect(function(child)
-	if child.Name == "HUDToggleMenu" and child:IsA("BindableEvent") then child.Event:Connect(onHUDToggle) end
+
+local hudToggleConnect, hudToggleChildAddedConnect
+local function bindHUDToggleListeners()
+	if hudToggleConnect then hudToggleConnect:Disconnect() end
+	if hudToggleChildAddedConnect then hudToggleChildAddedConnect:Disconnect() end
+	hudToggleConnect = getHUDToggle().Event:Connect(onHUDToggle)
+	local livePlayerGui = getLivePlayerGui()
+	hudToggleChildAddedConnect = livePlayerGui.ChildAdded:Connect(function(child)
+		if child.Name == "HUDToggleMenu" and child:IsA("BindableEvent") then
+			child.Event:Connect(onHUDToggle)
+		end
+	end)
+end
+bindHUDToggleListeners()
+player.CharacterAdded:Connect(function()
+	task.defer(function()
+		getLivePlayerGui()
+		bindHUDToggleListeners()
+		syncVisibleStateFromGui()
+	end)
+end)
+
+-- When InBadlands changes, update tabs; if entering and Sieglings is open, switch to BadBag
+-- FIX #24: Also hide Battle Menu button while in Badlands (BadBag button replaces it).
+player:GetAttributeChangedSignal("InBadlands"):Connect(function()
+	updateTabVisibility()
+	local inBL = player:GetAttribute("InBadlands") == true
+	-- Hide/show Battle Menu + weapon swap buttons (BadlandsClient shows BadBag in same spot)
+	if toggleBtn then toggleBtn.Visible = not inBL end
+	if weaponIcon then weaponIcon.Visible = not inBL end
+	if inBL then
+		if isVis and activeTab == "inventory" then
+			setTab("badbag"); if refreshBadBag then refreshBadBag() end
+		end
+	else
+		if isVis and activeTab == "badbag" then
+			setTab("inventory"); refreshInventory()
+		end
+	end
 end)
 
 MobileWindowLayout.BindViewportUpdate(function()
@@ -3414,9 +3964,16 @@ MobileWindowLayout.BindViewportUpdate(function()
 	end
 end)
 
-invTab.MouseButton1Click:Connect(function() setTab("inventory"); refreshInventory() end)
+invTab.MouseButton1Click:Connect(function()
+	if player:GetAttribute("InBadlands") then
+		if Notify and Notify.Toast then Notify.Toast("Sieglings inventory is disabled in The Badlands", C.textMut, 2) end
+		return
+	end
+	setTab("inventory"); refreshInventory()
+end)
 battleTab.MouseButton1Click:Connect(function() setTab("battle"); refreshBattle() end)
 raidTab.MouseButton1Click:Connect(function() setTab("raids"); refreshRaids() end)
+badBagTab.MouseButton1Click:Connect(function() setTab("badbag"); if refreshBadBag then refreshBadBag() end end)
 
 -- Refresh current tab only (never switch content to Inventory when user is on Battle/Raids).
 -- FIX #19: Forward-declared above (alongside refreshInventory/refreshBattle/refreshRaids) so that
@@ -3426,14 +3983,15 @@ refreshCurrentTab = function()
 	if not isVis then return end
 	if activeTab == "inventory" then refreshInventory()
 	elseif activeTab == "battle" then refreshBattle()
+	elseif activeTab == "badbag" then if refreshBadBag then refreshBadBag() end
 	else refreshRaids() end
 end
 
 -- Events: refresh the *current* tab so we don't overwrite Battle/Raids with Inventory (fixes mobile reset bug)
-if captureSuccess then captureSuccess.OnClientEvent:Connect(function()
+if Evt.captureSuccess then Evt.captureSuccess.OnClientEvent:Connect(function()
 		task.defer(function() task.wait(0.3); if isVis then refreshCurrentTab() end; updateFavOrb() end)
 	end) end
-if evolveResult then evolveResult.OnClientEvent:Connect(function(success, payload)
+if Evt.evolveResult then Evt.evolveResult.OnClientEvent:Connect(function(success, payload)
 		if success then
 			local newName = payload and CreatureData.GetById(payload)
 			local toastText = newName and ("Evolved to " .. newName.displayName .. "!") or "Evolved!"
@@ -3448,7 +4006,7 @@ if evolveResult then evolveResult.OnClientEvent:Connect(function(success, payloa
 			Notify.Toast(payload or "Evolution failed", C.red, 3)
 		end
 	end) end
-if raidStart then raidStart.OnClientEvent:Connect(function()
+if Evt.raidStart then Evt.raidStart.OnClientEvent:Connect(function()
 		task.defer(function()
 			task.wait(0.25)
 			refreshBaseUnderAttackBadgeFromServer()
@@ -3457,7 +4015,7 @@ if raidStart then raidStart.OnClientEvent:Connect(function()
 			if isVis and activeTab == "raids" then refreshRaids() end
 		end)
 	end) end
-if raidEnd then raidEnd.OnClientEvent:Connect(function()
+if Evt.raidEnd then Evt.raidEnd.OnClientEvent:Connect(function()
 		task.defer(function()
 			task.wait(0.5)
 			refreshBaseUnderAttackBadgeFromServer()
@@ -3468,23 +4026,23 @@ if raidEnd then raidEnd.OnClientEvent:Connect(function()
 -- Income received: do NOT refresh inventory (coins update on next button/tab action).
 -- Refreshing here caused constant scroll resets on mobile when income ticks fired.
 
-if arenaAnnounce then arenaAnnounce.OnClientEvent:Connect(function(msg)
+if Evt.arenaAnnounce then Evt.arenaAnnounce.OnClientEvent:Connect(function(msg)
 		Notify.Toast(msg, C.favorite, 4)
 	end) end
-if gymAnnounce then gymAnnounce.OnClientEvent:Connect(function(msg)
+if Evt.gymAnnounce then Evt.gymAnnounce.OnClientEvent:Connect(function(msg)
 		Notify.Toast(msg, C.favorite, 4)
 	end) end
 
-if battleKill then battleKill.OnClientEvent:Connect(function(aN, dN, team)
+if Evt.battleKill then Evt.battleKill.OnClientEvent:Connect(function(aN, dN, team)
 		local color = team == "blue" and C.blue or C.red
 		Notify.KillFeed(aN, dN, color)
 	end) end
-if gymBattleKill then gymBattleKill.OnClientEvent:Connect(function(aN, dN, team)
+if Evt.gymBattleKill then Evt.gymBattleKill.OnClientEvent:Connect(function(aN, dN, team)
 		local color = team == "blue" and C.blue or C.red
 		Notify.KillFeed(aN, dN, color)
 	end) end
 
-if battleEnd then battleEnd.OnClientEvent:Connect(function(winName, winTeam)
+if Evt.battleEnd then Evt.battleEnd.OnClientEvent:Connect(function(winName, winTeam)
 		local isWin = (winName == player.Name)
 		Notify.Banner(
 			winName .. " WINS THE BATTLE!",
@@ -3493,7 +4051,7 @@ if battleEnd then battleEnd.OnClientEvent:Connect(function(winName, winTeam)
 		)
 		if isVis and activeTab == "battle" then task.wait(1); refreshBattle() end
 	end) end
-if gymBattleEnd then gymBattleEnd.OnClientEvent:Connect(function(winName, winTeam)
+if Evt.gymBattleEnd then Evt.gymBattleEnd.OnClientEvent:Connect(function(winName, winTeam)
 		local isWin = (winName == player.Name)
 		Notify.Banner(
 			winName .. " WINS THE BATTLE!",
@@ -3512,5 +4070,36 @@ if sigilEarned then sigilEarned.OnClientEvent:Connect(function(zoneId)
 		Notify.Toast("Sigil earned: " .. tostring(zoneId), C.income, 3)
 	end) end
 
+-- Badlands bag: update state and auto-refresh BadBag tab when data arrives
+if Evt.badlandsBagUpdate then
+	Evt.badlandsBagUpdate.OnClientEvent:Connect(function(payload)
+		local bag = (payload and payload.bag) or payload or {}
+		badBagState = {
+			count = tonumber(bag.count) or 0,
+			capacity = tonumber(bag.capacity) or 0,
+			activeIndex = bag.activeIndex,
+			slots = bag.slots or {},
+		}
+		if isVis and activeTab == "badbag" and refreshBadBag then
+			refreshBadBag()
+		end
+	end)
+end
+
+if Evt.badlandsSacrificeResult then
+	Evt.badlandsSacrificeResult.OnClientEvent:Connect(function(success, message)
+		if success then
+			Notify.Toast(message or "Sacrifice complete!", C.income, 3)
+		else
+			Notify.Toast(message or "Sacrifice failed", C.red, 3)
+		end
+		if isVis and activeTab == "badbag" and refreshBadBag then
+			task.wait(0.2)
+			refreshBadBag()
+		end
+	end)
+end
+
 -- No auto-refresh loop: inventory only refreshes on tab/button press or when
 -- CaptureSuccess/RaidEnd adds a monster. Avoids scroll reset on mobile.
+print("[InventoryUI] Script fully loaded — all handlers registered")

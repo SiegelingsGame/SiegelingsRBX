@@ -26,20 +26,6 @@ local equipBaseColor = Events:FindFirstChild("EquipBaseColor") or Events:WaitFor
 local getInventory = Events:WaitForChild("GetInventory", 8)
 local coinsUpdate = Events:FindFirstChild("CoinsUpdate") or Events:WaitForChild("CoinsUpdate", 3)
 
--- #region agent loger.1
-do
-	1544
-	local HttpService = game:GetService("HttpService")
-	pcall(function()
-		HttpService:PostAsync("http://127.0.0.1:7242/ingest/29779be3-c77e-4205-a6a3-76f7b6b6f8e7", HttpService:JSONEncode({
-			location = "CosmeticShopClient.lua:remotes", message = "remotes after WaitForChild",
-			data = { hasBuyCosmetic = buyCosmetic ~= nil, hasBuyExterior = buyExterior ~= nil, hasGetInventory = getInventory ~= nil },
-			timestamp = math.floor(tick() * 1000), hypothesisId = "H1"
-		}))
-	end)
-end
--- #endregion
-
 -- -- COLORS --
 local C = {
 	bg = Color3.fromRGB(14, 16, 24),
@@ -108,7 +94,7 @@ Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0, 14)
 
 local titleLbl = Instance.new("TextLabel")
 titleLbl.Size = UDim2.new(0.6, 0, 1, 0); titleLbl.Position = UDim2.new(0, 15, 0, 0)
-titleLbl.BackgroundTransparency = 1; titleLbl.Text = "COSMETIC SHOP"
+titleLbl.BackgroundTransparency = 1; titleLbl.Text = "DRIP SHOP"
 titleLbl.TextColor3 = C.gem; titleLbl.Font = Enum.Font.GothamBlack; titleLbl.TextSize = 18
 titleLbl.TextXAlignment = Enum.TextXAlignment.Left; titleLbl.Parent = titleBar
 
@@ -198,18 +184,6 @@ local playerBaseColor = {owned = {}, equipped = nil}
 local function refreshData()
 	if not getInventory then return end
 	local ok, data = pcall(function() return getInventory:InvokeServer() end)
-	-- #region agent log
-	do
-		local HttpService = game:GetService("HttpService")
-		pcall(function()
-			HttpService:PostAsync("http://127.0.0.1:7242/ingest/29779be3-c77e-4205-a6a3-76f7b6b6f8e7", HttpService:JSONEncode({
-				location = "CosmeticShopClient.lua:refreshData", message = "getInventory result",
-				data = { ok = ok, hasData = data ~= nil, coins = (data and data.coins) or "n/a", gems = (data and data.gems) or "n/a" },
-				timestamp = math.floor(tick() * 1000), hypothesisId = "H2"
-			}))
-		end)
-	end
-	-- #endregion
 	if ok and data then
 		playerCoins = data.coins or 0
 		playerGems = data.gems or 0
@@ -328,32 +302,8 @@ local function buildItems()
 				btn.Text = priceText
 				btn.MouseButton1Click:Connect(function()
 					if buyExterior then
-						-- #region agent log
-						do
-							local HttpService = game:GetService("HttpService")
-							pcall(function()
-								HttpService:PostAsync("http://127.0.0.1:7242/ingest/29779be3-c77e-4205-a6a3-76f7b6b6f8e7", HttpService:JSONEncode({
-									location = "CosmeticShopClient.lua:exteriorBuyClick", message = "exterior buy before InvokeServer",
-									data = { itemId = item.id, priceCurr = priceCurr },
-									timestamp = math.floor(tick() * 1000), hypothesisId = "H4"
-								}))
-							end)
-						end
-						-- #endregion
 						local pcallOk, a, b = pcall(function() return buyExterior:InvokeServer(item.id, priceCurr) end)
 						local success, retMsg = pcallOk and a or false, (pcallOk and b or tostring(a)) or "nil"
-						-- #region agent log
-						do
-							local HttpService = game:GetService("HttpService")
-							pcall(function()
-								HttpService:PostAsync("http://127.0.0.1:7242/ingest/29779be3-c77e-4205-a6a3-76f7b6b6f8e7", HttpService:JSONEncode({
-									location = "CosmeticShopClient.lua:exteriorBuyAfter", message = "exterior buy after InvokeServer",
-									data = { itemId = item.id, pcallOk = pcallOk, success = success, msg = tostring(retMsg) },
-									timestamp = math.floor(tick() * 1000), hypothesisId = "H4"
-								}))
-							end)
-						end
-						-- #endregion
 						if success then
 							Notify.Toast("Purchased " .. item.name .. "!", C.green, 3)
 							refreshData(); buildItems()
@@ -546,32 +496,8 @@ local function buildItems()
 				btn.Text = priceText
 				btn.MouseButton1Click:Connect(function()
 					if buyCosmetic then
-						-- #region agent log
-						do
-							local HttpService = game:GetService("HttpService")
-							pcall(function()
-								HttpService:PostAsync("http://127.0.0.1:7242/ingest/29779be3-c77e-4205-a6a3-76f7b6b6f8e7", HttpService:JSONEncode({
-									location = "CosmeticShopClient.lua:buyClick", message = "cosmetic buy before InvokeServer",
-									data = { itemId = item.id, priceCurr = priceCurr },
-									timestamp = math.floor(tick() * 1000), hypothesisId = "H4"
-								}))
-							end)
-						end
-						-- #endregion
 						local pcallOk, a, b = pcall(function() return buyCosmetic:InvokeServer(item.id, priceCurr) end)
 						local success, retMsg = pcallOk and a or false, (pcallOk and b or tostring(a)) or "nil"
-						-- #region agent log
-						do
-							local HttpService = game:GetService("HttpService")
-							pcall(function()
-								HttpService:PostAsync("http://127.0.0.1:7242/ingest/29779be3-c77e-4205-a6a3-76f7b6b6f8e7", HttpService:JSONEncode({
-									location = "CosmeticShopClient.lua:buyClickAfter", message = "cosmetic buy after InvokeServer",
-									data = { itemId = item.id, pcallOk = pcallOk, success = success, msg = tostring(retMsg) },
-									timestamp = math.floor(tick() * 1000), hypothesisId = "H4"
-								}))
-							end)
-						end
-						-- #endregion
 						if success then
 							Notify.Toast("Purchased " .. item.name .. "!", C.green, 3, "X")
 							refreshData(); buildItems()
@@ -639,4 +565,4 @@ end)
 -- FIX #18: Removed fallback C key handler — HUDButtonBar is the sole keyboard handler.
 -- Having both caused double-toggle (open then immediately close).
 
-print("[CosmeticShopClient] Loaded - open via [G] Shop > Cosmetics Shop")
+print("[CosmeticShopClient] Loaded - open via [G] Shop > Drip Shop")

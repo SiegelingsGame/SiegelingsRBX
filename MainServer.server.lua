@@ -76,6 +76,13 @@ local clearCompanionTarget = makeEvent("ClearCompanionTarget")
 local recallCompanion = makeEvent("RecallCompanion")
 local summonCompanion = makeEvent("SummonCompanion")
 
+-- Mounting
+makeEvent("MountRequest")      -- client -> server: mount favorite creature
+makeEvent("DismountRequest")   -- client -> server: dismount
+makeEvent("MountStarted")      -- server -> client: creatureId, mountType, speed, bonuses
+makeEvent("MountEnded")        -- server -> client: dismount notification
+makeEvent("MountFlyInput")     -- client -> server: targetY (flying mount vertical control)
+
 -- Economy
 local incomeReceived = makeEvent("IncomeReceived")
 makeEvent("CoinsUpdate")
@@ -99,6 +106,24 @@ makeEvent("CreatureStolen"); makeFunc("GetRaidTargets")
 -- Arena
 makeEvent("ArenaAnnounce"); makeEvent("BattleStart"); makeEvent("BattleEnd")
 makeEvent("BattleKill"); makeEvent("BattleTeamsPlaced"); makeFunc("GetBattleInfo")
+makeEvent("BaseGymReject")
+makeEvent("BaseGymResult")  -- server -> client: gym battle completion screen (bounty, rewards, winner/loser)
+makeEvent("BaseGymStart")   -- server -> client: gym battle start banner (owner, challenger names)
+
+-- Badlands (roguelike PvPvE mode)
+makeEvent("BadlandsQueueJoin"); makeEvent("BadlandsQueueLeave"); makeEvent("BadlandsQueueUpdate")
+makeEvent("BadlandsQueueReject"); makeEvent("BadlandsRunStart"); makeEvent("BadlandsRunEnd")
+makeEvent("BadlandsEliminated"); makeEvent("BadlandsExtracted"); makeEvent("BadlandsBagUpdate")
+makeEvent("BadlandsBagSwitch"); makeEvent("BadlandsBagReplace"); makeEvent("BadlandsTimerSync")
+makeEvent("BadlandsLevelUp"); makeEvent("BadlandsExtractStart"); makeEvent("BadlandsExtractCancel")
+makeEvent("BadlandsExtractProgress"); makeEvent("BadlandsExtractActivate")
+makeEvent("BadlandsZoneCollapse"); makeEvent("BadlandsPlayerKill"); makeEvent("BadlandsSupplyDrop")
+makeEvent("BadlandsXPGain"); makeEvent("BadlandsContractData"); makeEvent("BadlandsOfferCreature")
+makeEvent("BadlandsLootBagSpawned"); makeEvent("BadlandsLootBagLoot"); makeEvent("BadlandsLootBagUpdate")
+makeEvent("BadlandsSacrificeCreature"); makeEvent("BadlandsSacrificeResult")
+
+-- Shared notifications
+makeEvent("ShowNotification")
 
 -- Creature animations (server -> clients for multiplayer replication)
 makeEvent("PlayCreatureAnimation")
@@ -312,7 +337,59 @@ local CombinerRecyclerSystem = nil
 pcall(function() CombinerRecyclerSystem = require(ServerScriptService.CombinerRecyclerSystem) end)
 
 local KnightBaseSystem = nil
-pcall(function() KnightBaseSystem = require(ServerScriptService.KnightBaseSystem) end)
+do
+	local ok, result = pcall(function() return require(ServerScriptService.KnightBaseSystem) end)
+	if ok then
+		KnightBaseSystem = result
+		print("[MainServer] KnightBaseSystem require OK")
+	else
+		warn("[MainServer] KnightBaseSystem require FAILED: " .. tostring(result))
+	end
+end
+
+local GymBattleSystem = nil
+do
+	local ok, result = pcall(function() return require(ServerScriptService.GymBattleSystem) end)
+	if ok then
+		GymBattleSystem = result
+		print("[MainServer] GymBattleSystem require OK")
+	else
+		warn("[MainServer] GymBattleSystem require FAILED: " .. tostring(result))
+	end
+end
+
+local BadlandsSystem = nil
+do
+	local ok, result = pcall(function() return require(ServerScriptService.BadlandsSystem) end)
+	if ok then
+		BadlandsSystem = result
+		print("[MainServer] BadlandsSystem require OK")
+	else
+		warn("[MainServer] BadlandsSystem require FAILED: " .. tostring(result))
+	end
+end
+
+local DecorSystem = nil
+do
+	local ok, result = pcall(function() return require(ServerScriptService.DecorSystem) end)
+	if ok then
+		DecorSystem = result
+		print("[MainServer] DecorSystem require OK")
+	else
+		warn("[MainServer] DecorSystem require FAILED: " .. tostring(result))
+	end
+end
+
+local MountSystem = nil
+do
+	local ok, result = pcall(function() return require(ServerScriptService.MountSystem) end)
+	if ok then
+		MountSystem = result
+		print("[MainServer] MountSystem require OK")
+	else
+		warn("[MainServer] MountSystem require FAILED: " .. tostring(result))
+	end
+end
 
 -- === STEP 3: Initialize ===
 PlayerDataManager.Init()
@@ -362,6 +439,12 @@ end
 if FavoriteCreatureSystem then
 	local ok, err = pcall(function() FavoriteCreatureSystem.Init(PlayerDataManager, CreatureSpawner, CreatureAI) end)
 	if ok then print("[MainServer] FavoriteCreatureSystem OK") else warn("[MainServer] FavoriteCreatureSystem failed: " .. tostring(err)) end
+end
+
+-- Mount system: depends on PlayerDataManager + FavoriteCreatureSystem
+if MountSystem then
+	local ok, err = pcall(function() MountSystem.Init(PlayerDataManager, FavoriteCreatureSystem, CreatureAI) end)
+	if ok then print("[MainServer] MountSystem OK") else warn("[MainServer] MountSystem failed: " .. tostring(err)) end
 end
 
 -- Wire CreatureAI <-> FavoriteCreatureSystem so AI creatures can damage companions
@@ -451,6 +534,27 @@ if KnightBaseSystem then
 	local ok, err = pcall(function() KnightBaseSystem.Init(PlayerDataManager, BasePlacementSystem, LaserDoorSystem) end)
 	if ok then print("[MainServer] KnightBaseSystem OK") else warn("[MainServer] KnightBaseSystem failed: " .. tostring(err)) end
 end
+if GymBattleSystem then
+	local ok, err = pcall(function() GymBattleSystem.Init(PlayerDataManager, BasePlacementSystem) end)
+	if ok then print("[MainServer] GymBattleSystem OK") else warn("[MainServer] GymBattleSystem failed: " .. tostring(err)) end
+end
+
+-- Cross-link: ArenaSystem ↔ GymBattleSystem for mutual exclusion
+-- Arena delays rounds when a gym battle is active; gym blocks when arena is active.
+if ArenaSystem and GymBattleSystem then
+	pcall(function() ArenaSystem.SetGymBattleSystem(GymBattleSystem) end)
+end
+-- Badlands: roguelike PvPvE mode (depends on PDM, FCS, MountSystem, CreatureAI)
+if BadlandsSystem then
+	local ok, err = pcall(function()
+		BadlandsSystem.Init(PlayerDataManager, FavoriteCreatureSystem, MountSystem, CreatureAI)
+	end)
+	if ok then print("[MainServer] BadlandsSystem OK") else warn("[MainServer] BadlandsSystem failed: " .. tostring(err)) end
+end
+if DecorSystem then
+	local ok, err = pcall(function() DecorSystem.Init(PlayerDataManager) end)
+	if ok then print("[MainServer] DecorSystem OK") else warn("[MainServer] DecorSystem failed: " .. tostring(err)) end
+end
 if EvolutionCombineSystem then
 	local ok, err = pcall(function() EvolutionCombineSystem.Init(PlayerDataManager, FavoriteCreatureSystem) end)
 	if ok then print("[MainServer] EvolutionCombineSystem OK") else warn("[MainServer] EvolutionCombineSystem failed: " .. tostring(err)) end
@@ -522,6 +626,57 @@ do
 end
 
 -- ── DOME + SIGN HELPER ──
+local function findPlotSignLabel(gui)
+	if not gui then return nil end
+	local namedTextLabel = gui:FindFirstChild("TextLabel")
+	if namedTextLabel and namedTextLabel:IsA("TextLabel") then
+		return namedTextLabel
+	end
+	local namedLabel = gui:FindFirstChild("Label")
+	if namedLabel and namedLabel:IsA("TextLabel") then
+		return namedLabel
+	end
+	return gui:FindFirstChildWhichIsA("TextLabel", true)
+end
+
+local function setPlotSignState(plotModel, ownerName)
+	if not plotModel then return end
+	local signPart = plotModel:FindFirstChild("SignPart", true)
+	if not signPart then return end
+
+	local hasActiveOwner = type(ownerName) == "string" and ownerName ~= ""
+	local signText = hasActiveOwner and (ownerName .. "'s Base") or ""
+
+	for _, guiClassName in ipairs({ "BillboardGui", "SurfaceGui" }) do
+		local gui = signPart:FindFirstChildWhichIsA(guiClassName, true)
+		if gui then
+			gui.Enabled = hasActiveOwner
+			local lbl = findPlotSignLabel(gui)
+			if lbl then lbl.Text = signText end
+		end
+	end
+end
+
+local function refreshAllPlotSigns()
+	local plotsFolder = Workspace:FindFirstChild("BasePlots") or Workspace:WaitForChild("BasePlots", 10)
+	if not plotsFolder then return end
+
+	local activeOwnersByPlotId = {}
+	for _, player in ipairs(Players:GetPlayers()) do
+		local data = PlayerDataManager.GetData(player)
+		if data and data.plotId and data.plotId > 0 then
+			activeOwnersByPlotId[data.plotId] = player.Name
+		end
+	end
+
+	for _, plotModel in ipairs(plotsFolder:GetChildren()) do
+		local plotId = plotModel.Name:match("^Plot(%d+)$") or plotModel.Name:match("^Part(%d+)$")
+		if plotId then
+			setPlotSignState(plotModel, activeOwnersByPlotId[tonumber(plotId)])
+		end
+	end
+end
+
 local function setupPlotForPlayer(plr)
 	local ok, err = pcall(function()
 		local d = PlayerDataManager.GetData(plr)
@@ -547,23 +702,13 @@ local function setupPlotForPlayer(plr)
 			end
 		end
 
-		-- Update sign with player name
-		local signPart = pm:FindFirstChild("SignPart")
-		if signPart then
-			local bb = signPart:FindFirstChild("BillboardGui")
-			if bb then
-				local lbl = bb:FindFirstChild("TextLabel")
-				if lbl then lbl.Text = plr.Name .. "'s Base" end
-			end
-			local sg = signPart:FindFirstChild("SurfaceGui")
-			if sg then
-				local lbl = sg:FindFirstChild("TextLabel")
-				if lbl then lbl.Text = plr.Name .. "'s Base" end
-			end
-		end
+		setPlotSignState(pm, plr.Name)
 	end)
 	if not ok then warn("[MainServer] setupPlotForPlayer error: " .. tostring(err)) end
 end
+
+-- Hide empty-plot sign UIs immediately so map assets do not show their default label text.
+refreshAllPlotSigns()
 
 
 if BaseIncomeSystem then
@@ -1080,21 +1225,9 @@ Players.PlayerRemoving:Connect(function(plr)
 		pcall(function() LaserDoorSystem.RemoveForPlot(plotModel) end)
 	end
 
-	-- Reset sign text
+	-- Hide the plot sign when no active player owns this base.
 	if plotModel then
-		local signPart = plotModel:FindFirstChild("SignPart")
-		if signPart then
-			local bb = signPart:FindFirstChild("BillboardGui")
-			if bb then
-				local lbl = bb:FindFirstChild("TextLabel")
-				if lbl then lbl.Text = "Available Base" end
-			end
-			local sg = signPart:FindFirstChild("SurfaceGui")
-			if sg then
-				local lbl = sg:FindFirstChild("TextLabel")
-				if lbl then lbl.Text = "Available Base" end
-			end
-		end
+		setPlotSignState(plotModel, nil)
 		-- Clear OwnerUserId attribute so client doesn't think this is still owned
 		plotModel:SetAttribute("OwnerUserId", nil)
 	end
@@ -1301,6 +1434,18 @@ local function getExteriorConfig(exteriorId)
 	return nil
 end
 
+local function savePlayerCustomization(plr)
+	if not plr or not PlayerDataManager or not PlayerDataManager.SavePlayer then
+		return
+	end
+
+	task.spawn(function()
+		pcall(function()
+			PlayerDataManager.SavePlayer(plr)
+		end)
+	end)
+end
+
 buyExterior.OnServerInvoke = function(plr, exteriorId, currency)
 	local config = getExteriorConfig(exteriorId)
 	if not config then return false, "Invalid exterior" end
@@ -1318,6 +1463,7 @@ buyExterior.OnServerInvoke = function(plr, exteriorId, currency)
 		return false, "Invalid currency"
 	end
 	PlayerDataManager.PurchaseExterior(plr, exteriorId)
+	savePlayerCustomization(plr)
 	local coinsEvt = eventsFolder:FindFirstChild("CoinsUpdate")
 	if coinsEvt then coinsEvt:FireClient(plr, PlayerDataManager.GetCoins(plr)) end
 	return true, "Purchased!"
@@ -1330,6 +1476,7 @@ equipExterior.OnServerInvoke = function(plr, exteriorId)
 	-- Link with Colors tab: equipping any exterior clears base color so both UIs stay in sync
 	PlayerDataManager.SetEquippedBaseColor(plr, nil)
 	PlayerDataManager.SetEquippedExterior(plr, exteriorId)
+	savePlayerCustomization(plr)
 	-- Skin existing plot (recolor + exterior shell); never delete or move the plot
 	if not BaseExteriorSystem or not BaseExteriorSystem.ApplyThemeToPlot then return true, exteriorId and "Theme applied!" or "Unequipped" end
 	local plot = BaseExteriorSystem.GetPlotForPlayer(plr)
@@ -1367,6 +1514,7 @@ buyBaseColor.OnServerInvoke = function(plr, colorId, currency)
 		return false, "Invalid currency"
 	end
 	PlayerDataManager.PurchaseBaseColor(plr, colorId)
+	savePlayerCustomization(plr)
 	local coinsEvt = eventsFolder:FindFirstChild("CoinsUpdate")
 	if coinsEvt then coinsEvt:FireClient(plr, PlayerDataManager.GetCoins(plr)) end
 	return true, "Purchased!"
@@ -1379,6 +1527,7 @@ equipBaseColor.OnServerInvoke = function(plr, colorId)
 	-- Link with Base tab: equipping a color clears exterior so both UIs stay in sync
 	PlayerDataManager.SetEquippedExterior(plr, nil)
 	PlayerDataManager.SetEquippedBaseColor(plr, colorId)
+	savePlayerCustomization(plr)
 	local plot = BaseExteriorSystem and BaseExteriorSystem.GetPlotForPlayer and BaseExteriorSystem.GetPlotForPlayer(plr)
 	if plot and BaseExteriorSystem then
 		-- Clear any custom theme (removes shell, resets parts) then apply base color
@@ -1490,8 +1639,12 @@ end)
 
 -- SET FAVORITE (sole handler)
 setFavorite.OnServerEvent:Connect(function(plr, uid)
+	if plr:GetAttribute("InBadlands") then return end
 	local d = PlayerDataManager.GetData(plr)
 	if not d then return end
+	if MountSystem and MountSystem.IsMounted and MountSystem.IsMounted(plr) then
+		MountSystem.Dismount(plr, false)
+	end
 	if uid == nil or uid == "" then
 		PlayerDataManager.ClearFavorite(plr)
 		if FavoriteCreatureSystem then FavoriteCreatureSystem.DespawnCompanion(plr) end
@@ -1528,6 +1681,7 @@ end)
 -- Client fires this when companion is summoned and user presses Y or clicks the ReCard card button.
 -- Unlike setFavorite(""), this does NOT clear favoriteUid — creature stays as favorite, just recalled.
 recallCompanion.OnServerEvent:Connect(function(plr)
+	if plr:GetAttribute("InBadlands") then return end
 	local d = PlayerDataManager.GetData(plr)
 	if not d or not d.favoriteUid then return end  -- no favorite, nothing to recall
 	if not FavoriteCreatureSystem then return end
@@ -1549,6 +1703,7 @@ end)
 -- FIX #17: SUMMON COMPANION (Y / Summon button). Spawn companion model for existing favorite.
 -- Client fires this when creature is favorite but companion is not in the world (recalled/carded).
 summonCompanion.OnServerEvent:Connect(function(plr)
+	if plr:GetAttribute("InBadlands") then return end
 	local d = PlayerDataManager.GetData(plr)
 	if not d or not d.favoriteUid then return end  -- no favorite, nothing to summon
 	if not FavoriteCreatureSystem then return end
@@ -1797,26 +1952,44 @@ swapCreatureSlots.OnServerInvoke = function(plr, slotType, uidA, uidB)
 end
 
 buyFloor.OnServerInvoke = function(plr, floorNum)
-	if type(floorNum) ~= "number" or (floorNum ~= 2 and floorNum ~= 3) then
+	-- FIX: Accept floor 4 (Siegelord Arena) alongside floors 2 and 3
+	if type(floorNum) ~= "number" or (floorNum ~= 2 and floorNum ~= 3 and floorNum ~= 4) then
 		return false, "Invalid floor"
 	end
 	local ok, msg = PlayerDataManager.BuyFloor(plr, floorNum)
 	if ok then
-		refreshPlayerBase(plr)
+		-- FIX: Use incremental ActivateFloor instead of refreshPlayerBase.
+		-- This only makes the new floor visible and places creatures on its new
+		-- points WITHOUT clearing/respawning models on already-owned floors.
+		if BasePlacementSystem and BasePlacementSystem.ActivateFloor then
+			task.spawn(function() BasePlacementSystem.ActivateFloor(plr, floorNum) end)
+		end
+		setupPlotForPlayer(plr)
+
 		-- Recreate dome if LaserDoorSystem exists (so it scales to new floor height)
-		if LaserDoorSystem and LaserDoorSystem.CreateForPlot then
-			local d = PlayerDataManager.GetData(plr)
-			if d and d.plotId and d.plotId > 0 then
-				local plotsFolder = workspace:FindFirstChild("BasePlots")
-				if plotsFolder then
-					local pm = plotsFolder:FindFirstChild("Plot" .. d.plotId)
-						or plotsFolder:FindFirstChild("Part" .. d.plotId)
-					if pm then
-						LaserDoorSystem.CreateForPlot(pm, plr)
-					end
-				end
+		local d = PlayerDataManager.GetData(plr)
+		local pm = nil
+		if d and d.plotId and d.plotId > 0 then
+			local plotsFolder = workspace:FindFirstChild("BasePlots")
+			if plotsFolder then
+				pm = plotsFolder:FindFirstChild("Plot" .. d.plotId)
+					or plotsFolder:FindFirstChild("Part" .. d.plotId)
 			end
 		end
+		if pm and LaserDoorSystem and LaserDoorSystem.CreateForPlot then
+			LaserDoorSystem.CreateForPlot(pm, plr)
+		end
+
+		-- Floor 4: set up gym arena prompt and decor points
+		if floorNum == 4 and pm then
+			if GymBattleSystem and GymBattleSystem.SetupPlot then
+				pcall(function() GymBattleSystem.SetupPlot(pm) end)
+			end
+			if DecorSystem and DecorSystem.PlaceAllDecor then
+				pcall(function() DecorSystem.PlaceAllDecor(plr) end)
+			end
+		end
+
 		local coinsEvt = eventsFolder:FindFirstChild("CoinsUpdate")
 		if coinsEvt then coinsEvt:FireClient(plr, PlayerDataManager.GetCoins(plr)) end
 	end

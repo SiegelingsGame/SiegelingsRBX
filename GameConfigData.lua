@@ -27,6 +27,8 @@ GameConfig.DebugFloor2Level2 = false            -- true = Floor 2 srequires play
 GameConfig.DebugDoubleSpeed = false             -- true = player WalkSpeed is 32 (2x default)
 GameConfig.QuickSpawnDebugMode = false         -- true = bypass loading gate (skip Events/LoadingReady wait) for fast testing
 GameConfig.CombinerRecyclerPromptAllPlots = true -- true = add E prompts to Combiner/Recycler on ALL plots (for testing; set false for release)
+GameConfig.DebugBrokerGoldOnly = true             -- true = The Broker only asks for 100 gold coins instead of a creature sacrifice (for testing)
+GameConfig.DebugBrokerCacty = true                -- true = The Broker always asks for a Lv1 Common Earth Cacty (for testing)
 
 -- Economy
 GameConfig.StartingCoins       = 1000
@@ -58,7 +60,7 @@ GameConfig.CreatureNicknameMaxLength = 20
 GameConfig.CreatureRenameGemCost = 5
 
 -- Player Leveling (separate from creature levels — gates features & floors)
-GameConfig.PlayerMaxLevel         = 50
+GameConfig.PlayerMaxLevel         = 100
 GameConfig.PlayerBaseXP           = 100    -- XP for player level 2
 GameConfig.PlayerXPScaling        = 1.4    -- each level needs 1.4x more
 GameConfig.PlayerXP_Capture       = 15     -- XP for capturing a creature
@@ -74,6 +76,8 @@ GameConfig.Floor2Cost             = 500   -- coins to buy Floor 2
 GameConfig.Floor2LevelReq         = 2      -- player level required
 GameConfig.Floor3Cost             = 5000  -- coins to buy Floor 3
 GameConfig.Floor3LevelReq         = 10     -- player level required
+GameConfig.Floor4Cost             = 25000 -- coins to buy Floor 4 (Siegelord Arena)
+GameConfig.Floor4LevelReq         = 15     -- player level required for Floor 4
 
 -- Evolution & Combine (monster duplication / variant tiers)
 GameConfig.EvolutionMinLevel      = 10      -- level required for 1st evolution (base form)
@@ -104,24 +108,57 @@ GameConfig.LoadingCriticalMaxWait = 18 -- max seconds client waits for critical 
 GameConfig.LoadingSpawnTarget  = 30   -- world creatures target for non-critical "world ready" signal
 GameConfig.LoadingMinWait      = 2    -- minimum world warmup signal delay (non-blocking for control release)
 GameConfig.LoadingMaxWait      = 25   -- max seconds for world warmup signal before fallback
-GameConfig.StartupMetricLogEnabled = true -- prints startup timing milestones (join->critical/control/world-ready)
+GameConfig.StartupMetricLogEnabled = false -- true = prints startup timing milestones (join->critical/control/world-ready)
 
 -- Gameplay music (client-side loop under SoundService)
 GameConfig.GameplayMusic = {
-    Enabled = true,
-    SoundId = "rbxassetid://0", -- preferred: paste uploaded asset id for "Sieglings_ BattleTheme.mp3"
-    FallbackImportedSoundName = "Sieglings_ BattleTheme", -- optional: imported Sound object name in SoundService
-    Volume = 0.32,
+    Enabled = true,  -- multi-track biome music system
+
+    -- Sound object names in SoundService (must match Roblox Studio names exactly)
+    MainThemeName   = "Sieglings_MainTheme",      -- hub / default / fallback
+    BattleThemeName = "Sieglings_BattleTheme",    -- arena, gym, PvP, badlands
+
+    -- Sky → biome track mapping (skybox name from BiomeSkyboxClient → Sound name in SoundService)
+    -- If a Sound doesn't exist yet in SoundService, Main Theme is used as fallback.
+    -- To add a new biome: place the Sound in SoundService and add the entry here.
+    SkyToTrack = {
+        -- Inner biomes (wedges between roads)
+        FireSky     = "Sieglings_FireBiome",
+        IceSky      = "Sieglings_SnowBiome",
+        WindSky     = "Sieglings_WindBiome",
+        EarthSky    = "Sieglings_EarthBiome",
+        -- Outer biomes (baseplates)
+        DesertSky   = "Sieglings_DesertBiome",
+        ElectricSky = "Sieglings_ElectricBiome",
+        WaterSky    = "Sieglings_OceanBiome",
+        -- ForestSky = "Sieglings_ForestBiome",  -- uncomment when track is added
+    },
+
+    -- Cave biome: positional override (not skybox-based).
+    -- Plays when the player is above CaveBaseplate within CaveVerticalRange studs.
+    -- Path: workspace.Terrain.CaveBaseplate
+    CaveBiome = {
+        TrackName      = "Sieglings_CaveBiome",
+        BaseplateParent = "Terrain",
+        BaseplateName   = "CaveBaseplate",
+        VerticalRange   = 700,  -- studs above the baseplate top surface
+    },
+
+    -- Volume & pacing
+    Volume        = 0.80,   -- target volume for the active track
     PlaybackSpeed = 1,
-    FadeInTime = 2.5,
-    StartDelay = 0.4,
-    MaxScreenWait = 45,
+    FadeInTime    = 2.5,    -- initial fade-in on game start
+    CrossfadeTime = 1.5,    -- crossfade duration when switching biome/combat tracks
+
+    -- Unknown background music blocker (stops stray sounds from overlapping)
+    BlockUnknownBackgroundMusic = true,
+
+    -- Startup gates (wait for loading screens before playing)
+    StartDelay      = 0.4,
+    MaxScreenWait   = 45,
     ScreenSettleTime = 0.75,
-    WaitForScreens = { "LoadingScreen", "LaunchScreen" },
-    SoundName = "SieglingsGameplayTheme",
-    SoundGroupName = "Music",
-    LoopStartTime = 8.0,
-    LoopEndTime = 72.0,
+    WaitForScreens  = { "LoadingScreen", "LaunchScreen" },
+    SoundGroupName  = "Music",
 }
 
 -- Spawning (SpawnPoints should stay full; common creatures prioritized)
@@ -223,32 +260,32 @@ GameConfig.ArenaHealthBarShowDistance  = 10   -- studs; arena fighter HP bars on
 GameConfig.WaterGymEntryFee       = 100   -- coins to challenge the gym leader
 GameConfig.WaterGymCreatureLevel  = 45    -- level of gym leader's squdad (high level)
 GameConfig.WaterGymPromptRange    = 10    -- studs; ProximityPrompt on ArenaBase
-GameConfig.WaterGymWinReward      = 250   -- coins if player wins
-GameConfig.WaterGymWinXP          = 75    -- player XP on gym win
+GameConfig.WaterGymWinReward      = 5000   -- coins if player wins
+GameConfig.WaterGymWinXP          = 75200    -- player XP on gym win
 GameConfig.WaterGymCooldown       = 120   -- seconds; per-player cooldown between gym challenges
 
 -- CaveGym (CaveBiome): Shadow (+ Earth) element squad
 GameConfig.CaveGymEntryFee       = 100
 GameConfig.CaveGymCreatureLevel   = 45
 GameConfig.CaveGymPromptRange    = 10
-GameConfig.CaveGymWinReward      = 250
-GameConfig.CaveGymWinXP           = 75
+GameConfig.CaveGymWinReward      = 5000
+GameConfig.CaveGymWinXP           = 200
 GameConfig.CaveGymCooldown        = 120
 
 -- DesertGym (DesertBiome): Fire + Earth element squad
 GameConfig.DesertGymEntryFee      = 100
 GameConfig.DesertGymCreatureLevel = 45
 GameConfig.DesertGymPromptRange   = 10
-GameConfig.DesertGymWinReward     = 250
-GameConfig.DesertGymWinXP         = 75
+GameConfig.DesertGymWinReward     = 5000
+GameConfig.DesertGymWinXP         = 200
 GameConfig.DesertGymCooldown      = 120
 
 -- ElectricGym (ElectricBiome): Lightning element squad
 GameConfig.ElectricGymEntryFee       = 100
 GameConfig.ElectricGymCreatureLevel = 45
 GameConfig.ElectricGymPromptRange   = 10
-GameConfig.ElectricGymWinReward     = 250
-GameConfig.ElectricGymWinXP         = 75
+GameConfig.ElectricGymWinReward     = 5000
+GameConfig.ElectricGymWinXP         = 200
 GameConfig.ElectricGymCooldown      = 120
 
 -- Zone doors (Ocean, Desert, Electric, Cave): 4 sigils from boss defeats open one door; gym win grants key for another
@@ -338,6 +375,38 @@ GameConfig.WaterBlockSeekRange = 80     -- max studs from spawn to consider "see
 GameConfig.CompanionTargetRange = 40    -- range for manual target selection
 GameConfig.CompanionRespawnCD   = 30    -- seconds before companion respawns after fainting
 GameConfig.CompanionAutoRecallDistance = 150  -- if companion gets this far from player (studs), auto-card and force resummon
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- Mounting System (ride your favorite creature as a mount)
+-- ═══════════════════════════════════════════════════════════════════════════════
+GameConfig.MountEnabled              = true
+GameConfig.MountMinPlayerLevel       = 10   -- player level required to unlock mounting
+
+-- Speed formula: BaseSpeed + (creatureSpeed / 10) * MountSpeedMultiplier + mountSpeedBonus
+-- Example: speed=10 creature → 16 + (10/10)*20 + 0 = 36 studs/sec
+GameConfig.MountSpeedMultiplier      = 20   -- how much creature speed stat contributes
+GameConfig.MountSprintMultiplier     = 1.4  -- sprint = mountSpeed * this (close to 26/16 ratio)
+GameConfig.MountMaxSpeed             = 60   -- hard cap on ground mount speed (studs/sec)
+
+-- Flying mount
+GameConfig.MountFlySpeed             = 40   -- base flying mount speed (overrides ground formula)
+GameConfig.MountFlyVerticalSpeed     = 25   -- studs/sec vertical (Space=up, Ctrl=down)
+GameConfig.MountFlyMaxAltitude       = 200  -- max studs above ground
+
+-- Swimming mount
+GameConfig.MountSwimSpeed            = 30   -- base swimming mount speed
+GameConfig.MountSwimVerticalSpeed    = 15   -- vertical swim speed
+
+-- Mount / Dismount
+GameConfig.MountCooldown             = 3    -- seconds between dismount and next mount
+
+-- Mount Shield (absorbs damage while mounted; recharges when depleted)
+GameConfig.MountShieldMultiplier     = 5    -- shield HP = creature defense * this multiplier
+GameConfig.MountShieldRechargeTime   = 30   -- seconds to fully recharge shield from 0 to max
+GameConfig.MountShieldRechargeDelay  = 3    -- seconds after shield breaks before recharge begins
+
+-- Visual
+GameConfig.MountModelScale           = 2.0  -- default scale for mount models (overridden per-creature)
 
 -- ElectricBiome hazards (ElectroBall AOE)
 GameConfig.ElectroBallCount          = 50   -- total placed (grid + 1 per SpawnPoint/DungeonPoint/BossPoint)
@@ -524,6 +593,98 @@ GameConfig.BaseColorItems = {
 	{id = "base_purple", name = "Purple", color = Color3.fromRGB(140, 80, 200),  coinCost = 300, gemCost = 0},
 	{id = "base_orange", name = "Orange", color = Color3.fromRGB(230, 140, 50),  coinCost = 300, gemCost = 0},
 }
+
+-- Floor 4 Decor System — creature statue placement costs (gold sink, scales by rarity)
+GameConfig.DecorPointsPerFloor4  = 6       -- customization points on Floor 4
+GameConfig.DecorCostByRarity = {
+	Common    = 500,
+	Uncommon  = 1000,
+	Rare      = 2500,
+	Epic      = 5000,
+	Legendary = 10000,
+}
+
+-- Gym Battle System — Floor 4 personal arena (visitors battle owner's battle team)
+GameConfig.GymBattleTickSpeed    = 1.2    -- seconds between combat ticks (matches arena)
+GameConfig.GymBattleWinGold      = 200    -- flat gold reward for winning a gym battle
+GameConfig.GymBattleCooldown     = 60     -- seconds before same challenger can re-challenge
+GameConfig.GymBountyBase         = 100    -- starting bounty on a fresh gym (coins)
+GameConfig.GymBountyGrowth       = 50     -- bounty increases by this much per owner defense win
+GameConfig.GymBountyMax          = 5000   -- bounty cap so it doesn't grow infinitely.
+GameConfig.GymOwnerDefenseIncome = 75     -- owner earns this many coins per successful defense
+GameConfig.GymChallengerLosePay  = 25     -- consolation coins for a challenger who loses
+GameConfig.GymJumbotronEnabled   = false  -- toggle live jumbotron viewports on gym leaderboard screens (OFF = disabled, reduces client load)
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- Section 12: BADLANDS (Roguelike PvPvE Mode)
+-- ═══════════════════════════════════════════════════════════════════════════════
+GameConfig.BadlandsEnabled              = true
+GameConfig.BadlandsMaxPlayers           = 8     -- max players per run
+GameConfig.BadlandsMinPlayers           = 4     -- min to start a run
+GameConfig.BadlandsQueueTimeout         = 60    -- seconds before starting with < max players
+GameConfig.BadlandsRunDuration          = 600   -- 10 minutes (hard timer — expelled with only favorite)
+GameConfig.BadlandsHardDeadline         = 600   -- 10 minutes (hard collapse — same as run duration)
+GameConfig.BadlandsExtractionActivateAt = 420   -- 7 minutes (extraction points go live)
+GameConfig.BadlandsSpawnShieldDuration  = 30    -- seconds of PvP immunity on entry
+
+-- Badlands: Bag
+GameConfig.BadlandsBagSlots             = 10    -- bag capacity
+GameConfig.BadlandsLootBagDespawnTime   = 60    -- seconds before dropped bag despawns
+GameConfig.BadlandsLootBagBeaconRange   = 200   -- visible distance (studs)
+
+-- Badlands: Creature Spawning
+-- ALL Badlands creatures are Gold/Legend variant, 1.5–2x scale, stat-boosted.
+-- Every rarity can spawn (Common through Legendary) but they are ALL elite versions.
+GameConfig.BadlandsInitialSpawnCount    = 20    -- creatures spawned on run start
+GameConfig.BadlandsSpawnInterval        = 8     -- seconds between new spawns
+GameConfig.BadlandsMaxCreatures         = 40    -- creature cap in zone
+GameConfig.BadlandsCreatureScaleMin     = 1.5   -- minimum model scale multiplier (1.5x normal)
+GameConfig.BadlandsCreatureScaleMax     = 2.0   -- maximum model scale multiplier (2x normal)
+GameConfig.BadlandsCreatureStatMult     = 2.0   -- stat multiplier (HP, ATK, DEF, SPD all 2x)
+GameConfig.BadlandsCreatureMinLevel     = 20    -- minimum creature level
+GameConfig.BadlandsCreatureMaxLevel     = 50    -- maximum creature level
+-- Rarity weights: ALL rarities spawn, weighted toward higher tiers
+GameConfig.BadlandsRarityWeights        = { Common = 15, Uncommon = 20, Rare = 25, Epic = 25, Legendary = 15 }
+-- Variant weights: Gold and Legend ONLY (no Normal, no Silver — every creature is elite)
+GameConfig.BadlandsVariantWeights       = { Gold = 50, Legend = 50 }
+
+-- Badlands: Capture
+GameConfig.BadlandsCaptureTime          = 0.3   -- faster than normal (0.5)..
+GameConfig.BadlandsCaptureCost          = 0     -- free captures inside Badlands
+GameConfig.BadlandsLoadingDuration      = 5     -- seconds; no point/activity interactions during load-in
+GameConfig.BadlandsSacrificeStatBoost   = 5     -- flat bonus per sacrificed creature (Health/Attack/Defense/MovementSpeed)
+
+-- Badlands: Zone Collapse
+GameConfig.BadlandsOuterCollapseTime    = 480   -- 8 min: outer ring collapses
+GameConfig.BadlandsMidCollapseTime      = 540   -- 9 min: mid ring collapses
+GameConfig.BadlandsInnerCollapseTime    = 720   -- 12 min: inner ring collapses
+GameConfig.BadlandsCollapseDPS          = 5     -- HP/sec in collapsed zones
+GameConfig.BadlandsCollapseTransition   = 30    -- seconds for ring to fully collapse
+
+-- Badlands: Extraction
+GameConfig.BadlandsExtractionTime       = 15    -- seconds to channel
+GameConfig.BadlandsExtractionMinTime    = 8     -- hard floor with run power reduction
+GameConfig.BadlandsExtractionBeaconRange= 200   -- visible to all (studs)
+GameConfig.BadlandsExtractionPointCount = 12     -- number of extraction points
+
+-- Badlands: Run Power (temporary progression per run)
+GameConfig.BadlandsMaxRunLevel          = 10
+GameConfig.BadlandsXPPerCapture         = 15    -- per creature level
+GameConfig.BadlandsXPPerFaint           = 5     -- per creature level (no capture)
+GameConfig.BadlandsXPPerPlayerKill      = 100
+GameConfig.BadlandsXPPerMinuteSurvived  = 10
+GameConfig.BadlandsXPPerLoot            = 25    -- per creature looted from bag
+
+-- Badlands: Economy
+GameConfig.BadlandsFreeRunsPerDay       = 1     -- free entries per 24h
+GameConfig.BadlandsExtraRunGemCost      = 50    -- gems for additional runs beyond free
+
+-- Badlands: Supply Drops (mid-run events)
+GameConfig.BadlandsSupplyDropCount      = 2     -- drops per run
+GameConfig.BadlandsSupplyDropTimes      = {240, 360}  -- seconds into run
+GameConfig.BadlandsSupplyDropDespawn    = 45    -- seconds
+GameConfig.BadlandsSupplyDropMinRarity  = "Rare"
+GameConfig.BadlandsSupplyDropMaxRarity  = "Epic"
 
 -- Egg Shop: 5 tiers. All eggs purchasable with Coins or Robux (higher tiers very expensive).
 -- Percentages per tier (must sum to 100). Used to build each egg's pool.

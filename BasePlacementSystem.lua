@@ -107,9 +107,16 @@ end
 
 -- Returns { [index] = part } for BattlePoints (BattlePoint1..9 inside Floor2).
 -- CONTINUITY: Do not reparent/rename; slot index 1-9 maps to BattlePoint1-9.
+-- getBattlePointMap: Only finds BattlePoints inside Floor2/BattleTeam.
+-- Floor4/BaseGym also has BattlePoints (inside RedTeam/BlueTeam), but those are
+-- exclusively for gym battles — battle creatures must NOT idle there.
 local function getBattlePointMap(plotModel)
 	local map = {}
-	for _, child in ipairs(plotModel:GetDescendants()) do
+	local floor2 = plotModel:FindFirstChild("Floor2")
+	if not floor2 then return map end
+	local battleTeam = floor2:FindFirstChild("BattleTeam")
+	if not battleTeam then return map end
+	for _, child in ipairs(battleTeam:GetDescendants()) do
 		if child:IsA("BasePart") then
 			local num = child.Name:match("^BattlePoint(%d+)$")
 			if num then map[tonumber(num)] = child end
@@ -370,7 +377,22 @@ local function spawnBaseOrb(creatureId, pointPart, uid, plotModel, slotType, slo
 	-- Only the rarity Highlight outline is kept for visual polish.
 	local ReplicatedStorage = game:GetService("ReplicatedStorage")
 	local hasCustomModel = false -- tracks whether a real model loaded (vs placeholder orb)
-	if not isEgg and info.modelName then
+
+	-- Eggs: load dedicated EggModel from ReplicatedStorage.CreatureModels instead of creature model.
+	-- Tinted by rarity color (uninspected = tan/beige highlight, inspected = rarity color).
+	if isEgg then
+		local options = { targetSize = bodySize.X }
+		body, core = CreatureModelLoader.LoadAndIntegrate(model, "Egg", "Egg", spawnPos, options)
+		if body then
+			hasCustomModel = true
+			-- Remove Core sphere — egg model is the visual, no orb overlay
+			core = core or model:FindFirstChild("Core")
+			if core and core.Parent then
+				core:Destroy()
+			end
+			core = nil
+		end
+	elseif info.modelName then
 		local options = { targetSize = bodySize.X, creatureId = creatureId }
 		body, core = CreatureModelLoader.LoadAndIntegrate(model, info.modelName, info.displayName, spawnPos, options)
 		if body then
@@ -399,12 +421,12 @@ local function spawnBaseOrb(creatureId, pointPart, uid, plotModel, slotType, slo
 			if rotOffset ~= CFrame.identity then
 				model:PivotTo(model:GetPivot() * rotOffset)
 			end
-			-- Step 3: Apply BasePlot additive rotation. Income and battle both face inward;
-			-- battle slots are perpendicular to income, so apply an extra 90° Y for battle.
+			-- Step 3: Apply BasePlot additive rotation. Income and battle both face inward;h
+			-- battle slots are perpendicular to income, so apply an extra 90° Y for battle.g
 			if slotType == "income" then
 				model:PivotTo(model:GetPivot() * baseRotation)
 			elseif slotType == "battle" then
-				model:PivotTo(model:GetPivot() * CFrame.Angles(0, math.rad(90), 0) * baseRotation)
+				model:PivotTo(model:GetPivot() * CFrame.Angles(0, math.rad(-90), 0) * baseRotation)
 			end
 			-- Floor 1 defense points: pointIndex rotation * baseRotation (additive)
 			if isDefense and pointIndex and pointIndex >= 4 and pointIndex <= 6 then
@@ -1067,7 +1089,7 @@ function BasePlacementSystem.PlaceCreatures(player)
 		for _, f in ipairs(ownedFloors) do if f == n then return true end end
 		return false
 	end
-	for _, floorNum in ipairs({1, 2, 3}) do
+	for _, floorNum in ipairs({1, 2, 3, 4}) do
 		setFloorVisibility(plotModel, floorNum, ownsFloor(floorNum))
 	end
 	-- FIX #11: BattleTeam is INSIDE Floor2, so setFloorVisibility(plotModel, 2, ...)
@@ -1082,8 +1104,8 @@ function BasePlacementSystem.PlaceCreatures(player)
 			if BES then
 				local ext = data.exterior
 				local equippedExt = ext and ext.equipped
-				-- Use HauntedHouse as default when no exterior equipped (prevents base spawning grey)
-				local themeToApply = (equippedExt and equippedExt ~= "") and equippedExt or "HauntedHouse"
+				-- Default to the standard gray base when no exterior theme is equipped.
+				local themeToApply = (equippedExt and equippedExt ~= "") and equippedExt or nil
 				if BES.ApplyThemeToPlot then BES.ApplyThemeToPlot(plotModel, themeToApply) end
 				local bc = data.baseColor
 				local equippedColor = bc and bc.equipped
@@ -1229,6 +1251,140 @@ function BasePlacementSystem.PlaceCreatures(player)
 			warn("[BasePlacement] CombinerRecycler SetupPlotPrompts failed:", tostring(err))
 		end
 	end
+
+	placementLocks[userId] = nil
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- ActivateFloor(player, floorNum)
+-- Lightweight alternative to PlaceCreatures for floor purchases. Instead of
+-- clearing and respawning ALL creatures on ALL floors, this only:
+--   1. Makes the newly purchased floor visible (setFloorVisibility)
+--   2. Places creatures on the NEW floor's income/defense points
+--   3. Spawns battle orbs on Floor 2 BattlePoints (if buying Floor 2)
+--   4. Sets up combiner/recycler prompts (if buying Floor 3)
+--
+-- Existing creatures on previously owned floors are NOT touched.
+--
+-- @param player   Player — the buyer
+-- @param floorNum number — the floor just purchased (2, 3, or 4)
+-- ═══════════════════════════════════════════════════════════════════════════════
+function BasePlacementSystem.ActivateFloor(player, floorNum)
+	local userId = player.UserId
+	if placementLocks[userId] then return end
+	placementLocks[userId] = true
+
+	local data = PlayerDataManager.GetData(player)
+	if not data then placementLocks[userId] = nil return end
+
+	local plotId = data.plotId
+	if not plotId or plotId == 0 then placementLocks[userId] = nil return end
+
+	local plotModel = findPlotModel(plotId)
+	if not plotModel then
+		warn("[BasePlacement] ActivateFloor: Plot " .. plotId .. " not found for " .. player.Name)
+		placementLocks[userId] = nil
+		return
+	end
+
+	local ownedFloors = data.ownedFloors or {1}
+
+	-- ── Step 1: Make the new floor visible ──────────────────────────────────
+	setFloorVisibility(plotModel, floorNum, true)
+
+	-- ── Step 2: Place creatures only on the NEW floor's points ──────────────
+	-- We pass a single-element ownedFloors table so getPointsForOwnedFloors
+	-- only returns points that live inside the newly purchased FloorX folder.
+	local newFloorOnly = { floorNum }
+
+	-- Defense creatures on new floor
+	local defensePoints = getPointsForOwnedFloors(plotModel, "DefensePoint", newFloorOnly, "IncomePoints")
+	local defPlaced = 0
+	local maxDefSlots = PlayerDataManager.GetMaxSlots and PlayerDataManager.GetMaxSlots(player, "defense") or (#ownedFloors * 6)
+	for _, pt in ipairs(defensePoints) do
+		local slotIdx = pt.index
+		if slotIdx > maxDefSlots then continue end
+		local uid = data.defenseSlots and data.defenseSlots[slotIdx]
+		if not uid or uid == "" then continue end
+		local egg = PlayerDataManager.GetEggByUid and PlayerDataManager.GetEggByUid(player, uid)
+		if egg then
+			local hatchAt = egg.createdAt + egg.hatchMinutes * 60
+			if (os.time() or 0) < hatchAt then
+				spawnBaseOrb(egg.creatureId, pt.part, uid, plotModel, "defense", nil, egg.level, player.UserId, true, hatchAt, pt.index, slotIdx, "Normal", nil, egg.inspected == true)
+				defPlaced = defPlaced + 1
+			end
+		else
+			for _, entry in ipairs(data.inventory) do
+				if entry.uid and tostring(entry.uid) == tostring(uid) then
+					spawnBaseOrb(entry.id, pt.part, uid, plotModel, "defense", nil, entry.level, player.UserId, nil, nil, pt.index, slotIdx, entry.variant, entry.nickname)
+					defPlaced = defPlaced + 1
+					break
+				end
+			end
+		end
+	end
+
+	-- Income creatures on new floor
+	local incomePoints = getPointsForOwnedFloors(plotModel, "IncomePoint", newFloorOnly, "DefensePoints")
+	local incPlaced = 0
+	local maxIncSlots = PlayerDataManager.GetMaxSlots and PlayerDataManager.GetMaxSlots(player, "income") or (#ownedFloors * 6)
+	for _, pt in ipairs(incomePoints) do
+		local slotIdx = pt.index
+		if slotIdx > maxIncSlots then continue end
+		local uid = data.baseSlots and data.baseSlots[slotIdx]
+		if not uid or uid == "" then continue end
+		local egg = PlayerDataManager.GetEggByUid and PlayerDataManager.GetEggByUid(player, uid)
+		if egg then
+			local hatchAt = egg.createdAt + egg.hatchMinutes * 60
+			if (os.time() or 0) < hatchAt then
+				spawnBaseOrb(egg.creatureId, pt.part, uid, plotModel, "income", nil, egg.level, player.UserId, true, hatchAt, nil, slotIdx, "Normal", nil, egg.inspected == true)
+				incPlaced = incPlaced + 1
+			end
+		else
+			for _, entry in ipairs(data.inventory) do
+				if entry.uid and tostring(entry.uid) == tostring(uid) then
+					spawnBaseOrb(entry.id, pt.part, uid, plotModel, "income", nil, entry.level, player.UserId, nil, nil, nil, slotIdx, entry.variant, entry.nickname)
+					incPlaced = incPlaced + 1
+					break
+				end
+			end
+		end
+	end
+
+	-- ── Step 3: Floor-specific feature activation ───────────────────────────
+
+	-- Floor 2: spawn battle team orbs on BattlePoints (inside Floor2/BattleTeam)
+	local btlPlaced = 0
+	if floorNum == 2 and data.battleTeam then
+		local battlePointMap = getBattlePointMap(plotModel)
+		for slotIndex, uid in pairs(data.battleTeam) do
+			local pointPart = battlePointMap[tonumber(slotIndex) or slotIndex]
+			if pointPart and uid then
+				for _, entry in ipairs(data.inventory) do
+					if entry.uid and tostring(entry.uid) == tostring(uid) then
+						spawnBaseOrb(entry.id, pointPart, uid, plotModel, "battle", tostring(slotIndex), entry.level, player.UserId, nil, nil, nil, slotIndex, entry.variant, entry.nickname)
+						btlPlaced = btlPlaced + 1
+						break
+					end
+				end
+			end
+		end
+		setBattlePointColors(plotModel, data.battleTeamEnabled ~= false)
+	end
+
+	-- Floor 3: set up combiner/recycler prompts (parts live in Floor3 folder)
+	if floorNum == 3 then
+		pcall(function()
+			local SSS = game:GetService("ServerScriptService")
+			local CRS = require(SSS:FindFirstChild("CombinerRecyclerSystem") or SSS:WaitForChild("CombinerRecyclerSystem", 5))
+			if CRS and CRS.SetupPlotPrompts then
+				CRS.SetupPlotPrompts(plotModel, ownedFloors)
+			end
+		end)
+	end
+
+	print("[BasePlacement] ActivateFloor " .. floorNum .. " for " .. player.Name .. ": "
+		.. defPlaced .. " defense, " .. incPlaced .. " income, " .. btlPlaced .. " battle")
 
 	placementLocks[userId] = nil
 end

@@ -278,6 +278,9 @@ local THEME_PALETTES = {
 		Sign   = { Color = Color3.fromRGB(30, 28, 38), Material = Enum.Material.Wood },
 		Door   = { Color = Color3.fromRGB(40, 35, 25), Material = Enum.Material.Wood },
 		Window = { Color = Color3.fromRGB(25, 22, 35), Material = Enum.Material.Concrete },
+		-- Floor 4 gym battle team colors (must contrast with dark purple theme)
+		GymBlueTeam = Color3.fromRGB(60, 140, 220),
+		GymRedTeam  = Color3.fromRGB(200, 60, 60),
 	},
 	RetroArcade = {
 		Wall   = { Color = Color3.fromRGB(20, 10, 40),  Material = Enum.Material.Neon },
@@ -288,15 +291,58 @@ local THEME_PALETTES = {
 		Sign   = { Color = Color3.fromRGB(15, 5, 35), Material = Enum.Material.SmoothPlastic },
 		Door   = { Color = Color3.fromRGB(255, 100, 50), Material = Enum.Material.Neon },
 		Window = { Color = Color3.fromRGB(50, 200, 255), Material = Enum.Material.Neon },
+		-- Floor 4 gym battle team colors (must contrast with neon teal/pink theme)
+		GymBlueTeam = Color3.fromRGB(80, 80, 255),
+		GymRedTeam  = Color3.fromRGB(255, 60, 60),
 	},
 	-- Plain color themes (same code path as full themes; no exterior shell)
-	exterior_red    = { Wall = {Color = Color3.fromRGB(200, 60, 60)}, Floor = {Color = Color3.fromRGB(200, 60, 60)}, Trim = {Color = Color3.fromRGB(200, 60, 60)}, Point = {Color = Color3.fromRGB(200, 60, 60)}, Stairs = {Color = Color3.fromRGB(200, 60, 60)}, Sign = {Color = Color3.fromRGB(200, 60, 60)}, Door = {Color = Color3.fromRGB(200, 60, 60)}, Window = {Color = Color3.fromRGB(200, 60, 60)} },
-	exterior_blue   = { Wall = {Color = Color3.fromRGB(60, 100, 200)}, Floor = {Color = Color3.fromRGB(60, 100, 200)}, Trim = {Color = Color3.fromRGB(60, 100, 200)}, Point = {Color = Color3.fromRGB(60, 100, 200)}, Stairs = {Color = Color3.fromRGB(60, 100, 200)}, Sign = {Color = Color3.fromRGB(60, 100, 200)}, Door = {Color = Color3.fromRGB(60, 100, 200)}, Window = {Color = Color3.fromRGB(60, 100, 200)} },
-	exterior_green  = { Wall = {Color = Color3.fromRGB(60, 180, 80)}, Floor = {Color = Color3.fromRGB(60, 180, 80)}, Trim = {Color = Color3.fromRGB(60, 180, 80)}, Point = {Color = Color3.fromRGB(60, 180, 80)}, Stairs = {Color = Color3.fromRGB(60, 180, 80)}, Sign = {Color = Color3.fromRGB(60, 180, 80)}, Door = {Color = Color3.fromRGB(60, 180, 80)}, Window = {Color = Color3.fromRGB(60, 180, 80)} },
-	exterior_yellow = { Wall = {Color = Color3.fromRGB(220, 200, 60)}, Floor = {Color = Color3.fromRGB(220, 200, 60)}, Trim = {Color = Color3.fromRGB(220, 200, 60)}, Point = {Color = Color3.fromRGB(220, 200, 60)}, Stairs = {Color = Color3.fromRGB(220, 200, 60)}, Sign = {Color = Color3.fromRGB(220, 200, 60)}, Door = {Color = Color3.fromRGB(220, 200, 60)}, Window = {Color = Color3.fromRGB(220, 200, 60)} },
-	exterior_purple = { Wall = {Color = Color3.fromRGB(140, 80, 200)}, Floor = {Color = Color3.fromRGB(140, 80, 200)}, Trim = {Color = Color3.fromRGB(140, 80, 200)}, Point = {Color = Color3.fromRGB(140, 80, 200)}, Stairs = {Color = Color3.fromRGB(140, 80, 200)}, Sign = {Color = Color3.fromRGB(140, 80, 200)}, Door = {Color = Color3.fromRGB(140, 80, 200)}, Window = {Color = Color3.fromRGB(140, 80, 200)} },
-	exterior_orange = { Wall = {Color = Color3.fromRGB(230, 140, 50)}, Floor = {Color = Color3.fromRGB(230, 140, 50)}, Trim = {Color = Color3.fromRGB(230, 140, 50)}, Point = {Color = Color3.fromRGB(230, 140, 50)}, Stairs = {Color = Color3.fromRGB(230, 140, 50)}, Sign = {Color = Color3.fromRGB(230, 140, 50)}, Door = {Color = Color3.fromRGB(230, 140, 50)}, Window = {Color = Color3.fromRGB(230, 140, 50)} },
+	-- Each includes GymBlueTeam/GymRedTeam colors that never match the main color
+	exterior_red    = { Wall = {Color = Color3.fromRGB(200, 60, 60)}, Floor = {Color = Color3.fromRGB(200, 60, 60)}, Trim = {Color = Color3.fromRGB(200, 60, 60)}, Point = {Color = Color3.fromRGB(200, 60, 60)}, Stairs = {Color = Color3.fromRGB(200, 60, 60)}, Sign = {Color = Color3.fromRGB(200, 60, 60)}, Door = {Color = Color3.fromRGB(200, 60, 60)}, Window = {Color = Color3.fromRGB(200, 60, 60)}, GymBlueTeam = Color3.fromRGB(60, 140, 220), GymRedTeam = Color3.fromRGB(60, 200, 100) },
+	exterior_blue   = { Wall = {Color = Color3.fromRGB(60, 100, 200)}, Floor = {Color = Color3.fromRGB(60, 100, 200)}, Trim = {Color = Color3.fromRGB(60, 100, 200)}, Point = {Color = Color3.fromRGB(60, 100, 200)}, Stairs = {Color = Color3.fromRGB(60, 100, 200)}, Sign = {Color = Color3.fromRGB(60, 100, 200)}, Door = {Color = Color3.fromRGB(60, 100, 200)}, Window = {Color = Color3.fromRGB(60, 100, 200)}, GymBlueTeam = Color3.fromRGB(220, 180, 50), GymRedTeam = Color3.fromRGB(200, 60, 60) },
+	exterior_green  = { Wall = {Color = Color3.fromRGB(60, 180, 80)}, Floor = {Color = Color3.fromRGB(60, 180, 80)}, Trim = {Color = Color3.fromRGB(60, 180, 80)}, Point = {Color = Color3.fromRGB(60, 180, 80)}, Stairs = {Color = Color3.fromRGB(60, 180, 80)}, Sign = {Color = Color3.fromRGB(60, 180, 80)}, Door = {Color = Color3.fromRGB(60, 180, 80)}, Window = {Color = Color3.fromRGB(60, 180, 80)}, GymBlueTeam = Color3.fromRGB(60, 140, 220), GymRedTeam = Color3.fromRGB(200, 60, 60) },
+	exterior_yellow = { Wall = {Color = Color3.fromRGB(220, 200, 60)}, Floor = {Color = Color3.fromRGB(220, 200, 60)}, Trim = {Color = Color3.fromRGB(220, 200, 60)}, Point = {Color = Color3.fromRGB(220, 200, 60)}, Stairs = {Color = Color3.fromRGB(220, 200, 60)}, Sign = {Color = Color3.fromRGB(220, 200, 60)}, Door = {Color = Color3.fromRGB(220, 200, 60)}, Window = {Color = Color3.fromRGB(220, 200, 60)}, GymBlueTeam = Color3.fromRGB(60, 140, 220), GymRedTeam = Color3.fromRGB(200, 60, 60) },
+	exterior_purple = { Wall = {Color = Color3.fromRGB(140, 80, 200)}, Floor = {Color = Color3.fromRGB(140, 80, 200)}, Trim = {Color = Color3.fromRGB(140, 80, 200)}, Point = {Color = Color3.fromRGB(140, 80, 200)}, Stairs = {Color = Color3.fromRGB(140, 80, 200)}, Sign = {Color = Color3.fromRGB(140, 80, 200)}, Door = {Color = Color3.fromRGB(140, 80, 200)}, Window = {Color = Color3.fromRGB(140, 80, 200)}, GymBlueTeam = Color3.fromRGB(60, 140, 220), GymRedTeam = Color3.fromRGB(200, 60, 60) },
+	exterior_orange = { Wall = {Color = Color3.fromRGB(230, 140, 50)}, Floor = {Color = Color3.fromRGB(230, 140, 50)}, Trim = {Color = Color3.fromRGB(230, 140, 50)}, Point = {Color = Color3.fromRGB(230, 140, 50)}, Stairs = {Color = Color3.fromRGB(230, 140, 50)}, Sign = {Color = Color3.fromRGB(230, 140, 50)}, Door = {Color = Color3.fromRGB(230, 140, 50)}, Window = {Color = Color3.fromRGB(230, 140, 50)}, GymBlueTeam = Color3.fromRGB(60, 140, 220), GymRedTeam = Color3.fromRGB(200, 60, 60) },
 }
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- DEFAULT GYM TEAM COLORS (used when no theme is equipped or theme has no overrides)
+-- These are also used by ApplyBaseColorToPlot to override the base color on gym points.
+-- ═══════════════════════════════════════════════════════════════════════════
+local DEFAULT_GYM_BLUE = Color3.fromRGB(60, 140, 220)
+local DEFAULT_GYM_RED  = Color3.fromRGB(200, 60, 60)
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- applyGymTeamColors(plotModel, blueColor, redColor)
+-- Re-colors BattlePoints inside Floor4/BaseGym/BlueTeam and RedTeam so each
+-- team is visually distinct and never matches the main theme color.
+-- Called after the main theme/base-color pass.
+-- @param plotModel Model — the plot
+-- @param blueColor Color3 — color for BlueTeam BattlePoints
+-- @param redColor  Color3 — color for RedTeam BattlePoints
+-- ═══════════════════════════════════════════════════════════════════════════
+local function applyGymTeamColors(plotModel, blueColor, redColor)
+	local floor4 = plotModel:FindFirstChild("Floor4")
+	if not floor4 then return end
+	local gym = floor4:FindFirstChild("BaseGym")
+	if not gym then return end
+
+	local teamColors = {
+		BlueTeam = blueColor or DEFAULT_GYM_BLUE,
+		RedTeam  = redColor or DEFAULT_GYM_RED,
+	}
+	for teamName, color in pairs(teamColors) do
+		local teamFolder = gym:FindFirstChild(teamName)
+		if teamFolder then
+			for _, desc in ipairs(teamFolder:GetDescendants()) do
+				if desc:IsA("BasePart") and desc.Name:match("^BattlePoint") then
+					desc.Color = color
+					desc.Material = Enum.Material.SmoothPlastic
+				end
+			end
+		end
+	end
+end
 
 local DEFAULT_GREY = Color3.fromRGB(120, 120, 125)
 local DEFAULT_MATERIAL = Enum.Material.Concrete
@@ -414,6 +460,8 @@ function BaseExteriorSystem.ApplyThemeToPlot(plotModel, themeId)
 
 	if not themeId or themeId == "" then
 		applyDefaultToPlot(plotModel, false)
+		-- FIX: Always apply distinct gym team colors even on default theme
+		applyGymTeamColors(plotModel, DEFAULT_GYM_BLUE, DEFAULT_GYM_RED)
 		return true
 	end
 
@@ -435,6 +483,9 @@ function BaseExteriorSystem.ApplyThemeToPlot(plotModel, themeId)
 			end
 		end
 	end
+
+	-- FIX: Override Floor 4 gym BattlePoints with distinct team colors (never match main theme)
+	applyGymTeamColors(plotModel, palette.GymBlueTeam, palette.GymRedTeam)
 
 	-- 2) Build exterior shell (door + windows) - skip for plain color themes (exterior_red, etc.)
 	if isPlainColor then return true end
@@ -492,10 +543,23 @@ end
 
 --- Apply base color to walls, stairs, points, combiner, recycler. Does not affect glass.
 --- Pass nil to reset those parts to default grey.
+--- FIX: Floor 4 gym BattlePoints always get distinct team colors that never match the base color.
+
+-- Per-base-color gym team overrides (blue/red that contrast with the base color)
+local BASE_COLOR_GYM_TEAMS = {
+	base_red    = { blue = Color3.fromRGB(60, 140, 220), red = Color3.fromRGB(60, 200, 100) },
+	base_blue   = { blue = Color3.fromRGB(220, 180, 50), red = Color3.fromRGB(200, 60, 60) },
+	base_green  = { blue = Color3.fromRGB(60, 140, 220), red = Color3.fromRGB(200, 60, 60) },
+	base_yellow = { blue = Color3.fromRGB(60, 140, 220), red = Color3.fromRGB(200, 60, 60) },
+	base_purple = { blue = Color3.fromRGB(60, 140, 220), red = Color3.fromRGB(200, 60, 60) },
+	base_orange = { blue = Color3.fromRGB(60, 140, 220), red = Color3.fromRGB(200, 60, 60) },
+}
+
 function BaseExteriorSystem.ApplyBaseColorToPlot(plotModel, colorId)
 	if not plotModel or not plotModel.Parent then return false end
 	if not colorId or colorId == "" then
 		applyDefaultToPlot(plotModel, true)
+		applyGymTeamColors(plotModel, DEFAULT_GYM_BLUE, DEFAULT_GYM_RED)
 		return true
 	end
 
@@ -515,6 +579,14 @@ function BaseExteriorSystem.ApplyBaseColorToPlot(plotModel, colorId)
 			desc.Color = color
 			desc.Material = Enum.Material.SmoothPlastic
 		end
+	end
+
+	-- FIX: Override Floor 4 gym BattlePoints with distinct team colors (never match base color)
+	local gymOverride = BASE_COLOR_GYM_TEAMS[colorId]
+	if gymOverride then
+		applyGymTeamColors(plotModel, gymOverride.blue, gymOverride.red)
+	else
+		applyGymTeamColors(plotModel, DEFAULT_GYM_BLUE, DEFAULT_GYM_RED)
 	end
 	return true
 end

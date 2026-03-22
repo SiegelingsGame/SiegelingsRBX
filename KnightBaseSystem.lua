@@ -19,7 +19,7 @@
 --   - Warnings at 30s and 10s remaining
 --
 -- Architecture:
---   - Init() called from MainServer after BasePlacementSystem + LaserDoorSystem
+--   - Init() called from MainServer after BasePlacementSystem + LaserDoorSystem.
 --   - ProximityPrompts created on each knight base PlotCenter at runtime
 --   - Physical PivotTo means ALL existing systems (income, defense AI, recall,
 --     summary billboard, raids) work at the new location with zero changes
@@ -50,7 +50,7 @@ local LaserDoorSystem     -- reference only; shield blocking uses attribute
 local occupiedSlots = {}
 
 -- Tracks active rentals per player
--- Key: userId, Value: { biome, slotIndex, originalPivot, expiresAt, timerThread, promptPart }
+-- Key: userId, Value: { biome, slotIndex, originalPivot, expiresAt, timerThread, promptPart, placeholderSign }
 local activeRentals = {}
 
 -- Discovered knight base PlotCenter parts from workspace
@@ -119,6 +119,105 @@ local function notifyClient(player, message, level)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
+-- PLACEHOLDER SIGN (temporary billboard at original plot location during rental)
+-- When a base is physically PivotTo'd to a knight base, the SignPart moves with
+-- it, leaving nothing at the home location. This creates a temporary sign so
+-- other players visiting the empty plot see a countdown: "PlayerName returns
+-- in M:SS" instead of an empty lot or stale "Available Base" text.
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+--- Format seconds into "M:SS" display string.
+--- @param seconds number — remaining seconds
+--- @return string — e.g. "4:30", "0:09"
+local function formatCountdown(seconds)
+	seconds = math.max(0, math.floor(seconds))
+	local m = math.floor(seconds / 60)
+	local s = seconds % 60
+	return string.format("%d:%02d", m, s)
+end
+
+--- Create a temporary BillboardGui sign anchored at the original PlotCenter
+--- position. The sign floats where the plot used to be so visitors see the
+--- rental countdown.
+--- @param originalPivot CFrame — the plot model's original pivot (from before PivotTo)
+--- @param plotCenterOffset Vector3 — local offset of PlotCenter within the plot
+--- @param playerName string — the renting player's display name
+--- @param remaining number — initial seconds remaining
+--- @return BasePart — the anchor part (store in rental state for cleanup)
+local function createPlaceholderSign(originalPivot, plotCenterPos, playerName, remaining)
+	-- Create a small invisible anchor part at the original plot center position
+	local anchor = Instance.new("Part")
+	anchor.Name = "KnightBaseSignPlaceholder"
+	anchor.Anchored = true
+	anchor.CanCollide = false
+	anchor.Transparency = 1
+	anchor.Size = Vector3.new(1, 1, 1)
+	anchor.CFrame = CFrame.new(plotCenterPos + Vector3.new(0, 8, 0))
+	anchor.Parent = Workspace
+
+	-- BillboardGui visible from a distance so players can spot it across the map
+	local bb = Instance.new("BillboardGui")
+	bb.Name = "RentalCountdownBillboard"
+	bb.Size = UDim2.new(0, 220, 0, 70)
+	bb.StudsOffset = Vector3.new(0, 2, 0)
+	bb.AlwaysOnTop = false
+	bb.MaxDistance = 80
+	bb.Active = false
+	bb.Parent = anchor
+
+	-- Player name label (top line)
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Name = "NameLabel"
+	nameLabel.Size = UDim2.new(1, 0, 0, 24)
+	nameLabel.Position = UDim2.new(0, 0, 0, 0)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Text = playerName .. "'s Base"
+	nameLabel.TextColor3 = Color3.fromRGB(255, 220, 100)
+	nameLabel.Font = Enum.Font.GothamBold
+	nameLabel.TextSize = 16
+	nameLabel.TextStrokeTransparency = 0.3
+	nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	nameLabel.Parent = bb
+
+	-- Countdown label (bottom line)
+	local timerLabel = Instance.new("TextLabel")
+	timerLabel.Name = "TimerLabel"
+	timerLabel.Size = UDim2.new(1, 0, 0, 28)
+	timerLabel.Position = UDim2.new(0, 0, 0, 24)
+	timerLabel.BackgroundTransparency = 1
+	timerLabel.Text = "Returns in " .. formatCountdown(remaining)
+	timerLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
+	timerLabel.Font = Enum.Font.GothamMedium
+	timerLabel.TextSize = 14
+	timerLabel.TextStrokeTransparency = 0.3
+	timerLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	timerLabel.Parent = bb
+
+	return anchor
+end
+
+--- Update the countdown text on a placeholder sign.
+--- @param anchor BasePart — the anchor part returned by createPlaceholderSign
+--- @param remaining number — seconds remaining
+local function updatePlaceholderSign(anchor, remaining)
+	if not anchor or not anchor.Parent then return end
+	local bb = anchor:FindFirstChild("RentalCountdownBillboard")
+	if not bb then return end
+	local timerLabel = bb:FindFirstChild("TimerLabel")
+	if timerLabel then
+		timerLabel.Text = "Returns in " .. formatCountdown(remaining)
+	end
+end
+
+--- Remove the placeholder sign from the workspace.
+--- @param anchor BasePart|nil — the anchor part to destroy
+local function removePlaceholderSign(anchor)
+	if anchor and anchor.Parent then
+		anchor:Destroy()
+	end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
 -- FORWARD DECLARATIONS
 -- ═══════════════════════════════════════════════════════════════════════════════
 local returnToHome
@@ -165,6 +264,12 @@ returnToHome = function(player, skipTeleport)
 		prompt.Enabled = true
 		prompt.ActionText = "Rent Knight Base"
 		prompt.ObjectText = getBiomeDisplayName(rental.biome)
+	end
+
+	-- Remove the temporary placeholder sign at the original plot location
+	if rental.placeholderSign then
+		removePlaceholderSign(rental.placeholderSign)
+		rental.placeholderSign = nil
 	end
 
 	-- Clear rental state
@@ -246,6 +351,12 @@ startRentalTimer = function(player)
 				timerEvt:FireClient(player, remaining)
 			end
 
+			-- Update the placeholder sign countdown at the original plot location
+			local rental = activeRentals[userId]
+			if rental and rental.placeholderSign then
+				updatePlaceholderSign(rental.placeholderSign, remaining)
+			end
+
 			-- Fire warning at configured thresholds (30s, 10s)
 			if warningSet[remaining] and warnEvt and player.Parent then
 				warnEvt:FireClient(player, remaining)
@@ -291,8 +402,9 @@ local function moveBaseToSlot(player, biome, slotIndex)
 		return false
 	end
 
-	-- Save original position for return
+	-- Save original position for return + original PlotCenter position for placeholder sign
 	local originalPivot = plotModel:GetPivot()
+	local originalPlotCenterPos = plotCenter.Position
 
 	-- Compute translation offset: align plot's PlotCenter with knight base PlotCenter
 	local offset = knightCenter.CFrame.Position - plotCenter.Position
@@ -305,6 +417,16 @@ local function moveBaseToSlot(player, biome, slotIndex)
 	-- Mark slot as occupied
 	occupiedSlots[slotKey] = userId
 
+	-- Create a placeholder sign at the ORIGINAL plot location so other players
+	-- see a countdown ("PlayerName returns in M:SS") instead of an empty lot.
+	-- The actual SignPart moved with the plot model, so we spawn a temporary one.
+	local placeholderSign = createPlaceholderSign(
+		originalPivot,
+		originalPlotCenterPos, -- saved BEFORE PivotTo so it's the home location
+		player.Name,
+		RENTAL_DURATION
+	)
+
 	-- Store rental info
 	activeRentals[userId] = {
 		biome = biome,
@@ -312,6 +434,7 @@ local function moveBaseToSlot(player, biome, slotIndex)
 		originalPivot = originalPivot,
 		expiresAt = tick() + RENTAL_DURATION,
 		timerThread = nil,
+		placeholderSign = placeholderSign,
 	}
 
 	-- Disable ProximityPrompt on occupied slot + update text

@@ -156,8 +156,8 @@ local function makeOptionButton(label, color)
 end
 
 local eggBtn = makeOptionButton("Egg Shop", Color3.fromRGB(255, 210, 90))
-local buffBtn = makeOptionButton("Swag Shop", Color3.fromRGB(110, 230, 150))
-local cosmeticBtn = makeOptionButton("Cosmetics Shop", Color3.fromRGB(215, 150, 255))
+local buffBtn = makeOptionButton("Buff Shop", Color3.fromRGB(110, 230, 150))
+local cosmeticBtn = makeOptionButton("Drip Shop", Color3.fromRGB(215, 150, 255))
 
 local function openSubShop(menuName)
 	panel.Visible = false

@@ -179,9 +179,26 @@ local battleModel = {
 	redSlots   = {},
 }
 
--- FIX #31: dirty flag — set true when data changes, cleared after UI refresh.
-local dataDirty = false
-local function markDirty() dataDirty = true end
+-- FIX #31 + #33: Per-slot dirty tracking. Instead of one global flag that
+-- triggers refreshAllSlots() (18 slot rewrites), track which slots changed.
+-- slotDirty[side][idx] = true means that specific slot needs a UI update.
+-- globalDirty covers non-slot elements (texts, win bar, all-slot refresh).
+local globalDirty = false
+local slotDirty = { blue = {}, red = {} }
+
+local function markDirty()
+	globalDirty = true
+	-- Also mark all slots dirty for backward compat with callers that
+	-- expect a full refresh (BattleTeamsPlaced, first creation, etc.)
+	for i = 1, 9 do
+		slotDirty.blue[i] = true
+		slotDirty.red[i] = true
+	end
+end
+
+local function markSlotDirty(side, idx)
+	slotDirty[side][idx] = true
+end
 
 -- FIX #32: Remote authority tracking. When ArenaStateUpdate or BattleTeamsPlaced
 -- fires, it sets authoritative HP/SP values from the server. The fallback poll
@@ -258,51 +275,100 @@ end
 -- UI text setters (safe to call before GUIs exist)
 -- ══════════════════════════════════════════════════════════════════════════════
 
+-- FIX #33: Cache last summary texts to skip redundant writes.
+local _lastSummaryTexts = { title = nil, blue = nil, red = nil, status = nil }
+
 local function setSummaryTexts()
 	local titleStr  = "\226\154\148 Arena Battle"
 	local blueStr   = "\240\159\148\181 " .. tostring(battleModel.blueName or "Blue")
 	local redStr    = "\240\159\148\180 " .. tostring(battleModel.redName or "Red")
 	local statusStr = battleModel.inProgress and "Status: In progress" or "Status: Waiting"
 
+	local c = _lastSummaryTexts
+	local titleChanged  = c.title ~= titleStr
+	local blueChanged   = c.blue ~= blueStr
+	local redChanged    = c.red ~= redStr
+	local statusChanged = c.status ~= statusStr
+
+	if not titleChanged and not blueChanged and not redChanged and not statusChanged then
+		return
+	end
+
+	c.title = titleStr; c.blue = blueStr; c.red = redStr; c.status = statusStr
+
 	if summary.title then
-		summary.title.Text      = titleStr
-		summary.blueLine.Text   = blueStr
-		summary.redLine.Text    = redStr
-		summary.statusLine.Text = statusStr
+		if titleChanged then summary.title.Text = titleStr end
+		if blueChanged then summary.blueLine.Text = blueStr end
+		if redChanged then summary.redLine.Text = redStr end
+		if statusChanged then summary.statusLine.Text = statusStr end
 	end
 	if far.title then
-		far.title.Text      = titleStr
-		far.blueLine.Text   = blueStr
-		far.redLine.Text    = redStr
-		far.statusLine.Text = statusStr
+		if titleChanged then far.title.Text = titleStr end
+		if blueChanged then far.blueLine.Text = blueStr end
+		if redChanged then far.redLine.Text = redStr end
+		if statusChanged then far.statusLine.Text = statusStr end
 	end
 end
 
 --- Update a single slot's UI elements. Writes to both billboard and far GUI.
 --- FIX #31: Deterministic — only updates the specific pointIndex, no reordering.
+--- FIX #33: Change detection — only writes properties when values differ from
+--- what was last written. Uses a _cache table on each UI slot to track last state.
 --- @param side "blue"|"red"
 --- @param pointIndex number  1..9
 local function updateSlotUi(side, pointIndex)
 	local slots = side == "blue" and battleModel.blueSlots or battleModel.redSlots
 	local slot = slots[pointIndex]
 
-	-- Helper: apply data to one UI slot element set
+	-- Helper: apply data to one UI slot element set, with change detection
 	local function applyToUi(ui)
 		if not ui then return end
+		if not ui._cache then ui._cache = {} end
+		local c = ui._cache
+
 		if slot then
-			ui.frame.Visible = true
-			ui.name.Text = slot.displayName or "?"
+			if not c.visible then
+				ui.frame.Visible = true
+				c.visible = true
+			end
+
+			local nameStr = slot.displayName or "?"
+			if c.name ~= nameStr then
+				ui.name.Text = nameStr
+				c.name = nameStr
+			end
+
 			local hp    = math.max(0, math.floor(tonumber(slot.hp) or 0))
 			local maxHp = math.max(0, math.floor(tonumber(slot.maxHp) or 0))
-			ui.hp.Text  = maxHp > 0 and ("HP " .. hp .. "/" .. maxHp) or ""
+			local hpStr = maxHp > 0 and ("HP " .. hp .. "/" .. maxHp) or ""
+			if c.hp ~= hpStr then
+				ui.hp.Text = hpStr
+				c.hp = hpStr
+			end
+
 			local sp    = math.max(0, math.floor(tonumber(slot.focus) or 0))
 			local maxSp = math.max(0, math.floor(tonumber(slot.maxFocus) or 0))
-			ui.sp.Text  = maxSp > 0 and ("SP " .. sp .. "/" .. maxSp) or ""
+			local spStr = maxSp > 0 and ("SP " .. sp .. "/" .. maxSp) or ""
+			if c.sp ~= spStr then
+				ui.sp.Text = spStr
+				c.sp = spStr
+			end
+
 			local alive = slot.alive ~= false and hp > 0
-			ui.fainted.Visible = not alive
+			local showFaint = not alive
+			if c.fainted ~= showFaint then
+				ui.fainted.Visible = showFaint
+				c.fainted = showFaint
+			end
 		else
-			ui.frame.Visible   = false
-			ui.fainted.Visible = false
+			if c.visible ~= false then
+				ui.frame.Visible = false
+				c.visible = false
+			end
+			if c.fainted ~= false then
+				ui.fainted.Visible = false
+				c.fainted = false
+			end
 		end
 	end
 
@@ -320,9 +386,30 @@ local function refreshAllSlots()
 	end
 end
 
+-- FIX #33: Only refresh slots that are marked dirty, not all 18.
+local function refreshDirtySlots()
+	for i = 1, 9 do
+		if slotDirty.blue[i] then
+			updateSlotUi("blue", i)
+			slotDirty.blue[i] = nil
+		end
+		if slotDirty.red[i] then
+			updateSlotUi("red", i)
+			slotDirty.red[i] = nil
+		end
+	end
+end
+
+-- FIX #33: Cache last win bar state to skip redundant Size/Text writes.
+local _lastWinLabel = nil
+local _lastWinPBlue = nil
+
 local function updateWinBar()
 	local pBlue = computeWinLikely()
+	-- Quantize to 0.01 to avoid micro-updates from floating point jitter
+	pBlue = math.floor(pBlue * 100 + 0.5) / 100
 	local pRed  = 1 - pBlue
+
 	local label
 	if pBlue > 0.55 then
 		label = "Winning: " .. tostring(battleModel.blueName or "Blue")
@@ -331,6 +418,11 @@ local function updateWinBar()
 	else
 		label = "Tied \226\128\148 too close to call"
 	end
+
+	-- Skip if nothing changed
+	if _lastWinPBlue == pBlue and _lastWinLabel == label then return end
+	_lastWinPBlue = pBlue
+	_lastWinLabel = label
 
 	if summary.winBarBlue then
 		summary.winBarBlue.Size  = UDim2.new(pBlue, 0, 1, 0)
@@ -345,11 +437,23 @@ local function updateWinBar()
 end
 
 --- Flush dirty data to UI (called once per heartbeat tick, not per event).
+--- FIX #33: Only refreshes slots that were individually marked dirty,
+--- and only updates win bar when global dirty is set (data actually changed).
 local function flushIfDirty()
-	if not dataDirty then return end
-	dataDirty = false
-	refreshAllSlots()
+	-- Check if any slot is dirty
+	local anySlotDirty = false
+	for i = 1, 9 do
+		if slotDirty.blue[i] or slotDirty.red[i] then
+			anySlotDirty = true
+			break
+		end
+	end
+
+	if not anySlotDirty and not globalDirty then return end
+
+	refreshDirtySlots()
 	updateWinBar()
+	globalDirty = false
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -902,7 +1006,7 @@ local function createCrestBadge()
 		if far.root then
 			far.root.Visible = manualToggle
 			far.visible      = manualToggle
-			if manualToggle then markDirty() end
+			-- FIX #33: No markDirty needed — UI already has cached values
 		end
 		stopBadgePulse()
 		-- Scale bounce
@@ -1174,7 +1278,9 @@ local function pollArenaCreatureAttributes()
 		-- are authoritative; InfoTag labels may show different (leveled/buffed)
 		-- values that cause HP flashing. Poll only populates NEW slots or slots
 		-- whose RemoteEvent data has gone stale (older seq).
+		-- FIX #33: Only mark individual slots dirty when data actually changes.
 		local slot = slots[pointIdx]
+		local sideName = (team == "blue") and "blue" or "red"
 		if not slot then
 			-- Brand new slot — poll is the only data source
 			slots[pointIdx] = {
@@ -1188,38 +1294,48 @@ local function pollArenaCreatureAttributes()
 				alive  = alive,
 				_seq   = 0,  -- not from remote
 			}
+			markSlotDirty(sideName, pointIdx)
 		elseif slot._seq == remoteSeq then
 			-- FIX #32: Slot has FRESH remote data — only update alive/fainted
 			-- status (which the server may not send fast enough for faint visuals)
 			-- but do NOT touch hp/maxHp/focus/maxFocus.
-			slot.alive = alive
-			slot.creatureId = cid
-			if displayName and displayName ~= cid then
-				slot.displayName = displayName
+			local changed = false
+			if slot.alive ~= alive then slot.alive = alive; changed = true end
+			if slot.creatureId ~= cid then slot.creatureId = cid; changed = true end
+			if displayName and displayName ~= cid and slot.displayName ~= displayName then
+				slot.displayName = displayName; changed = true
 			end
+			if changed then markSlotDirty(sideName, pointIdx) end
 		else
-			-- Stale or poll-only slot — overwrite freely
-			slot.hp       = hp
-			slot.maxHp    = maxHp
-			slot.focus    = sp
-			slot.maxFocus = maxSp
-			slot.alive    = alive
-			slot.creatureId = cid
-			if displayName and displayName ~= cid then
-				slot.displayName = displayName
+			-- Stale or poll-only slot — overwrite freely, but track changes
+			local changed = false
+			if slot.hp ~= hp then slot.hp = hp; changed = true end
+			if slot.maxHp ~= maxHp then slot.maxHp = maxHp; changed = true end
+			if slot.focus ~= sp then slot.focus = sp; changed = true end
+			if slot.maxFocus ~= maxSp then slot.maxFocus = maxSp; changed = true end
+			if slot.alive ~= alive then slot.alive = alive; changed = true end
+			if slot.creatureId ~= cid then slot.creatureId = cid; changed = true end
+			if displayName and displayName ~= cid and slot.displayName ~= displayName then
+				slot.displayName = displayName; changed = true
 			end
+			if changed then markSlotDirty(sideName, pointIdx) end
 		end
 	end
 
 	-- FIX #31: Remove slots for creatures that are no longer present
+	-- FIX #33: Only mark dirty for actually removed slots
 	for idx in pairs(battleModel.blueSlots) do
-		if not seenBlue[idx] then battleModel.blueSlots[idx] = nil end
+		if not seenBlue[idx] then
+			battleModel.blueSlots[idx] = nil
+			markSlotDirty("blue", idx)
+		end
 	end
 	for idx in pairs(battleModel.redSlots) do
-		if not seenRed[idx] then battleModel.redSlots[idx] = nil end
+		if not seenRed[idx] then
+			battleModel.redSlots[idx] = nil
+			markSlotDirty("red", idx)
+		end
 	end
-
-	markDirty()
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -1302,29 +1418,37 @@ task.spawn(function()
 		arenaStateUpdate.OnClientEvent:Connect(function(payload)
 			if type(payload) ~= "table" then return end
 			remoteSeq += 1  -- FIX #32: mark updated slots as authoritative
+			-- FIX #33: Only mark individual slots dirty when values differ
 			for _, d in ipairs(payload.blue or {}) do
 				local slot = d.pointIndex and battleModel.blueSlots[d.pointIndex]
 				if slot then
-					slot.hp = d.hp; slot.maxHp = d.maxHp
-					slot.focus = d.focus; slot.maxFocus = d.maxFocus
-					slot.alive = d.alive
+					local changed = false
+					if slot.hp ~= d.hp then slot.hp = d.hp; changed = true end
+					if slot.maxHp ~= d.maxHp then slot.maxHp = d.maxHp; changed = true end
+					if slot.focus ~= d.focus then slot.focus = d.focus; changed = true end
+					if slot.maxFocus ~= d.maxFocus then slot.maxFocus = d.maxFocus; changed = true end
+					if slot.alive ~= d.alive then slot.alive = d.alive; changed = true end
 					slot.attack = slot.attack or d.attack
 					slot.speed  = slot.speed or d.speed
 					slot._seq = remoteSeq  -- FIX #32
+					if changed then markSlotDirty("blue", d.pointIndex) end
 				end
 			end
 			for _, d in ipairs(payload.red or {}) do
 				local slot = d.pointIndex and battleModel.redSlots[d.pointIndex]
 				if slot then
-					slot.hp = d.hp; slot.maxHp = d.maxHp
-					slot.focus = d.focus; slot.maxFocus = d.maxFocus
-					slot.alive = d.alive
+					local changed = false
+					if slot.hp ~= d.hp then slot.hp = d.hp; changed = true end
+					if slot.maxHp ~= d.maxHp then slot.maxHp = d.maxHp; changed = true end
+					if slot.focus ~= d.focus then slot.focus = d.focus; changed = true end
+					if slot.maxFocus ~= d.maxFocus then slot.maxFocus = d.maxFocus; changed = true end
+					if slot.alive ~= d.alive then slot.alive = d.alive; changed = true end
 					slot.attack = slot.attack or d.attack
 					slot.speed  = slot.speed or d.speed
 					slot._seq = remoteSeq  -- FIX #32
+					if changed then markSlotDirty("red", d.pointIndex) end
 				end
 			end
-			markDirty()
 		end)
 	end
 end)
@@ -1393,8 +1517,7 @@ RunService.Heartbeat:Connect(function(dt)
 		local wasNil = summary.billboard == nil
 		pcall(ensureSummaryGui, arenaFolder, centerPos)
 		pcall(ensureFarScreenGui)
-		-- Force refresh on first creation
-		if wasNil and summary.billboard then markDirty() end
+		-- ensureSummaryGui already calls markDirty() on first creation
 	end
 
 	-- ── Step 7: Live attribute poll ────────────────────────────────────
@@ -1416,7 +1539,8 @@ RunService.Heartbeat:Connect(function(dt)
 		if far.root then
 			far.root.Visible = shouldShowFar
 			far.visible      = shouldShowFar
-			if shouldShowFar then markDirty() end
+			-- FIX #33: Visibility toggle doesn't need a full data refresh.
+			-- The UI elements already have cached values from prior updates.
 		end
 	end
 

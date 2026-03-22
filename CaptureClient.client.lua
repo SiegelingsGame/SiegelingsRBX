@@ -1,3 +1,4 @@
+-- Last updated: 2026-03-21 00:34
 -- CaptureClient.lua - StarterPlayer.StarterPlayerScripts (LocalScript)
 -- Click fainted creatures to capture (costs gold).
 -- Press E to target world creatures. Select target from bar to attack (player + companion).
@@ -27,6 +28,7 @@ end
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
 local Notify = require(ReplicatedStorage.Modules.NotificationManager)
+local CreatureModelLoader = require(ReplicatedStorage.Modules.CreatureModelLoader)
 
 local eventsFolder = ReplicatedStorage:WaitForChild("Events", 15)
 if not eventsFolder then return end
@@ -46,6 +48,93 @@ local stealInteractRequest = eventsFolder:FindFirstChild("StealInteractRequest")
 local homeRecallStart = eventsFolder:FindFirstChild("HomeRecallStart")
 local homeRecallEnd = eventsFolder:FindFirstChild("HomeRecallEnd")
 local homeRecallCancel = eventsFolder:FindFirstChild("HomeRecallCancel")
+
+-- ── Viewport bubble helper ─────────────────────────────────────────────────
+-- Creates a small ViewportFrame with a Camera that frames a creature model.
+-- Used inside tracker bubbles so you see the creature 3D model instead of a letter.
+-- @param parent  Instance — UI parent (the circular button frame)
+-- @param cid     string   — creature id (e.g. "cacty")
+-- @param size    UDim2    — viewport size (fills parent by default)
+local function createCreatureViewport(parent, cid, size)
+	local info = cid and CreatureData.GetById(cid)
+	if not info then return nil end
+
+	local vf = Instance.new("ViewportFrame")
+	vf.Name = "CreatureViewport"
+	vf.Size = size or UDim2.new(1, 0, 1, 0)
+	vf.Position = UDim2.new(0.5, 0, 0.5, 0)
+	vf.AnchorPoint = Vector2.new(0.5, 0.5)
+	vf.BackgroundTransparency = 1
+	vf.BorderSizePixel = 0
+	vf.ZIndex = 2
+	vf.Parent = parent
+
+	-- Lighting
+	vf.Ambient = Color3.fromRGB(140, 140, 160)
+	vf.LightColor = Color3.new(1, 1, 1)
+	vf.LightDirection = Vector3.new(-0.4, -0.7, -0.5).Unit
+
+	local cam = Instance.new("Camera")
+	cam.CameraType = Enum.CameraType.Scriptable
+	cam.Parent = vf
+	vf.CurrentCamera = cam
+
+	local world = Instance.new("WorldModel")
+	world.Name = "BubbleWorld"
+	world.Parent = vf
+
+	-- Load model into the viewport world
+	local tempModel = Instance.new("Model")
+	tempModel.Name = info.modelName or "ViewportClone"
+	local body, _, ok = CreatureModelLoader.LoadAndIntegrate(tempModel, info.modelName, info.displayName, nil, {
+		targetSize = 4,
+		creatureId = cid,
+	})
+	if not ok or not body then
+		vf:Destroy()
+		tempModel:Destroy()
+		return nil
+	end
+
+	-- Anchor and disable collision on all parts
+	for _, desc in ipairs(tempModel:GetDescendants()) do
+		if desc:IsA("Script") or desc:IsA("LocalScript") or desc:IsA("ModuleScript") then desc:Destroy() end
+		if desc:IsA("BasePart") then
+			desc.Anchored = true
+			desc.CanCollide = false
+		end
+	end
+
+	-- Center at origin and compute camera distance
+	local cf, sz
+	pcall(function()
+		if tempModel:IsA("Model") then
+			cf, sz = tempModel:GetBoundingBox()
+		end
+	end)
+	if not cf then cf = CFrame.new() end
+	if not sz then sz = Vector3.new(4, 4, 4) end
+
+	-- Move model so its center is at origin
+	if tempModel:IsA("Model") then
+		tempModel:PivotTo(CFrame.new(-cf.Position) * tempModel:GetPivot())
+	end
+	tempModel.Parent = world
+
+	-- Frame the camera: look at origin from front-above, distance based on model size
+	local maxDim = math.max(sz.X, sz.Y, sz.Z)
+	local camDist = math.max(3.5, maxDim * 1.3)
+	local camAngleX = math.rad(10) -- slight top-down tilt
+	local camAngleY = math.pi * 1.5 -- face camera
+	local camPos = Vector3.new(
+		math.cos(camAngleY) * math.cos(camAngleX) * camDist,
+		math.sin(camAngleX) * camDist,
+		math.sin(camAngleY) * math.cos(camAngleX) * camDist
+	)
+	cam.CFrame = CFrame.new(camPos, Vector3.new(0, 0, 0))
+
+	return vf
+end
 
 -- -- GUI --
 local screenGui = Instance.new("ScreenGui")
@@ -120,6 +209,7 @@ targetBarFrame.AnchorPoint = Vector2.new(0.5, 1)
 targetBarFrame.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
 targetBarFrame.BorderSizePixel = 0
 targetBarFrame.Visible = false
+targetBarFrame.ClipsDescendants = true  -- FIX #21: prevent overflow icons from rendering outside the bar
 targetBarFrame.Parent = screenGui
 Instance.new("UICorner", targetBarFrame).CornerRadius = UDim.new(0, 8)
 local targetBarStroke = Instance.new("UIStroke", targetBarFrame)
@@ -946,22 +1036,31 @@ local function refreshTargetBar()
 		cell.LayoutOrder = i
 		cell.Parent = targetBarList
 
+		-- Circular bubble: sized to the smaller dimension for a perfect circle
+		local bubbleSize = math.min(TARGET_BAR_ICON_CELL_W, TARGET_BAR_HEIGHT - 12)
 		local btn = Instance.new("TextButton")
-		-- Button fills cell for maximum clickable/tappable area (especially on mobile)
-		btn.Size = UDim2.new(1, 0, 1, 0)
-		btn.Position = UDim2.new(0, 0, 0, 0)
+		btn.Size = UDim2.new(0, bubbleSize, 0, bubbleSize)
+		btn.Position = UDim2.new(0.5, 0, 0.5, 0)
+		btn.AnchorPoint = Vector2.new(0.5, 0.5)
 		btn.BackgroundColor3 = color
 		btn.BorderSizePixel = 0
-		btn.Text = string.sub(displayName, 1, 1):upper()
+		btn.Text = ""  -- viewport shows the creature; letter fallback below
 		btn.TextColor3 = Color3.new(1, 1, 1)
 		btn.Font = Enum.Font.GothamBlack
 		btn.TextSize = 14
+		btn.ClipsDescendants = true  -- clip viewport to circular shape
 		btn.Parent = cell
 		local corner = Instance.new("UICorner", btn)
-		corner.CornerRadius = UDim.new(1, 0)
+		corner.CornerRadius = UDim.new(1, 0)  -- perfect circle
 		local stroke = Instance.new("UIStroke", btn)
 		stroke.Color = Color3.fromRGB(80, 80, 100)
 		stroke.Thickness = 2
+
+		-- 3D creature viewport inside the circular bubble (fallback to letter if model can't load)
+		local vf = createCreatureViewport(btn, cid)
+		if not vf then
+			btn.Text = string.sub(displayName, 1, 1):upper()
+		end
 
 		local isSelected = (m == selectedTargetModel)
 		if isSelected then
@@ -1636,6 +1735,17 @@ local function showAssignPrompt(creatureId, uid, slotInfo)
 	if not info then return end
 	local rc = info and CreatureData.Rarities[info.rarity]
 	local rarityColor = rc and rc.color or Color3.fromRGB(180, 180, 180)
+
+	if slotInfo and slotInfo.badlands then
+		local bagCount = tonumber(slotInfo.bagCount) or 0
+		local bagMax = tonumber(slotInfo.bagMax) or 0
+		showNotif(
+			"Captured " .. info.displayName .. "! Added to Badlands bag (" .. bagCount .. "/" .. bagMax .. ")",
+			rarityColor,
+			3
+		)
+		return
+	end
 
 	local canIncome = slotInfo and slotInfo.canIncome
 	local canDefense = slotInfo and slotInfo.canDefense

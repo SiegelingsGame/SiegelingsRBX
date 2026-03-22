@@ -29,6 +29,10 @@ local MOBILE_SPRINT_TOGGLE = UserInputService.TouchEnabled and not UserInputServ
 local shiftHeld = false
 local buttonToggled = false
 
+-- Mount awareness: when mounted, sprint uses mount speed * mount sprint multiplier
+local isMountedLocal = false
+local mountBaseSpeed = 0
+
 local function isSprintActive()
 	if MOBILE_SPRINT_TOGGLE then
 		return buttonToggled
@@ -57,6 +61,7 @@ toggleSprintEvt.Event:Connect(function()
 end)
 
 -- Apply walk or sprint speed to current character. Do not override when WalkSpeed is 0 (freeze).
+-- When mounted, uses mount speed with MountSprintMultiplier instead of normal sprint.
 local function applySprintToCharacter()
 	local char = player.Character
 	if not char then return end
@@ -64,7 +69,15 @@ local function applySprintToCharacter()
 	if not hum then return end
 	-- Don't override freeze (e.g. LoadingGate sets 0)
 	if hum.WalkSpeed == 0 then return end
-	local desired = isSprintActive() and SPRINT_SPEED or BASE_SPEED
+
+	local desired
+	if isMountedLocal and mountBaseSpeed > 0 then
+		-- Mounted: use mount speed with mount sprint multiplier
+		local sprintMult = GameConfig.MountSprintMultiplier or 1.4
+		desired = isSprintActive() and math.floor(mountBaseSpeed * sprintMult) or mountBaseSpeed
+	else
+		desired = isSprintActive() and SPRINT_SPEED or BASE_SPEED
+	end
 	if hum.WalkSpeed ~= desired then
 		hum.WalkSpeed = desired
 	end
@@ -110,3 +123,15 @@ if player.Character then
 	onCharacterAdded(player.Character)
 end
 player.CharacterAdded:Connect(onCharacterAdded)
+
+-- Mount state listener: MountClient fires MountStateChanged(isMounted, baseSpeed)
+task.defer(function()
+	local mountStateEvt = playerGui:WaitForChild("MountStateChanged", 15)
+	if mountStateEvt and mountStateEvt:IsA("BindableEvent") then
+		mountStateEvt.Event:Connect(function(mounted, baseSpeed)
+			isMountedLocal = mounted == true
+			mountBaseSpeed = (type(baseSpeed) == "number" and baseSpeed) or 0
+			applySprintToCharacter()
+		end)
+	end
+end)

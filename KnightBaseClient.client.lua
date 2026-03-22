@@ -20,9 +20,9 @@ local Notify = require(ReplicatedStorage.Modules:WaitForChild("NotificationManag
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
--- ═══════════════════════════════════════════════════════════════════════════════
+-- ══════════════════════════════════════════════════════════════════════════════
 -- Wait for Events folder and RemoteEvents
--- ═══════════════════════════════════════════════════════════════════════════════
+-- ═══════════════════════════════════════════════════════════════════════════════.
 local Events = ReplicatedStorage:WaitForChild("Events", 15)
 if not Events then
 	warn("[KnightBaseClient] Events folder not found, aborting")
@@ -39,6 +39,7 @@ local warningEvt  = Events:WaitForChild("KnightBaseWarning", 10)
 -- ═══════════════════════════════════════════════════════════════════════════════
 local FRAME_WIDTH  = 220
 local FRAME_HEIGHT = 38
+local DEFAULT_TOP_Y = 52
 local BG_COLOR     = Color3.fromRGB(20, 20, 30)
 local BG_TRANS     = 0.25
 local BORDER_COLOR = Color3.fromRGB(180, 140, 50)  -- gold accent
@@ -60,7 +61,7 @@ screenGui.Parent = playerGui
 local frame = Instance.new("Frame")
 frame.Name = "DeployFrame"
 frame.Size = UDim2.new(0, FRAME_WIDTH, 0, FRAME_HEIGHT)
-frame.Position = UDim2.new(0.5, -FRAME_WIDTH / 2, 0, 52)  -- below top bar
+frame.Position = UDim2.new(0.5, -FRAME_WIDTH / 2, 0, DEFAULT_TOP_Y)
 frame.AnchorPoint = Vector2.new(0, 0)
 frame.BackgroundColor3 = BG_COLOR
 frame.BackgroundTransparency = BG_TRANS
@@ -100,6 +101,29 @@ label.Parent = frame
 local isActive = false
 local currentBiome = ""
 local currentRemaining = 0
+
+local function layoutFrame()
+	local yTop = DEFAULT_TOP_Y
+	local notifGui = playerGui:FindFirstChild("NotificationGUI")
+	local tickerBar = notifGui and notifGui:FindFirstChild("TickerBar")
+	if tickerBar and tickerBar:IsA("GuiObject") then
+		yTop = math.floor(tickerBar.AbsolutePosition.Y + tickerBar.AbsoluteSize.Y)
+	end
+	frame.Position = UDim2.new(0.5, -FRAME_WIDTH / 2, 0, yTop)
+end
+
+layoutFrame()
+
+task.defer(function()
+	layoutFrame()
+	local notifGui = playerGui:FindFirstChild("NotificationGUI")
+	local tickerBar = notifGui and notifGui:FindFirstChild("TickerBar")
+	if tickerBar and tickerBar:IsA("GuiObject") then
+		tickerBar:GetPropertyChangedSignal("AbsolutePosition"):Connect(layoutFrame)
+		tickerBar:GetPropertyChangedSignal("AbsoluteSize"):Connect(layoutFrame)
+		tickerBar:GetPropertyChangedSignal("Visible"):Connect(layoutFrame)
+	end
+end)
 
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- Helper: format seconds as M:SS
@@ -171,6 +195,7 @@ if rentedEvt then
 		isActive = true
 		currentBiome = biomeName or "Biome"
 		currentRemaining = duration or 300
+		layoutFrame()
 		updateDisplay()
 		fadeIn()
 		print("[KnightBaseClient] Rental started: " .. currentBiome .. " (" .. duration .. "s)")

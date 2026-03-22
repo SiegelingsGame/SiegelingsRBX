@@ -95,6 +95,7 @@ local DungeonDespawned = safeGet("DungeonDespawned")
 local CaptureFail    = safeGet("CaptureFail")
 local BaseDefenseTargeted = safeGet("BaseDefenseTargeted")
 local CreatureFreedByRaid  = safeGet("CreatureFreedByRaid")
+local ShowNotification = safeGet("ShowNotification")
 
 local function computeIncomePerMin(data)
 	if not data or not data.baseSlots or not data.inventory then return 0 end
@@ -123,6 +124,9 @@ local BATTLE_TEAM_DISPLAY_MAX = 5  -- show "Battle: X/5" in HUDsdfs
 
 local function refreshData()
 	local gi = GetInventory or (Events and Events:FindFirstChild("GetInventory"))
+	if not gi and Events then
+		gi = Events:WaitForChild("GetInventory", 5)
+	end
 	if not gi then return end
 	local ok, data = pcall(function() return gi:InvokeServer() end)
 	if not ok or not data then return end
@@ -235,15 +239,53 @@ if BaseDefenseTargeted then
 	end)
 end
 
+if ShowNotification then
+	ShowNotification.OnClientEvent:Connect(function(message, level, category)
+		if not message or message == "" then return end
+		local duration = 4
+		if level == "error" then
+			duration = 5
+		elseif level == "warning" then
+			duration = 4.5
+		elseif level == "info" then
+			duration = 3.5
+		end
+		Notify.Toast(message, nil, duration, nil, category)
+	end)
+end
+
+-- Must not use OnClientEvent:Wait() alone: if the server fired LoadingCriticalReady before this
+-- script subscribed, Wait() never returns and refreshData() never runs (HUD stuck at zeros).
+-- Match LaunchScreen: listen + timeout so we always proceed.
 local function waitForStartupReady()
 	local events = ReplicatedStorage:FindFirstChild("Events") or ReplicatedStorage:WaitForChild("Events", 15)
 	if not events then return end
 	local criticalReady = events:FindFirstChild("LoadingCriticalReady")
 	local worldReady = events:FindFirstChild("LoadingReady")
 	if criticalReady then
-		criticalReady.OnClientEvent:Wait()
+		local signaled = false
+		local conn
+		conn = criticalReady.OnClientEvent:Connect(function()
+			signaled = true
+			if conn then conn:Disconnect() end
+		end)
+		local deadline = tick() + (GameConfig.LoadingCriticalMaxWait or 18) + 3
+		while not signaled and tick() < deadline do
+			task.wait(0.1)
+		end
+		if conn then conn:Disconnect() end
 	elseif worldReady then
-		worldReady.OnClientEvent:Wait()
+		local signaled = false
+		local conn
+		conn = worldReady.OnClientEvent:Connect(function()
+			signaled = true
+			if conn then conn:Disconnect() end
+		end)
+		local deadline = tick() + ((GameConfig.LoadingMaxWait or 25) + 8)
+		while not signaled and tick() < deadline do
+			task.wait(0.15)
+		end
+		if conn then conn:Disconnect() end
 	end
 end
 

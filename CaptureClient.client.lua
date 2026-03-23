@@ -29,6 +29,7 @@ local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
 local Notify = require(ReplicatedStorage.Modules.NotificationManager)
 local CreatureModelLoader = require(ReplicatedStorage.Modules.CreatureModelLoader)
+local DEBUG_CAPTURE_LOGS = false
 
 local eventsFolder = ReplicatedStorage:WaitForChild("Events", 15)
 if not eventsFolder then return end
@@ -572,9 +573,9 @@ local function onTapOrClick(inputObject, gameProcessed)
 		if creatureModel:GetAttribute("Fainted") then
 			-- Direct hit on fainted creature Ã¢â‚¬â€ use bbox so tall creatures can be captured from underneath
 			if isPlayerInCaptureRange(rootPos, creatureModel) then
-				-- #region agent log
-				print(string.format("[DEBUG-CAPTURE] Click path=direct hit pending=%s wouldFire=%s", tostring(captureRequestPending), tostring(not captureRequestPending)))
-				-- #endregion
+				if DEBUG_CAPTURE_LOGS then
+					print(string.format("[DEBUG-CAPTURE] Click path=direct hit pending=%s wouldFire=%s", tostring(captureRequestPending), tostring(not captureRequestPending)))
+				end
 				tryFire(creatureModel)
 				return
 			else
@@ -1900,9 +1901,9 @@ end
 
 if captureFail then
 	captureFail.OnClientEvent:Connect(function(message)
-		-- #region agent log
-		print("[DEBUG-CAPTURE] CaptureFail received message=" .. tostring(message))
-		-- #endregion
+		if DEBUG_CAPTURE_LOGS then
+			print("[DEBUG-CAPTURE] CaptureFail received message=" .. tostring(message))
+		end
 		captureRequestPending = false
 		captureCancelled = true
 		restoreCreatureModel()

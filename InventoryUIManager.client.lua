@@ -4026,7 +4026,63 @@ if Evt.raidEnd then Evt.raidEnd.OnClientEvent:Connect(function()
 -- Income received: do NOT refresh inventory (coins update on next button/tab action).
 -- Refreshing here caused constant scroll resets on mobile when income ticks fired.
 
+local ARENA_COUNTDOWN_PRELOAD_LEAD = {
+	[30] = 8, -- preload at 38s so it scrolls in near 30s mark
+	[10] = 8, -- preload at 18s so it scrolls in near 10s mark
+}
+local arenaCountdownPreload = {
+	lastCountdown = nil,
+	preloaded = {}, -- keyed by target second (e.g. 30/10)
+}
+
+local function resetArenaCountdownPreloadState()
+	arenaCountdownPreload.lastCountdown = nil
+	table.clear(arenaCountdownPreload.preloaded)
+end
+
+local function getArenaCountdownSecondsFromMessage(msg)
+	if type(msg) ~= "string" then return nil end
+	local n = msg:match("^Arena battle in (%d+) seconds!$")
+	return n and tonumber(n) or nil
+end
+
+local function pushArenaCountdownTicker(seconds)
+	Notify.Toast(string.format("Arena battle in %d seconds!", seconds), C.favorite, 4)
+end
+
+local function maybePreloadArenaCountdown(countdown)
+	if type(countdown) ~= "number" then return end
+	countdown = math.floor(countdown)
+	if countdown <= 0 then
+		resetArenaCountdownPreloadState()
+		return
+	end
+
+	local last = arenaCountdownPreload.lastCountdown
+	if not last or countdown > last then
+		table.clear(arenaCountdownPreload.preloaded)
+	end
+	arenaCountdownPreload.lastCountdown = countdown
+
+	for target, lead in pairs(ARENA_COUNTDOWN_PRELOAD_LEAD) do
+		local preloadAt = target + lead
+		if countdown == preloadAt and not arenaCountdownPreload.preloaded[target] then
+			arenaCountdownPreload.preloaded[target] = true
+			pushArenaCountdownTicker(target)
+		end
+	end
+end
+
+workspace:GetAttributeChangedSignal("ArenaCountdown"):Connect(function()
+	maybePreloadArenaCountdown(workspace:GetAttribute("ArenaCountdown"))
+end)
+maybePreloadArenaCountdown(workspace:GetAttribute("ArenaCountdown"))
+
 if Evt.arenaAnnounce then Evt.arenaAnnounce.OnClientEvent:Connect(function(msg)
+		local sec = getArenaCountdownSecondsFromMessage(msg)
+		if sec and arenaCountdownPreload.preloaded[sec] then
+			return -- already queued predictively to avoid insert-time jump at this exact mark
+		end
 		Notify.Toast(msg, C.favorite, 4)
 	end) end
 if Evt.gymAnnounce then Evt.gymAnnounce.OnClientEvent:Connect(function(msg)

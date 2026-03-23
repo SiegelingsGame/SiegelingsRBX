@@ -132,6 +132,19 @@ local activeSessions = {}
 
 -- Frame counter for throttled sync
 local frameCounter = 0
+local onRenderStepped
+local renderSteppedConn = nil
+
+local function setFrameSyncEnabled(enabled)
+	if enabled then
+		if renderSteppedConn then return end
+		renderSteppedConn = RunService.RenderStepped:Connect(onRenderStepped)
+	else
+		if not renderSteppedConn then return end
+		renderSteppedConn:Disconnect()
+		renderSteppedConn = nil
+	end
+end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- Helper: Safely clone a model for ViewportFrame display
@@ -664,6 +677,7 @@ local function setupJumbotron(plotModel)
 	}
 
 	activeSessions[plotName] = session
+	setFrameSyncEnabled(true)
 
 	-- ── Initial creature scan (delayed to allow server spawning) ────────────
 	task.spawn(function()
@@ -714,6 +728,9 @@ local function teardownJumbotron(plotName)
 	end
 
 	activeSessions[plotName] = nil
+	if not next(activeSessions) then
+		setFrameSyncEnabled(false)
+	end
 	print("[Jumbotron] Deactivated on " .. plotName)
 end
 
@@ -735,7 +752,7 @@ end
 -- Frame update: sync clones, update cameras, manage distance gating
 -- Runs every RenderStepped frame (throttled by SYNC_EVERY_N_FRAMES).
 -- ═══════════════════════════════════════════════════════════════════════════════
-local function onRenderStepped()
+onRenderStepped = function()
 	frameCounter = frameCounter + 1
 	local doSync = (frameCounter % SYNC_EVERY_N_FRAMES) == 0
 
@@ -862,9 +879,6 @@ local function init()
 			watchPlot(child)
 		end
 	end)
-
-	-- Connect frame update
-	RunService.RenderStepped:Connect(onRenderStepped)
 
 	-- Start distance check loop
 	task.spawn(distanceCheckLoop)

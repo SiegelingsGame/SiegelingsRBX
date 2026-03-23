@@ -1275,7 +1275,7 @@ CreatureData.Creatures = {
 		modelName = "Splashfin", primaryColor = Color3.fromRGB(50, 150, 230),
 	},
 
-	-- Water Uncommon (4)
+	-- Water Uncommon (4).
 	{
 		id = "droxyl", displayName = "Droxyl", rarity = "Uncommon",
 		element = "Water", class = "Assassin", behavior = "pack",

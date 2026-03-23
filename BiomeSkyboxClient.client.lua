@@ -224,13 +224,6 @@ for name, part in pairs(roadParts) do
 	roadAngles[name] = math.atan2(dz, dx)
 end
 
--- DEBUG: Print hub center and road angles so we can verify wedge order
-print("[BiomeSkybox] Hub center:", hubCenter)
-for name, angle in pairs(roadAngles) do
-	print(string.format("[BiomeSkybox] Road %-15s angle = %7.2f° (%.4f rad)",
-		name, math.deg(angle), angle))
-end
-
 -- ══════════════════════════════════════════════════════════════════════════════
 -- GEOMETRY HELPERS
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -409,9 +402,6 @@ local SKY_FACE_PROPERTIES = {
 --- Currently active sky name (nil = nothing set yet)
 local currentSkyName = nil
 
---- True while a crossfade coroutine is running — used to cancel stale transitions
-local transitionActive = false
-
 --- Monotonically increasing ID to detect when a newer transition supersedes this one
 local transitionId = 0
 
@@ -475,7 +465,6 @@ local function setSky(skyName)
 	-- Bump transition ID so any in-progress transition cancels itself
 	transitionId += 1
 	local myId = transitionId
-	transitionActive = true
 
 	-- Spawn the crossfade coroutine so it doesn't block the heartbeat loop
 	task.spawn(function()
@@ -536,7 +525,6 @@ local function setSky(skyName)
 		-- ── Cleanup ─────────────────────────────────────────────────────────
 		cc.Brightness = 0
 		cc:Destroy()
-		transitionActive = false
 	end)
 end
 
@@ -548,14 +536,12 @@ setSky(DEFAULT_SKY)
 -- Runs on Heartbeat with a configurable check interval for performance.
 -- ══════════════════════════════════════════════════════════════════════════════
 
--- DEBUG: Print sky detection every few seconds to diagnose biome detection issues.
--- Set to false to disable. Prints position, detected sky, and which priority matched.
-local DEBUG_SKY_DETECTION = true
-local debugLastPrint = 0
-local DEBUG_PRINT_INTERVAL = 3  -- seconds between debug prints
-
 task.spawn(function()
 	local interval = math.max(0.05, CHECK_INTERVAL)
+	local lastEvalPos = nil
+	local lastEvalClock = 0
+	local POSITION_EPSILON = 1.5
+	local MAX_IDLE_SKIP = 0.5
 	while true do
 		task.wait(interval)
 		local character = localPlayer.Character
@@ -568,26 +554,18 @@ task.spawn(function()
 			continue
 		end
 
-		local skyName = getSkyForPosition(rootPart.Position)
-
-		-- Debug: log what we're detecting
-		if DEBUG_SKY_DETECTION and (os.clock() - debugLastPrint) > DEBUG_PRINT_INTERVAL then
-			debugLastPrint = os.clock()
-			local pos = rootPart.Position
-			print(string.format("[BiomeSkybox] DEBUG pos=(%.0f, %.0f, %.0f) → sky=%s (current=%s)",
-				pos.X, pos.Y, pos.Z, tostring(skyName), tostring(currentSkyName)))
-			-- Also check each outer zone individually
-			for _, zone in ipairs(outerZones) do
-				local hit = isOverPart(pos, zone.part, VERTICAL_BUFFER)
-				local hitXZ = isOverPartXZ(pos, zone.part)
-				if hit or hitXZ then
-					print(string.format("  [Outer] %s: overPart=%s, overPartXZ=%s, partPos=(%.0f,%.0f,%.0f), partSize=(%.0f,%.0f,%.0f)",
-						zone.sky, tostring(hit), tostring(hitXZ),
-						zone.part.Position.X, zone.part.Position.Y, zone.part.Position.Z,
-						zone.part.Size.X, zone.part.Size.Y, zone.part.Size.Z))
-				end
+		local now = os.clock()
+		local pos = rootPart.Position
+		if lastEvalPos then
+			local moved = (pos - lastEvalPos).Magnitude
+			if moved < POSITION_EPSILON and (now - lastEvalClock) < MAX_IDLE_SKIP then
+				continue
 			end
 		end
+		lastEvalPos = pos
+		lastEvalClock = now
+
+		local skyName = getSkyForPosition(pos)
 
 		setSky(skyName)
 	end

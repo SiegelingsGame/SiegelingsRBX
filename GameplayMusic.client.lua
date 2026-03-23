@@ -293,7 +293,25 @@ local function waitForGameplayWindow()
 	end
 end
 
+--- Wait for the loading gate to finish before taking over music control.
+--- LoadingGate.client.lua starts the main theme during loading and sets
+--- player attribute "LoadingGateActive" while the gate is up. We wait for
+--- that attribute to become false (or absent) so there's no audio conflict.
+--- Falls back to the old LoadingCriticalReady signal if the attribute isn't set.
 local function waitForStartupReady()
+	-- FIX: Coordinate with LoadingGate. The gate starts music and sets
+	-- LoadingGateActive=true. We wait for the gate to drop before taking over.
+	if player:GetAttribute("LoadingGateActive") == true then
+		-- Gate is active — wait for it to finish
+		local gateStart = tick()
+		local MAX_GATE_WAIT = 45 -- absolute max (should never be hit; gate has its own deadline)
+		while player:GetAttribute("LoadingGateActive") == true and (tick() - gateStart) < MAX_GATE_WAIT do
+			task.wait(0.2)
+		end
+		return
+	end
+
+	-- Fallback: if LoadingGateActive was never set (old flow or race), use the event
 	local events = ReplicatedStorage:FindFirstChild("Events")
 		or ReplicatedStorage:WaitForChild("Events", 15)
 	if not events then return end
@@ -407,6 +425,38 @@ local function evaluateMusic()
 	end
 end
 
+-- Hard reset: stop all managed tracks and restart main theme from the beginning.
+local function resetAllMusicToMainTheme()
+	if activeTween then activeTween:Cancel() end
+	if inactiveTween then inactiveTween:Cancel() end
+
+	-- Clear transient combat/cave state so death always returns to default music.
+	inPvP = false
+	inCaveBiome = false
+
+	local uniqueTracks = {}
+	local allTracks = { mainTheme, battleTheme, caveTrack }
+	for _, snd in pairs(biomeTracks) do
+		table.insert(allTracks, snd)
+	end
+
+	for _, snd in ipairs(allTracks) do
+		if snd and not uniqueTracks[snd] then
+			uniqueTracks[snd] = true
+			if snd.IsPlaying then snd:Stop() end
+			snd.Volume = 0
+			snd.TimePosition = 0
+		end
+	end
+
+	local target = mainTheme or battleTheme
+	activeTrack = target
+	if target then
+		target.Volume = TARGET_VOLUME
+		target:Play()
+	end
+end
+
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- Boot sequence
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -439,21 +489,30 @@ task.spawn(function()
 		pcall(function() ContentProvider:PreloadAsync(toPreload) end)
 	end
 
-	-- Start the correct track
+	-- Start the correct track.
+	-- FIX: LoadingGate may have already started the main theme during loading.
+	-- If the desired track is already playing (same Sound object), adopt it
+	-- instead of restarting from Volume 0. This prevents an audio gap.
 	local startTrack = getDesiredTrack()
 	if startTrack then
-		startTrack.Volume = 0
-		startTrack:Play()
-		activeTrack = startTrack
-
-		if FADE_IN_TIME > 0 then
-			TweenService:Create(
-				startTrack,
-				TweenInfo.new(FADE_IN_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
-				{ Volume = TARGET_VOLUME }
-			):Play()
+		if startTrack.IsPlaying and startTrack.Volume > 0.1 then
+			-- LoadingGate already started this track — adopt it seamlessly
+			activeTrack = startTrack
+			print("[GameplayMusic] Adopted already-playing track: " .. startTrack.Name)
 		else
-			startTrack.Volume = TARGET_VOLUME
+			startTrack.Volume = 0
+			startTrack:Play()
+			activeTrack = startTrack
+
+			if FADE_IN_TIME > 0 then
+				TweenService:Create(
+					startTrack,
+					TweenInfo.new(FADE_IN_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.Out),
+					{ Volume = TARGET_VOLUME }
+				):Play()
+			else
+				startTrack.Volume = TARGET_VOLUME
+			end
 		end
 	end
 
@@ -468,6 +527,17 @@ task.spawn(function()
 
 	-- Biome trigger (skybox change published by BiomeSkyboxClient)
 	player:GetAttributeChangedSignal("CurrentSkyName"):Connect(evaluateMusic)
+
+	-- Player death: hard reset all tracks back to main theme.
+	local function attachDeathReset(character)
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		if not humanoid then return end
+		humanoid.Died:Connect(resetAllMusicToMainTheme)
+	end
+	if player.Character then
+		attachDeathReset(player.Character)
+	end
+	player.CharacterAdded:Connect(attachDeathReset)
 
 	-- PvP battles (RemoteEvents)
 	local events = ReplicatedStorage:FindFirstChild("Events")

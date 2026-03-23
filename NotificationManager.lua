@@ -48,9 +48,15 @@ local tickerTrack = nil
 local tickerContent = nil
 local tickerContentCopy = nil
 local tickerQueue = {}
+local tickerPendingEntries = {}
 local tickerScrollPos = 0
 local tickerContentWidth = 0
 local tickerHeartbeatConn = nil
+local tickerViewportSizeConn = nil
+local tickerRefreshScheduled = false
+local tickerSyncScheduled = false
+local tickerMutating = false
+local tickerNeedsFullRebuild = false
 local TICKER_MAX_MESSAGES = 12
 local TICKER_MOBILE_SCALE = 0.5
 local TICKER_DESKTOP_TOP_Y = 10
@@ -75,6 +81,10 @@ local TICKER_SEP_TEXT = " — "    -- separator between messages
 local TICKER_TEXT_SIZE = 12
 local TICKER_TEXT_HEIGHT = 18
 local TICKER_MIN_COPY_FILL = 2  -- copy fills at least 2x viewport width
+local TICKER_DEBUG_VALIDATE = false
+
+local requestTickerSync
+local requestTickerRefresh
 
 local function buildNotificationUI()
 	if sg and sg.Parent then return sg end
@@ -161,6 +171,32 @@ local function buildNotificationUI()
 	copyLayout.VerticalAlignment = Enum.VerticalAlignment.Center
 	copyLayout.Padding = UDim.new(0, TICKER_PAD)
 	copyLayout.Parent = tickerContentCopy
+
+	if tickerViewportSizeConn then
+		tickerViewportSizeConn:Disconnect()
+		tickerViewportSizeConn = nil
+	end
+	tickerViewportSizeConn = tickerViewport:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+		if requestTickerSync and tickerViewport and tickerViewport.AbsoluteSize.X > 0 then
+			requestTickerSync()
+		end
+	end)
+	task.defer(function()
+		if requestTickerSync and tickerViewport and tickerViewport.Parent then
+			requestTickerSync()
+		end
+	end)
+	task.delay(0.1, function()
+		if requestTickerSync and tickerViewport and tickerViewport.Parent then
+			requestTickerSync()
+		end
+	end)
+	task.delay(0.25, function()
+		if requestTickerSync and tickerViewport and tickerViewport.Parent then
+			requestTickerSync()
+		end
+	end)
+
 	tickerBar.Visible = false
 
 	return sg
@@ -232,6 +268,39 @@ local function getViewportWidth()
 		return tickerViewport.AbsoluteSize.X
 	end
 	return 600
+end
+
+local function normalizeTickerScrollPos()
+	if tickerContentWidth <= 0 then
+		tickerScrollPos = 0
+		return
+	end
+	tickerScrollPos = -(((-tickerScrollPos) % tickerContentWidth))
+	if tickerScrollPos == -0 then
+		tickerScrollPos = 0
+	end
+end
+
+local function updateTickerTrackPosition()
+	if tickerTrack and tickerTrack.Parent then
+		tickerTrack.Position = UDim2.new(0, math.round(tickerScrollPos), 0, 0)
+	end
+end
+
+local function validateTickerState(context)
+	if not TICKER_DEBUG_VALIDATE then return end
+	if #tickerQueue > 0 and tickerContentWidth <= 0 then
+		warn("[Ticker] Invalid content width after " .. context)
+	end
+	if tickerContentWidth > 0 then
+		local minPos = -tickerContentWidth
+		if tickerScrollPos <= minPos or tickerScrollPos > 0 then
+			warn(string.format("[Ticker] Scroll out of range after %s: pos=%.3f width=%.3f", context, tickerScrollPos, tickerContentWidth))
+		end
+	end
+	if tickerTrack and tickerTrack.Parent and #tickerQueue > 0 and tickerTrack.AbsoluteSize.X <= 0 then
+		warn("[Ticker] Track width is zero while queue has content after " .. context)
+	end
 end
 
 -- Create a separator TextLabel (" — ")
@@ -322,14 +391,27 @@ local function syncTickerSizes()
 	if tickerContent then
 		tickerContent.Size = UDim2.new(0, tickerContentWidth, 1, 0)
 	end
-	-- Rebuild copy: clear and tile the queue until copy fills >= viewport
-	if not tickerContentCopy then return end
-	clearChildren(tickerContentCopy)
+	-- Rebuild copy atomically: create a new copy frame, then swap.
+	if not tickerTrack or not tickerContentCopy then return end
 	if #tickerQueue == 0 or tickerContentWidth <= 0 then
+		clearChildren(tickerContentCopy)
 		tickerContentCopy.Size = UDim2.new(0, 0, 1, 0)
-		if tickerTrack then tickerTrack.Size = UDim2.new(0, 0, 1, 0) end
+		tickerTrack.Size = UDim2.new(0, 0, 1, 0)
+		tickerScrollPos = 0
+		updateTickerTrackPosition()
 		return
 	end
+	local newCopy = Instance.new("Frame")
+	newCopy.Name = "TickerContentCopy"
+	newCopy.LayoutOrder = 2
+	newCopy.Size = UDim2.new(0, 0, 1, 0)
+	newCopy.BackgroundTransparency = 1
+	local copyLayout = Instance.new("UIListLayout")
+	copyLayout.FillDirection = Enum.FillDirection.Horizontal
+	copyLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	copyLayout.Padding = UDim.new(0, TICKER_PAD)
+	copyLayout.Parent = newCopy
+
 	local viewW = getViewportWidth()
 	local targetW = math.max(viewW * TICKER_MIN_COPY_FILL, tickerContentWidth + viewW)
 	local order = 0
@@ -341,7 +423,7 @@ local function syncTickerSizes()
 		-- Leading separator (connects end of previous block / content to start of this block)
 		order += 1
 		local ls = makeSep(order)
-		ls.Parent = tickerContentCopy
+		ls.Parent = newCopy
 		blockW += getSepWidth()
 		blockChildren += 1
 		-- All messages from queue
@@ -349,14 +431,14 @@ local function syncTickerSizes()
 			if i > 1 then
 				order += 1
 				local ms = makeSep(order)
-				ms.Parent = tickerContentCopy
+				ms.Parent = newCopy
 				blockW += getSepWidth()
 				blockChildren += 1
 			end
 			order += 1
 			local el = makeMsg(entry)
 			el.LayoutOrder = order
-			el.Parent = tickerContentCopy
+			el.Parent = newCopy
 			blockW += getMsgWidth(entry)
 			blockChildren += 1
 		end
@@ -372,10 +454,17 @@ local function syncTickerSizes()
 		copyChildCount += blockChildren
 		if blockW <= 0 then break end  -- safety
 	end
-	tickerContentCopy.Size = UDim2.new(0, copyW, 1, 0)
-	if tickerTrack then
-		tickerTrack.Size = UDim2.new(0, tickerContentWidth + copyW, 1, 0)
+	newCopy.Size = UDim2.new(0, copyW, 1, 0)
+	newCopy.Parent = tickerTrack
+	local oldCopy = tickerContentCopy
+	tickerContentCopy = newCopy
+	if oldCopy and oldCopy.Parent then
+		oldCopy:Destroy()
 	end
+	tickerTrack.Size = UDim2.new(0, tickerContentWidth + copyW, 1, 0)
+	normalizeTickerScrollPos()
+	updateTickerTrackPosition()
+	validateTickerState("syncTickerSizes")
 end
 
 -- ── INCREMENTAL OPERATIONS ──
@@ -398,7 +487,6 @@ local function appendToContent(entry, isFirst)
 	el.Parent = tickerContent
 	-- Recompute width from queue (deterministic, always accurate)
 	tickerContentWidth = computeContentWidth()
-	syncTickerSizes()
 end
 
 -- Remove the OLDEST (leftmost) message + its trailing separator from tickerContent.
@@ -428,7 +516,6 @@ local function removeOldestFromContent()
 	end
 	-- Recompute from queue (which was already trimmed)
 	tickerContentWidth = computeContentWidth()
-	syncTickerSizes()
 	return math.max(0, widthBefore - tickerContentWidth)
 end
 
@@ -452,23 +539,18 @@ local function rebuildTickerContent()
 	end
 	tickerContentWidth = computeContentWidth()
 	tickerScrollPos = 0
-	syncTickerSizes()
 end
 
 -- ── SCROLL ENGINE ──
 
 local function updateTickerScroll(dt)
-	if not tickerTrack or not tickerTrack.Parent or tickerContentWidth <= 0 then return end
+	if tickerMutating or not tickerTrack or not tickerTrack.Parent or tickerContentWidth <= 0 then return end
 	-- Cap dt to avoid large jumps on frame hitches (e.g. tab switch)
 	dt = math.min(dt, 0.1)
 	tickerScrollPos = tickerScrollPos - TICKER_SCROLL_SPEED * dt
-	-- Seamless wrap: when the original content has fully scrolled left, reset.
-	-- The copy starts exactly where the original ended, so the reset is invisible.
-	if tickerScrollPos <= -tickerContentWidth then
-		tickerScrollPos = tickerScrollPos + tickerContentWidth
-	end
-	-- Pixel-snap to avoid sub-pixel jitter
-	tickerTrack.Position = UDim2.new(0, math.round(tickerScrollPos), 0, 0)
+	normalizeTickerScrollPos()
+	updateTickerTrackPosition()
+	validateTickerState("updateTickerScroll")
 end
 
 local function startTickerScroll()
@@ -501,49 +583,93 @@ end
 -- Called after every new message. Uses incremental operations (no full rebuild)
 -- unless starting from empty.
 
-local function applyTickerUpdate(entry)
+local function applyTickerUpdate()
 	if #tickerQueue == 0 then return end
 	buildNotificationUI()
 	if tickerBar then tickerBar.Visible = true end
 
 	-- Starting from empty: full rebuild is unavoidable
-	if tickerContentWidth <= 0 or not tickerHeartbeatConn then
+	if tickerNeedsFullRebuild or tickerContentWidth <= 0 or not tickerHeartbeatConn then
+		while #tickerQueue > TICKER_MAX_MESSAGES do
+			table.remove(tickerQueue, 1)
+		end
+		tickerNeedsFullRebuild = false
+		tickerMutating = true
 		rebuildTickerContent()
+		tickerMutating = false
+		requestTickerSync()
+		table.clear(tickerPendingEntries)
 		startTickerScroll()
 		return
 	end
 
-	-- Trim oldest if over max (incremental removal with scroll compensation)
+	if #tickerPendingEntries == 0 then
+		startTickerScroll()
+		return
+	end
+
+	tickerMutating = true
+	-- Trim oldest if over max (incremental removal with deterministic scroll compensation)
 	while #tickerQueue > TICKER_MAX_MESSAGES do
 		table.remove(tickerQueue, 1)
+		local oldWidth = tickerContentWidth
 		local removedW = removeOldestFromContent()
-		-- Shift scroll RIGHT to compensate: content shifted left by removedW pixels
-		tickerScrollPos = tickerScrollPos + removedW
-		-- Clamp to valid range in case compensation overshoots
-		if tickerContentWidth > 0 and tickerScrollPos > 0 then
-			-- Wrap into valid range (-contentWidth, 0]
-			tickerScrollPos = tickerScrollPos - tickerContentWidth * math.ceil(tickerScrollPos / tickerContentWidth)
+		local newWidth = tickerContentWidth
+		if oldWidth > 0 and newWidth > 0 and removedW > 0 then
+			-- Keep the same visual anchor after left-side deletion.
+			tickerScrollPos = tickerScrollPos + removedW
 		end
 	end
 
-	-- Append the new message (incremental, no destroy)
+	-- Append all pending messages in order (batch update, no skipped entries).
 	local contentChildCount = 0
 	for _, c in ipairs(tickerContent:GetChildren()) do
 		if not c:IsA("UIListLayout") then contentChildCount += 1 end
 	end
-	appendToContent(entry, contentChildCount == 0)
+	local isFirst = (contentChildCount == 0)
+	for _, pendingEntry in ipairs(tickerPendingEntries) do
+		appendToContent(pendingEntry, isFirst)
+		isFirst = false
+	end
+	table.clear(tickerPendingEntries)
+	normalizeTickerScrollPos()
+	tickerMutating = false
+	requestTickerSync()
+	validateTickerState("applyTickerUpdate")
 	startTickerScroll()
 end
 
 local function refreshTicker()
 	if #tickerQueue == 0 then
 		if tickerBar then tickerBar.Visible = false end
+		table.clear(tickerPendingEntries)
 		stopTickerScroll()
 		scheduleSilenceOneShot()
 		return
 	end
-	local entry = tickerQueue[#tickerQueue]
-	applyTickerUpdate(entry)
+	applyTickerUpdate()
+end
+
+requestTickerSync = function()
+	if tickerSyncScheduled then return end
+	tickerSyncScheduled = true
+	task.defer(function()
+		tickerSyncScheduled = false
+		if not tickerTrack or not tickerTrack.Parent then return end
+		local wasMutating = tickerMutating
+		tickerMutating = true
+		syncTickerSizes()
+		tickerMutating = wasMutating
+	end)
+end
+
+requestTickerRefresh = function()
+	if tickerRefreshScheduled then return end
+	tickerRefreshScheduled = true
+	task.defer(function()
+		tickerRefreshScheduled = false
+		refreshTicker()
+	end)
 end
 
 -- Push a message to the ticker.
@@ -554,15 +680,27 @@ function NotificationManager.Ticker(text, iconType, category)
 	if not text or text == "" then return end
 	buildNotificationUI()
 	-- Clear any silence placeholder when a real message arrives
+	local removedSilence = false
 	for i = #tickerQueue, 1, -1 do
 		if tickerQueue[i].text == TICKER_SILENCE_TEXT then
 			table.remove(tickerQueue, i)
+			removedSilence = true
 		end
+	end
+	for i = #tickerPendingEntries, 1, -1 do
+		if tickerPendingEntries[i].text == TICKER_SILENCE_TEXT then
+			table.remove(tickerPendingEntries, i)
+			removedSilence = true
+		end
+	end
+	if removedSilence then
+		tickerNeedsFullRebuild = true
 	end
 	local entry = { text = text, iconType = iconType, category = category }
 	table.insert(tickerQueue, entry)
+	table.insert(tickerPendingEntries, entry)
 	tickerSilenceArmed = true
-	refreshTicker()
+	requestTickerRefresh()
 end
 
 -- Restore UI on respawn (PlayerGui is cleared)
@@ -575,8 +713,17 @@ player.CharacterAdded:Connect(function()
 	tickerContent = nil
 	tickerContentCopy = nil
 	tickerQueue = {}
+	tickerPendingEntries = {}
 	tickerScrollPos = 0
 	tickerContentWidth = 0
+	tickerNeedsFullRebuild = false
+	tickerMutating = false
+	tickerRefreshScheduled = false
+	tickerSyncScheduled = false
+	if tickerViewportSizeConn then
+		tickerViewportSizeConn:Disconnect()
+		tickerViewportSizeConn = nil
+	end
 	stopTickerScroll()
 	tickerSilenceArmed = true
 	tickerSilenceTaskToken += 1

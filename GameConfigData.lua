@@ -27,8 +27,8 @@ GameConfig.DebugFloor2Level2 = false            -- true = Floor 2 srequires play
 GameConfig.DebugDoubleSpeed = false             -- true = player WalkSpeed is 32 (2x default)
 GameConfig.QuickSpawnDebugMode = false         -- true = bypass loading gate (skip Events/LoadingReady wait) for fast testing
 GameConfig.CombinerRecyclerPromptAllPlots = true -- true = add E prompts to Combiner/Recycler on ALL plots (for testing; set false for release)
-GameConfig.DebugBrokerGoldOnly = true             -- true = The Broker only asks for 100 gold coins instead of a creature sacrifice (for testing)
-GameConfig.DebugBrokerCacty = true                -- true = The Broker always asks for a Lv1 Common Earth Cacty (for testing)
+GameConfig.DebugBrokerGoldOnly = false             -- true = The Broker only asks for 100 gold coins instead of a creature sacrifice (for testing)
+GameConfig.DebugBrokerCacty = false                -- true = The Broker always asks for a Lv1 Common Earth Cacty (for testing)
 
 -- Economy
 GameConfig.StartingCoins       = 1000
@@ -617,15 +617,19 @@ GameConfig.GymJumbotronEnabled   = false  -- toggle live jumbotron viewports on 
 
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- Section 12: BADLANDS (Roguelike PvPvE Mode)
--- ═══════════════════════════════════════════════════════════════════════════════
+-- ═══════════════════════════════════════════════════════════════════════════════.
 GameConfig.BadlandsEnabled              = true
 GameConfig.BadlandsMaxPlayers           = 8     -- max players per run
 GameConfig.BadlandsMinPlayers           = 4     -- min to start a run
 GameConfig.BadlandsQueueTimeout         = 60    -- seconds before starting with < max players
 GameConfig.BadlandsRunDuration          = 600   -- 10 minutes (hard timer — expelled with only favorite)
-GameConfig.BadlandsHardDeadline         = 600   -- 10 minutes (hard collapse — same as run duration)
+GameConfig.BadlandsHardDeadline         = 600   -- 10 minutes (hard collapse — same as run duration).
 GameConfig.BadlandsExtractionActivateAt = 420   -- 7 minutes (extraction points go live)
 GameConfig.BadlandsSpawnShieldDuration  = 30    -- seconds of PvP immunity on entry
+
+-- Broker NPC (Arena Hub): optional extra rotation (degrees) applied after spawn placement.
+-- Use if the mesh still appears flipped after fixing PrimaryPart in Studio (e.g. pitch = -90).
+GameConfig.BrokerNPCExtraRotationDegrees = { pitch = 90, yaw = 0, roll = 0 }
 
 -- Badlands: Bag
 GameConfig.BadlandsBagSlots             = 10    -- bag capacity

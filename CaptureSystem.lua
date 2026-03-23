@@ -19,6 +19,7 @@ local CreatureAI
 local BasePlacementSystem
 
 local CaptureSystem = {}
+local DEBUG_CAPTURE_LOGS = false
 
 local CREATURE_TAG = "WorldCreature"
 local captureCooldowns = {}
@@ -76,11 +77,11 @@ local function isOnCooldown(player)
 end
 
 function CaptureSystem.TryCapture(player, creatureModel)
-	-- #region agent log
 	local existing = capturesInProgress[creatureModel]
 	local samePlayer = existing and existing == player
-	print(string.format("[DEBUG-CAPTURE] TryCapture player=%s model=%s capturesInProgress=%s samePlayer=%s", player.Name, tostring(creatureModel), tostring(existing and existing.Name or "nil"), tostring(samePlayer)))
-	-- #endregion
+	if DEBUG_CAPTURE_LOGS then
+		print(string.format("[DEBUG-CAPTURE] TryCapture player=%s model=%s capturesInProgress=%s samePlayer=%s", player.Name, tostring(creatureModel), tostring(existing and existing.Name or "nil"), tostring(samePlayer)))
+	end
 	if not creatureModel or not creatureModel.Parent then
 		return false, "Creature no longer exists"
 	end
@@ -88,9 +89,9 @@ function CaptureSystem.TryCapture(player, creatureModel)
 		return false, "Invalid target"
 	end
 	if capturesInProgress[creatureModel] then
-		-- #region agent log
-		print(string.format("[DEBUG-CAPTURE] TryCapture REJECT alreadyCapturing by=%s requester=%s", tostring(existing and existing.Name), player.Name))
-		-- #endregion
+		if DEBUG_CAPTURE_LOGS then
+			print(string.format("[DEBUG-CAPTURE] TryCapture REJECT alreadyCapturing by=%s requester=%s", tostring(existing and existing.Name), player.Name))
+		end
 		return false, "Someone else is capturing this"
 	end
 	if isOnCooldown(player) then

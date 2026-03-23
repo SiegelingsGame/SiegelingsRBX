@@ -5,9 +5,6 @@
 print("--------------------------------------")
 print("   MONSTER SIEGE - Server Starting")
 print("--------------------------------------")
--- #region agent logsdds
-print("[DEBUG-1234af] MainServer: before requires")
--- #endregion
 
 local ServerScriptService = game:GetService("ServerScriptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -21,13 +18,7 @@ local TweenService = game:GetService("TweenService")
 StarterGui.ResetPlayerGuiOnSpawn = false
 
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
--- #region agent log
-print("[DEBUG-1234af] MainServer: CreatureData required OK")
--- #endregion
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
--- #region agent log
-print("[DEBUG-1234af] MainServer: GameConfig required OK")
--- #endregion
 
 -- === STEP 1: Create ALL remotes ===
 local eventsFolder = ReplicatedStorage:FindFirstChild("Events")
@@ -36,9 +27,6 @@ if not eventsFolder then
 	eventsFolder.Name = "Events"
 	eventsFolder.Parent = ReplicatedStorage
 end
--- #region agent log
-print("[DEBUG-1234af] MainServer: Events folder created")
--- #endregion
 
 local function makeEvent(n)
 	local existing = eventsFolder:FindFirstChild(n)
@@ -1133,7 +1121,16 @@ local function autoAssignAndSetup(plr)
 	if BasePlacementSystem and BasePlacementSystem.RefreshAllPlotVisibility then
 		BasePlacementSystem.RefreshAllPlotVisibility()
 	end
-	refreshPlayerBase(plr)
+
+	-- FIX: Place creatures SYNCHRONOUSLY before marking critical ready.
+	-- Previously refreshPlayerBase used task.spawn (fire-and-forget) which let
+	-- markCriticalReady fire before base creatures existed — players saw an empty
+	-- base during the loading gate release.
+	if BasePlacementSystem and BasePlacementSystem.PlaceCreatures then
+		BasePlacementSystem.PlaceCreatures(plr)
+	end
+	setupPlotForPlayer(plr)
+	logStartupMetric(plr.UserId, "join_to_base_placed")
 
 	-- Teleport to base on initial join
 	local char = plr.Character or plr.CharacterAdded:Wait()

@@ -1749,6 +1749,78 @@ local function findQualifyingCreatures(player)
 	return qualifying
 end
 
+--- Choose a stable PrimaryPart for Broker (and similar) models.
+-- If PrimaryPart is missing, the old code used the first BasePart from GetDescendants(),
+-- which is arbitrary and often a limb/accessory — PivotTo then makes the whole model look
+-- flipped or "face down". Prefer HumanoidRootPart / torso-like parts.
+-- @param model Model
+-- @return BasePart|nil
+local function resolveBrokerPrimaryPart(model)
+	if not model or not model:IsA("Model") then
+		return nil
+	end
+	if model.PrimaryPart and model.PrimaryPart:IsA("BasePart") then
+		return model.PrimaryPart
+	end
+	local preferredNames = {
+		"HumanoidRootPart", "UpperTorso", "LowerTorso", "Torso",
+		"RootPart", "Main", "Handle",
+	}
+	for _, name in ipairs(preferredNames) do
+		local p = model:FindFirstChild(name, true)
+		if p and p:IsA("BasePart") then
+			model.PrimaryPart = p
+			return p
+		end
+	end
+	-- Prefer direct children first (typical rig root), then full scan
+	for _, p in ipairs(model:GetChildren()) do
+		if p:IsA("BasePart") then
+			model.PrimaryPart = p
+			return p
+		end
+	end
+	for _, p in ipairs(model:GetDescendants()) do
+		if p:IsA("BasePart") then
+			model.PrimaryPart = p
+			return p
+		end
+	end
+	return nil
+end
+
+--- Build world CFrame for Broker: upright, facing Hub SpawnLocation horizontal look (if any).
+-- @param basePos Vector3 — XZ reference from Hub offset
+-- @param groundY number
+-- @param spawnRef BasePart|nil — HubArea.SpawnLocation when present
+-- @return CFrame
+local function buildBrokerSpawnCFrame(basePos, groundY, spawnRef)
+	local pos = Vector3.new(basePos.X, groundY, basePos.Z)
+	local baseCF
+	if spawnRef and spawnRef:IsA("BasePart") then
+		-- Use horizontal facing only so a tilted SpawnLocation pad doesn't roll the NPC onto its face
+		local lv = spawnRef.CFrame.LookVector
+		local flat = Vector3.new(lv.X, 0, lv.Z)
+		if flat.Magnitude > 1e-3 then
+			baseCF = CFrame.lookAt(pos, pos + flat.Unit)
+		else
+			baseCF = CFrame.new(pos)
+		end
+	else
+		baseCF = CFrame.new(pos)
+	end
+	local er = GameConfig.BrokerNPCExtraRotationDegrees
+	if type(er) == "table" then
+		local pitch = tonumber(er.pitch) or 0
+		local yaw = tonumber(er.yaw) or 0
+		local roll = tonumber(er.roll) or 0
+		if pitch ~= 0 or yaw ~= 0 or roll ~= 0 then
+			baseCF = baseCF * CFrame.Angles(math.rad(pitch), math.rad(yaw), math.rad(roll))
+		end
+	end
+	return baseCF
+end
+
 --- Create The Broker NPC in the Arena Hub area.
 -- Spawns a Part with a BillboardGui name tag and a ProximityPrompt.
 -- If workspace.Arena exists, places the NPC near the arena entrance.
@@ -1760,23 +1832,118 @@ local function createBrokerNPC()
 	-- If there's already a BrokerNPC part anywhere, reuse it.
 	-- ═══════════════════════════════════════════════════════════════════
 
-	-- Check for an existing BrokerNPC part anywhere in workspace
+	-- Check for an existing BrokerNPC already in workspace (Model or BasePart).
+	-- FIX: Previously returned early without adding ProximityPrompt/BillboardGui,
+	-- so pressing E on a pre-placed BrokerNPC model did nothing. Now we fall
+	-- through to the prompt/tag/aura setup below instead of returning early.
+	local existingNpc = nil
 	for _, desc in ipairs(Workspace:GetDescendants()) do
-		if desc.Name == "BrokerNPC" and desc:IsA("BasePart") then
-			print("[Badlands] Found existing BrokerNPC part at " .. desc:GetFullName())
-			brokerNPC = desc
-			return desc
+		if desc.Name == "BrokerNPC" and (desc:IsA("Model") or desc:IsA("BasePart")) then
+			existingNpc = desc
+			print("[Badlands] Found existing BrokerNPC at " .. desc:GetFullName())
+			break
 		end
+	end
+	if existingNpc then
+		-- Reuse existing — ensure PrimaryPart is set for Models
+		if existingNpc:IsA("Model") then
+			resolveBrokerPrimaryPart(existingNpc)
+		end
+		-- Anchor all parts so the NPC doesn't fall
+		if existingNpc:IsA("Model") then
+			for _, part in ipairs(existingNpc:GetDescendants()) do
+				if part:IsA("BasePart") then part.Anchored = true end
+			end
+		elseif existingNpc:IsA("BasePart") then
+			existingNpc.Anchored = true
+		end
+		-- Don't return — fall through to add BillboardGui, ProximityPrompt, aura below
+		brokerNPC = existingNpc
+		-- Skip the clone/spawn section by jumping directly to accessory setup
+		-- (reuse the local `npc` variable for the code below)
+		local npc = existingNpc
+		-- ── Add BillboardGui name tag (if the model doesn't already have one) ──
+		if not npc:FindFirstChild("BrokerTag", true) then
+			local adornee = (npc:IsA("Model") and npc.PrimaryPart) or npc
+			local bb = Instance.new("BillboardGui")
+			bb.Name = "BrokerTag"
+			bb.Adornee = adornee
+			bb.Size = UDim2.new(0, 220, 0, 60)
+			bb.StudsOffset = Vector3.new(0, 4.5, 0)
+			bb.AlwaysOnTop = false
+			bb.MaxDistance = 60
+			bb.Parent = npc
+
+			local titleLabel = Instance.new("TextLabel")
+			titleLabel.Name = "Title"
+			titleLabel.Size = UDim2.new(1, 0, 0.5, 0)
+			titleLabel.Position = UDim2.new(0, 0, 0, 0)
+			titleLabel.BackgroundTransparency = 1
+			titleLabel.Text = "The Broker"
+			titleLabel.TextColor3 = Color3.fromRGB(200, 100, 255)
+			titleLabel.Font = Enum.Font.GothamBlack
+			titleLabel.TextScaled = true
+			titleLabel.Parent = bb
+
+			local subLabel = Instance.new("TextLabel")
+			subLabel.Name = "Subtitle"
+			subLabel.Size = UDim2.new(1, 0, 0.4, 0)
+			subLabel.Position = UDim2.new(0, 0, 0.55, 0)
+			subLabel.BackgroundTransparency = 1
+			subLabel.Text = "Badlands Gatekeeper"
+			subLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+			subLabel.Font = Enum.Font.GothamMedium
+			subLabel.TextScaled = true
+			subLabel.Parent = bb
+		end
+
+		-- ── Add ProximityPrompt (if missing — search recursively) ──
+		if not npc:FindFirstChild("BrokerPrompt", true) then
+			local promptParent = (npc:IsA("Model") and npc.PrimaryPart) or npc
+			local prompt = Instance.new("ProximityPrompt")
+			prompt.Name = "BrokerPrompt"
+			prompt.ObjectText = "The Broker"
+			prompt.ActionText = "Talk"
+			prompt.HoldDuration = 0
+			prompt.MaxActivationDistance = 10
+			prompt.RequiresLineOfSight = false
+			prompt.KeyboardKeyCode = Enum.KeyCode.E
+			prompt.Parent = promptParent
+		end
+
+		-- ── Add aura effects ──
+		local effectParent = (npc:IsA("Model") and npc.PrimaryPart) or npc
+		if not npc:FindFirstChild("BrokerAura", true) then
+			local glow = Instance.new("PointLight")
+			glow.Name = "BrokerAura"
+			glow.Color = Color3.fromRGB(180, 80, 255)
+			glow.Brightness = 2
+			glow.Range = 12
+			glow.Parent = effectParent
+		end
+		if not npc:FindFirstChild("Highlight") and not npc:FindFirstChildWhichIsA("Highlight") then
+			local highlight = Instance.new("Highlight")
+			highlight.FillColor = Color3.fromRGB(80, 30, 120)
+			highlight.FillTransparency = 0.6
+			highlight.OutlineColor = Color3.fromRGB(200, 100, 255)
+			highlight.OutlineTransparency = 0.2
+			highlight.Parent = npc
+		end
+
+		print("[Badlands] Existing BrokerNPC accessorized (prompt, tag, aura)")
+		return npc
 	end
 
 	-- ── Find spawn position: HubArea > SpawnLocation ──
 	local parentFolder = nil   -- Where to parent the NPC
 	local basePos = nil
+	local spawnRef = nil       -- Hub SpawnLocation (used for upright facing)
 
 	local hubArea = Workspace:FindFirstChild("HubArea")
 	if hubArea then
 		local spawnLoc = hubArea:FindFirstChild("SpawnLocation")
 		if spawnLoc and spawnLoc:IsA("BasePart") then
+			spawnRef = spawnLoc
 			-- Place the Broker right next to the SpawnLocation (offset so they don't overlap)
 			basePos = spawnLoc.Position + Vector3.new(8, 0, 0)
 			parentFolder = hubArea
@@ -1814,80 +1981,126 @@ local function createBrokerNPC()
 	local rayResult = Workspace:Raycast(rayOrigin, rayDir)
 	local groundY = rayResult and rayResult.Position.Y or basePos.Y
 
-	-- Create the NPC part (placeholder — a humanoid-sized dark block)
-	local npc = Instance.new("Part")
+	-- ── Clone the BrokerNPC model from ReplicatedStorage ──
+	-- FIX: Use the custom BrokerNPC model instead of a placeholder block.
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+	local brokerTemplate = ReplicatedStorage:FindFirstChild("BrokerNPC")
+	if not brokerTemplate then
+		warn("[Badlands] BrokerNPC model not found in ReplicatedStorage! Falling back to placeholder block.")
+		-- Fallback: create a simple block if the model is missing
+		local fallback = Instance.new("Part")
+		fallback.Name = "BrokerNPC"
+		fallback.Size = Vector3.new(3, 6, 2)
+		fallback.Position = Vector3.new(basePos.X, groundY + 3, basePos.Z)
+		fallback.Anchored = true
+		fallback.CanCollide = true
+		fallback.Color = Color3.fromRGB(40, 25, 50)
+		fallback.Material = Enum.Material.SmoothPlastic
+		fallback.Parent = parentFolder or Workspace
+		brokerNPC = fallback
+		return fallback
+	end
+
+	local npc = brokerTemplate:Clone()
 	npc.Name = "BrokerNPC"
-	npc.Size = Vector3.new(3, 6, 2)
-	npc.Position = Vector3.new(basePos.X, groundY + 3, basePos.Z)
-	npc.Anchored = true
-	npc.CanCollide = true
-	npc.Color = Color3.fromRGB(40, 25, 50) -- dark purple/black
-	npc.Material = Enum.Material.SmoothPlastic
 	npc.Parent = parentFolder or Workspace
 
-	-- Mysterious aura glow
-	local glow = Instance.new("PointLight")
-	glow.Name = "BrokerAura"
-	glow.Color = Color3.fromRGB(180, 80, 255) -- purple
-	glow.Brightness = 2
-	glow.Range = 12
-	glow.Parent = npc
+	-- Position the model at ground level (upright; facing matches SpawnLocation horizontal look when set)
+	local spawnCFrame = buildBrokerSpawnCFrame(basePos, groundY, spawnRef)
+	if npc:IsA("Model") then
+		resolveBrokerPrimaryPart(npc)
+		if npc.PrimaryPart then
+			npc:PivotTo(spawnCFrame)
+		else
+			warn("[Badlands] BrokerNPC model has no BasePart — cannot PivotTo")
+		end
+	elseif npc:IsA("BasePart") then
+		-- Apply same upright + facing as models (centered part: lift so bottom sits on ground)
+		npc.CFrame = spawnCFrame * CFrame.new(0, npc.Size.Y / 2, 0)
+		npc.Anchored = true
+	end
 
-	-- Highlight to make the NPC stand out
-	local highlight = Instance.new("Highlight")
-	highlight.FillColor = Color3.fromRGB(80, 30, 120)
-	highlight.FillTransparency = 0.6
-	highlight.OutlineColor = Color3.fromRGB(200, 100, 255)
-	highlight.OutlineTransparency = 0.2
-	highlight.Parent = npc
+	-- Anchor all parts so the NPC doesn't fall
+	for _, part in ipairs(npc:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.Anchored = true
+		end
+	end
 
-	-- BillboardGui name tag
-	local bb = Instance.new("BillboardGui")
-	bb.Name = "BrokerTag"
-	bb.Adornee = npc
-	bb.Size = UDim2.new(0, 220, 0, 60)
-	bb.StudsOffset = Vector3.new(0, 4.5, 0)
-	bb.AlwaysOnTop = false
-	bb.MaxDistance = 60
-	bb.Parent = npc
+	-- ── Add BillboardGui name tag (if the model doesn't already have one) ──
+	if not npc:FindFirstChild("BrokerTag", true) then
+		local adornee = (npc:IsA("Model") and npc.PrimaryPart) or npc
+		local bb = Instance.new("BillboardGui")
+		bb.Name = "BrokerTag"
+		bb.Adornee = adornee
+		bb.Size = UDim2.new(0, 220, 0, 60)
+		bb.StudsOffset = Vector3.new(0, 4.5, 0)
+		bb.AlwaysOnTop = false
+		bb.MaxDistance = 60
+		bb.Parent = npc
 
-	-- Title: "The Broker"
-	local titleLabel = Instance.new("TextLabel")
-	titleLabel.Name = "Title"
-	titleLabel.Size = UDim2.new(1, 0, 0.5, 0)
-	titleLabel.Position = UDim2.new(0, 0, 0, 0)
-	titleLabel.BackgroundTransparency = 1
-	titleLabel.Text = "The Broker"
-	titleLabel.TextColor3 = Color3.fromRGB(200, 100, 255)
-	titleLabel.Font = Enum.Font.GothamBlack
-	titleLabel.TextScaled = true
-	titleLabel.Parent = bb
+		-- Title: "The Broker"
+		local titleLabel = Instance.new("TextLabel")
+		titleLabel.Name = "Title"
+		titleLabel.Size = UDim2.new(1, 0, 0.5, 0)
+		titleLabel.Position = UDim2.new(0, 0, 0, 0)
+		titleLabel.BackgroundTransparency = 1
+		titleLabel.Text = "The Broker"
+		titleLabel.TextColor3 = Color3.fromRGB(200, 100, 255)
+		titleLabel.Font = Enum.Font.GothamBlack
+		titleLabel.TextScaled = true
+		titleLabel.Parent = bb
 
-	-- Subtitle: "Badlands Gatekeeper"
-	local subLabel = Instance.new("TextLabel")
-	subLabel.Name = "Subtitle"
-	subLabel.Size = UDim2.new(1, 0, 0.4, 0)
-	subLabel.Position = UDim2.new(0, 0, 0.55, 0)
-	subLabel.BackgroundTransparency = 1
-	subLabel.Text = "Badlands Gatekeeper"
-	subLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
-	subLabel.Font = Enum.Font.GothamMedium
-	subLabel.TextScaled = true
-	subLabel.Parent = bb
+		-- Subtitle: "Badlands Gatekeeper"
+		local subLabel = Instance.new("TextLabel")
+		subLabel.Name = "Subtitle"
+		subLabel.Size = UDim2.new(1, 0, 0.4, 0)
+		subLabel.Position = UDim2.new(0, 0, 0.55, 0)
+		subLabel.BackgroundTransparency = 1
+		subLabel.Text = "Badlands Gatekeeper"
+		subLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+		subLabel.Font = Enum.Font.GothamMedium
+		subLabel.TextScaled = true
+		subLabel.Parent = bb
+	end
 
-	-- ProximityPrompt: E to interact
-	local prompt = Instance.new("ProximityPrompt")
-	prompt.Name = "BrokerPrompt"
-	prompt.ObjectText = "The Broker"
-	prompt.ActionText = "Talk"
-	prompt.HoldDuration = 0
-	prompt.MaxActivationDistance = 10
-	prompt.RequiresLineOfSight = false
-	prompt.KeyboardKeyCode = Enum.KeyCode.E
-	prompt.Parent = npc
+	-- ── Add ProximityPrompt (if the model doesn't already have one) ──
+	-- FIX: Use recursive search — prompt may be nested under PrimaryPart
+	if not npc:FindFirstChild("BrokerPrompt", true) then
+		local promptParent = (npc:IsA("Model") and npc.PrimaryPart) or npc
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.Name = "BrokerPrompt"
+		prompt.ObjectText = "The Broker"
+		prompt.ActionText = "Talk"
+		prompt.HoldDuration = 0
+		prompt.MaxActivationDistance = 10
+		prompt.RequiresLineOfSight = false
+		prompt.KeyboardKeyCode = Enum.KeyCode.E
+		prompt.Parent = promptParent
+	end
+
+	-- ── Add aura effects (if not already present) ──
+	local effectParent = (npc:IsA("Model") and npc.PrimaryPart) or npc
+	if not npc:FindFirstChild("BrokerAura", true) then
+		local glow = Instance.new("PointLight")
+		glow.Name = "BrokerAura"
+		glow.Color = Color3.fromRGB(180, 80, 255) -- purple
+		glow.Brightness = 2
+		glow.Range = 12
+		glow.Parent = effectParent
+	end
+
+	if not npc:FindFirstChild("Highlight") and not npc:FindFirstChildWhichIsA("Highlight") then
+		local highlight = Instance.new("Highlight")
+		highlight.FillColor = Color3.fromRGB(80, 30, 120)
+		highlight.FillTransparency = 0.6
+		highlight.OutlineColor = Color3.fromRGB(200, 100, 255)
+		highlight.OutlineTransparency = 0.2
+		highlight.Parent = npc
+	end
 
 	brokerNPC = npc
-	print("[Badlands] Created The Broker NPC at " .. tostring(npc.Position) .. " (parent: " .. tostring(npc.Parent) .. ")")
+	print("[Badlands] Created The Broker NPC (model) at " .. tostring(spawnCFrame.Position) .. " (parent: " .. tostring(npc.Parent) .. ")")
 	return npc
 end
 
@@ -2120,7 +2333,10 @@ function BadlandsSystem.Init(playerDataMgr, favCreatureSys, mountSys, creatureAI
 	-- Spawn The Broker NPC in the Arena Hub
 	local npc = createBrokerNPC()
 	if npc then
-		local prompt = npc:FindFirstChild("BrokerPrompt")
+		-- FIX: Use recursive search (true) because BrokerPrompt is parented to
+		-- npc.PrimaryPart (a descendant), not a direct child of the model.
+		-- Non-recursive FindFirstChild silently returned nil → handler never wired.
+		local prompt = npc:FindFirstChild("BrokerPrompt", true)
 		if prompt then
 			prompt.Triggered:Connect(function(player)
 				-- Player pressed E on The Broker — send contract data + qualifying creatures

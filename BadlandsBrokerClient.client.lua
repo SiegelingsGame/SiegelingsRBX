@@ -818,12 +818,9 @@ local function showBrokerUI(data)
 				cardStroke.Color = C.green
 				cardStroke.Thickness = 2
 
-				-- Show the selected creature in the viewport
-				if wantedViewer and creature.id then
-					wantedViewer:SetCreature(creature.id)
-				end
+				-- Viewport stays on the Broker's contract creature (wantedCreatureId), not the pick list selection.
 
-				-- Update button to "Place"
+				-- Update button to "Place"---
 				actionState = "place"
 				updateActionButton()
 			end)

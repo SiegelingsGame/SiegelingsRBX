@@ -26,14 +26,15 @@ local DROWN_DAMAGE = GameConfig.BreathDrownDamage or 10
 local DROWN_TICK_INTERVAL = GameConfig.BreathDrownTickInterval or 5
 local BONUS_PER_LEVEL = GameConfig.BreathWaterCreatureBonus or 2
 local MAX_BONUS = GameConfig.BreathWaterCreatureMaxBonus or 60
-local METER_ACTIVATE_DELAY = 10  -- seconds underwater before O2 meter appears and breath drains
+-- Full bar, no O2 drain for this many seconds after submerging (see GameConfig.BreathSubmergeGraceSeconds)
+local SUBMERGE_GRACE = GameConfig.BreathSubmergeGraceSeconds or 1
 
 -- ══════════════════════════════════════════════════════════════════════════
 -- STATE
 -- ══════════════════════════════════════════════════════════════════════════
 
 local isUnderwater = false
-local breathActive = false   -- true after METER_ACTIVATE_DELAY seconds underwater
+local breathActive = false   -- true after SUBMERGE_GRACE seconds underwater (O2 drain starts)
 local underwaterGraceTimer = 0
 local breathRemaining = BASE_BREATH_TIME
 local maxBreath = BASE_BREATH_TIME
@@ -41,6 +42,9 @@ local drownTickTimer = 0
 local meterVisible = false
 local spawnGraceTimer = 0
 local SPAWN_GRACE = 1.5
+local oxygenDepleted = false
+local HEAD_SUBMERGE_BUFFER = 0.35 -- studs head must be below water surface before O2 drains
+local TERRAIN_WATER_SAMPLE_RADIUS = 1.5
 
 -- ══════════════════════════════════════════════════════════════════════════
 -- BREATH METER UI
@@ -166,41 +170,83 @@ local function getClientOceanPart()
 	return nil
 end
 
-local function isPositionInClientOcean(worldPos)
-	local ocean = getClientOceanPart()
-	if not ocean then return false end
-	local lp = ocean.CFrame:PointToObjectSpace(worldPos)
-	local h = ocean.Size * 0.5
-	return math.abs(lp.X) <= h.X and math.abs(lp.Y) <= h.Y and math.abs(lp.Z) <= h.Z
-end
-
-local function isPositionInAnyWaterBlock(worldPos)
+local function getContainingTaggedWaterPart(worldPos)
 	local tag = (GameConfig and GameConfig.WaterBlockTag) or "WaterBlock"
-	if not tag or tag == "" then return false end
+	if not tag or tag == "" then return nil end
 	for _, part in ipairs(CollectionService:GetTagged(tag)) do
 		if part and part:IsA("BasePart") and part.Parent then
 			local lp = part.CFrame:PointToObjectSpace(worldPos)
 			local h = part.Size * 0.5
 			if math.abs(lp.X) <= h.X and math.abs(lp.Y) <= h.Y and math.abs(lp.Z) <= h.Z then
-				return true
+				return part
 			end
 		end
 	end
-	return false
+	return nil
+end
+
+local function getContainingWaterPart(worldPos)
+	local tagged = getContainingTaggedWaterPart(worldPos)
+	if tagged then return tagged end
+
+	local ocean = getClientOceanPart()
+	if ocean then
+		local lp = ocean.CFrame:PointToObjectSpace(worldPos)
+		local h = ocean.Size * 0.5
+		if math.abs(lp.X) <= h.X and math.abs(lp.Y) <= h.Y and math.abs(lp.Z) <= h.Z then
+			return ocean
+		end
+	end
+	return nil
+end
+
+local function isTerrainWaterAtPosition(worldPos)
+	local terrain = Workspace.Terrain
+	if not terrain then return false end
+	local r = TERRAIN_WATER_SAMPLE_RADIUS
+	local minV = worldPos - Vector3.new(r, r, r)
+	local maxV = worldPos + Vector3.new(r, r, r)
+	local region = Region3.new(minV, maxV):ExpandToGrid(4)
+	local ok, mats = pcall(function()
+		return terrain:ReadVoxels(region, 4)
+	end)
+	if not ok or not mats then return false end
+	return mats[1] and mats[1][1] and mats[1][1][1] == Enum.Material.Water
 end
 
 local function isPlayerSubmerged()
 	local character = player.Character
 	if not character then return false end
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if humanoid and humanoid:GetState() == Enum.HumanoidStateType.Swimming then
-		return true
-	end
 	local root = character:FindFirstChild("HumanoidRootPart")
 	if not root then return false end
 	local head = character:FindFirstChild("Head")
-	local probe = head and head.Position or (root.Position + Vector3.new(0, 1.5, 0))
-	return isPositionInAnyWaterBlock(probe) or isPositionInClientOcean(probe)
+	local probe = head and head.Position or (root.Position + Vector3.new(0, 1.5, 0)) -- approx head position fallback
+	local waterPart = getContainingWaterPart(probe)
+	if not waterPart then
+		return false
+	end
+	local surfaceY = waterPart.CFrame:PointToWorldSpace(Vector3.new(0, waterPart.Size.Y * 0.5, 0)).Y
+	if probe.Y <= (surfaceY - HEAD_SUBMERGE_BUFFER) then
+		return true
+	end
+
+	-- Terrain water path: only evaluate when Roblox says we're swimming, and only if head sample is water.
+	-- This preserves the "surface/wading != O2 drain" behavior while restoring depletion underwater.
+	if humanoid and humanoid:GetState() == Enum.HumanoidStateType.Swimming then
+		return isTerrainWaterAtPosition(probe)
+	end
+	return false
+end
+
+local function setOxygenDepletedState(depleted)
+	if oxygenDepleted == depleted then return end
+	oxygenDepleted = depleted
+	local events = ReplicatedStorage:FindFirstChild("Events")
+	local oxygenEvt = events and events:FindFirstChild("OxygenState")
+	if oxygenEvt then
+		oxygenEvt:FireServer(depleted)
+	end
 end
 
 local function showMeter()
@@ -257,6 +303,7 @@ RunService.Heartbeat:Connect(function(dt)
 		breathActive = false
 		underwaterGraceTimer = 0
 		drownTickTimer = 0
+		setOxygenDepletedState(false)
 		cachedBonus = getWaterCreatureBonus()
 		maxBreath = BASE_BREATH_TIME + cachedBonus
 		breathRemaining = maxBreath
@@ -269,6 +316,7 @@ RunService.Heartbeat:Connect(function(dt)
 		underwaterGraceTimer = 0
 		breathRemaining = maxBreath
 		drownTickTimer = 0
+		setOxygenDepletedState(false)
 		hideMeter()
 	end
 
@@ -288,17 +336,28 @@ RunService.Heartbeat:Connect(function(dt)
 	end
 
 	-- Drain breath (only after grace period)
+	local prevBreath = breathRemaining
 	breathRemaining = breathRemaining - dt
 
 	-- Drowning: when breath runs out, deal damage on a tick interval
 	if breathRemaining <= 0 then
 		breathRemaining = 0
+		local events = ReplicatedStorage:FindFirstChild("Events")
+		local drownEvt = events and events:FindFirstChild("DrownDamage")
+
+		-- Notify server once that oxygen is depleted (blocks regen server-side)
+		setOxygenDepletedState(true)
+
+		-- Immediate first damage tick the moment O2 hits 0.
+		-- Then continue applying damage on interval.
+		local shouldImmediateHit = prevBreath > 0
 		drownTickTimer = drownTickTimer + dt
-		if drownTickTimer >= DROWN_TICK_INTERVAL then
-			drownTickTimer = drownTickTimer - DROWN_TICK_INTERVAL
-			-- Request server to deal drown damage (client can't directly damage humanoid in FilteringEnabled)
-			local drownEvt = ReplicatedStorage:FindFirstChild("Events")
-				and ReplicatedStorage.Events:FindFirstChild("DrownDamage")
+		if shouldImmediateHit or drownTickTimer >= DROWN_TICK_INTERVAL then
+			if not shouldImmediateHit then
+				drownTickTimer = drownTickTimer - DROWN_TICK_INTERVAL
+			else
+				drownTickTimer = 0
+			end
 			if drownEvt then
 				drownEvt:FireServer(DROWN_DAMAGE)
 			else
@@ -312,6 +371,9 @@ RunService.Heartbeat:Connect(function(dt)
 				end
 			end
 		end
+	else
+		-- Oxygen restored (still underwater but > 0): re-enable regen
+		setOxygenDepletedState(false)
 	end
 
 	updateMeterVisual()
@@ -328,6 +390,7 @@ player.CharacterAdded:Connect(function()
 	meterVisible = false
 	container.Visible = false
 	spawnGraceTimer = SPAWN_GRACE
+	setOxygenDepletedState(false)
 end)
 
 print("[UnderwaterBreathClient] Loaded - breath meter active")

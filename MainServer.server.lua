@@ -132,6 +132,7 @@ makeEvent("ShowDamageNumber")  -- S->C: (position, damage) only to attacker/comp
 
 -- FIX #27: Underwater drowning (client fires when breath runs out)
 local drownDamage = makeEvent("DrownDamage")
+local oxygenState = makeEvent("OxygenState")
 
 -- Buff Shop
 makeFunc("BuyBuff")
@@ -616,6 +617,15 @@ do
 		end
 	end)
 	Players.PlayerRemoving:Connect(function(plr) drownCooldowns[plr.UserId] = nil end)
+end
+
+-- FIX #27b: Oxygen state (blocks regen until restored)
+do
+	oxygenState.OnServerEvent:Connect(function(plr, depleted)
+		if type(depleted) ~= "boolean" then return end
+		-- Server-authoritative flag used by PlayerHealthSystem to disable regen while oxygen is depleted.
+		plr:SetAttribute("OxygenDepleted", depleted)
+	end)
 end
 
 -- ── DOME + SIGN HELPER ──

@@ -702,7 +702,7 @@ local function formatKnightly(text, category)
 	elseif category == "capture" then return "Capture Chronicle: " .. text
 	elseif category == "pvp" then return "Duel Chronicle: " .. text
 	end
-	return "Sieglinq Chronicle: " .. text
+	return text
 end
 
 function NotificationManager.Toast(text, color, duration, icon, category)

@@ -2366,7 +2366,7 @@ function BadlandsSystem.Init(playerDataMgr, favCreatureSys, mountSys, creatureAI
 			end)
 		end
 
-		local sacrificeEvt = eventsFolder:FindFirstChild("BadlandsSacrificeCreature").
+		local sacrificeEvt = eventsFolder:FindFirstChild("BadlandsSacrificeCreature")
 		if sacrificeEvt then
 			sacrificeEvt.OnServerEvent:Connect(function(player, slotIndex, statChoice)
 				local ok, msg = sacrificeCreatureFromBag(player, slotIndex, statChoice)

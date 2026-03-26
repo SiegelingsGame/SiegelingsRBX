@@ -470,7 +470,7 @@ local function fireWeaponToggle()
 	local ev = playerGui:FindFirstChild("ToggleWeaponMode") or playerGui:WaitForChild("ToggleWeaponMode", 2)
 	if ev and ev:IsA("BindableEvent") then ev:Fire() end
 end
-weaponIcon.MouseButton1Click:Connect(fireWeaponToggle)
+-- Activated covers mouse + touch; MouseButton1Click + Activated on mobile both fire → double toggle.
 weaponIcon.Activated:Connect(fireWeaponToggle)
 
 -- Sprint button: next to Melee/Ranged (right of weaponIcon).

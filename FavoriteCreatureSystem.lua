@@ -37,6 +37,8 @@ local BASE_INCOME_TAG = "BaseIncomeCreature"
 local FAINTED_BASE_TAG = "FaintedBaseCreature"
 
 local activeCompanions = {}  -- [userId] = { model, creatureId, uid, attackMode, targetModel, hp, maxHp, alive, carrying }
+-- World creature selected in target menu (blocks auto-despawn; tracked even when companion is not out)
+local worldCombatTargetByUserId = {}
 -- Player carry (steal): [userId] = { creatureId, level, xp, victimUserId, victimPlotId, uid, visualModel }
 local playerCarryingSteal = {}
 -- Companion recalled due to water (non-water creature returned when player swims); respawn when player exits water
@@ -1721,7 +1723,15 @@ function FavoriteCreatureSystem.ToggleAttackMode(player)
 end
 
 function FavoriteCreatureSystem.SetTarget(player, creatureModel)
-	local c = activeCompanions[player.UserId]
+	local uid = player.UserId
+	-- Track world combat target for despawn protection (PlayerCombatClient + target menu)
+	if creatureModel and creatureModel.Parent and CollectionService:HasTag(creatureModel, WORLD_CREATURE_TAG) then
+		worldCombatTargetByUserId[uid] = creatureModel
+	else
+		worldCombatTargetByUserId[uid] = nil
+	end
+
+	local c = activeCompanions[uid]
 	if c and creatureModel and creatureModel.Parent then
 		-- Allow targeting world creatures OR base creatures (for stealing)
 		local isWorld = CollectionService:HasTag(creatureModel, WORLD_CREATURE_TAG)
@@ -1737,7 +1747,24 @@ function FavoriteCreatureSystem.SetTarget(player, creatureModel)
 	return false
 end
 
+function FavoriteCreatureSystem.IsWorldCreatureCombatTargeted(creatureModel)
+	if not creatureModel or not creatureModel.Parent then return false end
+	for uid, m in pairs(worldCombatTargetByUserId) do
+		if not m or not m.Parent then
+			worldCombatTargetByUserId[uid] = nil
+		elseif m == creatureModel then
+			return true
+		end
+	end
+	for _, comp in pairs(activeCompanions) do
+		local tm = comp.targetModel
+		if tm and tm.Parent and tm == creatureModel then return true end
+	end
+	return false
+end
+
 function FavoriteCreatureSystem.ClearTarget(player)
+	worldCombatTargetByUserId[player.UserId] = nil
 	local c = activeCompanions[player.UserId]
 	if c then
 		c.targetModel = nil
@@ -1806,6 +1833,7 @@ function FavoriteCreatureSystem.Init(playerDataMgr, creatureSpawnerRef, creature
 		playerCarryingSteal[player.UserId] = nil
 		companionRecalledDueToWater[player.UserId] = nil
 		spawnLocks[player.UserId] = nil
+		worldCombatTargetByUserId[player.UserId] = nil
 	end)
 
 	-- E-interact to pick up fainted base creature (steal)

@@ -33,6 +33,15 @@ local DayNightCycle = nil
 pcall(function() DayNightCycle = require(ServerScriptService.DayNightCycle) end)
 
 local CreatureAI -- Set in Init
+local FavoriteCreatureSystemModule = nil
+local function getFavoriteCreatureSystem()
+	if not FavoriteCreatureSystemModule then
+		pcall(function()
+			FavoriteCreatureSystemModule = require(ServerScriptService:WaitForChild("FavoriteCreatureSystem", 5))
+		end)
+	end
+	return FavoriteCreatureSystemModule
+end
 local ArenaShieldSystem = nil
 pcall(function() ArenaShieldSystem = require(ServerScriptService:FindFirstChild("ArenaShieldSystem")) end)
 
@@ -861,8 +870,12 @@ function CreatureSpawner.Init(creatureAIRef)
 					local age = now - data.spawnTime
 					local isFainted = model:GetAttribute("Fainted")
 					local isBoss = model:GetAttribute("IsBoss")
-					-- Bosses don't auto-despawn from age (only from defeat/capture)
-					if age > GameConfig.CreatureDespawnTime and not isFainted and not isBoss then
+					local favSys = getFavoriteCreatureSystem()
+					local combatLocked = favSys and favSys.IsWorldCreatureCombatTargeted
+						and favSys.IsWorldCreatureCombatTargeted(model)
+					-- Bosses don't auto-despawn from age (only from defeat/capture).
+					-- Don't despawn while any player has this creature as a combat/companion target.
+					if age > GameConfig.CreatureDespawnTime and not isFainted and not isBoss and not combatLocked then
 						CreatureSpawner.RemoveCreature(model)
 					end
 				else

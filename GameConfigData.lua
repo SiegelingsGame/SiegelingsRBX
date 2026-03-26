@@ -452,6 +452,8 @@ GameConfig.BreathDrownDamage         = 10    -- HP lost per tick when drowning
 GameConfig.BreathDrownTickInterval   = 5     -- seconds between drown damage ticks
 GameConfig.BreathWaterCreatureBonus  = 2     -- extra seconds of breath per water creature level (equipped favorite)
 GameConfig.BreathWaterCreatureMaxBonus = 60  -- cap on bonus breath from water creature level
+-- Seconds after entering water before O2 starts draining; meter shows immediately (swimming + WaterBlock + ocean volume)
+GameConfig.BreathSubmergeGraceSeconds = 1
 
 -- Player movement
 GameConfig.PlayerWalkSpeed      = 16    -- normal walk speed (studs/sec)

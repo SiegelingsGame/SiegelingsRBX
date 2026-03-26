@@ -9,6 +9,8 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CollectionService = game:GetService("CollectionService")
+local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -37,6 +39,8 @@ local breathRemaining = BASE_BREATH_TIME
 local maxBreath = BASE_BREATH_TIME
 local drownTickTimer = 0
 local meterVisible = false
+local spawnGraceTimer = 0
+local SPAWN_GRACE = 1.5
 
 -- ══════════════════════════════════════════════════════════════════════════
 -- BREATH METER UI
@@ -141,12 +145,62 @@ local function getWaterCreatureBonus()
 	return math.min(lvl * BONUS_PER_LEVEL, MAX_BONUS)
 end
 
-local function isPlayerSwimming()
+-- Swimming state OR inside tagged WaterBlock OR ocean volume (Terrain/water volumes often lack Swimming)
+local function getClientOceanPart()
+	local biomes = Workspace:FindFirstChild("Biomes")
+	local oceanBiome = biomes and biomes:FindFirstChild("OceanBiome")
+	local oceanFolder = oceanBiome and oceanBiome:FindFirstChild("Ocean")
+	local ocean = oceanFolder and oceanFolder:FindFirstChild("Ocean")
+	if ocean and ocean:IsA("BasePart") then return ocean end
+	if biomes then
+		local oceanContainer = biomes:FindFirstChild("Ocean") or biomes:FindFirstChild("OceanBiome")
+		if oceanContainer then
+			local tag = (GameConfig and GameConfig.WaterBlockTag) or "WaterBlock"
+			for _, part in ipairs(CollectionService:GetTagged(tag)) do
+				if part and part:IsA("BasePart") and part.Parent and part:IsDescendantOf(oceanContainer) then
+					return part
+				end
+			end
+		end
+	end
+	return nil
+end
+
+local function isPositionInClientOcean(worldPos)
+	local ocean = getClientOceanPart()
+	if not ocean then return false end
+	local lp = ocean.CFrame:PointToObjectSpace(worldPos)
+	local h = ocean.Size * 0.5
+	return math.abs(lp.X) <= h.X and math.abs(lp.Y) <= h.Y and math.abs(lp.Z) <= h.Z
+end
+
+local function isPositionInAnyWaterBlock(worldPos)
+	local tag = (GameConfig and GameConfig.WaterBlockTag) or "WaterBlock"
+	if not tag or tag == "" then return false end
+	for _, part in ipairs(CollectionService:GetTagged(tag)) do
+		if part and part:IsA("BasePart") and part.Parent then
+			local lp = part.CFrame:PointToObjectSpace(worldPos)
+			local h = part.Size * 0.5
+			if math.abs(lp.X) <= h.X and math.abs(lp.Y) <= h.Y and math.abs(lp.Z) <= h.Z then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+local function isPlayerSubmerged()
 	local character = player.Character
 	if not character then return false end
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if not humanoid then return false end
-	return humanoid:GetState() == Enum.HumanoidStateType.Swimming
+	if humanoid and humanoid:GetState() == Enum.HumanoidStateType.Swimming then
+		return true
+	end
+	local root = character:FindFirstChild("HumanoidRootPart")
+	if not root then return false end
+	local head = character:FindFirstChild("Head")
+	local probe = head and head.Position or (root.Position + Vector3.new(0, 1.5, 0))
+	return isPositionInAnyWaterBlock(probe) or isPositionInClientOcean(probe)
 end
 
 local function showMeter()
@@ -196,15 +250,19 @@ RunService.Heartbeat:Connect(function(dt)
 		return
 	end
 
-	local swimming = isPlayerSwimming()
+	local submerged = isPlayerSubmerged()
 
-	if swimming and not isUnderwater then
-		-- Just entered water: start grace period, meter not active yet
+	if submerged and not isUnderwater then
 		isUnderwater = true
 		breathActive = false
 		underwaterGraceTimer = 0
 		drownTickTimer = 0
-	elseif not swimming and isUnderwater then
+		cachedBonus = getWaterCreatureBonus()
+		maxBreath = BASE_BREATH_TIME + cachedBonus
+		breathRemaining = maxBreath
+		showMeter()
+		updateMeterVisual()
+	elseif not submerged and isUnderwater then
 		-- Just exited water
 		isUnderwater = false
 		breathActive = false
@@ -216,19 +274,17 @@ RunService.Heartbeat:Connect(function(dt)
 
 	if not isUnderwater then return end
 
-	-- Grace period: wait METER_ACTIVATE_DELAY seconds before activating O2 meter and breath drain
+	-- Short grace: full bar, no drain (BreathSubmergeGraceSeconds)
 	if not breathActive then
 		underwaterGraceTimer = underwaterGraceTimer + dt
-		if underwaterGraceTimer >= METER_ACTIVATE_DELAY then
-			breathActive = true
-			cachedBonus = getWaterCreatureBonus()
-			maxBreath = BASE_BREATH_TIME + cachedBonus
-			breathRemaining = maxBreath
-			drownTickTimer = 0
-			showMeter()
-		else
-			return  -- don't drain or update meter during grace period
+		breathRemaining = maxBreath
+		updateMeterVisual()
+		if underwaterGraceTimer < SUBMERGE_GRACE then
+			return
 		end
+		breathActive = true
+		drownTickTimer = 0
+		breathRemaining = maxBreath
 	end
 
 	-- Drain breath (only after grace period)
@@ -262,10 +318,7 @@ RunService.Heartbeat:Connect(function(dt)
 end)
 
 -- Reset on respawn — force-hide immediately (don't rely on tween delay)
--- and add a brief spawn grace to ignore transient Swimming states during load.
-local spawnGraceTimer = 0
-local SPAWN_GRACE = 1.5  -- seconds to ignore Swimming after spawn
-
+-- and add a brief spawn grace to ignore transient water states during load.
 player.CharacterAdded:Connect(function()
 	isUnderwater = false
 	breathActive = false

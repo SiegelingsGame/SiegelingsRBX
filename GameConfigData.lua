@@ -201,7 +201,7 @@ GameConfig.BaseCreatureSpacing = 8
 -- Base billboard distance (controls when individual creature tags hide and summary appears)
 GameConfig.BaseBillboardMaxDistance = 80    -- studs; individual creature billboards hide beyond this
 GameConfig.BaseSummaryShowDistance  = 100    -- studs; summary GUI fades in right when individual labels disappear
-GameConfig.BaseSummaryMaxDistance   = 900   -- studs; summary GUI hides beyond this
+GameConfig.BaseSummaryMaxDistance   = 1500   -- studs; summary GUI hides beyond this
 
 -- Base plots
 GameConfig.MaxPlots            = 8

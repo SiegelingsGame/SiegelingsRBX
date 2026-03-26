@@ -302,7 +302,7 @@ end
 -- FIX #20: Persistent optimistic state for Inc/Def buttons.
 -- When the user clicks Inc/Def, we store the *expected* state here. mkCard checks this table
 -- BEFORE server data so that ANY number of refreshInventory rebuilds (with or without override
--- args, deferred or queued) still show the correct button text ("Rem" vs "Inc"/"Def").
+-- args, deferred or queued) still show the correct button text ("Remove" vs "Income"/"Defense").
 -- Entries self-clear inside refreshInventory once the server-side data (baseUidSet / defenseUidSet)
 -- matches the optimistic expectation, meaning the server has caught up.
 -- Safety: entries older than 5 seconds are force-cleared to prevent stale state from server errors.
@@ -577,7 +577,7 @@ end
 
 -- FIX #17: toggleFavorite rewritten to RECALL/SUMMON instead of unfavorite/re-equip.
 -- Y button / ReCard card toggles companion between summoned ↔ recalled WITHOUT clearing favoriteUid.
--- The creature STAYS as favorite throughout. Only the inventory "Unfav" button clears the favorite.
+-- The creature STAYS as favorite throughout. Only the inventory "Unfavorite" button clears the favorite.
 local function toggleFavorite()
 	if not Evt.getInventory then return end
 	local ok, data = pcall(function() return Evt.getInventory:InvokeServer() end)
@@ -1330,7 +1330,9 @@ local function mkCard(entry, creature, data, order)
 	elseif isDef then cardBg = Color3.fromRGB(40, 22, 22)
 	elseif isBase then cardBg = Color3.fromRGB(22, 38, 28)
 	end
-	card.Size = UDim2.new(1, 0, 0, mobile and 86 or 80); card.BackgroundColor3 = cardBg
+	local cardInsetX = mobile and 4 or 6
+	card.Size = UDim2.new(1, -(cardInsetX * 2), 0, mobile and 86 or 80); card.BackgroundColor3 = cardBg
+	card.Position = UDim2.new(0, cardInsetX, 0, 0)
 	card.BorderSizePixel = 0; card.LayoutOrder = order
 	Instance.new("UICorner", card).CornerRadius = UDim.new(0, 9)
 	local stroke = Instance.new("UIStroke")
@@ -1341,7 +1343,7 @@ local function mkCard(entry, creature, data, order)
 	stroke.Enabled = (selectedInventoryUid and tostring(selectedInventoryUid) == entryUidStr) and true or false
 	stroke.Parent = card
 	invCardByUid[entryUidStr] = card
-	card.ClipsDescendants = true
+	card.ClipsDescendants = false
 
 	local watermark = Instance.new("TextLabel")
 	watermark.Name = "StatusWatermark"
@@ -1407,7 +1409,7 @@ local function mkCard(entry, creature, data, order)
 	inf.TextXAlignment = Enum.TextXAlignment.Left; inf.ZIndex = 2; inf.Parent = card
 
 	local BTN_MIN_W = mobile and 44 or 48
-	local BTN_MAX_W = mobile and 82 or 94
+	local BTN_MAX_W = mobile and 96 or 112
 	local BTN_H = mobile and 22 or 24
 	local BTN_GAP = mobile and 4 or 6
 	local BTN_TEXT_SIZE = mobile and 8 or 9
@@ -1492,12 +1494,13 @@ local function mkCard(entry, creature, data, order)
 		Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
 		return b
 	end
-	-- Right-to-left: Evolve, Def, Inc, Fav, Sell — each left edge = prev left - BTN_W - BTN_GAP
+	-- Right-to-left: Evolve, Defense, Income, Favorite, Sell — each left edge = prev left - BTN_W - BTN_GAP
 
 	if isEgg then
-		-- Eggs: Income and Defense are toggles (Inc/Rem, Def/Rem). When ADDING, pass nil so server u5ses first empty slot (not selected slot).
-		local incLabelEgg = isBase and "Rem" or "Inc"
-		local defLabelEgg = isDef and "Rem" or "Def"
+		-- Eggs: Income and Defense are toggles (Income/Remove, Defense/Remove).
+		-- When ADDING, pass nil so server uses first empty slot (not selected slot).
+		local incLabelEgg = isBase and "Remove" or "Income"
+		local defLabelEgg = isDef and "Remove" or "Defense"
 		-- print("[InvRem] egg buttons: incLabel=" .. incLabelEgg, "defLabel=" .. defLabelEgg, "isBase=" .. tostring(isBase), "isDef=" .. tostring(isDef))
 		local incEnabled = (isBase or (not baseFull and not isDef))
 		local defEnabled = (isDef or (not defFull and not isBase))
@@ -1509,7 +1512,7 @@ local function mkCard(entry, creature, data, order)
 				Evt.assignToDefense:FireServer(entry.uid, isDef and 0 or nil)
 				pendingOptimistic[tostring(entry.uid)] = { def = not isDef, t = tick() }
 				isDef = not isDef
-				defBtn.Text = isDef and "Rem" or "Def"
+				defBtn.Text = isDef and "Remove" or "Defense"
 				defBtn.BackgroundColor3 = isDef and Color3.fromRGB(55,50,50) or C.defense
 				task.delay(0.35, function() if refreshInventory then refreshInventory() end end)
 			end)
@@ -1522,7 +1525,7 @@ local function mkCard(entry, creature, data, order)
 				Evt.assignToBase:FireServer(entry.uid, isBase and 0 or nil)
 				pendingOptimistic[tostring(entry.uid)] = { base = not isBase, t = tick() }
 				isBase = not isBase
-				incBtn.Text = isBase and "Rem" or "Inc"
+				incBtn.Text = isBase and "Remove" or "Income"
 				incBtn.BackgroundColor3 = isBase and Color3.fromRGB(50,55,60) or C.income
 				task.delay(0.35, function() if refreshInventory then refreshInventory() end end)
 			end)
@@ -1548,19 +1551,19 @@ local function mkCard(entry, creature, data, order)
 			end)
 		end)
 	else
-		-- Normal creatures: Sell, Mount/Fav, Inc, Def, Evolve (right-to-left)
+		-- Normal creatures: Sell, Mount/Favorite, Income, Defense, Evolve (right-to-left)
 		local isMountable = isFav and CreatureData.IsMountable and CreatureData.IsMountable(entry.id)
 		local isMounted = isFav and player:GetAttribute("IsMounted") == true
 		local sellLabel = "Sell"
-		local favLabel = isFav and "Unfav" or "Fav"
+		local favLabel = isFav and "Unfavorite" or "Favorite"
 		local mountLabel = isMounted and "Dismount" or "Mount"
 		local mountColor = isMounted and Color3.fromRGB(180, 80, 50) or Color3.fromRGB(50, 180, 120)
 
-		-- Inc/Def: Rem = remove (send 0), Inc/Def = add to first empty slot (send nil). Server uses 0 as explicit remove.
-		-- Disable Rem when creature is favorited (isFav and in that slot).
+		-- Income/Defense: Remove = remove (send 0), Income/Defense = add to first empty slot (send nil).
+		-- Server uses 0 as explicit remove. Disable Remove when creature is favorited (isFav and in that slot).
 		local incEnabled = (isBase or (not baseFull and not isFav and not isDef)) and not (isFav and isBase)
-		local incLabel = isBase and "Rem" or "Inc"
-		local defLabel = isDef and "Rem" or "Def"
+		local incLabel = isBase and "Remove" or "Income"
+		local defLabel = isDef and "Remove" or "Defense"
 		-- #region agent log [InvRem] button labels for normal creatures (Rem = grey remove) (commented after UI fixes verified)
 		-- print("[InvRem] normal creature buttons: incLabel=" .. incLabel, "defLabel=" .. defLabel, "isBase=" .. tostring(isBase), "isDef=" .. tostring(isDef))
 		-- #endregion
@@ -1637,7 +1640,7 @@ local function mkCard(entry, creature, data, order)
 				Evt.assignToBase:FireServer(entry.uid, isBase and 0 or nil)
 				pendingOptimistic[tostring(entry.uid)] = { base = not isBase, t = tick() }
 				isBase = not isBase
-				incBtn.Text = isBase and "Rem" or "Inc"
+				incBtn.Text = isBase and "Remove" or "Income"
 				incBtn.BackgroundColor3 = isBase and Color3.fromRGB(50,55,60) or C.income
 				task.delay(0.35, function() if refreshInventory then refreshInventory() end end)
 			end)
@@ -1651,7 +1654,7 @@ local function mkCard(entry, creature, data, order)
 				Evt.assignToDefense:FireServer(entry.uid, isDef and 0 or nil)
 				pendingOptimistic[tostring(entry.uid)] = { def = not isDef, t = tick() }
 				isDef = not isDef
-				defBtn.Text = isDef and "Rem" or "Def"
+				defBtn.Text = isDef and "Remove" or "Defense"
 				defBtn.BackgroundColor3 = isDef and Color3.fromRGB(55,50,50) or C.defense
 				task.delay(0.35, function() if refreshInventory then refreshInventory() end end)
 			end)
@@ -4026,62 +4029,9 @@ if Evt.raidEnd then Evt.raidEnd.OnClientEvent:Connect(function()
 -- Income received: do NOT refresh inventory (coins update on next button/tab action).
 -- Refreshing here caused constant scroll resets on mobile when income ticks fired.
 
-local ARENA_COUNTDOWN_PRELOAD_LEAD = {
-	[30] = 8, -- preload at 38s so it scrolls in near 30s mark
-	[10] = 8, -- preload at 18s so it scrolls in near 10s mark
-}
-local arenaCountdownPreload = {
-	lastCountdown = nil,
-	preloaded = {}, -- keyed by target second (e.g. 30/10)
-}
-
-local function resetArenaCountdownPreloadState()
-	arenaCountdownPreload.lastCountdown = nil
-	table.clear(arenaCountdownPreload.preloaded)
-end
-
-local function getArenaCountdownSecondsFromMessage(msg)
-	if type(msg) ~= "string" then return nil end
-	local n = msg:match("^Arena battle in (%d+) seconds!$")
-	return n and tonumber(n) or nil
-end
-
-local function pushArenaCountdownTicker(seconds)
-	Notify.Toast(string.format("Arena battle in %d seconds!", seconds), C.favorite, 4)
-end
-
-local function maybePreloadArenaCountdown(countdown)
-	if type(countdown) ~= "number" then return end
-	countdown = math.floor(countdown)
-	if countdown <= 0 then
-		resetArenaCountdownPreloadState()
-		return
-	end
-
-	local last = arenaCountdownPreload.lastCountdown
-	if not last or countdown > last then
-		table.clear(arenaCountdownPreload.preloaded)
-	end
-	arenaCountdownPreload.lastCountdown = countdown
-
-	for target, lead in pairs(ARENA_COUNTDOWN_PRELOAD_LEAD) do
-		local preloadAt = target + lead
-		if countdown == preloadAt and not arenaCountdownPreload.preloaded[target] then
-			arenaCountdownPreload.preloaded[target] = true
-			pushArenaCountdownTicker(target)
-		end
-	end
-end
-
-workspace:GetAttributeChangedSignal("ArenaCountdown"):Connect(function()
-	maybePreloadArenaCountdown(workspace:GetAttribute("ArenaCountdown"))
-end)
-maybePreloadArenaCountdown(workspace:GetAttribute("ArenaCountdown"))
-
 if Evt.arenaAnnounce then Evt.arenaAnnounce.OnClientEvent:Connect(function(msg)
-		local sec = getArenaCountdownSecondsFromMessage(msg)
-		if sec and arenaCountdownPreload.preloaded[sec] then
-			return -- already queued predictively to avoid insert-time jump at this exact mark
+		if type(msg) == "string" and string.find(string.lower(msg), "battle team", 1, true) then
+			return
 		end
 		Notify.Toast(msg, C.favorite, 4)
 	end) end

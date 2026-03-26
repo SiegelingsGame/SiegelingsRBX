@@ -4,6 +4,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -77,6 +78,196 @@ invSlotsLbl.TextColor3 = Color3.fromRGB(160, 170, 190)
 invSlotsLbl.Font = Enum.Font.GothamMedium; invSlotsLbl.TextSize = 10
 invSlotsLbl.TextXAlignment = Enum.TextXAlignment.Right; invSlotsLbl.Parent = invFrame
 
+-- Legendary dungeon badge + toggle panel
+local DUNGEON_BADGE_WIDTH = 36
+local DUNGEON_BADGE_HEIGHT = 42
+local DUNGEON_BADGE_GAP = 8
+local DUNGEON_BADGE_SLOT = 2 -- arena badge=0, home/base badge=1, dungeon badge=2
+
+local dungeonState = {
+	active = false,
+	endAt = 0,
+	count = 0,
+	pos = nil,
+}
+
+-- Dedicated ScreenGui for dungeon badge (matches Arena/Base badge layout; same coord system)
+local dungeonBadgeGui = Instance.new("ScreenGui")
+dungeonBadgeGui.Name = "DungeonCrestBadge"
+dungeonBadgeGui.DisplayOrder = 53
+dungeonBadgeGui.ResetOnSpawn = false
+dungeonBadgeGui.IgnoreGuiInset = true
+dungeonBadgeGui.Parent = playerGui
+
+local dungeonBadge = Instance.new("TextButton")
+dungeonBadge.Name = "LegendaryDungeonBadge"
+dungeonBadge.Size = UDim2.new(0, DUNGEON_BADGE_WIDTH, 0, DUNGEON_BADGE_HEIGHT)
+dungeonBadge.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+dungeonBadge.BackgroundTransparency = 0.15
+dungeonBadge.BorderSizePixel = 0
+dungeonBadge.Text = "\226\152\160"
+dungeonBadge.TextColor3 = Color3.fromRGB(255, 184, 0)
+dungeonBadge.Font = Enum.Font.GothamBlack
+dungeonBadge.TextSize = 16
+dungeonBadge.Visible = false
+dungeonBadge.Parent = dungeonBadgeGui
+Instance.new("UICorner", dungeonBadge).CornerRadius = UDim.new(0, 6)
+local dungeonBadgeStroke = Instance.new("UIStroke")
+dungeonBadgeStroke.Color = Color3.fromRGB(255, 184, 0)
+dungeonBadgeStroke.Thickness = 2
+dungeonBadgeStroke.Parent = dungeonBadge
+
+local dungeonShieldPoint = Instance.new("Frame")
+dungeonShieldPoint.Name = "ShieldPoint"
+dungeonShieldPoint.Size = UDim2.new(0, 16, 0, 10)
+dungeonShieldPoint.Position = UDim2.new(0.5, 0, 1, -4)
+dungeonShieldPoint.AnchorPoint = Vector2.new(0.5, 0)
+dungeonShieldPoint.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+dungeonShieldPoint.BackgroundTransparency = 0.15
+dungeonShieldPoint.BorderSizePixel = 0
+dungeonShieldPoint.Rotation = 45
+dungeonShieldPoint.ZIndex = 1
+dungeonShieldPoint.Parent = dungeonBadge
+
+local dungeonPanel = Instance.new("Frame")
+dungeonPanel.Name = "LegendaryDungeonPanel"
+dungeonPanel.Size = UDim2.new(0, 320, 0, 108)
+dungeonPanel.Position = UDim2.new(1, -336, 0, 72)
+dungeonPanel.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+dungeonPanel.BackgroundTransparency = 0.1
+dungeonPanel.BorderSizePixel = 0
+dungeonPanel.Visible = false
+dungeonPanel.Parent = dungeonBadgeGui
+Instance.new("UICorner", dungeonPanel).CornerRadius = UDim.new(0, 10)
+local dungeonPanelStroke = Instance.new("UIStroke")
+dungeonPanelStroke.Color = Color3.fromRGB(255, 184, 0)
+dungeonPanelStroke.Thickness = 2
+dungeonPanelStroke.Parent = dungeonPanel
+
+local dungeonTitle = Instance.new("TextLabel")
+dungeonTitle.Size = UDim2.new(1, -14, 0, 24)
+dungeonTitle.Position = UDim2.new(0, 7, 0, 6)
+dungeonTitle.BackgroundTransparency = 1
+dungeonTitle.Text = "LEGENDARY DUNGEON"
+dungeonTitle.TextColor3 = Color3.fromRGB(255, 184, 0)
+dungeonTitle.Font = Enum.Font.GothamBlack
+dungeonTitle.TextSize = 14
+dungeonTitle.TextXAlignment = Enum.TextXAlignment.Left
+dungeonTitle.Parent = dungeonPanel
+
+local dungeonInfo = Instance.new("TextLabel")
+dungeonInfo.Size = UDim2.new(1, -14, 0, 30)
+dungeonInfo.Position = UDim2.new(0, 7, 0, 34)
+dungeonInfo.BackgroundTransparency = 1
+dungeonInfo.Text = "A legendary dungeon is active."
+dungeonInfo.TextColor3 = Color3.fromRGB(220, 224, 236)
+dungeonInfo.Font = Enum.Font.GothamMedium
+dungeonInfo.TextSize = 12
+dungeonInfo.TextWrapped = true
+dungeonInfo.TextXAlignment = Enum.TextXAlignment.Left
+dungeonInfo.TextYAlignment = Enum.TextYAlignment.Top
+dungeonInfo.Parent = dungeonPanel
+
+local dungeonTime = Instance.new("TextLabel")
+dungeonTime.Size = UDim2.new(1, -14, 0, 20)
+dungeonTime.Position = UDim2.new(0, 7, 1, -26)
+dungeonTime.BackgroundTransparency = 1
+dungeonTime.Text = "Closing in: --:--"
+dungeonTime.TextColor3 = Color3.fromRGB(255, 210, 120)
+dungeonTime.Font = Enum.Font.GothamBold
+dungeonTime.TextSize = 12
+dungeonTime.TextXAlignment = Enum.TextXAlignment.Left
+dungeonTime.Parent = dungeonPanel
+
+local function positionDungeonBadge()
+	local notifGui = playerGui:FindFirstChild("NotificationGUI")
+	local tickerBar = notifGui and notifGui:FindFirstChild("TickerBar")
+	local arenaBadgeGui = playerGui:FindFirstChild("ArenaCrestBadge")
+	local arenaBadgeButton = arenaBadgeGui and arenaBadgeGui:FindFirstChild("CrestButton")
+	local baseBadgeGui = playerGui:FindFirstChild("BaseCrestBadge")
+	local baseBadgeButton = baseBadgeGui and baseBadgeGui:FindFirstChild("BaseCrestButton")
+
+	-- If arena/base crest badges exist, align to their exact row first.
+	if arenaBadgeButton and arenaBadgeButton:IsA("GuiObject") and arenaBadgeButton.Visible then
+		local ap = arenaBadgeButton.AbsolutePosition
+		local as = arenaBadgeButton.AbsoluteSize
+		local xOffset = ap.X + DUNGEON_BADGE_SLOT * (DUNGEON_BADGE_WIDTH + DUNGEON_BADGE_GAP)
+		local yCenter = ap.Y + as.Y / 2
+		dungeonBadge.Position = UDim2.new(0, xOffset, 0, yCenter)
+		dungeonBadge.AnchorPoint = Vector2.new(0, 0.5)
+		dungeonPanel.Position = UDim2.new(0, math.max(8, xOffset - 286), 0, ap.Y + as.Y + 8)
+		return
+	end
+	if baseBadgeButton and baseBadgeButton:IsA("GuiObject") and baseBadgeButton.Visible then
+		local ap = baseBadgeButton.AbsolutePosition
+		local as = baseBadgeButton.AbsoluteSize
+		local xOffset = ap.X + (DUNGEON_BADGE_WIDTH + DUNGEON_BADGE_GAP)
+		local yCenter = ap.Y + as.Y / 2
+		dungeonBadge.Position = UDim2.new(0, xOffset, 0, yCenter)
+		dungeonBadge.AnchorPoint = Vector2.new(0, 0.5)
+		dungeonPanel.Position = UDim2.new(0, math.max(8, xOffset - 286), 0, ap.Y + as.Y + 8)
+		return
+	end
+
+	if tickerBar and tickerBar:IsA("GuiObject") then
+		local ap = tickerBar.AbsolutePosition
+		local as = tickerBar.AbsoluteSize
+		local xOffset = ap.X + as.X + DUNGEON_BADGE_GAP + DUNGEON_BADGE_SLOT * (DUNGEON_BADGE_WIDTH + DUNGEON_BADGE_GAP)
+		dungeonBadge.Position = UDim2.new(0, xOffset, 0, ap.Y + as.Y / 2)
+		dungeonBadge.AnchorPoint = Vector2.new(0, 0.5)
+		dungeonPanel.Position = UDim2.new(0, math.max(8, xOffset - 286), 0, ap.Y + as.Y + 8)
+	else
+		-- Fallback: same slot formula as Arena/Base badges (TickerBar removed)
+		local fallbackX = 0.86 + (DUNGEON_BADGE_SLOT * 0.04)
+		dungeonBadge.Position = UDim2.new(fallbackX, 0, 0, 18)
+		dungeonBadge.AnchorPoint = Vector2.new(0.5, 0)
+		dungeonPanel.Position = UDim2.new(1, -336, 0, 72)
+	end
+end
+
+positionDungeonBadge()
+RunService.RenderStepped:Connect(function()
+	if dungeonBadge.Visible or dungeonPanel.Visible then
+		positionDungeonBadge()
+	end
+end)
+
+local function formatTimeRemaining(seconds)
+	seconds = math.max(0, math.floor(seconds))
+	local m = math.floor(seconds / 60)
+	local s = seconds % 60
+	return string.format("%02d:%02d", m, s)
+end
+
+local function refreshDungeonPanelText()
+	if not dungeonState.active then
+		dungeonInfo.Text = "No active legendary dungeon."
+		dungeonTime.Text = "Closing in: --:--"
+		return
+	end
+	local countText = tostring(dungeonState.count or "?")
+	dungeonInfo.Text = "Creatures: " .. countText .. "  |  Tap badge to hide/show."
+	if dungeonState.endAt and dungeonState.endAt > 0 then
+		dungeonTime.Text = "Closing in: " .. formatTimeRemaining(dungeonState.endAt - tick())
+	else
+		dungeonTime.Text = "Closing in: --:--"
+	end
+end
+
+dungeonBadge.MouseButton1Click:Connect(function()
+	if not dungeonState.active then return end
+	dungeonPanel.Visible = not dungeonPanel.Visible
+end)
+
+task.spawn(function()
+	while true do
+		task.wait(1)
+		if dungeonState.active then
+			refreshDungeonPanelText()
+		end
+	end
+end)
+
 -- Wait for Events after HUD is visible (no early return so UI never disappears)
 local Events = ReplicatedStorage:WaitForChild("Events", 15)
 if not Events then warn("[HUDClient] Events not ready; HUD visible but live updates may be delayed.") end
@@ -86,15 +277,12 @@ local GetInventory   = safeGet("GetInventory")
 local IncomeReceived = safeGet("IncomeReceived")
 local CoinsUpdate    = safeGet("CoinsUpdate")
 local CaptureSuccess = safeGet("CaptureSuccess")
-local RaidStart      = safeGet("RaidStart")
 local RaidEnd        = safeGet("RaidEnd")
-local CreatureStolen = safeGet("CreatureStolen")
 local AIRaidAlert    = safeGet("AIRaidAlert")
 local DungeonSpawned = safeGet("DungeonSpawned")
 local DungeonDespawned = safeGet("DungeonDespawned")
 local CaptureFail    = safeGet("CaptureFail")
 local BaseDefenseTargeted = safeGet("BaseDefenseTargeted")
-local CreatureFreedByRaid  = safeGet("CreatureFreedByRaid")
 local ShowNotification = safeGet("ShowNotification")
 
 local function computeIncomePerMin(data)
@@ -171,65 +359,43 @@ if CaptureFail then
 	end)
 end
 
-if RaidStart then
-	RaidStart.OnClientEvent:Connect(function(name, dur)
-		Notify.Toast("RAID: " .. (name or "?"), Color3.fromRGB(255, 60, 40), dur or 5, nil, "raid")
-	end)
-end
-
+-- PvP raid toasts removed; base tab still updates via InventoryUIManager (RaidStart/RaidEnd).
 if RaidEnd then
-	RaidEnd.OnClientEvent:Connect(function(stolenCount)
-		if stolenCount > 0 then
-			Notify.Toast("Raid complete ? " .. stolenCount .. " stolen!", Color3.fromRGB(255, 140, 0), 5)
-		else
-			Notify.Toast("Raid complete ? nothing stolen", Color3.fromRGB(100, 200, 100), 3)
-		end
+	RaidEnd.OnClientEvent:Connect(function()
 		task.wait(1); refreshData()
-	end)
-end
-
-if CreatureStolen then
-	CreatureStolen.OnClientEvent:Connect(function(creatureName, youStoleIt)
-		if youStoleIt then
-			Notify.Toast("Stole " .. creatureName .. "!", Color3.fromRGB(0, 229, 195), 4, nil, "raid")
-		else
-			Notify.Toast(creatureName .. " was stolen!", Color3.fromRGB(255, 80, 80), 4, nil, "raid")
-		end
 	end)
 end
 
 if AIRaidAlert then
 	AIRaidAlert.OnClientEvent:Connect(function(targetName, packSize, phase)
-		if phase == "start" then
-			if targetName == player.Name then
-				Notify.Toast("WILD CREATURES RAIDING YOUR BASE! (" .. (packSize or "?") .. " raiders)", Color3.fromRGB(255, 50, 40), 6)
-			else
-				Notify.Toast(targetName .. "'s base under AI raid!", Color3.fromRGB(255, 140, 60), 4)
-			end
-		elseif phase == "end" and targetName == player.Name then
-			Notify.Toast("Wild raid on your base ended", Color3.fromRGB(180, 180, 200), 3)
+		if phase == "end" and targetName == player.Name then
 			task.wait(0.5); refreshData()
 		end
 	end)
 end
 
-if CreatureFreedByRaid then
-	CreatureFreedByRaid.OnClientEvent:Connect(function(creatureName, level)
-		local nameStr = creatureName or "A creature"
-		local lvlStr = (level and level > 1) and (" Lv." .. level) or ""
-		Notify.Banner(nameStr .. lvlStr .. " was freed by wild sieglings! Recapture it!", Color3.fromRGB(255, 80, 50), 5)
-	end)
-end
-
 if DungeonSpawned then
 	DungeonSpawned.OnClientEvent:Connect(function(pos, count, dur)
-		Notify.Toast("LEGENDARY DUNGEON appeared! " .. (count or "?") .. " creatures (" .. (dur or "?") .. "s)", Color3.fromRGB(255, 184, 0), 6)
+		if not GameConfig.LegendaryDungeonsEnabled then return end
+		dungeonState.active = true
+		dungeonState.count = tonumber(count) or 0
+		dungeonState.pos = pos
+		dungeonState.endAt = tick() + (tonumber(dur) or 0)
+		dungeonBadge.Visible = true
+		dungeonPanel.Visible = false -- badge appears first; user toggles panel open
+		refreshDungeonPanelText()
 	end)
 end
 
 if DungeonDespawned then
 	DungeonDespawned.OnClientEvent:Connect(function()
-		Notify.Toast("Dungeon vanished...", Color3.fromRGB(150, 120, 80), 3)
+		dungeonState.active = false
+		dungeonState.endAt = 0
+		dungeonState.count = 0
+		dungeonState.pos = nil
+		dungeonPanel.Visible = false
+		dungeonBadge.Visible = false
+		refreshDungeonPanelText()
 	end)
 end
 

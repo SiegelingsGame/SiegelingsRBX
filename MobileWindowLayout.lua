@@ -227,7 +227,8 @@ function MobileWindowLayout.SetHUDBarVisible(visible)
 		local tw = TweenService:Create(toolbar, HUD_TWEEN_INFO, { Position = hiddenPos })
 		tw:Play()
 		tw.Completed:Connect(function()
-			if toolbar:GetAttribute("MobileHUDVisible") == false then
+			-- Only hide if toolbar still exists and was not shown by a racing NotifyMenuClosed
+			if toolbar.Parent and toolbar:GetAttribute("MobileHUDVisible") == false then
 				toolbar.Visible = false
 			end
 		end)

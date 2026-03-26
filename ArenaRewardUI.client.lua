@@ -20,8 +20,11 @@ local BaseGymReject = Events:FindFirstChild("BaseGymReject") or Events:WaitForCh
 local BaseGymResult = Events:FindFirstChild("BaseGymResult") or Events:WaitForChild("BaseGymResult", 10)
 local BaseGymStart  = Events:FindFirstChild("BaseGymStart") or Events:WaitForChild("BaseGymStart", 10)
 local BattleStart   = Events:FindFirstChild("BattleStart") or Events:WaitForChild("BattleStart", 10)
+local ArenaWatchPrompt = Events:FindFirstChild("ArenaWatchPrompt") or Events:WaitForChild("ArenaWatchPrompt", 10)
+local ArenaWatchTeleportRequest = Events:FindFirstChild("ArenaWatchTeleportRequest") or Events:WaitForChild("ArenaWatchTeleportRequest", 10)
 
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 local playerGui = player:WaitForChild("PlayerGui")
 
 -- Colors
@@ -30,6 +33,230 @@ local RED    = Color3.fromRGB(255, 70, 60)
 local GREEN  = Color3.fromRGB(80, 255, 120)
 local PURPLE = Color3.fromRGB(180, 80, 255)
 local MUTED  = Color3.fromRGB(130, 135, 150)
+
+-- Arena watch prompt (badge + click-open modal)
+local WATCH_BADGE_WIDTH = 36
+local WATCH_BADGE_HEIGHT = 42
+local WATCH_BADGE_GAP = 8
+local WATCH_BADGE_SLOT = 2 -- after arena/base crest badges
+local watchPrompt = {
+	gui = nil,
+	badge = nil,
+	stroke = nil,
+	modal = nil,
+	payload = nil,
+	pulseConn = nil,
+}
+local showArenaWatchModal
+
+local function stopWatchBadgePulse()
+	if watchPrompt.pulseConn then
+		watchPrompt.pulseConn:Disconnect()
+		watchPrompt.pulseConn = nil
+	end
+	if watchPrompt.stroke then
+		watchPrompt.stroke.Thickness = 2
+		watchPrompt.stroke.Transparency = 0
+	end
+end
+
+local function hideArenaWatchPrompt()
+	stopWatchBadgePulse()
+	if watchPrompt.modal and watchPrompt.modal.Parent then
+		watchPrompt.modal:Destroy()
+	end
+	watchPrompt.modal = nil
+	if watchPrompt.gui and watchPrompt.gui.Parent then
+		watchPrompt.gui:Destroy()
+	end
+	watchPrompt.gui = nil
+	watchPrompt.badge = nil
+	watchPrompt.stroke = nil
+	watchPrompt.payload = nil
+end
+
+local function positionWatchBadge()
+	if not (watchPrompt.badge and watchPrompt.badge.Parent) then return end
+	local notifGui = playerGui:FindFirstChild("NotificationGUI")
+	local tickerBar = notifGui and notifGui:FindFirstChild("TickerBar")
+	if tickerBar then
+		local ap = tickerBar.AbsolutePosition
+		local as = tickerBar.AbsoluteSize
+		local xOffset = ap.X + as.X + WATCH_BADGE_GAP + WATCH_BADGE_SLOT * (WATCH_BADGE_WIDTH + WATCH_BADGE_GAP)
+		watchPrompt.badge.Position = UDim2.new(0, xOffset, 0, ap.Y + as.Y / 2)
+		watchPrompt.badge.AnchorPoint = Vector2.new(0, 0.5)
+	else
+		watchPrompt.badge.Position = UDim2.new(0.94, 0, 0, 18)
+		watchPrompt.badge.AnchorPoint = Vector2.new(0.5, 0)
+	end
+end
+
+local function ensureWatchBadge()
+	if watchPrompt.gui and watchPrompt.gui.Parent and watchPrompt.badge then
+		positionWatchBadge()
+		return
+	end
+	local payload = watchPrompt.payload
+	hideArenaWatchPrompt()
+	watchPrompt.payload = payload
+
+	local sg = Instance.new("ScreenGui")
+	sg.Name = "ArenaWatchPromptBadge"
+	sg.ResetOnSpawn = false
+	sg.IgnoreGuiInset = true
+	sg.DisplayOrder = 96
+	sg.Parent = playerGui
+
+	local badge = Instance.new("TextButton")
+	badge.Name = "WatchBadgeButton"
+	badge.Size = UDim2.new(0, 0, 0, 0)
+	badge.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+	badge.BackgroundTransparency = 0.15
+	badge.BorderSizePixel = 0
+	badge.Text = "\226\154\148"
+	badge.TextColor3 = GOLD
+	badge.Font = Enum.Font.GothamBold
+	badge.TextSize = 18
+	badge.AutoButtonColor = false
+	badge.ZIndex = 20
+	badge.Parent = sg
+	Instance.new("UICorner", badge).CornerRadius = UDim.new(0, 6)
+
+	local point = Instance.new("Frame")
+	point.Name = "ShieldPoint"
+	point.Size = UDim2.new(0, 16, 0, 10)
+	point.Position = UDim2.new(0.5, 0, 1, -4)
+	point.AnchorPoint = Vector2.new(0.5, 0)
+	point.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+	point.BackgroundTransparency = 0.15
+	point.BorderSizePixel = 0
+	point.Rotation = 45
+	point.ZIndex = 1
+	point.Parent = badge
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = GOLD
+	stroke.Thickness = 2
+	stroke.Parent = badge
+
+	watchPrompt.gui = sg
+	watchPrompt.badge = badge
+	watchPrompt.stroke = stroke
+	positionWatchBadge()
+	badge.MouseButton1Click:Connect(showArenaWatchModal)
+
+	local elapsed = 0
+	watchPrompt.pulseConn = RunService.RenderStepped:Connect(function(dt)
+		if not (watchPrompt.badge and watchPrompt.badge.Parent) then
+			stopWatchBadgePulse()
+			return
+		end
+		positionWatchBadge()
+		elapsed += dt
+		local t = (math.sin(elapsed * 4 * math.pi) + 1) / 2
+		stroke.Thickness = 2 + t * 2
+		stroke.Transparency = t * 0.3
+	end)
+
+	TweenService:Create(badge, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Size = UDim2.new(0, WATCH_BADGE_WIDTH, 0, WATCH_BADGE_HEIGHT),
+	}):Play()
+end
+
+showArenaWatchModal = function()
+	if not watchPrompt.payload then return end
+	if watchPrompt.modal and watchPrompt.modal.Parent then return end
+	if not watchPrompt.gui or not watchPrompt.gui.Parent then return end
+
+	local backdrop = Instance.new("Frame")
+	backdrop.Name = "ArenaWatchBackdrop"
+	backdrop.Size = UDim2.new(1, 0, 1, 0)
+	backdrop.BackgroundColor3 = Color3.new(0, 0, 0)
+	backdrop.BackgroundTransparency = 0.5
+	backdrop.BorderSizePixel = 0
+	backdrop.ZIndex = 30
+	backdrop.Parent = watchPrompt.gui
+
+	local card = Instance.new("Frame")
+	card.Name = "ArenaWatchCard"
+	card.Size = UDim2.new(0, 420, 0, 220)
+	card.Position = UDim2.new(0.5, 0, 0.5, 0)
+	card.AnchorPoint = Vector2.new(0.5, 0.5)
+	card.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
+	card.BorderSizePixel = 0
+	card.ZIndex = 31
+	card.Parent = backdrop
+	Instance.new("UICorner", card).CornerRadius = UDim.new(0, 14)
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = GOLD
+	stroke.Thickness = 2
+	stroke.Parent = card
+
+	local title = Instance.new("TextLabel")
+	title.Size = UDim2.new(1, -24, 0, 36)
+	title.Position = UDim2.new(0, 12, 0, 12)
+	title.BackgroundTransparency = 1
+	title.Font = Enum.Font.GothamBlack
+	title.TextSize = 20
+	title.TextColor3 = GOLD
+	title.Text = "ARENA BATTLE READY"
+	title.ZIndex = 32
+	title.Parent = card
+
+	local desc = Instance.new("TextLabel")
+	desc.Size = UDim2.new(1, -30, 0, 90)
+	desc.Position = UDim2.new(0, 15, 0, 56)
+	desc.BackgroundTransparency = 1
+	desc.Font = Enum.Font.GothamMedium
+	desc.TextSize = 14
+	desc.TextWrapped = true
+	desc.TextColor3 = Color3.fromRGB(220, 224, 236)
+	desc.ZIndex = 32
+	desc.Text = string.format(
+		"%s vs %s begins in %ds.\nTeleport now to watch at the arena surface and earn the combat bonus.",
+		tostring(watchPrompt.payload.kingName or "King"),
+		tostring(watchPrompt.payload.challengerName or "Challenger"),
+		tonumber(watchPrompt.payload.countdown) or 10
+	)
+	desc.Parent = card
+
+	local tpBtn = Instance.new("TextButton")
+	tpBtn.Size = UDim2.new(0.46, 0, 0, 40)
+	tpBtn.Position = UDim2.new(0.04, 0, 1, -54)
+	tpBtn.BackgroundColor3 = Color3.fromRGB(60, 170, 255)
+	tpBtn.TextColor3 = Color3.new(1, 1, 1)
+	tpBtn.Font = Enum.Font.GothamBold
+	tpBtn.TextSize = 14
+	tpBtn.Text = "Teleport to Arena"
+	tpBtn.BorderSizePixel = 0
+	tpBtn.ZIndex = 32
+	tpBtn.Parent = card
+	Instance.new("UICorner", tpBtn).CornerRadius = UDim.new(0, 8)
+
+	local dismissBtn = Instance.new("TextButton")
+	dismissBtn.Size = UDim2.new(0.46, 0, 0, 40)
+	dismissBtn.Position = UDim2.new(0.5, 0, 1, -54)
+	dismissBtn.BackgroundColor3 = Color3.fromRGB(55, 58, 74)
+	dismissBtn.TextColor3 = Color3.fromRGB(220, 224, 236)
+	dismissBtn.Font = Enum.Font.GothamBold
+	dismissBtn.TextSize = 14
+	dismissBtn.Text = "Dismiss"
+	dismissBtn.BorderSizePixel = 0
+	dismissBtn.ZIndex = 32
+	dismissBtn.Parent = card
+	Instance.new("UICorner", dismissBtn).CornerRadius = UDim.new(0, 8)
+
+	tpBtn.MouseButton1Click:Connect(function()
+		if ArenaWatchTeleportRequest then
+			ArenaWatchTeleportRequest:FireServer()
+		end
+		hideArenaWatchPrompt()
+	end)
+	dismissBtn.MouseButton1Click:Connect(hideArenaWatchPrompt)
+
+	watchPrompt.modal = backdrop
+end
 
 local function showRewardPopup(data)
 	local isGym = data.gym == true
@@ -116,9 +343,9 @@ end
 if GymReject then
 	GymReject.OnClientEvent:Connect(function(message)
 		local msg = message or "Cannot challenge the Gym."
-		Notify.Toast(msg, RED, 4, nil, "arena")
+		Notify.Toast(msg, RED, 5, nil, "arena")
 		local lines = { { text = msg, color = MUTED, font = Enum.Font.GothamMedium, textSize = 12, size = 36 } }
-		Notify.RewardPopup("Cannot start gym", RED, lines, 4)
+		Notify.RewardPopup("Cannot start gym", RED, lines, 5)
 	end)
 end
 
@@ -584,7 +811,21 @@ end
 -- Arena battle start: fired to ALL players (spectators + participants)
 if BattleStart then
 	BattleStart.OnClientEvent:Connect(function(kingName, challName)
+		hideArenaWatchPrompt()
 		showBattleStartBanner("arena", kingName, challName)
+	end)
+end
+
+if ArenaWatchPrompt then
+	ArenaWatchPrompt.OnClientEvent:Connect(function(payload)
+		if type(payload) ~= "table" then return end
+		watchPrompt.payload = payload
+		ensureWatchBadge()
+		task.delay((tonumber(payload.countdown) or 10) + 8, function()
+			if watchPrompt.payload == payload then
+				hideArenaWatchPrompt()
+			end
+		end)
 	end)
 end
 

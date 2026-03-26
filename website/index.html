@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Sieglings - Capture. Build. Battle. Reign.</title>
-<meta name="description" content="Sieglings is a creature-collection RPG on Roblox. Capture elemental Siegelings, build your fortress, assemble battle teams, and raid rivals across six biomes.">
+<meta name="description" content="Sieglings is a creature-collection RPG on Roblox. Capture 90+ elemental Siegelings across seven biomes, build your fortress, mount and ride creatures, explore the Badlands roguelike, and battle in arenas and gyms.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Rajdhani:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -24,9 +24,11 @@
   --accent-earth: #c49a4a;
   --accent-shadow: #9b59d0;
   --accent-lightning: #ffe63c;
+  --accent-water: #3ca8ff;
   --accent-gold: #ffb800;
   --accent-purple: #a855f7;
   --accent-ember: #f97316;
+  --accent-danger: #ef4444;
   --text-primary: #eaeaf2;
   --text-secondary: #9090b0;
   --text-muted: #55557a;
@@ -108,9 +110,9 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   -webkit-background-clip: text; -webkit-text-fill-color: transparent;
   background-clip: text;
 }
-.nav-links { display: flex; gap: 2rem; align-items: center; }
+.nav-links { display: flex; gap: 1.6rem; align-items: center; }
 .nav-links a {
-  font-size: 0.82rem; font-weight: 500; color: var(--text-secondary);
+  font-size: 0.8rem; font-weight: 500; color: var(--text-secondary);
   letter-spacing: 0.5px; transition: color 0.3s; position: relative;
 }
 .nav-links a::after {
@@ -176,7 +178,7 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   animation: fadeInUp 0.8s ease-out 0.15s both;
 }
 .hero-desc {
-  max-width: 640px; margin: 0 auto 3rem; font-size: 1.05rem; color: var(--text-secondary);
+  max-width: 700px; margin: 0 auto 3rem; font-size: 1.05rem; color: var(--text-secondary);
   line-height: 1.8; animation: fadeInUp 0.8s ease-out 0.3s both;
 }
 .hero-buttons {
@@ -204,7 +206,7 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   transform: translateY(-2px);
 }
 .hero-stats {
-  display: flex; gap: 3rem; justify-content: center; flex-wrap: wrap;
+  display: flex; gap: 2.5rem; justify-content: center; flex-wrap: wrap;
   animation: fadeInUp 0.8s ease-out 0.6s both;
 }
 .hero-stat { text-align: center; }
@@ -354,13 +356,73 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 .feature-card p { color: var(--text-secondary); font-size: 0.9rem; line-height: 1.7; }
 
 /* ══════════════════════════════════════════════════════════════
+   WORLD ZONES
+   ══════════════════════════════════════════════════════════════ */
+.zone-showcase {
+  display: flex; flex-direction: column; gap: 3rem;
+}
+.zone-block {
+  background: var(--bg-card); border: 1px solid var(--border-subtle);
+  border-radius: 24px; padding: 3rem; position: relative; overflow: hidden;
+  transition: all 0.4s;
+}
+.zone-block:hover {
+  border-color: rgba(168,85,247,0.2);
+  box-shadow: 0 20px 80px rgba(0,0,0,0.3);
+}
+.zone-block::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px;
+}
+.zone-block.training::before {
+  background: linear-gradient(90deg, var(--accent-wind), var(--accent-earth), var(--accent-ice));
+}
+.zone-block.outer::before {
+  background: linear-gradient(90deg, var(--accent-fire), var(--accent-lightning), var(--accent-shadow));
+}
+.zone-block.badlands::before {
+  background: linear-gradient(90deg, var(--accent-danger), #ff2020, var(--accent-ember));
+}
+.zone-header {
+  display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;
+}
+.zone-icon {
+  width: 56px; height: 56px; border-radius: 16px; display: flex;
+  align-items: center; justify-content: center; font-size: 1.8rem;
+  flex-shrink: 0;
+}
+.zone-block.training .zone-icon { background: rgba(122,239,170,0.12); border: 1px solid rgba(122,239,170,0.2); }
+.zone-block.outer .zone-icon { background: rgba(255,80,32,0.12); border: 1px solid rgba(255,80,32,0.2); }
+.zone-block.badlands .zone-icon { background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.2); }
+.zone-title {
+  font-family: 'Cinzel', serif; font-size: 1.6rem; font-weight: 700; color: #fff;
+}
+.zone-subtitle {
+  font-size: 0.82rem; color: var(--text-muted); text-transform: uppercase;
+  letter-spacing: 2px; margin-top: 0.15rem;
+}
+.zone-body {
+  color: var(--text-secondary); font-size: 0.95rem; line-height: 1.8;
+  margin-bottom: 1.5rem;
+}
+.zone-features {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem;
+}
+.zone-feat {
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.04);
+  border-radius: 12px; padding: 1rem 1.2rem; display: flex; align-items: flex-start; gap: 0.7rem;
+}
+.zone-feat-icon { font-size: 1.2rem; flex-shrink: 0; margin-top: 0.1rem; }
+.zone-feat-text { font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5; }
+.zone-feat-text strong { color: #fff; font-weight: 600; }
+
+/* ══════════════════════════════════════════════════════════════
    ELEMENTS SHOWCASE
    ══════════════════════════════════════════════════════════════ */
 .elements-grid {
-  display: grid; grid-template-columns: repeat(6, 1fr); gap: 1rem;
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 1rem;
 }
 .element-card {
-  background: var(--bg-card); border-radius: 16px; padding: 1.8rem 1rem;
+  background: var(--bg-card); border-radius: 16px; padding: 1.8rem 0.8rem;
   text-align: center; border: 1px solid var(--border-subtle);
   transition: all 0.3s; cursor: default;
 }
@@ -368,14 +430,17 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   transform: translateY(-4px) scale(1.03);
   box-shadow: 0 12px 40px rgba(0,0,0,0.4);
 }
-.elem-icon { font-size: 2.8rem; margin-bottom: 0.6rem; display: block; }
+.elem-icon { font-size: 2.6rem; margin-bottom: 0.6rem; display: block; }
 .elem-name {
-  font-family: 'Cinzel', serif; font-size: 0.95rem; font-weight: 700;
+  font-family: 'Cinzel', serif; font-size: 0.9rem; font-weight: 700;
   margin-bottom: 0.25rem;
 }
 .elem-zone {
-  font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;
+  font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase;
   letter-spacing: 1.5px;
+}
+.elem-count {
+  font-size: 0.7rem; color: var(--text-muted); margin-top: 0.3rem;
 }
 .element-card.fire .elem-name { color: var(--accent-fire); }
 .element-card.ice .elem-name { color: var(--accent-ice); }
@@ -383,6 +448,7 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 .element-card.earth .elem-name { color: var(--accent-earth); }
 .element-card.shadow .elem-name { color: var(--accent-shadow); }
 .element-card.lightning .elem-name { color: var(--accent-lightning); }
+.element-card.water .elem-name { color: var(--accent-water); }
 
 /* Element weakness cycle */
 .weakness-cycle {
@@ -398,6 +464,42 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   flex-wrap: wrap; font-size: 1.5rem;
 }
 .cycle-arrow { color: var(--text-muted); font-size: 1.2rem; }
+
+/* ══════════════════════════════════════════════════════════════
+   CREATURE ROSTER
+   ══════════════════════════════════════════════════════════════ */
+.creature-element-group {
+  margin-bottom: 2.5rem;
+}
+.creature-element-header {
+  display: flex; align-items: center; gap: 0.8rem; margin-bottom: 1rem;
+  padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-subtle);
+}
+.creature-element-header span:first-child { font-size: 1.5rem; }
+.creature-element-header h4 {
+  font-family: 'Cinzel', serif; font-size: 1.1rem; font-weight: 700;
+}
+.creature-roster-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.6rem;
+}
+.creature-chip {
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 10px; padding: 0.6rem 0.8rem; text-align: center;
+  transition: all 0.2s; font-size: 0.82rem; color: var(--text-secondary);
+}
+.creature-chip:hover {
+  background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.1);
+  transform: translateY(-2px);
+}
+.creature-chip .rarity-dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  margin-right: 0.3rem; vertical-align: middle;
+}
+.rarity-c { background: #b4b4b4; }
+.rarity-u { background: #4bc84b; }
+.rarity-r { background: #3c82ff; }
+.rarity-e { background: #b450ff; }
+.rarity-l { background: #ffb800; }
 
 /* ══════════════════════════════════════════════════════════════
    RARITY SECTION
@@ -452,7 +554,56 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 .class-card:hover { transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.3); }
 .class-icon { font-size: 2.2rem; margin-bottom: 0.8rem; }
 .class-name { font-family: 'Cinzel', serif; font-size: 1rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem; }
-.class-desc { font-size: 0.8rem; color: var(--text-secondary); }
+.class-desc { font-size: 0.8rem; color: var(--text-secondary); line-height: 1.5; }
+.class-stats { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.5rem; }
+
+/* ══════════════════════════════════════════════════════════════
+   ROADMAP
+   ══════════════════════════════════════════════════════════════ */
+.roadmap-container { position: relative; }
+.roadmap-line {
+  position: absolute; left: 23px; top: 0; bottom: 0; width: 2px;
+  background: linear-gradient(180deg, var(--accent-purple), var(--accent-fire), var(--accent-gold));
+}
+.roadmap-phase {
+  position: relative; padding-left: 60px; margin-bottom: 3rem;
+}
+.roadmap-dot {
+  position: absolute; left: 14px; top: 6px; width: 20px; height: 20px;
+  border-radius: 50%; border: 3px solid;
+  display: flex; align-items: center; justify-content: center;
+}
+.roadmap-dot.done { border-color: var(--accent-wind); background: rgba(122,239,170,0.2); }
+.roadmap-dot.done::after {
+  content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--accent-wind);
+}
+.roadmap-dot.current { border-color: var(--accent-purple); background: rgba(168,85,247,0.2);
+  animation: pulse 2s ease-in-out infinite; }
+.roadmap-dot.current::after {
+  content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--accent-purple);
+}
+.roadmap-dot.upcoming { border-color: var(--text-muted); background: rgba(85,85,122,0.2); }
+.roadmap-phase-title {
+  font-family: 'Cinzel', serif; font-size: 1.15rem; font-weight: 700;
+  color: #fff; margin-bottom: 0.5rem;
+}
+.roadmap-phase-subtitle {
+  font-size: 0.75rem; text-transform: uppercase; letter-spacing: 2px;
+  margin-bottom: 0.8rem;
+}
+.roadmap-phase-subtitle.done { color: var(--accent-wind); }
+.roadmap-phase-subtitle.current { color: var(--accent-purple); }
+.roadmap-phase-subtitle.upcoming { color: var(--text-muted); }
+.roadmap-items {
+  display: flex; flex-wrap: wrap; gap: 0.5rem;
+}
+.roadmap-item {
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 8px; padding: 0.4rem 0.8rem; font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+.roadmap-item.done { border-color: rgba(122,239,170,0.15); color: var(--accent-wind); }
+.roadmap-item.current { border-color: rgba(168,85,247,0.2); color: var(--accent-purple); }
 
 /* ══════════════════════════════════════════════════════════════
    HOW TO PLAY
@@ -534,6 +685,7 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 .footer-text { font-size: 0.78rem; color: var(--text-muted); }
 .footer-links {
   display: flex; gap: 1.5rem; justify-content: center; margin-top: 1rem;
+  flex-wrap: wrap;
 }
 .footer-links a {
   font-size: 0.78rem; color: var(--text-muted); transition: color 0.3s;
@@ -582,12 +734,13 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
    ══════════════════════════════════════════════════════════════ */
 @media (max-width: 1024px) {
   .houses-grid { grid-template-columns: repeat(2, 1fr); }
-  .elements-grid { grid-template-columns: repeat(3, 1fr); }
+  .elements-grid { grid-template-columns: repeat(4, 1fr); }
   .rarity-row { grid-template-columns: repeat(3, 1fr); }
   .classes-grid { grid-template-columns: repeat(3, 1fr); }
   .steps-grid { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 768px) {
+  .nav { padding: 0 1.5rem; }
   .nav-links { display: none; }
   .mobile-toggle { display: flex; }
   .hero { padding: 6rem 1.5rem 4rem; }
@@ -599,11 +752,14 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   .lore-grid { grid-template-columns: 1fr; }
   .houses-grid { grid-template-columns: 1fr 1fr; }
   .features-grid { grid-template-columns: 1fr; }
-  .elements-grid { grid-template-columns: repeat(3, 1fr); }
+  .elements-grid { grid-template-columns: repeat(4, 1fr); }
   .rarity-row { grid-template-columns: repeat(2, 1fr); }
   .classes-grid { grid-template-columns: repeat(2, 1fr); }
   .steps-grid { grid-template-columns: 1fr; }
   .cta-box { padding: 3rem 1.5rem; }
+  .zone-block { padding: 2rem 1.5rem; }
+  .zone-features { grid-template-columns: 1fr; }
+  .creature-roster-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
 }
 @media (max-width: 480px) {
   .houses-grid { grid-template-columns: 1fr; }
@@ -631,10 +787,12 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   <div class="nav-links">
     <a href="#lore">Lore</a>
     <a href="#houses">Houses</a>
+    <a href="#world">World</a>
     <a href="#gameplay">Gameplay</a>
     <a href="#elements">Elements</a>
     <a href="#creatures">Creatures</a>
-    <a href="#ranks">World</a>
+    <a href="#codex">Codex</a>
+    <a href="#roadmap">Roadmap</a>
     <a href="#play" class="nav-cta">Play Now</a>
   </div>
   <button class="mobile-toggle" onclick="toggleMobileMenu()" aria-label="Menu">
@@ -647,10 +805,12 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   <button class="mobile-close" onclick="toggleMobileMenu()">&times;</button>
   <a href="#lore" onclick="toggleMobileMenu()">Lore</a>
   <a href="#houses" onclick="toggleMobileMenu()">Houses</a>
+  <a href="#world" onclick="toggleMobileMenu()">World</a>
   <a href="#gameplay" onclick="toggleMobileMenu()">Gameplay</a>
   <a href="#elements" onclick="toggleMobileMenu()">Elements</a>
   <a href="#creatures" onclick="toggleMobileMenu()">Creatures</a>
-  <a href="#ranks" onclick="toggleMobileMenu()">World</a>
+  <a href="#codex" onclick="toggleMobileMenu()">Codex</a>
+  <a href="#roadmap" onclick="toggleMobileMenu()">Roadmap</a>
   <a href="#play" class="btn-primary" onclick="toggleMobileMenu()">Play Now</a>
 </div>
 
@@ -665,9 +825,9 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   <h1>Sieglings</h1>
   <div class="hero-subtitle">Capture &bull; Build &bull; Battle &bull; Reign</div>
   <p class="hero-desc">
-    Bond with elemental creatures called Siegelings, forge your fortress across
-    three floors, assemble synergy-driven battle teams, and raid your rivals
-    across six wild biomes. Your journey from Squire to Sire begins here.
+    Bond with 90 elemental creatures called Siegelings. Mount and ride them across land, sea, and sky.
+    Build your fortress, design your own gym, and challenge rivals in the arena.
+    Brave the Badlands roguelike for the rarest creatures alive. Your journey from Squire to Sire begins here.
   </p>
   <div class="hero-buttons">
     <a href="#play" class="btn-primary">Play on Roblox</a>
@@ -679,7 +839,7 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
       <div class="hero-stat-label">Creatures</div>
     </div>
     <div class="hero-stat">
-      <div class="hero-stat-num">6</div>
+      <div class="hero-stat-num">7</div>
       <div class="hero-stat-label">Elements</div>
     </div>
     <div class="hero-stat">
@@ -692,6 +852,10 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
     </div>
     <div class="hero-stat">
       <div class="hero-stat-num">3</div>
+      <div class="hero-stat-label">World Zones</div>
+    </div>
+    <div class="hero-stat">
+      <div class="hero-stat-num">4</div>
       <div class="hero-stat-label">Base Floors</div>
     </div>
   </div>
@@ -814,6 +978,158 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 <div class="divider"></div>
 
 <!-- ══════════════════════════════════════════════════════════════
+     WORLD ZONES
+     ══════════════════════════════════════════════════════════════ -->
+<section class="section" id="world">
+  <div class="section-label reveal">The World</div>
+  <div class="section-title reveal">Three Zones, Infinite Adventure</div>
+  <div class="section-desc reveal">
+    The world of Sieglings is divided into three distinct zones, each with escalating challenge,
+    richer rewards, and deeper mechanics. Progress through all three to prove your worth.
+  </div>
+
+  <div class="zone-showcase">
+
+    <!-- Training Zone -->
+    <div class="zone-block training reveal">
+      <div class="zone-header">
+        <div class="zone-icon">&#x1F3F0;</div>
+        <div>
+          <div class="zone-title">The Training Zone</div>
+          <div class="zone-subtitle">Where Every Squire Begins</div>
+        </div>
+      </div>
+      <div class="zone-body">
+        The Training Zone is the heart of Sieglings &mdash; a safe haven where new Squires take their first steps.
+        Here you claim your starter Siegeling, build your fortress plot, and learn the fundamentals of capture,
+        combat, and base management. Four elemental biomes surround a central hub: the Frozen Tundra to the north,
+        the Verdant Forest to the east, the Highland Winds to the south, and the Ocean Shore to the west.
+        Wild Siegelings of Common and Uncommon rarity roam freely, waiting to be bonded.
+      </div>
+      <div class="zone-features">
+        <div class="zone-feat">
+          <div class="zone-feat-icon">&#x1F3E0;</div>
+          <div class="zone-feat-text"><strong>Your First Base</strong> &mdash; Claim a plot, build floors, assign creatures to Income, Defense, and Battle slots.</div>
+        </div>
+        <div class="zone-feat">
+          <div class="zone-feat-icon">&#x1F423;</div>
+          <div class="zone-feat-text"><strong>Starter Siegeling</strong> &mdash; Choose your first companion from one of the seven elements to begin your journey.</div>
+        </div>
+        <div class="zone-feat">
+          <div class="zone-feat-icon">&#x2694;&#xFE0F;</div>
+          <div class="zone-feat-text"><strong>Arena Access</strong> &mdash; Unlock Floor 2 to enter the King of the Hill arena with your battle team.</div>
+        </div>
+        <div class="zone-feat">
+          <div class="zone-feat-icon">&#x1F95A;</div>
+          <div class="zone-feat-text"><strong>Egg Shop & Combiner</strong> &mdash; Hatch mystery eggs and combine three creatures into higher variant tiers.</div>
+        </div>
+        <div class="zone-feat">
+          <div class="zone-feat-icon">&#x1F3EB;</div>
+          <div class="zone-feat-text"><strong>Learn the Basics</strong> &mdash; Master capture mechanics, companion combat, ranged and melee attacks, and base defense.</div>
+        </div>
+        <div class="zone-feat">
+          <div class="zone-feat-icon">&#x1F30A;</div>
+          <div class="zone-feat-text"><strong>Swim & Explore</strong> &mdash; Dive into the Ocean biome with a Water mount for extended breath time and aquatic combat.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Outer Zones -->
+    <div class="zone-block outer reveal">
+      <div class="zone-header">
+        <div class="zone-icon">&#x1F30B;</div>
+        <div>
+          <div class="zone-title">The Outer Zones</div>
+          <div class="zone-subtitle">Beyond the Safety of the Training Grounds</div>
+        </div>
+      </div>
+      <div class="zone-body">
+        Beyond the Training Zone lie the Outer Zones &mdash; vast, dangerous, and teeming with Rare and Epic Siegelings.
+        The Volcanic Wastes churn with Fire creatures immune to the lava rivers that cut through the landscape.
+        The Electric Peaks crackle with Lightning hazards that only Lightning-mounted knights can survive.
+        The Shadow Caves twist into lightless labyrinths where Shadow Siegelings hunt in packs. To reach the Outer Zones,
+        you must defeat four boss Siegelings and collect their sigils, then present them at the Zone Door.
+        Once inside, you can relocate your entire base to claim a plot in the frontier.
+      </div>
+      <div class="zone-features">
+        <div class="zone-feat">
+          <div class="zone-feat-icon">&#x1F6E1;&#xFE0F;</div>
+          <div class="zone-feat-text"><strong>Move Your Base</strong> &mdash; Relocate your fortress to the Outer Zones for stronger wild spawns and higher income generation.</div>
+        </div>
+        <div class="zone-feat">
+          <div class="zone-feat-icon">&#x1F409;</div>
+          <div class="zone-feat-text"><strong>Legendary Dungeons</strong> &mdash; Timed dungeon events spawn on the map edge with 2-4 Legendary creatures and a visible beacon.</div>
+        </div>
+        <div class="zone-feat">
+          <div class="zone-feat-icon">&#x1F3CB;&#xFE0F;</div>
+          <div class="zone-feat-text"><strong>Build Your Own Gym</strong> &mdash; Unlock Floor 4 to create a personal gym. Visitors challenge your team; you earn defense income per victory.</div>
+        </div>
+        <div class="zone-feat">
+          <div class="zone-feat-icon">&#x1F40E;</div>
+          <div class="zone-feat-text"><strong>Mount & Ride</strong> &mdash; Mount your Siegelings to fly over peaks, swim through depths, and sprint across lava fields with elemental immunity.</div>
+        </div>
+        <div class="zone-feat">
+          <div class="zone-feat-icon">&#x26A1;</div>
+          <div class="zone-feat-text"><strong>Elemental Hazards</strong> &mdash; Lava rivers, electric storms, and ice fields punish the unprepared. Matching mounts grant full immunity.</div>
+        </div>
+        <div class="zone-feat">
+          <div class="zone-feat-icon">&#x1F5FA;&#xFE0F;</div>
+          <div class="zone-feat-text"><strong>Sigil Gates</strong> &mdash; Defeat four boss Siegelings to collect their sigils and unlock zone progression to deeper territories.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- The Badlands -->
+    <div class="zone-block badlands reveal">
+      <div class="zone-header">
+        <div class="zone-icon">&#x1F480;</div>
+        <div>
+          <div class="zone-title">The Badlands</div>
+          <div class="zone-subtitle">Roguelike PvPvE &mdash; Enter with Nothing, Leave with Everything</div>
+        </div>
+      </div>
+      <div class="zone-body">
+        The Badlands is the endgame &mdash; a high-stakes roguelike zone where up to 8 players enter with nothing
+        and fight to extract with the rarest creatures in the game. Every Siegeling that spawns here is Epic or
+        Legendary rarity, Gold or Legend variant, scaled to 1.5-2x normal size with doubled stats and levels 20-50.
+        The zone collapses over time, pushing all players toward extraction points that activate at the 7-minute mark.
+        You have 15 seconds to channel your extraction or lose everything. The Badlands Broker manages your queue,
+        offers daily contracts, and trades resources for advantages.
+      </div>
+      <div class="zone-features">
+        <div class="zone-feat">
+          <div class="zone-feat-icon">&#x1F3B2;</div>
+          <div class="zone-feat-text"><strong>Roguelike Runs</strong> &mdash; 10-minute matches. Enter empty-handed. Capture creatures into a 10-slot Bag. Extract or lose everything.</div>
+        </div>
+        <div class="zone-feat">
+          <div class="zone-feat-icon">&#x1F48E;</div>
+          <div class="zone-feat-text"><strong>Only the Rarest</strong> &mdash; Epic and Legendary Siegelings in Gold and Legend variants with 2x stats. Massive, glowing, and deadly.</div>
+        </div>
+        <div class="zone-feat">
+          <div class="zone-feat-icon">&#x23F1;&#xFE0F;</div>
+          <div class="zone-feat-text"><strong>Zone Collapse</strong> &mdash; Boundaries shrink over time. Extraction points activate at 7 minutes. 15 seconds to channel your escape.</div>
+        </div>
+        <div class="zone-feat">
+          <div class="zone-feat-icon">&#x1F4E6;</div>
+          <div class="zone-feat-text"><strong>Loot & Supply Drops</strong> &mdash; Defeated creatures drop loot bags (60s despawn). Supply drops provide mid-run advantages.</div>
+        </div>
+        <div class="zone-feat">
+          <div class="zone-feat-icon">&#x1F9D1;&#x200D;&#x1F4BC;</div>
+          <div class="zone-feat-text"><strong>The Broker</strong> &mdash; NPC who manages your queue, offers daily sacrifice contracts, and brokers high-risk trades.</div>
+        </div>
+        <div class="zone-feat">
+          <div class="zone-feat-icon">&#x1F6E1;&#xFE0F;</div>
+          <div class="zone-feat-text"><strong>Spawn Shield</strong> &mdash; 30 seconds of invulnerability on entry. Use it to scout, position, and plan your route.</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ══════════════════════════════════════════════════════════════
      HOW TO PLAY
      ══════════════════════════════════════════════════════════════ -->
 <section class="section" id="gameplay">
@@ -821,37 +1137,37 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   <div class="section-title reveal">How to Play</div>
   <div class="section-desc reveal">
     Every system feeds into the next. Capture creatures to earn income, upgrade your base
-    to build battle teams, and battle to earn glory and steal from rivals.
+    to build battle teams, mount your Siegelings to explore, and battle to earn glory.
   </div>
 
   <div class="steps-grid reveal">
     <div class="step-card">
       <div class="step-num">01</div>
-      <h3>Capture</h3>
-      <p>Find wild Siegelings across six elemental biomes. Weaken them in combat
-      and use your Capture Card to bind them. Rarer creatures cost more &mdash;
+      <h3>Capture & Bond</h3>
+      <p>Find wild Siegelings across seven elemental biomes. Weaken them in combat with your companion,
+      then hold your Capture Card for 2.5 seconds to bind them. Rarer creatures cost more &mdash;
       from 10 gold for Common up to 400 for Legendary.</p>
     </div>
     <div class="step-card">
       <div class="step-num">02</div>
-      <h3>Companion</h3>
-      <p>Set one creature as your Favorite. Your companion follows you everywhere,
-      fights by your side with scaled stats, and has its own HP and respawn cycle.
-      Choose your battle partner wisely.</p>
+      <h3>Mount & Explore</h3>
+      <p>Set a mountable Siegeling as your companion and ride it. Ground mounts sprint at boosted speed,
+      Water mounts dive through oceans with unlimited breath, and Wind mounts soar through the sky.
+      Fire mounts are immune to lava, Lightning mounts to electric hazards.</p>
     </div>
     <div class="step-card">
       <div class="step-num">03</div>
-      <h3>Build Your Base</h3>
-      <p>Assign creatures to Income slots (earn coins), Defense slots (guard your base),
-      or Battle Team slots (arena fighting). Expand from 1 floor to 3 for maximum
-      power and slots.</p>
+      <h3>Build & Defend</h3>
+      <p>Claim a plot and build up to 4 floors. Assign creatures to Income slots (earn coins), Defense
+      slots (guard your base with turret AI), or your Battle Team (3x3 arena grid). Design your own gym
+      on Floor 4 for visitors to challenge.</p>
     </div>
     <div class="step-card">
       <div class="step-num">04</div>
-      <h3>Battle & Raid</h3>
-      <p>Enter the arena for team battles, challenge players to PvP duels,
-      raid enemy bases to steal creatures, and conquer dungeons for rare loot.
-      Rise from Squire to Sire.</p>
+      <h3>Battle & Conquer</h3>
+      <p>Enter the King of the Hill arena, challenge players to PvP duels, raid enemy bases to steal
+      creatures, conquer legendary dungeons, and brave the Badlands roguelike for the rarest loot in
+      the game.</p>
     </div>
   </div>
 </section>
@@ -865,63 +1181,93 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   <div class="section-label reveal">Core Systems</div>
   <div class="section-title reveal">What Makes Sieglings Tick</div>
   <div class="section-desc reveal">
-    Deep, interconnected systems create emergent gameplay where every decision matters.
+    Deep, interconnected systems where every decision matters &mdash; from which creature you mount
+    to how you build your gym.
   </div>
 
   <div class="features-grid reveal">
     <div class="feature-card">
+      <div class="feature-icon">&#x1F40E;</div>
+      <h3>Mounting & Riding</h3>
+      <p>Mount your Siegelings and traverse the world. Ground mounts boost your speed based on creature stats.
+      Flying mounts (Wind element) let you soar at 40 studs/s. Swimming mounts (Water) let you explore the ocean floor.
+      Each mount generates a defense shield based on its stats, absorbing damage while you ride.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1F30A;</div>
+      <h3>Swimming & Diving</h3>
+      <p>Dive into the Ocean Biome with a base breath time of 10 seconds. Without a Water mount, your health drains
+      after time runs out. Bond a Water Siegeling and your breath extends up to 70 seconds. Explore underwater caves,
+      battle aquatic creatures, and discover the Water Gym hidden beneath the waves.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1F54A;&#xFE0F;</div>
+      <h3>Flight & Gliding</h3>
+      <p>Wind and Flying-type Siegelings take to the skies. Soar over Highland peaks, scout enemy bases from above,
+      and access hidden areas only reachable by air. Wind mounts also grant a glide bonus, slowing your fall
+      when dismounting mid-air.</p>
+    </div>
+    <div class="feature-card">
       <div class="feature-icon">&#x1F3F0;</div>
       <h3>Multi-Floor Fortress</h3>
-      <p>Build a three-story base with 6 income + 6 defense slots per floor. Floor 2
-      unlocks the Battle Arena and team system. Floor 3 maximizes your empire.</p>
+      <p>Build up to four floors with 6 Income and 6 Defense slots per floor. Floor 2
+      unlocks the Battle Arena team system. Floor 3 maximizes your empire. Floor 4 unlocks your personal gym.
+      Relocate your entire base to the Outer Zones for frontier bonuses.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1F3CB;&#xFE0F;</div>
+      <h3>Build Your Own Gym</h3>
+      <p>Unlock Floor 4 and design your personal gym. Set your best defenders on the battle grid. When other players
+      visit and challenge your gym, your creatures fight automatically. Win or lose, the bounty system grows &mdash;
+      you earn 75 coins per successful defense, and challengers earn bounty rewards for toppling you.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1F451;</div>
       <h3>King of the Hill Arena</h3>
       <p>Automated team battles every 60 seconds. Up to 9 creatures on a 3x3 grid.
-      Winners grow 5% per victory (capped at 300%). Synergy bonuses stack for devastating combos.</p>
+      Winners grow 5% per victory (capped at 300%). Synergy bonuses stack for devastating combos.
+      Focus bar system powers devastating special attacks.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1F6E1;&#xFE0F;</div>
       <h3>Defense Turret AI</h3>
       <p>Creatures on defense points act as automated turrets, firing at intruders
-      within 40 studs every 2.5 seconds. Your first and last line against raids.</p>
+      within 40 studs every 2.5 seconds. Your first and last line against raids.
+      Wild creature packs also attack your base periodically &mdash; keep your defenses strong.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x2694;&#xFE0F;</div>
-      <h3>PvP Duels</h3>
-      <p>Challenge nearby players to 1v1 battles. Winners earn gold and glory,
-      losers can spend coins or gems to instant-revive their fainted team.</p>
+      <h3>PvP Duels & Raids</h3>
+      <p>Challenge nearby players to 1v1 creature battles. Raid online players' bases to steal up to 3
+      creatures per raid (50% base steal chance minus 10% per defense creature).
+      Winners earn gold and XP; losers can spend gems to instant-revive.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1F504;</div>
+      <h3>Evolution & Combining</h3>
+      <p>Evolve creatures along multi-stage chains (e.g. Firsky &rarr; Emberpup &rarr; Dracoil &rarr; Pyleer &rarr; Pylord).
+      Combine three of the same variant tier &mdash; Normal &rarr; Silver &rarr; Gold &rarr; Legend &mdash;
+      for permanent stat multipliers up to 1.6x.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1F95A;</div>
       <h3>Egg Hatching</h3>
       <p>Five egg tiers from Common to God Egg. Higher tiers guarantee rarer creatures.
-      Hatch times scale with creature level. Every egg is a chance at a Legendary.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1F504;</div>
-      <h3>Evolution & Combining</h3>
-      <p>Evolve creatures to higher forms. Combine three of the same variant tier &mdash;
-      Normal to Silver to Gold to Legend &mdash; for permanent power upgrades.</p>
+      Every egg is a chance at a Legendary. Purchase with coins or Robux from the Egg Shop.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x1F30C;</div>
       <h3>Day & Night Cycle</h3>
-      <p>A full day cycles every 3 minutes. Night brings 35% Silver spawn chance for common
-      creatures, 25% Gold chance for rares, and wild evolution of base forms.</p>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon">&#x1F6E1;&#xFE0F;</div>
-      <h3>Laser Door Shield</h3>
-      <p>Activate a protective energy dome over your base. Lasts 50 seconds, blocks all
-      intruders. Whitelist up to 10 friends. Trespassers take damage and get pushed out.</p>
+      <p>A full day cycles every few minutes. Night increases Silver spawn chance for commons and Gold chance
+      for rares. Shadow and Lightning creatures remain active at night while others sleep.
+      Atmospheric lighting shifts create a living, breathing world.</p>
     </div>
     <div class="feature-card">
       <div class="feature-icon">&#x2728;</div>
-      <h3>Rebirth System</h3>
-      <p>Reset for permanent bonuses: extra gold per tick, world damage multipliers,
-      and max health boosts. Ten rebirth levels for long-term progression.</p>
+      <h3>Cosmetics & Style</h3>
+      <p>Customize your knight with trails (fire, ice, rainbow, shadow), auras (flame, electric, divine,
+      void, sakura), and name colors (gold, rainbow, cyan, and more). Express your identity on the battlefield
+      and in the arena.</p>
     </div>
   </div>
 </section>
@@ -933,9 +1279,9 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
      ══════════════════════════════════════════════════════════════ -->
 <section class="section" id="elements">
   <div class="section-label reveal">Elements</div>
-  <div class="section-title reveal">Six Elements, Six Biomes</div>
+  <div class="section-title reveal">Seven Elements, Seven Biomes</div>
   <div class="section-desc reveal">
-    Each element has 15 creatures across 5 rarity tiers. Elements follow a weakness
+    Each element has its own biome, creatures, synergies, and mount bonuses. Elements follow a weakness
     cycle &mdash; master the matchups to dominate the arena.
   </div>
 
@@ -944,31 +1290,43 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
       <span class="elem-icon">&#x1F525;</span>
       <div class="elem-name">Fire</div>
       <div class="elem-zone">Volcanic Biome</div>
+      <div class="elem-count">15 Creatures &bull; Lava Immune</div>
     </div>
     <div class="element-card ice">
       <span class="elem-icon">&#x2744;&#xFE0F;</span>
       <div class="elem-name">Ice</div>
       <div class="elem-zone">Frozen Biome</div>
+      <div class="elem-count">15 Creatures &bull; Ice Immune</div>
     </div>
     <div class="element-card wind">
       <span class="elem-icon">&#x1F32A;&#xFE0F;</span>
       <div class="elem-name">Wind</div>
       <div class="elem-zone">Highlands</div>
+      <div class="elem-count">15 Creatures &bull; Flight</div>
     </div>
     <div class="element-card earth">
       <span class="elem-icon">&#x1FAA8;</span>
       <div class="elem-name">Earth</div>
       <div class="elem-zone">Forest Biome</div>
+      <div class="elem-count">15 Creatures &bull; Tank</div>
     </div>
     <div class="element-card shadow">
       <span class="elem-icon">&#x1F311;</span>
       <div class="elem-name">Shadow</div>
       <div class="elem-zone">Cave Biome</div>
+      <div class="elem-count">15 Creatures &bull; Night Active</div>
     </div>
     <div class="element-card lightning">
       <span class="elem-icon">&#x26A1;</span>
       <div class="elem-name">Lightning</div>
-      <div class="elem-zone">Peaks Biome</div>
+      <div class="elem-zone">Electric Peaks</div>
+      <div class="elem-count">15 Creatures &bull; Shock Immune</div>
+    </div>
+    <div class="element-card water">
+      <span class="elem-icon">&#x1F30A;</span>
+      <div class="elem-name">Water</div>
+      <div class="elem-zone">Ocean Biome</div>
+      <div class="elem-count">15 Creatures &bull; Swimming</div>
     </div>
   </div>
 
@@ -986,49 +1344,57 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
       <span>&#x1F525; Fire</span>
     </div>
     <p style="margin-top: 1rem; font-size: 0.85rem; color: var(--text-muted);">
-      Advantage deals 1.5x damage &bull; Disadvantage deals 0.5x &bull; Shadow &amp; Lightning are neutral
+      Advantage deals 1.5x damage &bull; Disadvantage deals 0.5x &bull; Shadow, Lightning &amp; Water are neutral
     </p>
+    <div style="margin-top: 1.2rem; display: flex; gap: 2rem; justify-content: center; flex-wrap: wrap; font-size: 0.82rem; color: var(--text-secondary);">
+      <div><strong style="color: var(--accent-fire);">Fire Mount:</strong> Lava immunity</div>
+      <div><strong style="color: var(--accent-water);">Water Mount:</strong> Unlimited breath</div>
+      <div><strong style="color: var(--accent-wind);">Wind Mount:</strong> Flight + glide</div>
+      <div><strong style="color: var(--accent-lightning);">Lightning Mount:</strong> Shock immunity</div>
+      <div><strong style="color: var(--accent-ice);">Ice Mount:</strong> Ice hazard immunity</div>
+    </div>
   </div>
 </section>
 
 <div class="divider"></div>
 
 <!-- ══════════════════════════════════════════════════════════════
-     CREATURES - RARITY & CLASSES
+     CREATURES - RARITY, CLASSES & FULL ROSTER
      ══════════════════════════════════════════════════════════════ -->
 <section class="section" id="creatures">
   <div class="section-label reveal">Creature System</div>
   <div class="section-title reveal">90 Creatures Across 5 Rarities</div>
   <div class="section-desc reveal">
     Every creature belongs to one element and one class. Higher rarity means
-    better stats, higher income, and more capture cost.
+    better stats, higher income, and more capture cost. Many creatures are mountable,
+    and each has hand-drawn animations for idle, movement, attack, and special abilities.
   </div>
 
   <div class="rarity-row reveal">
     <div class="rarity-card common">
       <div class="rarity-name">Common</div>
-      <div class="rarity-pct">50%</div>
-      <div class="rarity-detail">Capture: 10 coins</div>
+      <div class="rarity-pct">5</div>
+      <div class="rarity-detail">per element &bull; 10 coins</div>
     </div>
     <div class="rarity-card uncommon">
       <div class="rarity-name">Uncommon</div>
-      <div class="rarity-pct">25%</div>
-      <div class="rarity-detail">Capture: 25 coins</div>
+      <div class="rarity-pct">4</div>
+      <div class="rarity-detail">per element &bull; 25 coins</div>
     </div>
     <div class="rarity-card rare">
       <div class="rarity-name">Rare</div>
-      <div class="rarity-pct">15%</div>
-      <div class="rarity-detail">Capture: 60 coins</div>
+      <div class="rarity-pct">3</div>
+      <div class="rarity-detail">per element &bull; 60 coins</div>
     </div>
     <div class="rarity-card epic">
       <div class="rarity-name">Epic</div>
-      <div class="rarity-pct">7%</div>
-      <div class="rarity-detail">Capture: 150 coins</div>
+      <div class="rarity-pct">2</div>
+      <div class="rarity-detail">per element &bull; 150 coins</div>
     </div>
     <div class="rarity-card legendary">
       <div class="rarity-name">Legendary</div>
-      <div class="rarity-pct">3%</div>
-      <div class="rarity-detail">Capture: 400 coins</div>
+      <div class="rarity-pct">1</div>
+      <div class="rarity-detail">per element &bull; 400 coins</div>
     </div>
   </div>
 
@@ -1040,27 +1406,215 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
       <div class="class-icon">&#x1F4AA;</div>
       <div class="class-name" style="color: #dc503c;">Bruiser</div>
       <div class="class-desc">High ATK &amp; HP brawlers. Built for the frontline.</div>
+      <div class="class-stats">ATK 220 &bull; DEF 80 &bull; SPD 60</div>
     </div>
     <div class="class-card">
       <div class="class-icon">&#x1F52E;</div>
       <div class="class-name" style="color: #6478ff;">Mage</div>
       <div class="class-desc">Glass cannons with devastating ranged power.</div>
+      <div class="class-stats">ATK 100 &bull; DEF 120 &bull; SPD 255</div>
     </div>
     <div class="class-card">
       <div class="class-icon">&#x1F6E1;&#xFE0F;</div>
       <div class="class-name" style="color: #50b4dc;">Guardian</div>
       <div class="class-desc">High DEF &amp; HP tanks. Walls of the arena.</div>
+      <div class="class-stats">ATK 80 &bull; DEF 180 &bull; SPD 220</div>
     </div>
     <div class="class-card">
       <div class="class-icon">&#x1F5E1;&#xFE0F;</div>
       <div class="class-name" style="color: #c83cc8;">Assassin</div>
       <div class="class-desc">High SPD &amp; ATK. Strike first, strike hard.</div>
+      <div class="class-stats">ATK 200 &bull; DEF 60 &bull; SPD 200</div>
     </div>
     <div class="class-card">
       <div class="class-icon">&#x1F49A;</div>
       <div class="class-name" style="color: #64dc78;">Support</div>
       <div class="class-desc">Healing and team buffs. Every team needs one.</div>
+      <div class="class-stats">ATK 100 &bull; DEF 220 &bull; SPD 120</div>
     </div>
+  </div>
+
+  <!-- Full Creature Roster -->
+  <div style="margin-top: 3rem;"></div>
+  <h3 class="reveal" style="font-family: 'Cinzel', serif; font-size: 1.2rem; color: var(--accent-gold); margin-bottom: 1.5rem;">Full Creature Roster</h3>
+
+  <div class="reveal">
+
+    <!-- Fire -->
+    <div class="creature-element-group">
+      <div class="creature-element-header">
+        <span>&#x1F525;</span>
+        <h4 style="color: var(--accent-fire);">Fire Element</h4>
+      </div>
+      <div class="creature-roster-grid">
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Firsky</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Pylook</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Sundile</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Draco</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Emberfox</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Emberpup</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Raydile</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Hotty</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Emberfin</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-r"></span>Dracoil</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-r"></span>Cindergil</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-r"></span>Hotdog</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-e"></span>Pyleer</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-e"></span>Solgator</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-l"></span>Pylord</div>
+      </div>
+    </div>
+
+    <!-- Ice -->
+    <div class="creature-element-group">
+      <div class="creature-element-header">
+        <span>&#x2744;&#xFE0F;</span>
+        <h4 style="color: var(--accent-ice);">Ice Element</h4>
+      </div>
+      <div class="creature-roster-grid">
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Fawny</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Frostfly</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Ice-Wee</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Ceeponee</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Cozycub</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Frosty</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Chilldoe</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Ice-Cue-Wee</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Ceehorcee</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-r"></span>Glacius</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-r"></span>Lumina</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-r"></span>Tundracrab</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-e"></span>Frostag</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-e"></span>Ceesteed</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-l"></span>Glaciemperor</div>
+      </div>
+    </div>
+
+    <!-- Wind -->
+    <div class="creature-element-group">
+      <div class="creature-element-header">
+        <span>&#x1F32A;&#xFE0F;</span>
+        <h4 style="color: var(--accent-wind);">Wind Element</h4>
+      </div>
+      <div class="creature-roster-grid">
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Ragguette</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Blinky</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Breezee</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Pursula</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Cloudpuff</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Lofty</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Gagglestand</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Purseus</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Cloudwisp</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-r"></span>Hurricrane</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-r"></span>Cloudsprite</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-r"></span>Shellshock</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-e"></span>Pursephone</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-e"></span>Skydon</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-l"></span>Aerovane</div>
+      </div>
+    </div>
+
+    <!-- Earth -->
+    <div class="creature-element-group">
+      <div class="creature-element-header">
+        <span>&#x1FAA8;</span>
+        <h4 style="color: var(--accent-earth);">Earth Element</h4>
+      </div>
+      <div class="creature-roster-grid">
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Cacty</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Applehead</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Papap</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Squire Bud</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Pylme</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Jacked'ty</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Mossy</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Flora Knight</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Bonoblade</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-r"></span>Generoot</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-r"></span>Sleaf</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-r"></span>Guerilla</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-e"></span>Sheenx</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-e"></span>CactyJackedty</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-l"></span>Gymstone</div>
+      </div>
+    </div>
+
+    <!-- Shadow -->
+    <div class="creature-element-group">
+      <div class="creature-element-header">
+        <span>&#x1F311;</span>
+        <h4 style="color: var(--accent-shadow);">Shadow Element</h4>
+      </div>
+      <div class="creature-roster-grid">
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Gloomrat</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Duskmoth</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Shadeblob</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Murkling</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Whisperling</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Nightfang</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Hexweaver</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Grimshell</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Dreadpup</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-r"></span>Shadowlurk</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-r"></span>Phantomsteed</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-r"></span>Abysscrawler</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-e"></span>Umbralwyrm</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-e"></span>Doomshield</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-l"></span>Voidmaw</div>
+      </div>
+    </div>
+
+    <!-- Lightning -->
+    <div class="creature-element-group">
+      <div class="creature-element-header">
+        <span>&#x26A1;</span>
+        <h4 style="color: var(--accent-lightning);">Lightning Element</h4>
+      </div>
+      <div class="creature-roster-grid">
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Monkwatt</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Newt</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Voltpecker</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Staticshell</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Sparkpuff</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Simicircuit</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Thundermole</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Arcfox</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Galvanite</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-r"></span>Kilokong</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-r"></span>New Ton</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-r"></span>Tempestweave</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-e"></span>Stormclaw</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-e"></span>Ionwarden</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-l"></span>Thunderlord</div>
+      </div>
+    </div>
+
+    <!-- Water -->
+    <div class="creature-element-group">
+      <div class="creature-element-header">
+        <span>&#x1F30A;</span>
+        <h4 style="color: var(--accent-water);">Water Element</h4>
+      </div>
+      <div class="creature-roster-grid">
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Spoutyl</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Shellpack</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Jawby</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Tidepup</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-c"></span>Splashfin</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Droxyl</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Clawkid</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Torqlander</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-u"></span>Coralcrest</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-r"></span>Depthclaw</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-r"></span>Tidalsurge</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-r"></span>Reefstalker</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-e"></span>Abyssking</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-e"></span>Maelstrom</div>
+        <div class="creature-chip"><span class="rarity-dot rarity-l"></span>Leviathan</div>
+      </div>
+    </div>
+
   </div>
 
   <!-- Variant Tiers -->
@@ -1095,6 +1649,189 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 <div class="divider"></div>
 
 <!-- ══════════════════════════════════════════════════════════════
+     VISUAL CODEX
+     ══════════════════════════════════════════════════════════════ -->
+<section class="section" id="codex">
+  <div class="section-label reveal">The Codex</div>
+  <div class="section-title reveal">Hand-Drawn Visual Codex</div>
+  <div class="section-desc reveal">
+    Every Siegeling in your Codex is a hand-drawn character with unique animations for idle,
+    movement, attack, and special abilities. The in-game 3D Codex Viewer lets you inspect every creature
+    from every angle.
+  </div>
+
+  <div class="features-grid reveal">
+    <div class="feature-card">
+      <div class="feature-icon">&#x1F3A8;</div>
+      <h3>Hand-Drawn Characters</h3>
+      <p>Every one of the 90 Siegelings is hand-drawn with unique character design. Each creature has
+      distinct silhouettes, color palettes, and proportions that reflect their element and personality &mdash;
+      from the fiery mane of Pylord to the crystalline wings of Glaciemperor.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1F3AC;</div>
+      <h3>Custom Animations</h3>
+      <p>Each creature has hand-crafted animation states: idle poses, movement gaits, attack sequences,
+      faint animations, and special ability effects. Flying creatures hover and bank. Crawling creatures
+      slither along the ground. Mountable creatures have distinct riding animations.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1F50D;</div>
+      <h3>3D Codex Viewer</h3>
+      <p>Open the in-game Codex to browse your creature collection in a full 3D model viewer. Rotate,
+      zoom, and inspect every variant tier. Read lore entries, view evolution chains, check base stats,
+      and see which biome each creature calls home.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1F4D6;</div>
+      <h3>Lore & Evolution Chains</h3>
+      <p>Every Codex entry includes the creature's lore, behavior type (pack, lone, gentle, aggressive,
+      skittish), full evolution chain, stat breakdowns, and synergy bonuses. Track your collection
+      progress across all 7 elements and 5 rarity tiers.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x2728;</div>
+      <h3>Visual Effects</h3>
+      <p>Creatures glow with elemental particle effects. Fire Siegelings emit embers, Ice creatures
+      trail frost crystals, Shadow creatures pulse with dark energy. Legendary and Gold/Legend variants
+      have enhanced aura effects visible from across the map.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">&#x1F4F8;</div>
+      <h3>Variant Showcase</h3>
+      <p>Each creature has four visual tiers: Normal, Silver (metallic sheen), Gold (luminous glow),
+      and Legend (prismatic aura). The Codex displays all unlocked variants side by side with their
+      stat multipliers, letting you track your combining progress.</p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     ROADMAP
+     ══════════════════════════════════════════════════════════════ -->
+<section class="section" id="roadmap">
+  <div class="section-label reveal">Development</div>
+  <div class="section-title reveal">Roadmap &mdash; What's Built & What's Next</div>
+  <div class="section-desc reveal">
+    Sieglings is actively in development. Here's what's been built and what's on the horizon.
+  </div>
+
+  <div class="roadmap-container reveal">
+    <div class="roadmap-line"></div>
+
+    <!-- Phase 1 -->
+    <div class="roadmap-phase">
+      <div class="roadmap-dot done"></div>
+      <div class="roadmap-phase-title">Phase 1 &mdash; Foundation</div>
+      <div class="roadmap-phase-subtitle done">Completed</div>
+      <div class="roadmap-items">
+        <div class="roadmap-item done">90 Creatures across 7 Elements</div>
+        <div class="roadmap-item done">Capture System with Hold-to-Bind</div>
+        <div class="roadmap-item done">Companion & Favorite System</div>
+        <div class="roadmap-item done">Multi-Floor Base Building (4 Floors)</div>
+        <div class="roadmap-item done">Income, Defense & Battle Slot System</div>
+        <div class="roadmap-item done">King of the Hill Arena</div>
+        <div class="roadmap-item done">PvP 1v1 Duels</div>
+        <div class="roadmap-item done">Base Raiding (PvP & AI)</div>
+        <div class="roadmap-item done">Evolution & Variant Combining</div>
+        <div class="roadmap-item done">Egg Shop (5 Tiers)</div>
+        <div class="roadmap-item done">Day/Night Cycle</div>
+        <div class="roadmap-item done">Leaderboards (Income, Battle, Collector)</div>
+      </div>
+    </div>
+
+    <!-- Phase 2 -->
+    <div class="roadmap-phase">
+      <div class="roadmap-dot done"></div>
+      <div class="roadmap-phase-title">Phase 2 &mdash; Exploration & Movement</div>
+      <div class="roadmap-phase-subtitle done">Completed</div>
+      <div class="roadmap-items">
+        <div class="roadmap-item done">Mounting & Riding Siegelings</div>
+        <div class="roadmap-item done">Ground, Flying & Swimming Mounts</div>
+        <div class="roadmap-item done">Mount Shield System</div>
+        <div class="roadmap-item done">Underwater Breathing & O2 Meter</div>
+        <div class="roadmap-item done">Elemental Mount Bonuses (Lava/Shock Immunity)</div>
+        <div class="roadmap-item done">Hand-Drawn Creature Animations</div>
+        <div class="roadmap-item done">Visual Codex with 3D Model Viewer</div>
+        <div class="roadmap-item done">Cosmetic Shop (Trails, Auras, Name Colors)</div>
+        <div class="roadmap-item done">Buff Shop (Lucky, Damage, Income Boosts)</div>
+        <div class="roadmap-item done">Laser Door Shield System</div>
+        <div class="roadmap-item done">Rebirth System (10 Tiers)</div>
+      </div>
+    </div>
+
+    <!-- Phase 3 -->
+    <div class="roadmap-phase">
+      <div class="roadmap-dot done"></div>
+      <div class="roadmap-phase-title">Phase 3 &mdash; Gyms & Competitive</div>
+      <div class="roadmap-phase-subtitle done">Completed</div>
+      <div class="roadmap-items">
+        <div class="roadmap-item done">Personal Gym System (Floor 4)</div>
+        <div class="roadmap-item done">Water Gym (Ocean Biome)</div>
+        <div class="roadmap-item done">Gym Defense Income & Bounty System</div>
+        <div class="roadmap-item done">Synergy Bonuses (Element & Class)</div>
+        <div class="roadmap-item done">Focus Bar & Special Attacks</div>
+        <div class="roadmap-item done">Arena Growth System (5% per win, 300% cap)</div>
+        <div class="roadmap-item done">Friends List & Player Profiles</div>
+      </div>
+    </div>
+
+    <!-- Phase 4 -->
+    <div class="roadmap-phase">
+      <div class="roadmap-dot done"></div>
+      <div class="roadmap-phase-title">Phase 4 &mdash; The Badlands</div>
+      <div class="roadmap-phase-subtitle done">Completed</div>
+      <div class="roadmap-items">
+        <div class="roadmap-item done">Badlands Roguelike Mode (8 Players)</div>
+        <div class="roadmap-item done">Epic/Legendary Only Spawns (Gold/Legend Variants)</div>
+        <div class="roadmap-item done">10-Slot Capture Bag System</div>
+        <div class="roadmap-item done">Zone Collapse & Extraction Mechanics</div>
+        <div class="roadmap-item done">Badlands Broker NPC</div>
+        <div class="roadmap-item done">Daily Sacrifice Contracts</div>
+        <div class="roadmap-item done">Supply Drops & Loot Bags</div>
+        <div class="roadmap-item done">Legendary Dungeon Beacon Events</div>
+      </div>
+    </div>
+
+    <!-- Phase 5 -->
+    <div class="roadmap-phase">
+      <div class="roadmap-dot current"></div>
+      <div class="roadmap-phase-title">Phase 5 &mdash; Outer Zones & Expansion</div>
+      <div class="roadmap-phase-subtitle current">In Development</div>
+      <div class="roadmap-items">
+        <div class="roadmap-item current">Outer Zone Territories</div>
+        <div class="roadmap-item current">Base Relocation to Outer Zones</div>
+        <div class="roadmap-item current">Sigil Gate Progression System</div>
+        <div class="roadmap-item current">Boss Siegeling Encounters</div>
+        <div class="roadmap-item">Haunted House Base Theme</div>
+        <div class="roadmap-item">Living World Chat System</div>
+        <div class="roadmap-item">Biome Skybox System</div>
+      </div>
+    </div>
+
+    <!-- Phase 6 -->
+    <div class="roadmap-phase">
+      <div class="roadmap-dot upcoming"></div>
+      <div class="roadmap-phase-title">Phase 6 &mdash; Beyond</div>
+      <div class="roadmap-phase-subtitle upcoming">Planned</div>
+      <div class="roadmap-items">
+        <div class="roadmap-item">New Elements (Psychic, Undead)</div>
+        <div class="roadmap-item">Desert Biome Expansion</div>
+        <div class="roadmap-item">Guild/Faction System</div>
+        <div class="roadmap-item">Seasonal Events & Limited Creatures</div>
+        <div class="roadmap-item">Tournament Mode</div>
+        <div class="roadmap-item">Creature Trading Between Players</div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ══════════════════════════════════════════════════════════════
      GLOSSARY / WORLD
      ══════════════════════════════════════════════════════════════ -->
 <section class="section" id="ranks">
@@ -1108,7 +1845,7 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   <div class="glossary-grid reveal">
     <div class="glossary-item">
       <div class="glossary-term">Siegeling</div>
-      <div class="glossary-def">Elemental creatures of Fire, Ice, Earth, Wind, Shadow, and Lightning.
+      <div class="glossary-def">Elemental creatures of Fire, Ice, Earth, Wind, Shadow, Lightning, and Water.
       Bound to humans via Capture Card and Shield.</div>
     </div>
     <div class="glossary-item">
@@ -1151,6 +1888,21 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
       <div class="glossary-def">Rare creatures with a third eye. Understand both humans and Siegelings.
       One per elemental region. Translators between species.</div>
     </div>
+    <div class="glossary-item">
+      <div class="glossary-term">The Badlands Broker</div>
+      <div class="glossary-def">Mysterious NPC at the entrance to the Badlands. Manages the queue, offers
+      daily sacrifice contracts, and trades resources for advantages in the roguelike zone.</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">Sigil</div>
+      <div class="glossary-def">Token dropped by boss Siegelings. Collect four sigils to unlock progression
+      to deeper territories through the Zone Door.</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">Extraction</div>
+      <div class="glossary-def">The act of escaping the Badlands with your captured creatures. Channel for
+      15 seconds at an extraction point. Fail, and you lose everything from that run.</div>
+    </div>
   </div>
 </section>
 
@@ -1163,7 +1915,8 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   <div class="cta-box reveal">
     <h2>Begin Your Rite</h2>
     <p>
-      Choose your starter Siegeling. Claim your plot. Capture, assign, and battle.
+      Choose your starter Siegeling. Claim your plot. Mount your creature and explore seven biomes.
+      Build your gym, brave the Badlands, and rise from Squire to Sire.
       The four houses watch. The arena awaits. Go with honor.
     </p>
     <a href="#" class="btn-primary" style="display: inline-block;">Play on Roblox</a>
@@ -1179,9 +1932,12 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   <div class="footer-links">
     <a href="#lore">Lore</a>
     <a href="#houses">Houses</a>
+    <a href="#world">World</a>
     <a href="#gameplay">Gameplay</a>
     <a href="#elements">Elements</a>
     <a href="#creatures">Creatures</a>
+    <a href="#codex">Codex</a>
+    <a href="#roadmap">Roadmap</a>
   </div>
 </footer>
 
@@ -1189,7 +1945,7 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
      JAVASCRIPT
      ══════════════════════════════════════════════════════════════ -->
 <script>
-// ─── Particles ─────────────────────────────────────────────
+// Particles
 (function() {
   const canvas = document.getElementById('particles-canvas');
   const ctx = canvas.getContext('2d');
@@ -1211,7 +1967,7 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
       vy: (Math.random() - 0.5) * 0.3,
       size: Math.random() * 2 + 0.5,
       opacity: Math.random() * 0.4 + 0.1,
-      color: ['#a855f7', '#ff5020', '#64c8ff', '#ffb800', '#7aefaa'][Math.floor(Math.random() * 5)]
+      color: ['#a855f7', '#ff5020', '#64c8ff', '#ffb800', '#7aefaa', '#3ca8ff'][Math.floor(Math.random() * 6)]
     };
   }
 
@@ -1238,13 +1994,13 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   animate();
 })();
 
-// ─── Nav scroll effect ─────────────────────────────────────
+// Nav scroll effect
 const nav = document.getElementById('nav');
 window.addEventListener('scroll', () => {
   nav.classList.toggle('scrolled', window.scrollY > 50);
 });
 
-// ─── Scroll reveal ─────────────────────────────────────────
+// Scroll reveal
 const observer = new IntersectionObserver((entries) => {
   entries.forEach(entry => {
     if (entry.isIntersecting) {
@@ -1255,12 +2011,12 @@ const observer = new IntersectionObserver((entries) => {
 
 document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
 
-// ─── Mobile menu ───────────────────────────────────────────
+// Mobile menu
 function toggleMobileMenu() {
   document.getElementById('mobileMenu').classList.toggle('open');
 }
 
-// ─── Stat counter animation ────────────────────────────────
+// Stat counter animation
 function animateCounters() {
   document.querySelectorAll('.hero-stat-num').forEach(el => {
     const target = parseInt(el.textContent);
@@ -1279,7 +2035,6 @@ function animateCounters() {
   });
 }
 
-// Run counter animation after a short delay
 setTimeout(animateCounters, 800);
 </script>
 

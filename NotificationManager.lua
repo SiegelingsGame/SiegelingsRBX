@@ -42,6 +42,8 @@ function NotificationManager.GetCategoryPreference(_) return "toast" end
 -- SCREEN GUI + TOAST CONTAINER + TICKER
 -- ══════════════════════════════════════
 local sg = nil
+local toastContainer = nil
+local toastOrder = 0
 local tickerBar = nil
 local tickerViewport = nil
 local tickerTrack = nil
@@ -94,112 +96,88 @@ local function buildNotificationUI()
 	sg.ResetOnSpawn = false
 	sg.DisplayOrder = 50
 	sg.Parent = playerGui
-
-	local isMobileTicker = UserInputService.TouchEnabled
-	tickerBar = Instance.new("Frame")
-	tickerBar.Name = "TickerBar"
-	tickerBar.Size = UDim2.new(0.7, 0, 0, 30)
-	tickerBar.Position = UDim2.new(0.5, 0, 0, TICKER_DESKTOP_TOP_Y + (isMobileTicker and TICKER_MOBILE_Y_OFFSET or 0))
-	tickerBar.AnchorPoint = Vector2.new(0.5, 0)
-	tickerBar.BackgroundColor3 = TICKER_BG
-	tickerBar.BackgroundTransparency = 0.25
-	tickerBar.BorderSizePixel = 0
-	tickerBar.ClipsDescendants = true
-	tickerBar.Parent = sg
-	Instance.new("UICorner", tickerBar).CornerRadius = UDim.new(0, 8)
-	local tickerStroke = Instance.new("UIStroke", tickerBar)
-	tickerStroke.Color = TICKER_STROKE
-	tickerStroke.Thickness = 2
-	if isMobileTicker then
-		local tickerScale = Instance.new("UIScale")
-		tickerScale.Scale = TICKER_MOBILE_SCALE
-		tickerScale.Parent = tickerBar
-	end
-	-- Star above ticker
-	local star = Instance.new("TextLabel")
-	star.Name = "Star"
-	star.Size = UDim2.new(0, 18, 0, 18)
-	star.Position = UDim2.new(0.5, -28, 0, -22)
-	star.AnchorPoint = Vector2.new(0.5, 0)
-	star.BackgroundTransparency = 1
-	star.Text = "\xe2\x98\x85"  -- ★ (UTF-8 encoded to avoid encoding issues)
-	star.TextColor3 = TICKER_TEXT
-	star.Font = Enum.Font.GothamBold
-	star.TextSize = 14
-	star.Parent = tickerBar
-	-- Viewport (masks content; no scrollbar)
-	tickerViewport = Instance.new("Frame")
-	tickerViewport.Name = "TickerViewport"
-	tickerViewport.Size = UDim2.new(1, -20, 1, -8)
-	tickerViewport.Position = UDim2.new(0, 10, 0, 4)
-	tickerViewport.BackgroundTransparency = 1
-	tickerViewport.ClipsDescendants = true
-	tickerViewport.Parent = tickerBar
-	-- Track: horizontal strip that scrolls (content + copy for seamless loop)
-	tickerTrack = Instance.new("Frame")
-	tickerTrack.Name = "TickerTrack"
-	tickerTrack.Size = UDim2.new(0, 0, 1, 0)
-	tickerTrack.Position = UDim2.new(0, 0, 0, 0)
-	tickerTrack.BackgroundTransparency = 1
-	tickerTrack.Parent = tickerViewport
-	local trackLayout = Instance.new("UIListLayout")
-	trackLayout.FillDirection = Enum.FillDirection.Horizontal
-	trackLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-	trackLayout.Padding = UDim.new(0, 0)  -- no gap between content and copy
-	trackLayout.Parent = tickerTrack
-	-- Content: canonical message strip (the "original")
-	tickerContent = Instance.new("Frame")
-	tickerContent.Name = "TickerContent"
-	tickerContent.LayoutOrder = 1
-	tickerContent.Size = UDim2.new(0, 0, 1, 0)
-	tickerContent.BackgroundTransparency = 1
-	tickerContent.Parent = tickerTrack
-	local contentLayout = Instance.new("UIListLayout")
-	contentLayout.FillDirection = Enum.FillDirection.Horizontal
-	contentLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-	contentLayout.Padding = UDim.new(0, TICKER_PAD)
-	contentLayout.Parent = tickerContent
-	-- Copy: duplicate strip (tiled to fill viewport)
-	tickerContentCopy = Instance.new("Frame")
-	tickerContentCopy.Name = "TickerContentCopy"
-	tickerContentCopy.LayoutOrder = 2
-	tickerContentCopy.Size = UDim2.new(0, 0, 1, 0)
-	tickerContentCopy.BackgroundTransparency = 1
-	tickerContentCopy.Parent = tickerTrack
-	local copyLayout = Instance.new("UIListLayout")
-	copyLayout.FillDirection = Enum.FillDirection.Horizontal
-	copyLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-	copyLayout.Padding = UDim.new(0, TICKER_PAD)
-	copyLayout.Parent = tickerContentCopy
-
-	if tickerViewportSizeConn then
-		tickerViewportSizeConn:Disconnect()
-		tickerViewportSizeConn = nil
-	end
-	tickerViewportSizeConn = tickerViewport:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
-		if requestTickerSync and tickerViewport and tickerViewport.AbsoluteSize.X > 0 then
-			requestTickerSync()
-		end
-	end)
-	task.defer(function()
-		if requestTickerSync and tickerViewport and tickerViewport.Parent then
-			requestTickerSync()
-		end
-	end)
-	task.delay(0.1, function()
-		if requestTickerSync and tickerViewport and tickerViewport.Parent then
-			requestTickerSync()
-		end
-	end)
-	task.delay(0.25, function()
-		if requestTickerSync and tickerViewport and tickerViewport.Parent then
-			requestTickerSync()
-		end
-	end)
-
-	tickerBar.Visible = false
-
 	return sg
+end
+
+local function ensureToastContainer()
+	buildNotificationUI()
+	if toastContainer and toastContainer.Parent then return toastContainer end
+
+	toastContainer = Instance.new("Frame")
+	toastContainer.Name = "ToastContainer"
+	toastContainer.Size = UDim2.new(0, 560, 0, 220)
+	toastContainer.Position = UDim2.new(0.5, -280, 0, 12)
+	toastContainer.BackgroundTransparency = 1
+	toastContainer.Parent = sg
+
+	local layout = Instance.new("UIListLayout")
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Padding = UDim.new(0, 6)
+	layout.FillDirection = Enum.FillDirection.Vertical
+	layout.VerticalAlignment = Enum.VerticalAlignment.Top
+	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	layout.Parent = toastContainer
+
+	return toastContainer
+end
+
+local function getToastColorForCategory(category)
+	if category == "conversation" then return TICKER_COLOR_CONVERSATION end
+	if category == "raid" then return TICKER_COLOR_RAID end
+	return TICKER_TEXT
+end
+
+local function pushToastLine(text, color, duration, category)
+	if not text or text == "" then return end
+	local container = ensureToastContainer()
+	toastOrder += 1
+
+	local row = Instance.new("TextLabel")
+	row.Name = "Toast_" .. tostring(toastOrder)
+	row.LayoutOrder = toastOrder
+	row.Size = UDim2.new(1, 0, 0, 26)
+	row.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
+	row.BackgroundTransparency = 0.15
+	row.BorderSizePixel = 0
+	row.Text = text
+	row.TextColor3 = color or getToastColorForCategory(category)
+	row.Font = Enum.Font.GothamMedium
+	row.TextSize = 13
+	row.TextXAlignment = Enum.TextXAlignment.Center
+	row.TextTruncate = Enum.TextTruncate.AtEnd
+	row.Parent = container
+	Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = color or getToastColorForCategory(category)
+	stroke.Thickness = 1.5
+	stroke.Transparency = 0.2
+	stroke.Parent = row
+
+	task.delay(duration or 4, function()
+		if row.Parent then
+			TweenService:Create(row, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				TextTransparency = 1,
+				BackgroundTransparency = 1,
+			}):Play()
+			task.delay(0.35, function()
+				if row.Parent then row:Destroy() end
+			end)
+		end
+	end)
+
+	local visibleRows = {}
+	for _, child in ipairs(container:GetChildren()) do
+		if child:IsA("TextLabel") then
+			table.insert(visibleRows, child)
+		end
+	end
+	if #visibleRows > 6 then
+		table.sort(visibleRows, function(a, b) return a.LayoutOrder < b.LayoutOrder end)
+		for i = 1, #visibleRows - 6 do
+			visibleRows[i]:Destroy()
+		end
+	end
 end
 
 -- ══════════════════════════════════════
@@ -678,35 +656,15 @@ end
 -- @param category  "conversation" (blue), "raid" (red), "arena"/nil (gold)
 function NotificationManager.Ticker(text, iconType, category)
 	if not text or text == "" then return end
-	buildNotificationUI()
-	-- Clear any silence placeholder when a real message arrives
-	local removedSilence = false
-	for i = #tickerQueue, 1, -1 do
-		if tickerQueue[i].text == TICKER_SILENCE_TEXT then
-			table.remove(tickerQueue, i)
-			removedSilence = true
-		end
-	end
-	for i = #tickerPendingEntries, 1, -1 do
-		if tickerPendingEntries[i].text == TICKER_SILENCE_TEXT then
-			table.remove(tickerPendingEntries, i)
-			removedSilence = true
-		end
-	end
-	if removedSilence then
-		tickerNeedsFullRebuild = true
-	end
-	local entry = { text = text, iconType = iconType, category = category }
-	table.insert(tickerQueue, entry)
-	table.insert(tickerPendingEntries, entry)
-	tickerSilenceArmed = true
-	requestTickerRefresh()
+	pushToastLine(text, nil, 4, category)
 end
 
 -- Restore UI on respawn (PlayerGui is cleared)
 player.CharacterAdded:Connect(function()
 	task.wait(0.1)
 	sg = nil
+	toastContainer = nil
+	toastOrder = 0
 	tickerBar = nil
 	tickerViewport = nil
 	tickerTrack = nil
@@ -724,9 +682,6 @@ player.CharacterAdded:Connect(function()
 		tickerViewportSizeConn:Disconnect()
 		tickerViewportSizeConn = nil
 	end
-	stopTickerScroll()
-	tickerSilenceArmed = true
-	tickerSilenceTaskToken += 1
 	killFeedContainer = nil
 	buildNotificationUI()
 end)
@@ -753,11 +708,8 @@ end
 function NotificationManager.Toast(text, color, duration, icon, category)
 	if not text or text == "" or text == "nil" or text == "false" then return nil end
 	local displayText = formatKnightly(text, category)
-	local iconType = (category == "arena" or category == "raid" or category == "combat" or category == "pvp") and "alert"
-		or (category == "base" or category == "inventory" or category == "shop" or category == "capture" or category == "trade") and "progress"
-		or nil
-	local tickerCategory = (category == "raid") and "raid" or (category == "arena" or category == "combat" or category == "pvp") and "arena" or nil
-	NotificationManager.Ticker(displayText, iconType, tickerCategory)
+	local toastCategory = (category == "raid") and "raid" or (category == "arena" or category == "combat" or category == "pvp") and "arena" or category
+	pushToastLine(displayText, color, duration or 4, toastCategory)
 	return nil
 end
 

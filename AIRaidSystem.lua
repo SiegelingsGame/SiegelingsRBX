@@ -376,6 +376,10 @@ end
 -- -- INIT --
 
 function AIRaidSystem.Init(playerDataMgr, basePlacementRef, creatureSpawnerRef, creatureAIRef)
+	if not GameConfig.AIRaidEnabled then
+		print("[AIRaidSystem] Disabled via GameConfig.AIRaidEnabled")
+		return
+	end
 	PlayerDataManager = playerDataMgr
 	BasePlacementSystem = basePlacementRef
 	CreatureSpawner = creatureSpawnerRef

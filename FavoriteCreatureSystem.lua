@@ -272,6 +272,7 @@ local COMPANION_STAND_UP_ANGLES = {
 	pursepursula = {-180, 0, 0},
 	skydon = {-180, 0, 0},
 	applehead = {-90, 0, 0},
+	emberfin = {-90, 0, 0},
 }
 
 local function needsFacingCorrection(model)

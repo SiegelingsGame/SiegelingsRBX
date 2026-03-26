@@ -24,11 +24,11 @@
 -- BiomeSkyboxClient sets player attribute "CurrentSkyName" whenever the
 -- skybox changes. This script listens for that attribute.
 --
--- Combat detection (any = battle music):
---   • workspace attribute "ArenaBattleInProgress" == true
---   • workspace attribute "GymBattleInProgress"   == true
---   • player  attribute "InBadlands"              == true
+-- Combat / battle music (instance-based — only participants hear it):
+--   • player attribute "InBattleMusic"            == true  (set by server on arena/gym participants)
+--   • player attribute "InBadlands"               == true
 --   • PvPBattleStart / PvPBattleEnd RemoteEvents
+--   • within ArenaBattleMusicRadius studs of any workspace.Arena BlueTeam/RedTeam BattlePoint
 --
 -- Crossfade: smooth transition between tracks. Outgoing fades to silence,
 -- incoming fades to target volume. Tracks keep playing silently so resuming
@@ -114,14 +114,78 @@ end
 -- Cave state (updated by position polling loop)
 local inCaveBiome = false
 
+-- Main Siegelord arena: battle theme when near team BattlePoints (see GameConfig.GameplayMusic.ArenaBattleMusicRadius).
+local ARENA_BATTLE_MUSIC_RADIUS = math.max(5, tonumber(config.ArenaBattleMusicRadius) or 80)
+local mainArenaBattlePointParts = {} -- BasePart[]
+local mainArenaCenterPart = nil
+local nearMainArenaBattleMusicZone = false
+
+local function findMainArenaModel()
+	local direct = workspace:FindFirstChild("Arena")
+	if direct and (direct:FindFirstChild("BlueTeam") or direct:FindFirstChild("RedTeam")) then
+		return direct
+	end
+	-- Streaming / alternate layout: any Arena folder/model with both teams
+	for _, inst in workspace:GetChildren() do
+		if inst.Name == "Arena" and (inst:IsA("Folder") or inst:IsA("Model")) then
+			if inst:FindFirstChild("BlueTeam") and inst:FindFirstChild("RedTeam") then
+				return inst
+			end
+		end
+	end
+	return nil
+end
+
+local function refreshMainArenaBattlePointParts()
+	table.clear(mainArenaBattlePointParts)
+	mainArenaCenterPart = nil
+	local arena = findMainArenaModel()
+	if not arena then return end
+	local ac = arena:FindFirstChild("ArenaCenter")
+	if ac and ac:IsA("BasePart") then
+		mainArenaCenterPart = ac
+	end
+	for _, teamName in ipairs({ "BlueTeam", "RedTeam" }) do
+		local team = arena:FindFirstChild(teamName)
+		if team then
+			for _, d in ipairs(team:GetDescendants()) do
+				if d:IsA("BasePart") and d.Name:match("^BattlePoint%d+$") then
+					table.insert(mainArenaBattlePointParts, d)
+				end
+			end
+		end
+	end
+end
+
+--- True if player is within `radius` studs of any BattlePoint or optional ArenaCenter.
+local function isNearArenaBattleAnchors(rootPos, radius)
+	local r2 = radius * radius
+	for _, pt in ipairs(mainArenaBattlePointParts) do
+		if pt.Parent then
+			local d = rootPos - pt.Position
+			if d.X * d.X + d.Y * d.Y + d.Z * d.Z <= r2 then
+				return true
+			end
+		end
+	end
+	if mainArenaCenterPart and mainArenaCenterPart.Parent then
+		local d = rootPos - mainArenaCenterPart.Position
+		if d.X * d.X + d.Y * d.Y + d.Z * d.Z <= r2 then
+			return true
+		end
+	end
+	return false
+end
+
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- Discover all Sound objects in SoundService
 -- ═══════════════════════════════════════════════════════════════════════════════
 
---- @param name string  — Sound object name in SoundService
+--- @param name string  — Sound object name in SoundService (any depth; Studio often nests Sounds in folders)
 --- @return Sound|nil
 local function findSound(name)
-	local snd = SoundService:FindFirstChild(name)
+	if not name or name == "" then return nil end
+	local snd = SoundService:FindFirstChild(name, true)
 	if snd and snd:IsA("Sound") then
 		return snd
 	end
@@ -138,7 +202,7 @@ for _, trackName in pairs(SKY_TO_TRACK) do
 	knownTrackNames[trackName] = true
 end
 
--- Clean up leftover sounds from the old single-track system
+-- Clean up leftover sounds from the old single-track system (top-level only; nested assets stay)
 do
 	for _, child in ipairs(SoundService:GetChildren()) do
 		if child:IsA("Sound") and not knownTrackNames[child.Name] then
@@ -185,6 +249,10 @@ end
 
 if #missingList > 0 then
 	print("[GameplayMusic] Missing tracks (will use Main Theme as fallback): " .. table.concat(missingList, ", "))
+end
+if not battleTheme then
+	warn("[GameplayMusic] Battle theme not found in SoundService as '" .. BATTLE_THEME_NAME
+		.. "' (search is recursive). Combat / arena music will use Main Theme until you add it.")
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -330,10 +398,10 @@ end
 -- ═══════════════════════════════════════════════════════════════════════════════
 local inPvP = false
 
---- @return boolean — true if any combat scenario is active
+--- @return boolean — true if any combat scenario is active for THIS player
 local function isInCombat()
-	if workspace:GetAttribute("ArenaBattleInProgress") == true then return true end
-	if workspace:GetAttribute("GymBattleInProgress") == true then return true end
+	-- Instance-based: server sets InBattleMusic on only the participating players
+	if player:GetAttribute("InBattleMusic") == true then return true end
 	if player:GetAttribute("InBadlands") == true then return true end
 	if inPvP then return true end
 	return false
@@ -387,6 +455,23 @@ local function crossfadeTo(targetTrack)
 		inactiveTween:Play()
 		-- Don't :Stop() — let it keep TimePosition for seamless resume later
 	end
+
+	-- Silence ALL other managed tracks that aren't the target.
+	-- Prevents leftover volume from rapid biome transitions or cancelled tweens
+	-- (e.g. biome music still audible when battle music starts).
+	local allTracks = { mainTheme, battleTheme, caveTrack }
+	for _, snd in pairs(biomeTracks) do
+		table.insert(allTracks, snd)
+	end
+	for _, snd in ipairs(allTracks) do
+		if snd and snd ~= targetTrack and snd ~= outgoing and snd.Volume > 0 then
+			TweenService:Create(
+				snd,
+				TweenInfo.new(CROSSFADE_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.In),
+				{ Volume = 0 }
+			):Play()
+		end
+	end
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -397,8 +482,8 @@ end
 --- Priority: Combat > Cave (positional) > Biome (skybox) > Main Theme
 --- @return Sound — the Sound object to crossfade to
 local function getDesiredTrack()
-	-- Priority 1: Combat → battle theme
-	if isInCombat() then
+	-- Priority 1: Combat / main-arena battle-point radius → battle theme
+	if isInCombat() or nearMainArenaBattleMusicZone then
 		return battleTheme or mainTheme
 	end
 
@@ -430,9 +515,10 @@ local function resetAllMusicToMainTheme()
 	if activeTween then activeTween:Cancel() end
 	if inactiveTween then inactiveTween:Cancel() end
 
-	-- Clear transient combat/cave state so death always returns to default music.
+	-- Clear transient combat/cave / arena-proximity state so death always returns to default music.
 	inPvP = false
 	inCaveBiome = false
+	nearMainArenaBattleMusicZone = false
 
 	local uniqueTracks = {}
 	local allTracks = { mainTheme, battleTheme, caveTrack }
@@ -520,9 +606,8 @@ task.spawn(function()
 	-- Bind state change listeners (all trigger evaluateMusic)
 	-- ═══════════════════════════════════════════════════════════════════════════
 
-	-- Combat triggers
-	workspace:GetAttributeChangedSignal("ArenaBattleInProgress"):Connect(evaluateMusic)
-	workspace:GetAttributeChangedSignal("GymBattleInProgress"):Connect(evaluateMusic)
+	-- Combat triggers (instance-based: only this player's attribute matters)
+	player:GetAttributeChangedSignal("InBattleMusic"):Connect(evaluateMusic)
 	player:GetAttributeChangedSignal("InBadlands"):Connect(evaluateMusic)
 
 	-- Biome trigger (skybox change published by BiomeSkyboxClient)
@@ -598,6 +683,37 @@ task.spawn(function()
 			end
 		end)
 	end
+
+	workspace.ChildAdded:Connect(function(child)
+		if child.Name == "Arena" then
+			refreshMainArenaBattlePointParts()
+		end
+	end)
+
+	-- Main arena: battle music near BlueTeam/RedTeam BattlePoints (streaming-safe refresh)
+	task.spawn(function()
+		local arenaRescanTicks = 0
+		while true do
+			task.wait(CAVE_CHECK_INTERVAL)
+			arenaRescanTicks += 1
+			if arenaRescanTicks >= 25 or #mainArenaBattlePointParts == 0 then
+				arenaRescanTicks = 0
+				refreshMainArenaBattlePointParts()
+			end
+
+			local char = player.Character
+			local root = char and char:FindFirstChild("HumanoidRootPart")
+			local near = false
+			if root and (mainArenaCenterPart or #mainArenaBattlePointParts > 0) then
+				near = isNearArenaBattleAnchors(root.Position, ARENA_BATTLE_MUSIC_RADIUS)
+			end
+
+			if near ~= nearMainArenaBattleMusicZone then
+				nearMainArenaBattleMusicZone = near
+				evaluateMusic()
+			end
+		end
+	end)
 
 	-- Log summary
 	local trackList = {}

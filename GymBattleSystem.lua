@@ -1014,6 +1014,10 @@ local function runGymBattle(plotModel, owner, challenger)
 	activeGymPlayers[owner.UserId] = plotName
 	activeGymPlayers[challenger.UserId] = plotName
 
+	-- Instance-based battle music: only participants hear battle theme
+	if owner and owner.Parent then owner:SetAttribute("InBattleMusic", true) end
+	if challenger and challenger.Parent then challenger:SetAttribute("InBattleMusic", true) end
+
 	-- Announce — fire prominent start banner to both participants
 	local gymStartEvt = eventsFolder and eventsFolder:FindFirstChild("BaseGymStart")
 	if gymStartEvt then
@@ -1287,6 +1291,10 @@ local function runGymBattle(plotModel, owner, challenger)
 	end
 
 	-- ── Cleanup ──────────────────────────────────────────────────────────────
+	-- Clear instance-based battle music for participants
+	if owner and owner.Parent then owner:SetAttribute("InBattleMusic", nil) end
+	if challenger and challenger.Parent then challenger:SetAttribute("InBattleMusic", nil) end
+
 	task.wait(3)
 	clearGymCreatures(battleTag)
 	activeBattles[plotName] = nil
@@ -1391,6 +1399,8 @@ local function setupPlotArena(plotModel)
 			if not ok then
 				warn("[GymBattle] Error on " .. plotModel.Name .. ": " .. tostring(err))
 				rejectClient(challenger, "Arena error", "The Siegelord Arena could not start right now. Please try again.", "error")
+				if owner and owner.Parent then owner:SetAttribute("InBattleMusic", nil) end
+				if challenger and challenger.Parent then challenger:SetAttribute("InBattleMusic", nil) end
 				activeBattles[plotModel.Name] = nil
 				plotModel:SetAttribute("GymBattleInProgress", nil)
 				activeGymPlayers[owner.UserId] = nil

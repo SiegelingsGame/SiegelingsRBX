@@ -19,6 +19,37 @@ end
 local DayNightCycle = {}
 DayNightCycle._conn = nil
 DayNightCycle._startTime = nil
+DayNightCycle._baseBrightness = nil
+
+local function smoothstep01(t)
+	t = math.clamp(t, 0, 1)
+	return t * t * (3 - 2 * t)
+end
+
+local function getNightBlendFactor(clockTime, startH, endH, transitionHours)
+	local nightLength = (endH - startH) % 24
+	if nightLength <= 0 then
+		return 0
+	end
+	if nightLength >= 24 then
+		return 1
+	end
+
+	local u = (clockTime - startH) % 24
+	if u >= nightLength then
+		return 0
+	end
+
+	local transition = math.max(0, tonumber(transitionHours) or 0)
+	if transition <= 0 then
+		return 1
+	end
+
+	transition = math.min(transition, nightLength * 0.5)
+	local fadeIn = smoothstep01(u / transition)
+	local fadeOut = smoothstep01((nightLength - u) / transition)
+	return fadeIn * fadeOut
+end
 
 function DayNightCycle.Init()
 	local config = getConfig()
@@ -27,11 +58,17 @@ function DayNightCycle.Init()
 	end
 
 	local cycleSeconds = math.max(1, tonumber(config.DayNightCycleSeconds) or 30)
+	local startHour = tonumber(config.DayNightCycleStartHour) or 5.5
+	local nightDarknessReduction = math.clamp(tonumber(config.NightDarknessReductionPercent) or 0.10, 0, 1)
 
 	-- Stop existing cycle if re-initializing
 	if DayNightCycle._conn then
 		DayNightCycle._stopCycle = true
 		DayNightCycle._conn = nil
+	end
+
+	if DayNightCycle._baseBrightness == nil then
+		DayNightCycle._baseBrightness = Lighting.Brightness
 	end
 
 	DayNightCycle._startTime = tick()
@@ -47,9 +84,24 @@ function DayNightCycle.Init()
 				break
 			end
 			local sec = math.max(1, tonumber(cfg.DayNightCycleSeconds) or 30)
+			local dawnStartHour = tonumber(cfg.DayNightCycleStartHour) or startHour
+			local darknessReduction = math.clamp(tonumber(cfg.NightDarknessReductionPercent) or nightDarknessReduction, 0, 1)
+			local nightStartHour = tonumber(cfg.NightStartHour) or 22
+			local nightEndHour = tonumber(cfg.NightEndHour) or 5
+			local transitionHours = tonumber(cfg.NightDarknessTransitionHours) or 0.75
 			local elapsed = tick() - DayNightCycle._startTime
 			local progress = (elapsed % sec) / sec
-			Lighting.ClockTime = progress * 24
+			local clockTime = (dawnStartHour + (progress * 24)) % 24
+			Lighting.ClockTime = clockTime
+
+			if DayNightCycle._baseBrightness ~= nil then
+				local blend = getNightBlendFactor(clockTime, nightStartHour, nightEndHour, transitionHours)
+				local brightnessScale = 1 + (darknessReduction * blend)
+				Lighting.Brightness = DayNightCycle._baseBrightness * brightnessScale
+			end
+		end
+		if DayNightCycle._baseBrightness ~= nil then
+			Lighting.Brightness = DayNightCycle._baseBrightness
 		end
 		DayNightCycle._conn = nil
 	end)

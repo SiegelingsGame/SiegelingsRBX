@@ -842,6 +842,9 @@ function WaterGymBattleSystem.StartGymBattle(player, gymFolder, config)
 	redTeamFolder = gymRed
 	currentKing = player
 
+	-- Instance-based battle music: only the participant hears battle theme
+	if player and player.Parent then player:SetAttribute("InBattleMusic", true) end
+
 	-- Clear gym arena and base battle orbs for this player
 	clearArena()
 	if BasePlacementSystem then
@@ -912,6 +915,9 @@ function WaterGymBattleSystem.StartGymBattle(player, gymFolder, config)
 	local cooldownDuration = (currentGymConfig and currentGymConfig.cooldown) or (GameConfig.WaterGymCooldown or 120)
 	if not playerCooldowns[ck] then playerCooldowns[ck] = {} end
 	playerCooldowns[ck][player.UserId] = tick() + cooldownDuration
+
+	-- Clear battle music for the participant
+	if currentKing and currentKing.Parent then currentKing:SetAttribute("InBattleMusic", nil) end
 
 	-- Clear context
 	currentGymConfig = nil

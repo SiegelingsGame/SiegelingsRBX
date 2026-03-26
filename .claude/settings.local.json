@@ -10,7 +10,8 @@
       "Bash(grep:*)",
       "WebFetch(domain:www.tungralore.com)",
       "mcp__Claude_Preview__preview_start",
-      "Bash(git add .gitignore *.lua *.html *.txt *.toml *.json *.rbxm \"Roblox Scripts.rbxl\" *.md src/ website/ .claude/launch.json)"
+      "Bash(git add .gitignore *.lua *.html *.txt *.toml *.json *.rbxm \"Roblox Scripts.rbxl\" *.md src/ website/ .claude/launch.json)",
+      "Bash(find '/a/New folder/OneDrive/Documents/Roblox Scripts' -type f -name *.html)"
     ]
   }
 }

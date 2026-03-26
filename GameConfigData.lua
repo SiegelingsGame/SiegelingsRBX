@@ -10,8 +10,11 @@ local GameConfig = {}
 -- Day / Night Cycle (Lighting.ClockTime)
 GameConfig.DayNightCycleEnabled = true   -- true = enable cycle; false = use default Roblox lighting
 GameConfig.DayNightCycleSeconds = 500    -- real seconds per full day (24 in-game hours); changeable
+GameConfig.DayNightCycleStartHour = 5.5  -- initial server start time (5.5 ~= crack of dawn / sunrise)
 GameConfig.NightStartHour = 22          -- ClockTime >= this = night (6 PM)
 GameConfig.NightEndHour = 5              -- ClockTime < this = night (until 6 AM)
+GameConfig.NightDarknessReductionPercent = 0.10 -- lighten night by 10% (applied as extra Lighting.Brightness)
+GameConfig.NightDarknessTransitionHours = 0.75 -- smooth night brightness fade in/out (in-game hours)
 -- Night spawn variants: Common/Uncommon → Silver chance; Rare+ → Gold chance (0–1)
 GameConfig.NightSpawnSilverChance = 0.10  -- chance for Common/Uncommon at night
 GameConfig.NightSpawnGoldChance = 0.05    -- chance for Rare+ at night
@@ -73,11 +76,11 @@ GameConfig.PlayerXP_BossKill      = 100    -- XP for killing a boss creature
 
 -- Base Floors
 GameConfig.Floor2Cost             = 500   -- coins to buy Floor 2
-GameConfig.Floor2LevelReq         = 2      -- player level required
-GameConfig.Floor3Cost             = 5000  -- coins to buy Floor 3
+GameConfig.Floor2LevelReq         = 5      -- player level required
+GameConfig.Floor3Cost             = 500  -- coins to buy Floor 3
 GameConfig.Floor3LevelReq         = 10     -- player level required
-GameConfig.Floor4Cost             = 25000 -- coins to buy Floor 4 (Siegelord Arena)
-GameConfig.Floor4LevelReq         = 15     -- player level required for Floor 4
+GameConfig.Floor4Cost             = 500 -- coins to buy Floor 4 (Siegelord Arena)
+GameConfig.Floor4LevelReq         = 25    -- player level required for Floor 4
 
 -- Evolution & Combine (monster duplication / variant tiers)
 GameConfig.EvolutionMinLevel      = 10      -- level required for 1st evolution (base form)
@@ -94,7 +97,7 @@ GameConfig.VariantStatMultipliers = { Normal = 1.0, Silver = 1.15, Gold = 1.35, 
 GameConfig.SellEnabled            = true
 GameConfig.SellRange              = 12     -- studs to walk-up sell from base creature
 
--- Base Interaction (walk-up creature management: pick up, move, swap, sell from base)
+-- Base Interaction (walk-up creature management: pick up, move, swap, sell from base).
 GameConfig.BaseInteractionRange   = 12     -- studs; ProximityPrompt activation distance
 GameConfig.BasePlacementPromptRange = 18   -- studs; [E] Place Here / Swap on points while holding (slightly larger so standing on defense platform can reach adjacent empty points)
 GameConfig.BaseInteractionEnabled = true   -- master toggle for pick-up/move/swap features
@@ -143,6 +146,10 @@ GameConfig.GameplayMusic = {
         BaseplateName   = "CaveBaseplate",
         VerticalRange   = 700,  -- studs above the baseplate top surface
     },
+
+    -- Main arena (workspace.Arena → BlueTeam/RedTeam BattlePoint*, optional ArenaCenter): battle theme within this radius (studs)
+    -- Use ~half the arena width if music only triggers at the edges (default 80).
+    ArenaBattleMusicRadius = 80,
 
     -- Volume & pacing
     Volume        = 0.80,   -- target volume for the active track
@@ -211,6 +218,7 @@ GameConfig.StealChanceBase     = 0.3
 GameConfig.DefensePerCreature  = 0.03  -- steal chance reduction per defense creature (e.g. 6 defense = -18% chance)
 
 -- AI Raids (wild creatures attack bases)
+GameConfig.AIRaidEnabled       = false  -- set true to enable periodic wild-creature base raids
 GameConfig.AIRaidInterval      = 90   -- seconds between AI raids
 GameConfig.AIRaidPackSize      = {1, 2}  -- min/max raiders
 GameConfig.AIRaidDefenseBreakChance = 0.15  -- 15% chance to free a defense creature per attack (when they defeat one)
@@ -231,6 +239,7 @@ GameConfig.KnightBaseSlotsPerBiome    = 2              -- PlotCenter1, PlotCente
 GameConfig.KnightBaseMinPlayerLevel   = 5              -- player level required to rent
 
 -- Dungeon events (legendary dungeon landmark + DungeonPoint spawners)
+GameConfig.LegendaryDungeonsEnabled = false  -- set true to enable legendary dungeon spawns
 GameConfig.DungeonSpawnInterval = 90   -- seconds between legendary dungeon spawns (more frequent)
 GameConfig.DungeonDuration      = 120  -- seconds before dungeon despawns (longer so overlap possible)
 GameConfig.DungeonCreatureCount = {2, 4} -- min/max legendary creatures per legendary dungeon
@@ -434,8 +443,8 @@ GameConfig.CreatureBobSpeed    = 2
 
 -- Player Health
 GameConfig.PlayerMaxHealth           = 100   -- starting/max HP
-GameConfig.PlayerHealthOutOfCombatDelay = 5   -- seconds without damage before regen starts
-GameConfig.PlayerHealthRegenPerSecond  = 100  -- HP/sec when regen is active (rapid heal to full)
+GameConfig.PlayerHealthOutOfCombatDelay = 5   -- seconds without any health decrease before regen runs (includes drowning etc.)
+GameConfig.PlayerHealthRegenPerSecond  = 100  -- HP/sec only after the delay above; no regen while health is still dropping
 
 -- Underwater Breath Mechanic (client-side)
 GameConfig.BreathMaxTime             = 10    -- seconds of breath before drowning starts
@@ -583,7 +592,7 @@ GameConfig.BaseExteriorItems = {
 	{id = "exterior_orange", name = "Orange Base", desc = "Backwall, walls & stairs in orange",coinCost = 500, gemCost = 0, color = Color3.fromRGB(230, 140, 50)},
 }
 
--- Base Color Shop (walls, stairs, points, combiner, recycler - not glass)
+-- Base Color Shop (walls, stairs, points — not glass; teleporters, combiner, recycler keep asset colors)
 -- Each item: id, name, color (Color3), coinCost, gemCost
 GameConfig.BaseColorItems = {
 	{id = "base_red",    name = "Red",    color = Color3.fromRGB(200, 60, 60),   coinCost = 300, gemCost = 0},
@@ -657,6 +666,7 @@ GameConfig.BadlandsCaptureTime          = 0.3   -- faster than normal (0.5)..
 GameConfig.BadlandsCaptureCost          = 0     -- free captures inside Badlands
 GameConfig.BadlandsLoadingDuration      = 5     -- seconds; no point/activity interactions during load-in
 GameConfig.BadlandsSacrificeStatBoost   = 5     -- flat bonus per sacrificed creature (Health/Attack/Defense/MovementSpeed)
+GameConfig.BadlandsBonusBuffAmount     = 10    -- flat boost to ALL stats when offering the Broker's bonus creature
 
 -- Badlands: Zone Collapse
 GameConfig.BadlandsOuterCollapseTime    = 480   -- 8 min: outer ring collapses

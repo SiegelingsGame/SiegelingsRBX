@@ -63,18 +63,18 @@ local function ensureToggleEvent()
 end
 
 local function buildHUDButtonBar()
-	-- Remove old bar if it exists (e.g. from previous run before respawn)
-	local old = playerGui:FindFirstChild("HUDButtonBar")
-	if old then old:Destroy() end
-
+	-- Build new bar FIRST so we never have a frame with no bar (avoids disappearance if we error mid-build)
 	ensureToggleEvent()
 
+	local old = playerGui:FindFirstChild("HUDButtonBar")
 	-- Screen GUI
 	sg = Instance.new("ScreenGui")
 	sg.Name = "HUDButtonBar"
 	sg.ResetOnSpawn = false
 	sg.DisplayOrder = 40
 	sg.Parent = playerGui
+	-- Remove old bar only after new one is safely parented (avoids disappearance if build errors)
+	if old and old ~= sg then old:Destroy() end
 
 	--[[ TEXT SCALING (viewport-based, same approach as LaunchScreen)
      getTextScale() returns a multiplier from CurrentCamera.ViewportSize vs reference resolution.

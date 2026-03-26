@@ -546,9 +546,31 @@ local function onRentTriggered(player, biome, slotIndex)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
+-- PlotCenter slot resolution (Studio may use a Model folder per slot)
+-- ProximityPrompt must parent to a BasePart — Models need PrimaryPart or any part.
+-- ═══════════════════════════════════════════════════════════════════════════════
+local function resolveKnightSlotToBasePart(inst)
+	if not inst then return nil end
+	if inst:IsA("BasePart") then return inst end
+	if inst:IsA("Model") then
+		if inst.PrimaryPart then return inst.PrimaryPart end
+		local any = inst:FindFirstChildWhichIsA("BasePart", true)
+		if any then return any end
+	end
+	return nil
+end
+
+--- Find PlotCenterN under KnightBases: direct child first, then recursive (nested folders).
+local function findKnightSlotInstance(knightFolder, centerName)
+	local direct = knightFolder:FindFirstChild(centerName)
+	if direct then return direct end
+	return knightFolder:FindFirstChild(centerName, true)
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
 -- discoverKnightBases()
 -- Scans workspace.Biomes for KnightBases folders and stores PlotCenter parts.
--- Called once during Init().
+-- Also tries biomeName .. "_" (e.g. CaveBiome_) for naming variants.
 --
 -- Expected workspace structure:
 --   workspace.Biomes.DesertBiome.KnightBases.PlotCenter1
@@ -556,37 +578,49 @@ end
 --   workspace.Biomes.OceanBiome.KnightBases.PlotCenter1
 --   ... etc.
 -- ═══════════════════════════════════════════════════════════════════════════════
-local function discoverKnightBases()
+--- @param options table|nil { quiet: boolean } — if true, no warn when a slot is still missing
+local function discoverKnightBases(options)
+	options = options or {}
+	local quiet = options.quiet == true
+
 	local biomesFolder = Workspace:FindFirstChild("Biomes")
 	if not biomesFolder then
-		warn("[KnightBaseSystem] workspace.Biomes folder not found!")
+		if not quiet then
+			warn("[KnightBaseSystem] workspace.Biomes folder not found!")
+		end
 		return 0
 	end
 
 	local count = 0
 	for _, biomeName in ipairs(BIOMES) do
 		local biomeFolder = biomesFolder:FindFirstChild(biomeName)
+			or biomesFolder:FindFirstChild(biomeName .. "_")
 		if not biomeFolder then
-			warn("[KnightBaseSystem] Biome folder not found: " .. biomeName)
+			if not quiet then
+				warn("[KnightBaseSystem] Biome folder not found: " .. biomeName)
+			end
 			continue
 		end
 
 		local knightFolder = biomeFolder:FindFirstChild("KnightBases")
 		if not knightFolder then
-			warn("[KnightBaseSystem] KnightBases folder not found in " .. biomeName)
+			if not quiet then
+				warn("[KnightBaseSystem] KnightBases folder not found in " .. biomeFolder.Name)
+			end
 			continue
 		end
 
 		for slot = 1, SLOTS_PER_BIOME do
 			local centerName = "PlotCenter" .. slot
-			local center = knightFolder:FindFirstChild(centerName)
-			if center and center:IsA("BasePart") then
-				local key = biomeName .. "_" .. slot
+			local key = biomeName .. "_" .. slot
+			local raw = findKnightSlotInstance(knightFolder, centerName)
+			local center = resolveKnightSlotToBasePart(raw)
+			if center then
 				knightBaseParts[key] = center
-				count = count + 1
-				print("[KnightBaseSystem] Found " .. key .. " at " .. tostring(center.Position))
-			else
-				warn("[KnightBaseSystem] Missing " .. centerName .. " in " .. biomeName .. ".KnightBases")
+				count += 1
+				print("[KnightBaseSystem] Found " .. key .. " at " .. tostring(center.Position) .. " (" .. (raw and raw.ClassName or "?") .. ")")
+			elseif not quiet and not knightBaseParts[key] then
+				warn("[KnightBaseSystem] Missing " .. centerName .. " (Part/Model with BasePart) in " .. biomeFolder.Name .. ".KnightBases")
 			end
 		end
 	end
@@ -606,6 +640,14 @@ local function setupProximityPrompts()
 		local slotIndex = tonumber(slotStr)
 		if not biome or not slotIndex then continue end
 
+		if knightBasePrompts[key] and knightBasePrompts[key].Parent == part then
+			continue
+		end
+		if knightBasePrompts[key] then
+			knightBasePrompts[key]:Destroy()
+			knightBasePrompts[key] = nil
+		end
+
 		-- Remove any existing prompt (idempotent)
 		local existing = part:FindFirstChildOfClass("ProximityPrompt")
 		if existing then existing:Destroy() end
@@ -620,6 +662,10 @@ local function setupProximityPrompts()
 		prompt.Parent = part
 
 		knightBasePrompts[key] = prompt
+
+		if occupiedSlots[key] then
+			prompt.Enabled = false
+		end
 
 		-- Connect the prompt's Triggered event
 		prompt.Triggered:Connect(function(plr)
@@ -685,12 +731,20 @@ function KnightBaseSystem.Init(playerDataMgr, basePlacementSys, laserDoorSys)
 	print("[KnightBaseSystem] Discovered " .. found .. " knight base slots")
 
 	if found == 0 then
-		warn("[KnightBaseSystem] No knight base slots found! System disabled.")
-		return
+		warn("[KnightBaseSystem] No knight base slots yet — will keep scanning (streaming / CaveBiome may load late)")
 	end
 
 	-- Create ProximityPrompts on each knight base PlotCenter
 	setupProximityPrompts()
+
+	-- Cave / distant biomes may stream in after Init; merge new slots without duplicating prompts
+	task.spawn(function()
+		for _ = 1, 15 do
+			task.wait(3)
+			discoverKnightBases({ quiet = true })
+			setupProximityPrompts()
+		end
+	end)
 
 	-- Cleanup when players leave
 	Players.PlayerRemoving:Connect(function(plr)

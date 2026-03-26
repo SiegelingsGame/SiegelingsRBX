@@ -422,7 +422,6 @@ local function showBrokerUI(data)
 	closeBrokerUI()
 
 	local qualifying = data.qualifying or {}
-	local dialogue = data.brokerDialogue or {}
 
 	-- ── ScreenGui ──
 	screenGui = Instance.new("ScreenGui")
@@ -503,66 +502,81 @@ local function showBrokerUI(data)
 	leftCol.BackgroundTransparency = 1
 	leftCol.Parent = mainFrame
 
-	-- ── Dialogue box ──
-	local dialogueFrame = Instance.new("Frame")
-	dialogueFrame.Name = "DialogueFrame"
-	dialogueFrame.Size = UDim2.new(1, 0, 0, 80)
-	dialogueFrame.Position = UDim2.new(0, 0, 0, 0)
-	dialogueFrame.BackgroundColor3 = C.card
-	dialogueFrame.BackgroundTransparency = 0.3
-	dialogueFrame.BorderSizePixel = 0
-	dialogueFrame.Parent = leftCol
-	Instance.new("UICorner", dialogueFrame).CornerRadius = UDim.new(0, 8)
+	-- ── Contract demand (RichText with colored segments) ──
+	local rarityStr = data.rarity or "?"
+	local elementStr = data.element or "?"
+	local minLvl = data.minLevel or 1
+	local rarityColor = RARITY_COLORS[rarityStr] or C.textSec
+	local elemData = CreatureData.Elements and CreatureData.Elements[elementStr]
+	local elemColor = elemData and elemData.color or C.textSec
+	local badlandsColor = C.accent
 
-	local dialogueLabel = Instance.new("TextLabel")
-	dialogueLabel.Name = "DialogueText"
-	dialogueLabel.Size = UDim2.new(1, -16, 1, -8)
-	dialogueLabel.Position = UDim2.new(0, 8, 0, 4)
-	dialogueLabel.BackgroundTransparency = 1
-	dialogueLabel.Text = ""
-	dialogueLabel.TextColor3 = C.white
-	dialogueLabel.Font = Enum.Font.GothamMedium
-	dialogueLabel.TextSize = 13
-	dialogueLabel.TextWrapped = true
-	dialogueLabel.TextXAlignment = Enum.TextXAlignment.Left
-	dialogueLabel.TextYAlignment = Enum.TextYAlignment.Top
-	dialogueLabel.Parent = dialogueFrame
+	local function colorHex(c)
+		return string.format("#%02X%02X%02X",
+			math.floor(c.R * 255 + 0.5),
+			math.floor(c.G * 255 + 0.5),
+			math.floor(c.B * 255 + 0.5))
+	end
 
-	-- Play dialogue typewriter (concatenate lines)
-	task.spawn(function()
-		local fullDialogue = table.concat(dialogue, "\n")
-		typewriterText(dialogueLabel, fullDialogue, 0.025)
-	end)
+	-- Level difficulty color: green <=5, gold 6-10, red 11+
+	local lvlColor
+	if minLvl <= 5 then
+		lvlColor = C.green
+	elseif minLvl <= 10 then
+		lvlColor = C.gold
+	else
+		lvlColor = C.red
+	end
 
-	-- ── "WANTED" label ──
-	local wantedLabel = Instance.new("TextLabel")
-	wantedLabel.Name = "WantedLabel"
-	wantedLabel.Size = UDim2.new(1, 0, 0, 24)
-	wantedLabel.Position = UDim2.new(0, 0, 0, 86)
-	wantedLabel.BackgroundTransparency = 1
-	wantedLabel.Text = "WANTED"
-	wantedLabel.TextColor3 = C.gold
-	wantedLabel.Font = Enum.Font.GothamBlack
-	wantedLabel.TextSize = 16
-	wantedLabel.Parent = leftCol
+	local demandRich = string.format(
+		'Bring me a <b><font color="%s">%s</font></b> <font color="%s">%s</font> Siegling, at least <font color="%s"><b>LEVEL %d</b></font>, and I will send you to the <font color="%s"><b>BADLANDS</b></font>.',
+		colorHex(rarityColor), rarityStr:upper(),
+		colorHex(elemColor), elementStr:upper(),
+		colorHex(lvlColor), minLvl,
+		colorHex(badlandsColor)
+	)
 
-	-- ── Contract info label ──
-	local contractLabel = Instance.new("TextLabel")
-	contractLabel.Name = "ContractInfo"
-	contractLabel.Size = UDim2.new(1, 0, 0, 18)
-	contractLabel.Position = UDim2.new(0, 0, 0, 110)
-	contractLabel.BackgroundTransparency = 1
-	contractLabel.Text = (data.rarity or "?") .. " • " .. (data.element or "?") .. " • Lv" .. (data.minLevel or 1) .. "+"
-	contractLabel.TextColor3 = RARITY_COLORS[data.rarity] or C.textSec
-	contractLabel.Font = Enum.Font.GothamMedium
-	contractLabel.TextSize = 13
-	contractLabel.Parent = leftCol
+	-- Bonus creature line (gold)
+	local bonusName = data.bonusCreatureName
+	if bonusName then
+		demandRich = demandRich .. string.format(
+			'\n\nBring <font color="%s"><b>%s</b></font> for a <font color="%s"><b>BONUS!</b></font>',
+			colorHex(C.gold), bonusName,
+			colorHex(C.gold)
+		)
+	end
+
+	local demandFrame = Instance.new("Frame")
+	demandFrame.Name = "DemandFrame"
+	demandFrame.Size = UDim2.new(1, 0, 0, bonusName and 130 or 110)
+	demandFrame.Position = UDim2.new(0, 0, 0, 0)
+	demandFrame.BackgroundColor3 = C.card
+	demandFrame.BackgroundTransparency = 0.3
+	demandFrame.BorderSizePixel = 0
+	demandFrame.Parent = leftCol
+	Instance.new("UICorner", demandFrame).CornerRadius = UDim.new(0, 8)
+
+	local demandLabel = Instance.new("TextLabel")
+	demandLabel.Name = "DemandText"
+	demandLabel.Size = UDim2.new(1, -16, 1, -8)
+	demandLabel.Position = UDim2.new(0, 8, 0, 4)
+	demandLabel.BackgroundTransparency = 1
+	demandLabel.RichText = true
+	demandLabel.Text = demandRich
+	demandLabel.TextColor3 = C.white
+	demandLabel.Font = Enum.Font.GothamMedium
+	demandLabel.TextSize = 14
+	demandLabel.TextWrapped = true
+	demandLabel.TextXAlignment = Enum.TextXAlignment.Left
+	demandLabel.TextYAlignment = Enum.TextYAlignment.Top
+	demandLabel.Parent = demandFrame
 
 	-- ── ViewportFrame for wanted creature ──
+	local vpTop = bonusName and 138 or 118
 	local viewportContainer = Instance.new("Frame")
 	viewportContainer.Name = "ViewportContainer"
 	viewportContainer.Size = UDim2.new(1, 0, 0, 200)
-	viewportContainer.Position = UDim2.new(0, 0, 0, 134)
+	viewportContainer.Position = UDim2.new(0, 0, 0, vpTop)
 	viewportContainer.BackgroundColor3 = C.card
 	viewportContainer.BackgroundTransparency = 0.2
 	viewportContainer.BorderSizePixel = 0
@@ -684,9 +698,14 @@ local function showBrokerUI(data)
 	-- ── Populate creature list ──
 	if #qualifying == 0 then
 		local noCreatures = Instance.new("TextLabel")
-		noCreatures.Size = UDim2.new(1, -8, 0, 60)
+		noCreatures.Size = UDim2.new(1, -8, 0, 80)
 		noCreatures.BackgroundTransparency = 1
-		noCreatures.Text = "You have no Sieglings that match today's contract.\n\nThe Broker demands:\n" .. (data.description or "???")
+		noCreatures.RichText = true
+		noCreatures.Text = "You have no Sieglings that match today's contract.\n\nThe Broker demands:\n"
+			.. string.format('Bring me a <b><font color="%s">%s</font></b> <font color="%s">%s</font> Siegling, at least <font color="%s"><b>Level %d</b></font>',
+				colorHex(rarityColor), rarityStr:upper(),
+				colorHex(elemColor), elementStr:upper(),
+				colorHex(lvlColor), minLvl)
 		noCreatures.TextColor3 = C.textSec
 		noCreatures.Font = Enum.Font.GothamMedium
 		noCreatures.TextSize = 12
@@ -751,8 +770,8 @@ local function showBrokerUI(data)
 
 			-- Rarity label (right side)
 			local rarityLabel = Instance.new("TextLabel")
-			rarityLabel.Size = UDim2.new(0, 70, 1, 0)
-			rarityLabel.Position = UDim2.new(1, -72, 0, 0)
+			rarityLabel.Size = UDim2.new(0, 70, 0, 16)
+			rarityLabel.Position = UDim2.new(1, -72, 0, 4)
 			rarityLabel.BackgroundTransparency = 1
 			rarityLabel.Text = creature.rarity or "?"
 			rarityLabel.TextColor3 = RARITY_COLORS[creature.rarity] or C.textSec
@@ -760,6 +779,24 @@ local function showBrokerUI(data)
 			rarityLabel.TextSize = 11
 			rarityLabel.TextXAlignment = Enum.TextXAlignment.Right
 			rarityLabel.Parent = card
+
+			-- Bonus tag if this creature matches the Broker's bonus pick
+			if data.bonusCreatureId and creature.id == data.bonusCreatureId then
+				local bonusTag = Instance.new("TextLabel")
+				bonusTag.Name = "BonusTag"
+				bonusTag.Size = UDim2.new(0, 70, 0, 14)
+				bonusTag.Position = UDim2.new(1, -72, 0, 22)
+				bonusTag.BackgroundTransparency = 1
+				bonusTag.Text = "★ BONUS"
+				bonusTag.TextColor3 = C.gold
+				bonusTag.Font = Enum.Font.GothamBold
+				bonusTag.TextSize = 10
+				bonusTag.TextXAlignment = Enum.TextXAlignment.Right
+				bonusTag.Parent = card
+
+				cardStroke.Color = C.gold
+				cardStroke.Thickness = 1.5
+			end
 
 			-- Click handler: select this creature
 			card.MouseButton1Click:Connect(function()
@@ -862,22 +899,13 @@ local function showBrokerUI(data)
 		rightCol.Size = UDim2.new(0, halfW, 0, contentH)
 		rightCol.Position = UDim2.new(0, margin + halfW + colGap, 0, contentTop)
 
-		-- Left stack: dialogue → wanted → contract → viewport (viewport ~20% shorter than filling remainder)
-		local dialogueH = math.clamp(math.floor(contentH * 0.15), 44, 64)
-		dialogueFrame.Size = UDim2.new(1, 0, 0, dialogueH)
-		dialogueFrame.Position = UDim2.new(0, 0, 0, 0)
-		dialogueLabel.TextSize = 11
+		-- Left stack: demand frame → viewport
+		local demandH = math.clamp(math.floor(contentH * 0.25), 60, 100)
+		demandFrame.Size = UDim2.new(1, 0, 0, demandH)
+		demandFrame.Position = UDim2.new(0, 0, 0, 0)
+		demandLabel.TextSize = 11
 
-		local y = dialogueH + 3
-		wantedLabel.Size = UDim2.new(1, 0, 0, 17)
-		wantedLabel.Position = UDim2.new(0, 0, 0, y)
-		wantedLabel.TextSize = 13
-		y = y + 17
-
-		contractLabel.Size = UDim2.new(1, 0, 0, 15)
-		contractLabel.Position = UDim2.new(0, 0, 0, y)
-		contractLabel.TextSize = 11
-		y = y + 15 + 4
+		local y = demandH + 4
 
 		local remainingForVp = math.max(0, contentH - y - margin)
 		-- ~20% smaller than filling the leftover column (was fixed 200px; cap ~160)
@@ -887,7 +915,7 @@ local function showBrokerUI(data)
 		viewportContainer.Size = UDim2.new(1, 0, 0, vpH)
 
 		local ph = viewportContainer:FindFirstChildWhichIsA("TextLabel")
-		if ph and ph.Name ~= "DialogueText" then
+		if ph and ph.Name ~= "DemandText" then
 			ph.TextSize = 48
 		end
 

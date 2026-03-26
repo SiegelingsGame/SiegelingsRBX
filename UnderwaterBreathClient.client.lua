@@ -190,6 +190,12 @@ end
 local cachedBonus = 0
 
 RunService.Heartbeat:Connect(function(dt)
+	-- Spawn grace: ignore transient Swimming state right after respawn
+	if spawnGraceTimer > 0 then
+		spawnGraceTimer = spawnGraceTimer - dt
+		return
+	end
+
 	local swimming = isPlayerSwimming()
 
 	if swimming and not isUnderwater then
@@ -255,14 +261,20 @@ RunService.Heartbeat:Connect(function(dt)
 	updateMeterVisual()
 end)
 
--- Reset on respawn
+-- Reset on respawn — force-hide immediately (don't rely on tween delay)
+-- and add a brief spawn grace to ignore transient Swimming states during load.
+local spawnGraceTimer = 0
+local SPAWN_GRACE = 1.5  -- seconds to ignore Swimming after spawn
+
 player.CharacterAdded:Connect(function()
 	isUnderwater = false
 	breathActive = false
 	underwaterGraceTimer = 0
 	breathRemaining = maxBreath
 	drownTickTimer = 0
-	hideMeter()
+	meterVisible = false
+	container.Visible = false
+	spawnGraceTimer = SPAWN_GRACE
 end)
 
 print("[UnderwaterBreathClient] Loaded - breath meter active")

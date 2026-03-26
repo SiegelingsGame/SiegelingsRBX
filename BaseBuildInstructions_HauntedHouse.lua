@@ -19,10 +19,10 @@ local Instructions = {}
 Instructions.StructureContract = {
 	Description = "Required hierarchy and naming for compatibility with BasePlacementSystem. Do not reparent or rename; discovery uses GetDescendants + name match.",
 
-	-- 1) Floor folders
+	-- 1) Floor folders.
 	Floors = {
 		"Floor1",  -- Ground floor (always visible)
-		"Floor2",  -- Second floor (hidden until purchased; must exist)
+		"Floor2",  -- Second floor (hidden until purchased; must exist).
 		"Floor3",  -- Third floor (hidden until purchased; must exist)
 	},
 	FloorRules = {

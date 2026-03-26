@@ -8,8 +8,9 @@
 --   • Fallback to ArenaSky when no zone matches
 --
 -- Setup requirements:
---   1. Sky objects in ReplicatedStorage.Skybox folder, named:
---      ArenaSky, DesertSky, ElectricSky, WaterSky,
+--   1. Sky objects in ReplicatedStorage.SkyBox folder, named:
+--      ArenaSky, BattleSky (hub/roads during workspace.ArenaBattleInProgress — optional but recommended),
+--      DesertSky, ElectricSky, WaterSky,
 --      ForestSky, WindSky, IceSky, FireSky
 --   2. Outer baseplates in workspace.Terrain:
 --      DesertBaseplate, ElectricBaseplate, OceanBaseplate
@@ -31,6 +32,8 @@ local Lighting = game:GetService("Lighting")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local localPlayer = Players.LocalPlayer
+local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+local biomeCfg = GameConfig.BiomeSkybox or {}
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- CONFIGURATION.
@@ -50,6 +53,9 @@ local CHECK_INTERVAL = 0.1
 
 --- Default/fallback sky name (hub, roads, and anywhere unmatched)
 local DEFAULT_SKY = "ArenaSky"
+
+--- During workspace.ArenaBattleInProgress, hub/roads/default resolve to this sky (if present in SkyBox)
+local BATTLE_SKY_NAME = (type(biomeCfg.BattleSkyName) == "string" and biomeCfg.BattleSkyName ~= "") and biomeCfg.BattleSkyName or "BattleSky"
 
 --- Timeout (seconds) for WaitForChild calls during setup
 local WAIT_TIMEOUT = 15
@@ -127,6 +133,10 @@ end
 if not skyCache[DEFAULT_SKY] then
 	warn("[BiomeSkybox] Missing '" .. DEFAULT_SKY .. "' in Skybox folder — skybox system disabled")
 	return
+end
+
+if not skyCache[BATTLE_SKY_NAME] then
+	warn("[BiomeSkybox] Missing '" .. BATTLE_SKY_NAME .. "' in Skybox folder — arena battles will keep " .. DEFAULT_SKY .. " visuals until you add it")
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -317,11 +327,11 @@ end
 -- Determines which sky name should be active for the given player position.
 -- ══════════════════════════════════════════════════════════════════════════════
 
---- Determine the sky name for the player's current world position.
+--- Raw biome sky (no arena-battle override).
 --- Priority: outer baseplates → hub → roads → inner wedge → fallback.
 --- @param position Vector3 — player world position
 --- @return string — name of the Sky object to display
-local function getSkyForPosition(position)
+local function getSkyRawForPosition(position)
 	-- Priority 1: Outer biome baseplates
 	for _, zone in ipairs(outerZones) do
 		if isOverPart(position, zone.part, VERTICAL_BUFFER) then
@@ -380,6 +390,26 @@ local function getSkyForPosition(position)
 
 	-- Priority 5: Fallback
 	return DEFAULT_SKY
+end
+
+--- When a main arena battle is running, swap hub/road/default (ArenaSky) to the battle sky for all players.
+local function resolveArenaBattleSky(baseSky)
+	if workspace:GetAttribute("ArenaBattleInProgress") ~= true then
+		return baseSky
+	end
+	if baseSky ~= DEFAULT_SKY then
+		return baseSky
+	end
+	if skyCache[BATTLE_SKY_NAME] then
+		return BATTLE_SKY_NAME
+	end
+	return baseSky
+end
+
+--- @param position Vector3
+--- @return string — final sky name after arena-round override
+local function getSkyForPosition(position)
+	return resolveArenaBattleSky(getSkyRawForPosition(position))
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -529,7 +559,16 @@ local function setSky(skyName)
 end
 
 -- Set initial sky to default (instant, no transition)
-setSky(DEFAULT_SKY)
+setSky(resolveArenaBattleSky(DEFAULT_SKY))
+
+-- Re-evaluate immediately when a main arena battle starts or ends (all clients)
+workspace:GetAttributeChangedSignal("ArenaBattleInProgress"):Connect(function()
+	local character = localPlayer.Character
+	if not character then return end
+	local rootPart = character:FindFirstChild("HumanoidRootPart")
+	if not rootPart then return end
+	setSky(getSkyForPosition(rootPart.Position))
+end)
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- MAIN LOOP

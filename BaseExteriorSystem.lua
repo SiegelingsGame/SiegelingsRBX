@@ -398,6 +398,23 @@ local function isStairPart(name)
 	return name and name:lower():find("stair")
 end
 
+--- Parts that should never use exterior / base-color cosmetics (keep asset colors).
+local function shouldSkipCosmeticRecolor(part)
+	if not part or not part:IsA("BasePart") then return false end
+	local n = part.Name
+	local nl = string.lower(n)
+	if nl:find("teleport") or nl:find("teleporter") then return true end
+	if nl:match("tele$") then return true end -- e.g. ElectricTele, CaveTele
+	if n == "MCombiner" or n == "Combiner" or n == "MRecycler" or n == "Recycler" then return true end
+	local anc = part.Parent
+	while anc do
+		local an = string.lower(anc.Name)
+		if anc.Name == "TeleportParts" or an:find("teleport") then return true end
+		anc = anc.Parent
+	end
+	return false
+end
+
 local function getThemeStyle(partName, palette)
 	if not partName or not palette then return palette.Trim or palette.Wall end
 	local n = partName
@@ -422,9 +439,10 @@ local function createShellPart(name, size, cframe, parent, color, material)
 	return p
 end
 
---- Check if part should get base color (walls, stairs, floors, points, combiner, recycler - not glass).
+--- Check if part should get base color (walls, stairs, floors, points — not glass, teleporters, combiner, recycler).
 local function shouldApplyBaseColor(part)
 	if isGlassPart(part) then return false end
+	if shouldSkipCosmeticRecolor(part) then return false end
 	local n = part.Name
 	if n:find("Wall") then return true end
 	if n:find("Stair") then return true end
@@ -432,15 +450,14 @@ local function shouldApplyBaseColor(part)
 	if n:match("^DefensePoint") then return true end
 	if n:match("^IncomePoint") then return true end
 	if n:match("^BattlePoint") then return true end
-	if n == "MCombiner" or n == "Combiner" then return true end
-	if n == "MRecycler" or n == "Recycler" then return true end
 	return false
 end
 
---- Reset parts to default grey when unequipping. onlyBaseColorParts = true resets walls/stairs/points/combiner/recycler only.
+--- Reset parts to default grey when unequipping. onlyBaseColorParts = true resets walls/stairs/points only (not teleporter/combiner/recycler).
 local function applyDefaultToPlot(plotModel, onlyBaseColorParts)
 	for _, desc in ipairs(plotModel:GetDescendants()) do
 		if desc:IsA("BasePart") and not isGlassPart(desc) then
+			if shouldSkipCosmeticRecolor(desc) then continue end
 			if onlyBaseColorParts and not shouldApplyBaseColor(desc) then continue end
 			desc.Color = DEFAULT_GREY
 			desc.Material = DEFAULT_MATERIAL
@@ -472,7 +489,7 @@ function BaseExteriorSystem.ApplyThemeToPlot(plotModel, themeId)
 	-- For color-only themes (exterior_red etc), set SmoothPlastic so color is visible (Material was overriding)
 	local isPlainColor = themeId:match("^exterior_")
 	for _, desc in ipairs(plotModel:GetDescendants()) do
-		if desc:IsA("BasePart") and not isGlassPart(desc) then
+		if desc:IsA("BasePart") and not isGlassPart(desc) and not shouldSkipCosmeticRecolor(desc) then
 			local style = getThemeStyle(desc.Name, palette)
 			if style and style.Color then desc.Color = style.Color end
 			if style and style.Material then
@@ -541,7 +558,7 @@ function BaseExteriorSystem.ApplyThemeToPlot(plotModel, themeId)
 	return true
 end
 
---- Apply base color to walls, stairs, points, combiner, recycler. Does not affect glass.
+--- Apply base color to walls, stairs, points. Does not affect glass, teleporters, combiner, or recycler.
 --- Pass nil to reset those parts to default grey.
 --- FIX: Floor 4 gym BattlePoints always get distinct team colors that never match the base color.
 

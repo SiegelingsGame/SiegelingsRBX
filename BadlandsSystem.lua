@@ -639,6 +639,7 @@ local function createRunPower()
 end
 
 local SACRIFICE_STAT_BOOST = GameConfig.BadlandsSacrificeStatBoost or 5
+local BONUS_BUFF_AMOUNT = GameConfig.BadlandsBonusBuffAmount or 10
 
 local function getBagCount(bag)
 	local count = 0
@@ -912,6 +913,7 @@ local function exitBadlandsMode(player, savedCFrame)
 	player:SetAttribute("BadlandsSpawnShield", nil)
 	player:SetAttribute("BadlandsPowerLevel", nil)
 	player:SetAttribute("BadlandsRunId", nil)
+	player:SetAttribute("BadlandsBonusBuff", nil)
 	player:SetAttribute("BadlandsStat_Health", nil)
 	player:SetAttribute("BadlandsStat_Attack", nil)
 	player:SetAttribute("BadlandsStat_Defense", nil)
@@ -1254,11 +1256,25 @@ local function startRun(playerList)
 			player:SetAttribute("BadlandsRunId", activeRun.runId)
 			player:SetAttribute("BadlandsPowerLevel", 1)
 
+			local rp = createRunPower()
+			if player:GetAttribute("BadlandsBonusBuff") then
+				rp.statBoosts.Health = rp.statBoosts.Health + BONUS_BUFF_AMOUNT
+				rp.statBoosts.Attack = rp.statBoosts.Attack + BONUS_BUFF_AMOUNT
+				rp.statBoosts.Defense = rp.statBoosts.Defense + BONUS_BUFF_AMOUNT
+				rp.statBoosts.MovementSpeed = rp.statBoosts.MovementSpeed + BONUS_BUFF_AMOUNT
+				player:SetAttribute("BadlandsBonusBuff", nil)
+				player:SetAttribute("BadlandsStat_Health", rp.statBoosts.Health)
+				player:SetAttribute("BadlandsStat_Attack", rp.statBoosts.Attack)
+				player:SetAttribute("BadlandsStat_Defense", rp.statBoosts.Defense)
+				player:SetAttribute("BadlandsStat_MovementSpeed", rp.statBoosts.MovementSpeed)
+				print("[Badlands] Bonus buffs applied to " .. player.Name .. " (+" .. BONUS_BUFF_AMOUNT .. " all stats)")
+			end
+
 			activeRun.players[player.UserId] = {
 				player = player,
 				alive = true,
 				bag = createEmptyBag(),
-				runPower = createRunPower(),
+				runPower = rp,
 				savedCFrame = savedCFrame,
 				shieldExpiry = os.clock() + SPAWN_SHIELD_DURATION,
 				kills = 0,
@@ -1325,11 +1341,27 @@ local function startRun(playerList)
 		player:SetAttribute("BadlandsPowerLevel", 1)
 
 		-- Build player state
+		local rp = createRunPower()
+
+		-- Apply bonus buffs if the player sacrificed the Broker's bonus creature
+		if player:GetAttribute("BadlandsBonusBuff") then
+			rp.statBoosts.Health = rp.statBoosts.Health + BONUS_BUFF_AMOUNT
+			rp.statBoosts.Attack = rp.statBoosts.Attack + BONUS_BUFF_AMOUNT
+			rp.statBoosts.Defense = rp.statBoosts.Defense + BONUS_BUFF_AMOUNT
+			rp.statBoosts.MovementSpeed = rp.statBoosts.MovementSpeed + BONUS_BUFF_AMOUNT
+			player:SetAttribute("BadlandsBonusBuff", nil)
+			player:SetAttribute("BadlandsStat_Health", rp.statBoosts.Health)
+			player:SetAttribute("BadlandsStat_Attack", rp.statBoosts.Attack)
+			player:SetAttribute("BadlandsStat_Defense", rp.statBoosts.Defense)
+			player:SetAttribute("BadlandsStat_MovementSpeed", rp.statBoosts.MovementSpeed)
+			print("[Badlands] Bonus buffs applied to " .. player.Name .. " (+" .. BONUS_BUFF_AMOUNT .. " all stats)")
+		end
+
 		activeRun.players[player.UserId] = {
 			player = player,
 			alive = true,
 			bag = createEmptyBag(),
-			runPower = createRunPower(),
+			runPower = rp,
 			savedCFrame = savedCFrame,
 			shieldExpiry = os.clock() + SPAWN_SHIELD_DURATION,
 			kills = 0,
@@ -1623,12 +1655,14 @@ local function generateDailyContract()
 	-- ═══════════════════════════════════════════════════════════════════
 	if GameConfig.DebugBrokerCacty then
 		dailyContract = {
-			rarity      = "Common",
-			element     = "Earth",
-			minLevel    = 1,
-			seed        = 0,
-			dateKey     = dateKey,
-			description = "Bring me a Common Earth Siegling, at least level 1. A worthy sacrifice opens the gate.",
+			rarity          = "Common",
+			element         = "Earth",
+			minLevel        = 1,
+			seed            = 0,
+			dateKey         = dateKey,
+			description     = "Bring me a COMMON EARTH Siegling, at least LEVEL 1.",
+			bonusCreatureId   = "cacty",
+			bonusCreatureName = "Cacty",
 		}
 		print("[Badlands] DEBUG: Broker contract forced to Lv1 Common Earth Cacty (" .. dateKey .. ")")
 		return dailyContract
@@ -1667,21 +1701,39 @@ local function generateDailyContract()
 		minLevel = rng:NextInteger(8, 15)
 	end
 
-	-- Build a flavor description for the NPC dialogue
-	local rarityInfo = CreatureData.Rarities[rarity]
-	local rarityLabel = rarityInfo and rarityInfo.label or rarity
+	-- Pick a specific bonus creature from the matching pool
+	local bonusCreatureId, bonusCreatureName = nil, nil
+	do
+		local candidates = {}
+		local allOfRarity = CreatureData.GetCreaturesByRarity(rarity) or {}
+		for _, c in ipairs(allOfRarity) do
+			if c.element == element
+				and not string.find(c.id, "standin")
+				and c.modelName and c.modelName ~= "Egg" then
+				table.insert(candidates, c)
+			end
+		end
+		if #candidates > 0 then
+			local idx = rng:NextInteger(1, #candidates)
+			bonusCreatureId = candidates[idx].id
+			bonusCreatureName = candidates[idx].displayName
+		end
+	end
+
 	local description = string.format(
-		"Bring me a %s %s Siegling, at least level %d. A worthy sacrifice opens the gate.",
-		rarityLabel, element, minLevel
+		"Bring me a %s %s Siegling, at least LEVEL %d.",
+		rarity:upper(), element:upper(), minLevel
 	)
 
 	dailyContract = {
-		rarity     = rarity,
-		element    = element,
-		minLevel   = minLevel,
-		seed       = seed,
-		dateKey    = dateKey,
-		description = description,
+		rarity            = rarity,
+		element           = element,
+		minLevel          = minLevel,
+		seed              = seed,
+		dateKey           = dateKey,
+		description       = description,
+		bonusCreatureId   = bonusCreatureId,
+		bonusCreatureName = bonusCreatureName,
 	}
 
 	print("[Badlands] Daily contract generated: " .. rarity .. " " .. element .. " Lv" .. minLevel .. "+ (" .. dateKey .. ")")
@@ -1734,15 +1786,18 @@ local function findQualifyingCreatures(player)
 		local matches, _ = creatureMatchesContract(entry, contract)
 		if matches then
 			local info = CreatureData.GetById(entry.id)
-			table.insert(qualifying, {
-				uid         = entry.uid,
-				id          = entry.id,
-				level       = entry.level or 1,
-				variant     = entry.variant or "Normal",
-				displayName = info and info.displayName or entry.id,
-				rarity      = info and info.rarity or "Common",
-				element     = info and info.element or "Unknown",
-			})
+			if info and not string.find(entry.id, "standin")
+				and info.modelName and info.modelName ~= "Egg" then
+				table.insert(qualifying, {
+					uid         = entry.uid,
+					id          = entry.id,
+					level       = entry.level or 1,
+					variant     = entry.variant or "Normal",
+					displayName = info and info.displayName or entry.id,
+					rarity      = info and info.rarity or "Common",
+					element     = info and info.element or "Unknown",
+				})
+			end
 		end
 	end
 
@@ -2311,7 +2366,7 @@ function BadlandsSystem.Init(playerDataMgr, favCreatureSys, mountSys, creatureAI
 			end)
 		end
 
-		local sacrificeEvt = eventsFolder:FindFirstChild("BadlandsSacrificeCreature")
+		local sacrificeEvt = eventsFolder:FindFirstChild("BadlandsSacrificeCreature").
 		if sacrificeEvt then
 			sacrificeEvt.OnServerEvent:Connect(function(player, slotIndex, statChoice)
 				local ok, msg = sacrificeCreatureFromBag(player, slotIndex, statChoice)
@@ -2368,32 +2423,36 @@ function BadlandsSystem.Init(playerDataMgr, favCreatureSys, mountSys, creatureAI
 				else
 					local allOfRarity = CreatureData.GetCreaturesByRarity(contract.rarity) or {}
 					for _, c in ipairs(allOfRarity) do
-						if c.element == contract.element then
+						if c.element == contract.element
+							and not string.find(c.id, "standin")
+							and c.modelName and c.modelName ~= "Egg" then
 							wantedCreatureId = c.id
 							break
 						end
 					end
-					-- Fallback: any creature of that rarity if no element match
-					if not wantedCreatureId and #allOfRarity > 0 then
-						wantedCreatureId = allOfRarity[1].id
+					-- Fallback: any non-standin creature of that rarity
+					if not wantedCreatureId then
+						for _, c in ipairs(allOfRarity) do
+							if not string.find(c.id, "standin")
+								and c.modelName and c.modelName ~= "Egg" then
+								wantedCreatureId = c.id
+								break
+							end
+						end
 					end
 				end
 
 				-- Fire contract data to client for UI display
 				fireClient("BadlandsContractData", player, {
-					rarity            = contract.rarity,
-					element           = contract.element,
-					minLevel          = contract.minLevel,
-					description       = contract.description,
-					dateKey           = contract.dateKey,
-					qualifying        = qualifying,
-					wantedCreatureId  = wantedCreatureId,
-					brokerDialogue = {
-						"Ah... another brave soul.",
-						"The Badlands hunger for sacrifice.",
-						contract.description,
-						"Choose your offering wisely. You won't get it back.",
-					},
+					rarity              = contract.rarity,
+					element             = contract.element,
+					minLevel            = contract.minLevel,
+					description         = contract.description,
+					dateKey             = contract.dateKey,
+					qualifying          = qualifying,
+					wantedCreatureId    = wantedCreatureId,
+					bonusCreatureId     = contract.bonusCreatureId,
+					bonusCreatureName   = contract.bonusCreatureName,
 				})
 			end)
 		end
@@ -2500,6 +2559,12 @@ function BadlandsSystem.Init(playerDataMgr, favCreatureSys, mountSys, creatureAI
 					displayName, entry.level or 1, entry.variant or "Normal"
 				)
 
+				-- Check if this is the bonus creature for extra buffs
+				local isBonus = false
+				if contract.bonusCreatureId and entry.id == contract.bonusCreatureId then
+					isBonus = true
+				end
+
 				-- Remove creature from inventory (permanent sacrifice)
 				local removeOk = pcall(function()
 					PlayerDataManager.RemoveCreature(player, uid)
@@ -2511,6 +2576,11 @@ function BadlandsSystem.Init(playerDataMgr, favCreatureSys, mountSys, creatureAI
 					return
 				end
 
+				if isBonus then
+					player:SetAttribute("BadlandsBonusBuff", true)
+					print("[Badlands] " .. player.Name .. " sacrificed BONUS creature " .. displayName)
+				end
+
 				print("[Badlands] " .. player.Name .. " sacrificed " .. displayName
 					.. " (uid=" .. tostring(uid) .. ") to The Broker")
 
@@ -2519,6 +2589,7 @@ function BadlandsSystem.Init(playerDataMgr, favCreatureSys, mountSys, creatureAI
 					accepted = true,
 					sacrificeMessage = sacrificeMsg,
 					contractMet = true,
+					bonusActivated = isBonus,
 				})
 
 				-- Add player to queue (reuse existing queue logic)

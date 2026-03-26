@@ -94,6 +94,7 @@ makeEvent("CreatureStolen"); makeFunc("GetRaidTargets")
 -- Arena
 makeEvent("ArenaAnnounce"); makeEvent("BattleStart"); makeEvent("BattleEnd")
 makeEvent("BattleKill"); makeEvent("BattleTeamsPlaced"); makeFunc("GetBattleInfo")
+makeEvent("ArenaWatchPrompt"); makeEvent("ArenaWatchTeleportRequest")
 makeEvent("BaseGymReject")
 makeEvent("BaseGymResult")  -- server -> client: gym battle completion screen (bounty, rewards, winner/loser)
 makeEvent("BaseGymStart")   -- server -> client: gym battle start banner (owner, challenger names)
@@ -474,13 +475,17 @@ if PvPBattleSystem then
 	local ok, err = pcall(function() PvPBattleSystem.Init(PlayerDataManager, FavoriteCreatureSystem, LeaderboardSystem) end)
 	if ok then print("[MainServer] PvPBattleSystem OK") else warn("[MainServer] PvPBattleSystem failed: " .. tostring(err)) end
 end
-if AIRaidSystem then
+if AIRaidSystem and GameConfig.AIRaidEnabled then
 	local ok, err = pcall(function() AIRaidSystem.Init(PlayerDataManager, BasePlacementSystem, CreatureSpawner, CreatureAI) end)
 	if ok then print("[MainServer] AIRaidSystem OK") else warn("[MainServer] AIRaidSystem failed: " .. tostring(err)) end
+elseif AIRaidSystem then
+	print("[MainServer] AIRaidSystem skipped (AIRaidEnabled = false)")
 end
-if DungeonSpawner then
+if DungeonSpawner and GameConfig.LegendaryDungeonsEnabled then
 	local ok, err = pcall(function() DungeonSpawner.Init(CreatureSpawner) end)
 	if ok then print("[MainServer] DungeonSpawner OK") else warn("[MainServer] DungeonSpawner failed: " .. tostring(err)) end
+elseif DungeonSpawner then
+	print("[MainServer] DungeonSpawner skipped (LegendaryDungeonsEnabled = false)")
 end
 if ElectricBiomeHazardSystem then
 	local ok, err = pcall(function() ElectricBiomeHazardSystem.Init() end)

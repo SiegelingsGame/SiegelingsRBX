@@ -390,7 +390,7 @@ CreatureData.Creatures = {
 		health = 70, attack = 16, defense = 8, speed = 13,
 		description = "A predator that hides in smoke clouds, striking with superheated fangs before vanishing again.",
 		modelName = "Emberfin", primaryColor = Color3.fromRGB(80, 50, 40),
-		evolvesTo = "Cindergil"
+		evolvesTo = "Cindergil",flying = true, 
 	},
 
 	-- Fire Rare (3)
@@ -1590,11 +1590,12 @@ function CreatureData.IsFlying(creatureId)
 	return info and info.flying == true
 end
 
--- Returns true if creature can swim in water (Water or Ice element). Used for companion recall when player swims.
+-- Returns true if creature can swim in water (Water element only). Used for companion recall when player swims.
+-- Ice creatures are carded like Fire/Earth when player enters water.
 function CreatureData.IsWaterType(creatureId)
 	local info = CreatureData.GetById(creatureId)
 	if not info or not info.element then return false end
-	return info.element == "Water" or info.element == "Ice"
+	return info.element == "Water"
 end
 
 -- Returns true if creature uses crawling orientation (model rotated 90° forward for belly-crawl walk)

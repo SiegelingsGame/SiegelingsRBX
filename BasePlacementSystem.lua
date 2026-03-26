@@ -217,6 +217,11 @@ local function setPlotInhabited(plotModel, inhabited)
 				desc.CanCollide = false
 				desc.CanQuery = false
 			end
+		elseif desc:IsA("SelectionBox") then
+			-- SelectionBoxes (e.g. in Floor3 TeleportParts) use Visible, not Transparency.
+			-- Hide when uninhabited or on upper floors (Floor2/3) until purchased.
+			local floorNum = getFloorAncestorNum(desc)
+			desc.Visible = inhabited and (not floorNum or floorNum <= 1)
 		end
 	end
 end
@@ -261,6 +266,33 @@ local function isPartInFolderNamed(part, folderName)
 		current = current.Parent
 	end
 	return false
+end
+
+-- Match PlayerDataManager.normalizeOwnedFloors: `{}` must not hide floor 1 (Lua: {} is truthy, so `or {1}` fails).
+local function normalizeOwnedFloorsForPlacement(raw)
+	if type(raw) ~= "table" then
+		return {1}
+	end
+	local seen = {}
+	local out = {}
+	for k, v in pairs(raw) do
+		local n = tonumber(v) or tonumber(k)
+		if n and n >= 1 and n <= 6 then
+			if not seen[n] then
+				seen[n] = true
+				table.insert(out, n)
+			end
+		end
+	end
+	table.sort(out)
+	if #out == 0 then
+		return {1}
+	end
+	if not seen[1] then
+		table.insert(out, 1)
+		table.sort(out)
+	end
+	return out
 end
 
 -- Returns points matching prefix but ONLY from owned floors.
@@ -728,7 +760,11 @@ local function setFloorVisibility(plotModel, floorNum, visible)
 	local btlCount = 0
 	local glassCount = 0
 	for _, desc in ipairs(floorFolder:GetDescendants()) do
-		if desc:IsA("BasePart") then
+		if desc:IsA("SelectionBox") then
+			-- SelectionBoxes in TeleportParts (ElectricTele, CaveTele, etc.) use Visible.
+			-- Sync with floor visibility to avoid phantom wireframes when floor is hidden.
+			desc.Visible = visible
+		elseif desc:IsA("BasePart") then
 			-- FIX #12: ALWAYS anchor parts BEFORE changing CanCollide.
 			-- If a part is unanchored and we set CanCollide=false, it falls through
 			-- the world and gets destroyed by FallenPartsDestroyHeight.
@@ -853,7 +889,7 @@ function BasePlacementSystem.PlaceCreatureInSlot(player, slotType, slotIndex, ui
 	local tag = (slotType == "defense") and DEFENSE_TAG or INCOME_TAG
 	clearCreatureAtSlot(plotModel, tag, slotIndex)
 
-	local ownedFloors = data.ownedFloors or {1}
+	local ownedFloors = normalizeOwnedFloorsForPlacement(data.ownedFloors)
 	local points
 	if slotType == "defense" then
 		points = getPointsForOwnedFloors(plotModel, "DefensePoint", ownedFloors, "IncomePoints")
@@ -1029,7 +1065,7 @@ function BasePlacementSystem.GetSlotIndexForPoint(player, slotType, pointIndex)
 		placementLog("GetSlotIndexForPoint nil: no plotModel for plotId", data.plotId, player and player.Name)
 		return nil
 	end
-	local ownedFloors = data.ownedFloors or {1}
+	local ownedFloors = normalizeOwnedFloorsForPlacement(data.ownedFloors)
 	local points
 	if slotType == "defense" then
 		points = getPointsForOwnedFloors(plotModel, "DefensePoint", ownedFloors, "IncomePoints")
@@ -1084,7 +1120,8 @@ function BasePlacementSystem.PlaceCreatures(player)
 	end
 
 	-- Set floor visibility based on owned floors
-	local ownedFloors = data.ownedFloors or {1}
+	local ownedFloors = normalizeOwnedFloorsForPlacement(data.ownedFloors)
+	data.ownedFloors = ownedFloors
 	local function ownsFloor(n)
 		for _, f in ipairs(ownedFloors) do if f == n then return true end end
 		return false
@@ -1287,7 +1324,7 @@ function BasePlacementSystem.ActivateFloor(player, floorNum)
 		return
 	end
 
-	local ownedFloors = data.ownedFloors or {1}
+	local ownedFloors = normalizeOwnedFloorsForPlacement(data.ownedFloors)
 
 	-- ── Step 1: Make the new floor visible ──────────────────────────────────
 	setFloorVisibility(plotModel, floorNum, true)
@@ -1402,7 +1439,7 @@ function BasePlacementSystem.RespawnBattleCreatures(player)
 	local plotModel = findPlotModel(data.plotId)
 	if not plotModel then return end
 
-	local ownedFloors = data.ownedFloors or {1}
+	local ownedFloors = normalizeOwnedFloorsForPlacement(data.ownedFloors)
 	local ownsBattle = false
 	for _, f in ipairs(ownedFloors) do if f == 2 then ownsBattle = true break end end
 
@@ -1434,7 +1471,7 @@ function BasePlacementSystem.UpdateBattlePointVisualState(player)
 	local plotModel = findPlotModel(data.plotId)
 	if not plotModel then return false end
 
-	local ownedFloors = data.ownedFloors or {1}
+	local ownedFloors = normalizeOwnedFloorsForPlacement(data.ownedFloors)
 	local ownsBattle = false
 	for _, f in ipairs(ownedFloors) do
 		if f == 2 then

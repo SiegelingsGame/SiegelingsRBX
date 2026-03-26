@@ -116,6 +116,33 @@ local function normalizeSlotArray(slots)
 	return fixed
 end
 
+-- DataStore / JSON can yield {}, missing 1, or string keys. Empty {} is truthy so `or {1}` never runs elsewhere.
+local function normalizeOwnedFloors(raw)
+	if type(raw) ~= "table" then
+		return {1}
+	end
+	local seen = {}
+	local out = {}
+	for k, v in pairs(raw) do
+		local n = tonumber(v) or tonumber(k)
+		if n and n >= 1 and n <= 6 then
+			if not seen[n] then
+				seen[n] = true
+				table.insert(out, n)
+			end
+		end
+	end
+	table.sort(out)
+	if #out == 0 then
+		return {1}
+	end
+	if not seen[1] then
+		table.insert(out, 1)
+		table.sort(out)
+	end
+	return out
+end
+
 local function normalizeOwnedLookup(raw)
 	local fixed = {}
 	if type(raw) ~= "table" then
@@ -1431,7 +1458,7 @@ function PlayerDataManager.OnPlayerJoin(player)
 		-- Backfill player level/floor fields for existing players
 		if data.playerLevel == nil then data.playerLevel = 1 end
 		if data.playerXP == nil then data.playerXP = 0 end
-		if data.ownedFloors == nil then data.ownedFloors = {1} end
+		data.ownedFloors = normalizeOwnedFloors(data.ownedFloors)
 		if data.eggs == nil then data.eggs = {} end
 		if data.rebirthLevel == nil then data.rebirthLevel = 0 end
 		if type(data.achievementMetrics) ~= "table" then data.achievementMetrics = {} end

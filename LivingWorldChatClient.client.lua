@@ -18,6 +18,13 @@ local NotificationManager = require(Modules:WaitForChild("NotificationManager"))
 local LivingWorldData = require(Modules:WaitForChild("LivingWorldData"))
 local GameConfig = require(Modules:WaitForChild("GameConfig"))
 
+-- NPC chat notifications are intentionally disabled.
+if _G.LivingWorldChatClient == nil then
+	_G.LivingWorldChatClient = {}
+end
+_G.LivingWorldChatClient.InjectSystemAlert = function() end
+return
+
 -- Config: timing
 local CONVERSATION_INTERVAL_MIN = 55   -- seconds between starting each conversation
 local CONVERSATION_INTERVAL_MAX = 95

@@ -1,5 +1,6 @@
 -- PlayerHealthSystem.lua - ServerScriptService (ModuleScript)
--- Handles player health: initial setup and rapid regeneration after 5 seconds out of combat.
+-- Player health: initial setup. Regen only runs after PlayerHealthOutOfCombatDelay seconds
+-- with no health decrease (damage, drowning, hazards — anything that lowers Humanoid.Health).
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -12,10 +13,10 @@ local PlayerDataManager = require(ServerScriptService.PlayerDataManager)
 
 local PlayerHealthSystem = {}
 
--- Per-player: last time damage was taken (for out-of-combat tracking)
-local lastCombatTime = {}
+-- Per-player: tick() when Humanoid.Health last went down (regen allowed only after delay from this moment)
+local lastHealthLossTime = {}
 
-local REGEN_TICK = 0.1  -- check regen every 0.1 sec
+local REGEN_TICK = 0.1  -- how often to apply healing once the quiet period has passed
 local lastRegenTick = 0
 
 local function setupPlayerHealth(player, humanoid)
@@ -26,16 +27,22 @@ local function setupPlayerHealth(player, humanoid)
 	humanoid.MaxHealth = maxHP
 	humanoid.Health = maxHP
 
-	-- Track damage taken for combat timer
+	-- Roblox may enable default humanoid health regen on some rigs; our rules are delay-gated only.
+	pcall(function()
+		humanoid.HealthRegenerationEnabled = false
+	end)
+
+	-- Any net decrease (TakeDamage, drowning server path, hazards) resets the quiet timer.
 	local lastHP = maxHP
 	humanoid.HealthChanged:Connect(function(newHP)
 		if newHP < lastHP then
-			lastCombatTime[player.UserId] = tick()
+			lastHealthLossTime[player.UserId] = tick()
 		end
 		lastHP = newHP
 	end)
 
-	lastCombatTime[player.UserId] = 0  -- start out of combat so regen can begin after 5 sec if damaged
+	-- Must not use 0: (now - 0) >= delay would allow instant regen whenever HP < max.
+	lastHealthLossTime[player.UserId] = tick()
 end
 
 local function tickRegen()
@@ -59,10 +66,9 @@ local function tickRegen()
 		local maxHP = humanoid.MaxHealth
 		if humanoid.Health >= maxHP then continue end
 
-		local lastCombat = lastCombatTime[player.UserId] or 0
-		if now - lastCombat < delay then continue end
+		local lastLoss = lastHealthLossTime[player.UserId]
+		if not lastLoss or (now - lastLoss) < delay then continue end
 
-		-- Out of combat: rapidly regenerate
 		humanoid.Health = math.min(maxHP, humanoid.Health + healPerTick)
 	end
 end
@@ -94,7 +100,7 @@ function PlayerHealthSystem.Init()
 	RunService.Heartbeat:Connect(tickRegen)
 
 	Players.PlayerRemoving:Connect(function(player)
-		lastCombatTime[player.UserId] = nil
+		lastHealthLossTime[player.UserId] = nil
 	end)
 
 end

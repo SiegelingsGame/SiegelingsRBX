@@ -83,6 +83,8 @@ local savedArenaFolder, savedBlueTeamFolder, savedRedTeamFolder
 
 -- Events
 local arenaEvents = {}
+local arenaWatchTeleportWhitelist = {} -- [userId] = expiresAt (tick time)
+local ARENA_WATCH_PROMPT_LEAD = 10
 
 -- Live state broadcast (server -> clients)
 local stateDirty = false
@@ -96,6 +98,92 @@ local STATE_BROADCAST_MIN_INTERVAL = 0.10 -- seconds; throttles event spam durin
 local function setArenaFighterAttributes(blueName, redName)
 	workspace:SetAttribute("ArenaFighterBlueName", blueName)
 	workspace:SetAttribute("ArenaFighterRedName", redName)
+end
+
+-- Instance-based battle music: set/clear per-player attribute so only
+-- participants hear battle music (instead of the global workspace flag).
+local battleMusicPlayers = {} -- Player[] currently flagged
+local function clearBattleMusicForPlayers()
+	for _, p in ipairs(battleMusicPlayers) do
+		if p and p.Parent then
+			p:SetAttribute("InBattleMusic", nil)
+		end
+	end
+	table.clear(battleMusicPlayers)
+end
+local function setBattleMusicForPlayers(...)
+	clearBattleMusicForPlayers()
+	for _, p in ipairs({...}) do
+		if p and p:IsA("Player") and p.Parent then
+			p:SetAttribute("InBattleMusic", true)
+			table.insert(battleMusicPlayers, p)
+		end
+	end
+end
+
+local function markArenaWatchTeleportEligible(player, durationSec)
+	if not player then return end
+	local dur = math.max(tonumber(durationSec) or 0, 0)
+	arenaWatchTeleportWhitelist[player.UserId] = tick() + dur
+end
+
+local function clearArenaWatchTeleportEligibility()
+	table.clear(arenaWatchTeleportWhitelist)
+end
+
+local function isArenaWatchTeleportEligible(player)
+	if not player then return false end
+	local expiresAt = arenaWatchTeleportWhitelist[player.UserId]
+	if not expiresAt then return false end
+	if tick() > expiresAt then
+		arenaWatchTeleportWhitelist[player.UserId] = nil
+		return false
+	end
+	return true
+end
+
+local function getArenaWatchTeleportCFrame()
+	if not arenaFolder then return nil end
+
+	local center = arenaFolder:FindFirstChild("ArenaCenter")
+	if center and center:IsA("BasePart") then
+		return center.CFrame + Vector3.new(0, 5, 0)
+	end
+
+	local points = {}
+	for _, teamName in ipairs({"BlueTeam", "RedTeam"}) do
+		local teamFolder = arenaFolder:FindFirstChild(teamName)
+		if teamFolder then
+			for _, child in ipairs(teamFolder:GetChildren()) do
+				if child:IsA("BasePart") and child.Name:match("^BattlePoint%d+$") then
+					table.insert(points, child.Position)
+				end
+			end
+		end
+	end
+
+	if #points == 0 then return nil end
+	local sum = Vector3.zero
+	for _, pos in ipairs(points) do
+		sum += pos
+	end
+	local centerPos = sum / #points
+	return CFrame.new(centerPos + Vector3.new(0, 6, 0))
+end
+
+local function fireArenaWatchPrompt(king, challenger, countdownSec)
+	if not arenaEvents.ArenaWatchPrompt then return end
+	local payload = {
+		kingName = king and king.Name or "King",
+		challengerName = challenger and challenger.Name or "AI Challenger",
+		countdown = tonumber(countdownSec) or ARENA_WATCH_PROMPT_LEAD,
+	}
+	if king and king.Parent then
+		arenaEvents.ArenaWatchPrompt:FireClient(king, payload)
+	end
+	if challenger and challenger.Parent then
+		arenaEvents.ArenaWatchPrompt:FireClient(challenger, payload)
+	end
 end
 
 local function broadcastArenaState()
@@ -1537,6 +1625,8 @@ local function runBattle()
 	battleInProgress = false
 	workspace:SetAttribute("ArenaBattleInProgress", false)
 	setArenaFighterAttributes(nil, nil)
+	clearBattleMusicForPlayers()
+	clearArenaWatchTeleportEligibility()
 	print("[Arena] Battle complete! Winner: " .. winnerTeam .. " | King streak: " .. kingWinStreak)
 end
 
@@ -1582,11 +1672,6 @@ local function startRound()
 	-- Pick king
 	local king = pickKing()
 	if not king then
-		if arenaEvents.ArenaAnnounce then
-			for _, p in ipairs(Players:GetPlayers()) do
-				arenaEvents.ArenaAnnounce:FireClient(p, "No eligible teams found. Set a battle team in your inventory!")
-			end
-		end
 		print("[Arena] No eligible king - skipping round")
 		return
 	end
@@ -1611,7 +1696,8 @@ local function startRound()
 	-- LOCK: prevent any base refresh from re-placing battle creatures
 	battleInProgress = true
 	workspace:SetAttribute("ArenaBattleInProgress", true)
-	setArenaFighterAttributes(player and player.Name or nil, "Gym Leader")
+	setArenaFighterAttributes(king and king.Name or nil, challenger and challenger.Name or "AI Challenger")
+	setBattleMusicForPlayers(king, challenger)
 
 	-- Clear arena of any leftover models from previous round
 	clearArena()
@@ -1641,15 +1727,24 @@ local function startRound()
 	end
 	setArenaFighterAttributes(king and king.Name or nil, challengerName)
 
-	-- Announce
+	-- Notify only selected arena players and allow quick spectate teleport.
+	markArenaWatchTeleportEligible(king, ARENA_WATCH_PROMPT_LEAD + 25)
+	if challenger then
+		markArenaWatchTeleportEligible(challenger, ARENA_WATCH_PROMPT_LEAD + 25)
+	end
+	fireArenaWatchPrompt(king, challenger, ARENA_WATCH_PROMPT_LEAD)
+
+	-- Targeted announce (no global ticker spam)
 	if arenaEvents.ArenaAnnounce then
-		for _, p in ipairs(Players:GetPlayers()) do
-			arenaEvents.ArenaAnnounce:FireClient(p, 
-				"ARENA BATTLE! " .. king.Name .. " (King) vs " .. challengerName .. "!")
+		if king and king.Parent then
+			arenaEvents.ArenaAnnounce:FireClient(king, "ARENA BATTLE! " .. king.Name .. " (King) vs " .. challengerName .. "!")
+		end
+		if challenger and challenger.Parent then
+			arenaEvents.ArenaAnnounce:FireClient(challenger, "ARENA BATTLE! " .. king.Name .. " (King) vs " .. challengerName .. "!")
 		end
 	end
 
-	task.wait(3) -- Pre-placement pause
+	task.wait(ARENA_WATCH_PROMPT_LEAD) -- Pre-placement pause with watch prompt badge window
 
 	-- Clear arena AGAIN right before placing (in case anything spawned during the 3s wait)
 	clearArena()
@@ -1720,6 +1815,8 @@ local function startRound()
 		battleInProgress = false
 		workspace:SetAttribute("ArenaBattleInProgress", false)
 		setArenaFighterAttributes(nil, nil)
+		clearBattleMusicForPlayers()
+		clearArenaWatchTeleportEligibility()
 		clearArena()
 	end
 end
@@ -1753,7 +1850,7 @@ function ArenaSystem.StartGymBattle(player, gymFolder)
 	if not gymFolder or not (gymFolder:IsA("Folder") or gymFolder:IsA("Model")) then return false, "Invalid gym folder" end
 	if battleInProgress then return false, "A battle is already in progress" end
 	if not hasEligibleBattleTeam(player) then
-		return false, "You need a battle team to challenge the Gym. Set one in your inventory!"
+		return false, "Cannot start this gym right now."
 	end
 	local gymBlue = gymFolder:FindFirstChild("BlueTeam")
 	local gymRed = gymFolder:FindFirstChild("RedTeam")
@@ -1771,6 +1868,7 @@ function ArenaSystem.StartGymBattle(player, gymFolder)
 	isGymBattle = true
 	battleInProgress = true
 	workspace:SetAttribute("ArenaBattleInProgress", true)
+	setBattleMusicForPlayers(player)
 
 	-- Clear gym arena and player base battle orbs
 	clearArena()
@@ -1848,6 +1946,7 @@ function ArenaSystem.StartGymBattle(player, gymFolder)
 		battleInProgress = false
 		workspace:SetAttribute("ArenaBattleInProgress", false)
 		setArenaFighterAttributes(nil, nil)
+		clearBattleMusicForPlayers()
 		clearArena()
 	end
 
@@ -1906,7 +2005,42 @@ function ArenaSystem.Init(playerDataMgr, basePlacementSys)
 	end
 
 	arenaEvents.ArenaAnnounce = mkEvent("ArenaAnnounce")
+	arenaEvents.ArenaWatchPrompt = mkEvent("ArenaWatchPrompt")
+	arenaEvents.ArenaWatchTeleportRequest = mkEvent("ArenaWatchTeleportRequest")
 	arenaEvents.ArenaReward = mkEvent("ArenaReward")
+	if arenaEvents.ArenaWatchTeleportRequest then
+		arenaEvents.ArenaWatchTeleportRequest.OnServerEvent:Connect(function(requestingPlayer)
+			if not requestingPlayer or not requestingPlayer.Parent then return end
+
+			local isCurrentFighter = (currentKing == requestingPlayer) or (currentChallenger == requestingPlayer)
+			if not isCurrentFighter and not isArenaWatchTeleportEligible(requestingPlayer) then
+				if arenaEvents.ArenaAnnounce then
+					arenaEvents.ArenaAnnounce:FireClient(requestingPlayer, "Your team is not queued for an arena battle right now.")
+				end
+				return
+			end
+
+			local targetCf = getArenaWatchTeleportCFrame()
+			local character = requestingPlayer.Character
+			if not targetCf or not character then
+				if arenaEvents.ArenaAnnounce then
+					arenaEvents.ArenaAnnounce:FireClient(requestingPlayer, "Arena teleport is unavailable right now.")
+				end
+				return
+			end
+			local hrp = character:FindFirstChild("HumanoidRootPart")
+			local hum = character:FindFirstChildOfClass("Humanoid")
+			if not hrp or not hum or hum.Health <= 0 then
+				if arenaEvents.ArenaAnnounce then
+					arenaEvents.ArenaAnnounce:FireClient(requestingPlayer, "You must be alive to teleport to the arena.")
+				end
+				return
+			end
+
+			hrp.CFrame = targetCf
+		end)
+	end
+
 	arenaEvents.BattleStart = mkEvent("BattleStart")
 	arenaEvents.BattleEnd = mkEvent("BattleEnd")
 	arenaEvents.BattleKill = mkEvent("BattleKill")
@@ -1961,13 +2095,6 @@ function ArenaSystem.Init(playerDataMgr, basePlacementSys)
 			for countdown = ROUND_INTERVAL, 1, -1 do
 				workspace:SetAttribute("ArenaCountdown", countdown)
 				task.wait(1)
-				if countdown == 30 or countdown == 15 or countdown == 10 or countdown <= 5 then
-					if arenaEvents.ArenaAnnounce then
-						for _, p in ipairs(Players:GetPlayers()) do
-							arenaEvents.ArenaAnnounce:FireClient(p, "Arena battle in " .. countdown .. " seconds!")
-						end
-					end
-				end
 			end
 			workspace:SetAttribute("ArenaCountdown", 0)
 
@@ -2005,6 +2132,8 @@ function ArenaSystem.Init(playerDataMgr, basePlacementSys)
 					battleInProgress = false
 					workspace:SetAttribute("ArenaBattleInProgress", false)
 					setArenaFighterAttributes(nil, nil)
+					clearBattleMusicForPlayers()
+					clearArenaWatchTeleportEligibility()
 					clearArena()
 					break
 				end

@@ -258,6 +258,10 @@ end
 -- -- INIT --
 
 function DungeonSpawner.Init(creatureSpawnerRef)
+	if not (GameConfig.LegendaryDungeonsEnabled) then
+		print("[DungeonSpawner] Disabled via GameConfig.LegendaryDungeonsEnabled")
+		return
+	end
 	CreatureSpawner = creatureSpawnerRef
 
 	task.spawn(function()

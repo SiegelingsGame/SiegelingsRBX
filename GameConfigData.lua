@@ -201,7 +201,7 @@ GameConfig.BaseCreatureSpacing = 8
 -- Base billboard distance (controls when individual creature tags hide and summary appears)
 GameConfig.BaseBillboardMaxDistance = 80    -- studs; individual creature billboards hide beyond this
 GameConfig.BaseSummaryShowDistance  = 100    -- studs; summary GUI fades in right when individual labels disappear
-GameConfig.BaseSummaryMaxDistance   = 900   -- studs; summary GUI hides beyond this
+GameConfig.BaseSummaryMaxDistance   = 1500   -- studs; summary GUI hides beyond this
 
 -- Base plots
 GameConfig.MaxPlots            = 8
@@ -442,13 +442,13 @@ GameConfig.CreatureBobHeight   = 1
 GameConfig.CreatureBobSpeed    = 2
 
 -- Player Health
-GameConfig.PlayerMaxHealth           = 100   -- starting/max HP
+GameConfig.PlayerMaxHealth           = 100   -- starting/max HP hhffd
 GameConfig.PlayerHealthOutOfCombatDelay = 5   -- seconds without any health decrease before regen runs (includes drowning etc.)
 GameConfig.PlayerHealthRegenPerSecond  = 100  -- HP/sec only after the delay above; no regen while health is still dropping
 
 -- Underwater Breath Mechanic (client-side)
 GameConfig.BreathMaxTime             = 10    -- seconds of breath before drowning starts
-GameConfig.BreathDrownDamage         = 10    -- HP lost per tick when drowning
+GameConfig.BreathDrownDamage         = 20    -- HP lost per tick when drowning (+10%)
 GameConfig.BreathDrownTickInterval   = 5     -- seconds between drown damage ticks
 GameConfig.BreathWaterCreatureBonus  = 2     -- extra seconds of breath per water creature level (equipped favorite)
 GameConfig.BreathWaterCreatureMaxBonus = 60  -- cap on bonus breath from water creature level

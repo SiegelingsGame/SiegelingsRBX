@@ -3773,6 +3773,8 @@ local function getPanelOpenRect()
 			topInset = 10,
 			bottomInset = 14,
 			bottomMobileExtra = 20,
+			-- Mobile UI: lift panel slightly (was sitting low on phones).
+			shiftYScale = -0.10,
 		})
 		return math.floor(bounds.left), math.floor(bounds.top), math.floor(bounds.width), math.floor(bounds.height), true
 	end

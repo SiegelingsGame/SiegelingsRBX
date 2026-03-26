@@ -80,6 +80,9 @@ function MobileWindowLayout.GetBounds(config)
 		topInset = config.topInset or DEFAULTS.topInset,
 		bottomInset = config.bottomInset or DEFAULTS.bottomInset,
 		bottomMobileExtra = config.bottomMobileExtra or DEFAULTS.bottomMobileExtra,
+		-- Optional vertical shift (negative = move up). Applied after insets/ticker bound.
+		shiftYScale = config.shiftYScale or 0,
+		shiftYOffset = config.shiftYOffset or 0,
 	}
 
 	local vp = getViewport()
@@ -93,6 +96,27 @@ function MobileWindowLayout.GetBounds(config)
 		top = tickerTop
 	end
 	local bottom = vp.Y - insetBR.Y - cfg.bottomInset - cfg.bottomMobileExtra
+
+	-- Optional vertical shift (keeps window height stable by shifting top+bottom equally).
+	local shiftY = (cfg.shiftYScale * vp.Y) + cfg.shiftYOffset
+	if shiftY ~= 0 then
+		top = top + shiftY
+		bottom = bottom + shiftY
+	end
+
+	-- Clamp into the usable screen region (respect Roblox GUI insets).
+	local minTop = insetTL.Y
+	local maxBottom = vp.Y - insetBR.Y
+	if top < minTop then
+		local d = minTop - top
+		top = top + d
+		bottom = bottom + d
+	end
+	if bottom > maxBottom then
+		local d = bottom - maxBottom
+		top = top - d
+		bottom = bottom - d
+	end
 
 	-- Clamp for narrow devices so we always return a valid region.
 	if bottom <= top + DEFAULTS.minHeight then

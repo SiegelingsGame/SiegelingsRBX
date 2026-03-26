@@ -2414,29 +2414,32 @@ function BadlandsSystem.Init(playerDataMgr, favCreatureSys, mountSys, creatureAI
 				-- Find qualifying creatures in player's inventory
 				local qualifying = findQualifyingCreatures(player)
 
-				-- Pick a representative creature ID to show in the viewport preview.
-				-- Debug Cacty mode → always "cacty". Otherwise find any creature
-				-- matching the contract's rarity + element.
+				-- Representative creature for the viewport: same id as the daily bonus pick
+				-- (generateDailyContract chooses bonusCreatureId with the date RNG). Using the
+				-- first rarity+element match in CreatureData order was wrong when multiple
+				-- species share that combo (e.g. Clawkid vs Droxyl both Uncommon Water).
 				local wantedCreatureId = nil
 				if GameConfig.DebugBrokerCacty then
 					wantedCreatureId = "cacty"
 				else
-					local allOfRarity = CreatureData.GetCreaturesByRarity(contract.rarity) or {}
-					for _, c in ipairs(allOfRarity) do
-						if c.element == contract.element
-							and not string.find(c.id, "standin")
-							and c.modelName and c.modelName ~= "Egg" then
-							wantedCreatureId = c.id
-							break
-						end
-					end
-					-- Fallback: any non-standin creature of that rarity
+					wantedCreatureId = contract.bonusCreatureId
 					if not wantedCreatureId then
+						local allOfRarity = CreatureData.GetCreaturesByRarity(contract.rarity) or {}
 						for _, c in ipairs(allOfRarity) do
-							if not string.find(c.id, "standin")
+							if c.element == contract.element
+								and not string.find(c.id, "standin")
 								and c.modelName and c.modelName ~= "Egg" then
 								wantedCreatureId = c.id
 								break
+							end
+						end
+						if not wantedCreatureId then
+							for _, c in ipairs(allOfRarity) do
+								if not string.find(c.id, "standin")
+									and c.modelName and c.modelName ~= "Egg" then
+									wantedCreatureId = c.id
+									break
+								end
 							end
 						end
 					end

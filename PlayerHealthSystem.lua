@@ -60,6 +60,9 @@ local function tickRegen()
 		local humanoid = char:FindFirstChild("Humanoid")
 		if not humanoid or humanoid.Health <= 0 then continue end
 
+		-- No regen while oxygen is depleted (until client/server marks it restored).
+		if player:GetAttribute("OxygenDepleted") == true then continue end
+
 		-- Skip if invulnerable (e.g. BuffShop invuln buff)
 		if humanoid:GetAttribute("Invulnerable") then continue end
 

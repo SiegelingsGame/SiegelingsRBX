@@ -152,6 +152,12 @@ task.spawn(function()
 
 		local character = player.Character
 		if not character then continue end
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if not humanoid or humanoid.Health <= 0
+			or humanoid:GetState() == Enum.HumanoidStateType.Dead then
+			targetIndicator.Visible = false
+			continue
+		end
 		local root = character:FindFirstChild("HumanoidRootPart")
 		if not root then continue end
 

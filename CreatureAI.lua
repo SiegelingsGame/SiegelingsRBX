@@ -1308,7 +1308,7 @@ local function updateCreature(model, state, dt)
 
 		if tick() - (state.lastAttack or 0) >= GameConfig.AI_AttackCooldown then
 			state.lastAttack = tick()
-			local damage = math.max(1, math.floor(info.attack * 0.4))
+			local damage = math.max(1, math.floor(info.attack))
 
 			-- Elemental weakness: world creature (attacker) vs target (defender)
 			local defenderElement = nil

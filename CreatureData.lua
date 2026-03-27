@@ -8,10 +8,10 @@
 	live here. Single source of truth for creature data (client + server).
 	======================================================================
 
-	ADDING A NEW CREATURE:b
+	ADDING A NEW CREATURE:
 		1. Add an entry to CreatureData.Creatures below
 		2. Give it a unique "id" (lowercase_snake_case)
-		3. Set element, class, behavior, rarity, and stats
+		3. Set element, class, behavior, and rarity (base stats are computed from rarity+class+element+id)
 		4. Set spawnPointType to "dungeon" or "boss" if needed
 		5. The _byId lookup table auto-rebuilds at the bottom
 
@@ -179,7 +179,7 @@ function CreatureData.GetBiomeFolderForElement(element)
 	return CreatureData.ZoneBiomeFolder[zone]
 end
 
--- Get all valid folder names for an element (primary first, then aliases). Used by spawner to find existing biome folder.
+-- Get all valid folder names for an element (primary first, then aliases). Used by spawner to find existing biome folder.a
 function CreatureData.GetBiomeFolderNamesForElement(element)
 	local zone = CreatureData.ZonePreference[element]
 	if not zone then return {} end
@@ -223,6 +223,137 @@ CreatureData.Classes = {
 	Assassin  = { color = Color3.fromRGB(200, 60, 200),  icon = "" },
 	Support   = { color = Color3.fromRGB(100, 220, 120), icon = "" },
 }
+
+-- Total stat pool per rarity (health + attack + defense + speed). Stats are filled by AllocateBaseStats.
+CreatureData.RarityStatBudget = {
+	Common = 100,
+	Uncommon = 150,
+	Rare = 300,
+	Epic = 400,
+	Legendary = 500,
+}
+
+-- Normalized class shapes (health, attack, defense, speed). Element bias is added before renormalize.
+CreatureData.ClassStatWeights = {
+	Assassin = { 0.14, 0.32, 0.22, 0.32 }, -- fast, strong, squishy; defense varied per id
+	Guardian = { 0.40, 0.17, 0.33, 0.10 }, -- slow, tanky; attack varied per id
+	Mage = { 0.20, 0.40, 0.11, 0.29 }, -- high attack, low def; health varied per id
+	Bruiser = { 0.28, 0.26, 0.28, 0.18 }, -- balanced hp/def; speed varied per id
+	Support = { 0.36, 0.14, 0.14, 0.36 }, -- high health + speed
+}
+
+-- Small additive biases (same stat order). Wind = Air, Lightning = Electric in design terms..
+CreatureData.ElementStatBias = {
+	Fire = { 0, 0.07, 0, 0 },
+	Earth = { 0.07, 0, 0, 0 },
+	Wind = { 0, 0, 0, 0.07 },
+	Ice = { 0, 0, 0.07, 0 },
+	Water = { 0.04, 0.04, 0, 0 },
+	Lightning = { 0, 0.04, 0, 0.04 },
+	Poison = { 0.04, 0, 0, 0.04 },
+	Metal = { 0.04, 0, 0.04, 0 },
+	Psychic = { 0, 0, 0.04, 0.04 },
+	Undead = { 0, 0.04, 0.04, 0 },
+	Light = { 0.03, 0, 0.03, 0.03 },
+	Shadow = { 0, 0.03, 0.03, 0.03 },
+}
+
+local function statHash(s)
+	local h = 5381
+	for i = 1, #s do
+		h = (h * 33 + string.byte(s, i)) % 2147483647
+	end
+	return h
+end
+
+-- Deterministic per-id spread on the class "varied" stat (±~6% relative weight before partition).
+local function applyClassStatSpread(class, w, hash)
+	local h1 = hash % 131
+	local t = (h1 / 130 - 0.5) * 0.12
+	if class == "Assassin" then
+		w[3] = math.max(0.02, w[3] * (1 + t))
+	elseif class == "Guardian" then
+		w[2] = math.max(0.02, w[2] * (1 + t))
+	elseif class == "Mage" then
+		w[1] = math.max(0.02, w[1] * (1 + t))
+	elseif class == "Bruiser" then
+		w[4] = math.max(0.02, w[4] * (1 + t))
+	elseif class == "Support" then
+		local u = (hash % 97) / 96 - 0.5
+		w[1] = math.max(0.02, w[1] * (1 + u * 0.08))
+		w[4] = math.max(0.02, w[4] * (1 - u * 0.08))
+	end
+end
+
+local function normalizeFour(w)
+	local s = w[1] + w[2] + w[3] + w[4]
+	if s <= 0 then return { 0.25, 0.25, 0.25, 0.25 } end
+	return { w[1] / s, w[2] / s, w[3] / s, w[4] / s }
+end
+
+-- Largest-remainder split of `total` across four weights; each stat at least `minEach`.
+local function partitionWithMin(total, w, minEach)
+	local n = 4
+	local floorMin = n * minEach
+	if total < floorMin then
+		minEach = math.max(0, math.floor(total / n))
+		floorMin = n * minEach
+	end
+	local rem = total - floorMin
+	local frac = { w[1] * rem, w[2] * rem, w[3] * rem, w[4] * rem }
+	local out = {
+		minEach + math.floor(frac[1]),
+		minEach + math.floor(frac[2]),
+		minEach + math.floor(frac[3]),
+		minEach + math.floor(frac[4]),
+	}
+	local used = out[1] + out[2] + out[3] + out[4]
+	local leftover = total - used
+	local fr = {
+		{ i = 1, f = frac[1] - math.floor(frac[1]) },
+		{ i = 2, f = frac[2] - math.floor(frac[2]) },
+		{ i = 3, f = frac[3] - math.floor(frac[3]) },
+		{ i = 4, f = frac[4] - math.floor(frac[4]) },
+	}
+	table.sort(fr, function(a, b) return a.f > b.f end)
+	for k = 1, leftover do
+		out[fr[k].i] = out[fr[k].i] + 1
+	end
+	return out
+end
+
+function CreatureData.AllocateBaseStats(rarity, class, element, creatureId)
+	local budget = CreatureData.RarityStatBudget[rarity] or 100
+	local cw = CreatureData.ClassStatWeights[class]
+	if not cw then
+		cw = { 0.25, 0.25, 0.25, 0.25 }
+	end
+	local eb = CreatureData.ElementStatBias[element]
+	if not eb then
+		eb = { 0, 0, 0, 0 }
+	end
+	local w = {
+		math.max(0.02, cw[1] + eb[1]),
+		math.max(0.02, cw[2] + eb[2]),
+		math.max(0.02, cw[3] + eb[3]),
+		math.max(0.02, cw[4] + eb[4]),
+	}
+	w = normalizeFour(w)
+	local h = statHash(tostring(creatureId or ""))
+	applyClassStatSpread(class, w, h)
+	w = normalizeFour(w)
+	local minEach = 1
+	if budget < 8 then
+		minEach = 0
+	end
+	local parts = partitionWithMin(budget, w, minEach)
+	return {
+		health = parts[1],
+		attack = parts[2],
+		defense = parts[3],
+		speed = parts[4],
+	}
+end
 
 -- Synergy bonuses (applied during battle)
 CreatureData.Synergies = {
@@ -299,6 +430,7 @@ CreatureData.Synergies = {
 -- --------------------------------------
 -- CREATURE DEFINITIONS (90 total)
 -- 15 per element: 5 Common, 4 Uncommon, 3 Rare, 2 Epic, 1 Legendary
+-- Base stats: filled after this table via AllocateBaseStats (RarityStatBudget + class + element + id).
 -- --------------------------------------
 
 CreatureData.Creatures = {
@@ -312,7 +444,6 @@ CreatureData.Creatures = {
 		id = "firsky", displayName = "Firsky", rarity = "Common",
 		element = "Fire", class = "Mage", behavior = "aggressive",
 		spawnWeight = 15, baseIncome = 1, captureTime = 0.5,
-		health = 45, attack = 12, defense = 6, speed = 7,
 		description = "A small flame spirit that actively hunts smaller creatures.",
 		modelName = "Firsky", primaryColor = Color3.fromRGB(255, 140, 50),
 		evolvesTo = "Coming Soon",
@@ -321,7 +452,6 @@ CreatureData.Creatures = {
 		id = "pylook", displayName = "Pylook", rarity = "Common",
 		element = "Fire", class = "Assassin", behavior = "skittish",
 		spawnWeight = 18, baseIncome = 1, captureTime = 0.6,
-		health = 40, attack = 11, defense = 5, speed = 11,
 		description = "Some say the spirits of lost SiegeKnights burning with rage become pylooks",
 		modelName = "Pylook", primaryColor = Color3.fromRGB(255, 120, 60),
 		evolvesTo = "pyleer",
@@ -331,7 +461,6 @@ CreatureData.Creatures = {
 		id = "sundile", displayName = "Sundile", rarity = "Common",
 		element = "Fire", class = "Guardian", behavior = "gentle",
 		spawnWeight = 18, baseIncome = 1, captureTime = 0.5,
-		health = 75, attack = 5, defense = 15, speed = 3,
 		description = "These scaled lizards are known to have an affinity for lava pools and tracking time",
 		modelName = "Sundile", primaryColor = Color3.fromRGB(140, 90, 70),
 		evolvesTo = "raydile",
@@ -341,7 +470,6 @@ CreatureData.Creatures = {
 		id = "draco", displayName = "Draco", rarity = "Common",
 		element = "Fire", class = "Bruiser", behavior = "pack",
 		spawnWeight = 17, baseIncome = 1, captureTime = 0.5, packSize = {2, 4},
-		health = 55, attack = 10, defense = 8, speed = 6,
 		description = "Their coiled tails lash out at anything that dares to cross their path. Always found in groups",
 		modelName = "Draco", primaryColor = Color3.fromRGB(255, 90, 30),evolvesTo = "dracoil",
 	},
@@ -349,7 +477,6 @@ CreatureData.Creatures = {
 		id = "emberfox", displayName = "Emberfox", rarity = "Common",
 		element = "Fire", class = "Support", behavior = "gentle",
 		spawnWeight = 16, baseIncome = 1, captureTime = 0.6,
-		health = 65, attack = 6, defense = 10, speed = 4,
 		description = "The gentle emberfox, found in many homes as a pet. Perfect for winter snuggles",
 		modelName = "Emberfox", primaryColor = Color3.fromRGB(200, 110, 40),
 	},
@@ -359,7 +486,6 @@ CreatureData.Creatures = {
 		id = "emberpup", displayName = "Emberpup", rarity = "Uncommon",
 		element = "Fire", class = "Bruiser", behavior = "pack",
 		spawnWeight = 10, baseIncome = 3, captureTime = 1.0,
-		health = 90, attack = 18, defense = 10, speed = 8,
 		description = "A fiery puppy that leaves scorch marks wherever it walks. Attacks on sight!",
 		modelName = "Emberpup", primaryColor = Color3.fromRGB(255, 100, 40),
 	},
@@ -367,7 +493,6 @@ CreatureData.Creatures = {
 		id = "raydile", displayName = "Raydile", rarity = "Uncommon",
 		element = "Fire", class = "Guardian", behavior = "lone",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.1,
-		health = 110, attack = 10, defense = 20, speed = 4,
 		description = "A salamander with a molten core. These lone sieglings seek the heat of the sun.",
 		modelName = "Raydile", primaryColor = Color3.fromRGB(200, 60, 20),
 		evolvesFrom = "sundile",
@@ -379,7 +504,6 @@ CreatureData.Creatures = {
 		id = "hotty", displayName = "Hotty", rarity = "Uncommon",
 		element = "Fire", class = "Support", behavior = "pack",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.0, packSize = {2, 3},
-		health = 75, attack = 12, defense = 12, speed = 9,
 		description = "Hotty's are helpers of the Fire Eleminion",
 		modelName = "Hotty", primaryColor = Color3.fromRGB(255, 160, 80),
 	},
@@ -387,7 +511,6 @@ CreatureData.Creatures = {
 		id = "emberfin", displayName = "Emberfin", rarity = "Uncommon",
 		element = "Fire", class = "Assassin", behavior = "aggressive",
 		spawnWeight = 8, baseIncome = 3, captureTime = 1.2,
-		health = 70, attack = 16, defense = 8, speed = 13,
 		description = "A predator that hides in smoke clouds, striking with superheated fangs before vanishing again.",
 		modelName = "Emberfin", primaryColor = Color3.fromRGB(80, 50, 40),
 		evolvesTo = "Cindergil",flying = true, 
@@ -398,7 +521,6 @@ CreatureData.Creatures = {
 		id = "dracoil", displayName = "Dracoil", rarity = "Rare",
 		element = "Fire", class = "Assassin", behavior = "lone",
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
-		health = 100, attack = 28, defense = 12, speed = 13,
 		description = "Dracoil's leave the safety of the pack to travel alone, but they are known to return when the pack is in danger",
 		modelName = "Dracoil", primaryColor = Color3.fromRGB(255, 60, 20),
 		spawnPointType = "dungeon",evolvesFrom = "draco",
@@ -409,7 +531,6 @@ CreatureData.Creatures = {
 		id = "cindergil", displayName = "Cindergil", rarity = "Rare",
 		element = "Fire", class = "Support", behavior = "skittish",
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
-		health = 110, attack = 15, defense = 20, speed = 14,
 		description = "A majestic stag with antlers of living flame. It heals allies as it runs, but catching it requires persistence.",
 		modelName = "Cindergil", primaryColor = Color3.fromRGB(255, 180, 60),
 		mountable = true, mountOffset = {0, 3, -1.5}, mountScale = 2.0,
@@ -418,7 +539,6 @@ CreatureData.Creatures = {
 		id = "hotdog", displayName = "Hotdog", rarity = "Rare",
 		element = "Fire", class = "Bruiser", behavior = "pack",
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
-		health = 140, attack = 25, defense = 18, speed = 7,
 		description = "Its gullet is a literal furnace. Once it locks its jaws, the heat alone does half the work.",
 		modelName = "Hotdog", primaryColor = Color3.fromRGB(220, 50, 10),
 		spawnPointType = "dungeon",modelDisplaySize = 8,modelScaleMultiplier = 1.5
@@ -429,7 +549,6 @@ CreatureData.Creatures = {
 		id = "pyleer", displayName = "Pyleer", rarity = "Epic",
 		element = "Fire", class = "Mage", behavior = "lone",
 		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
-		health = 140, attack = 42, defense = 15, speed = 10,
 		description = "The pylook's evolved form, formed on many pylook's fused into a single ghastly creature",
 		modelName = "Pyleer", primaryColor = Color3.fromRGB(255, 50, 0),
 		spawnPointType = "dungeon",modelDisplaySize = 8.0,modelScaleMultiplier = 2.0,
@@ -440,7 +559,6 @@ CreatureData.Creatures = {
 		id = "solgator", displayName = "Solgator", rarity = "Epic",
 		element = "Fire", class = "Guardian", behavior = "aggressive",
 		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
-		health = 220, attack = 20, defense = 35, speed = 8,
 		description = "The Solgator guards the lava pools of the Fire lands, they attack anything that dares to cross their path",
 		modelName = "Solgator", primaryColor = Color3.fromRGB(180, 40, 10),
 		spawnPointType = "dungeon",
@@ -453,7 +571,6 @@ CreatureData.Creatures = {
 		id = "pylord", displayName = "Pylord", rarity = "Legendary",
 		element = "Fire", class = "Bruiser", behavior = "lone",
 		spawnWeight = 1, baseIncome = 50, captureTime = 3.5,
-		health = 380, attack = 50, defense = 40, speed = 10,
 		description = "This ancient Siegling is said to be the soul of a powerful SiegLord who jumped into the Volcano to become Fire itself",
 		modelName = "Pylord", primaryColor = Color3.fromRGB(255, 200, 30),
 		spawnPointType = "boss",modelDisplaySize = 16.0,
@@ -469,7 +586,6 @@ CreatureData.Creatures = {
 		id = "fawny", displayName = "Fawny", rarity = "Common",
 		element = "Ice", class = "Bruiser", behavior = "pack",
 		spawnWeight = 15, baseIncome = 1, captureTime = 0.5,
-		health = 55, attack = 5, defense = 10, speed = 5,
 		description = "Bundled up from within the snow, these small deerlike creatures are known to be shy",
 		modelName = "Fawny", primaryColor = Color3.fromRGB(200, 230, 255),
 		evolvesTo = "chilldoe",
@@ -478,7 +594,6 @@ CreatureData.Creatures = {
 		id = "frostfly", displayName = "Frostfly", rarity = "Common",
 		element = "Ice", class = "Mage", behavior = "gentle",
 		spawnWeight = 18, baseIncome = 1, captureTime = 0.5,
-		health = 70, attack = 6, defense = 16, speed = 3,
 		description = "Frostflies are found fluttering along snowflakes, they rest on pine trees and have a fondness for winter berries",
 		modelName = "Frostfly", primaryColor = Color3.fromRGB(150, 200, 240), flying = true, crawling = true
 	},
@@ -486,7 +601,6 @@ CreatureData.Creatures = {
 		id = "icewee", displayName = "Ice-Wee", rarity = "Common",
 		element = "Ice", class = "Assassin", behavior = "aggressive",
 		spawnWeight = 16, baseIncome = 1, captureTime = 0.6,
-		health = 42, attack = 10, defense = 6, speed = 11,
 		description = "The Ice-Weee is a odd creature, its Ice-Cube shaped body can grow to intimidate other creatures",
 		modelName = "Icewee", primaryColor = Color3.fromRGB(180, 220, 255),
 		evolvesTo = "icecuewee",
@@ -495,7 +609,6 @@ CreatureData.Creatures = {
 		id = "ceeponee", displayName = "Ceeponee", rarity = "Common",
 		element = "Ice", class = "Bruiser", behavior = "skittish",
 		spawnWeight = 17, baseIncome = 1, captureTime = 0.5,
-		health = 55, attack = 11, defense = 8, speed = 6,
 		description = "Ceeponee float through the winter winds and are known to be a bit shy",
 		modelName = "Ceeponee", primaryColor = Color3.fromRGB(130, 190, 255), flying = true, evolvesTo = "ceehorcee"
 	},
@@ -503,7 +616,6 @@ CreatureData.Creatures = {
 		id = "cozycub", displayName = "Cozycub", rarity = "Common",
 		element = "Ice", class = "Mage", behavior = "lone",
 		spawnWeight = 15, baseIncome = 1, captureTime = 0.6, packSize = {2, 3},
-		health = 45, attack = 10, defense = 7, speed = 8,
 		description = "Large and imposing these cuddly creatures only want to find their companion and stay warm.",
 		modelName = "Cozycub", primaryColor = Color3.fromRGB(220, 240, 255),
 		modelDisplaySize = 9.0,modelScaleMultiplier = 1.5,
@@ -514,7 +626,6 @@ CreatureData.Creatures = {
 		id = "frosty", displayName = "Frosty", rarity = "Uncommon",
 		element = "Ice", class = "Mage", behavior = "lone",
 		spawnWeight = 10, baseIncome = 3, captureTime = 1.0,
-		health = 70, attack = 14, defense = 14, speed = 6,
 		description = "A ghostly wisp wrapped in a permanent chill. Patrols alone.",
 		modelName = "Frosty", primaryColor = Color3.fromRGB(140, 210, 255),
 
@@ -523,7 +634,6 @@ CreatureData.Creatures = {
 		id = "chilldoe", displayName = "Chilldoe", rarity = "Uncommon",
 		element = "Ice", class = "Bruiser", behavior = "aggressive",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.0, packSize = {2, 4},
-		health = 85, attack = 15, defense = 12, speed = 9,
 		description = "Trading the puffy for a Hooded Jacker, the Chilldoe has honed its fist into fearsome weapons",
 		modelName = "Chilldoe", primaryColor = Color3.fromRGB(160, 210, 240),
 		evolvesFrom = "fawny", evolvesTo = "frostag",modelDisplaySize = 4.0,modelScaleMultiplier = 1.5,
@@ -532,7 +642,6 @@ CreatureData.Creatures = {
 		id = "icecuewee", displayName = "Ice-Cue-Wee", rarity = "Uncommon",
 		element = "Ice", class = "Assassin", behavior = "skittish",
 		spawnWeight = 8, baseIncome = 3, captureTime = 1.2,
-		health = 80, attack = 8, defense = 15, speed = 12,
 		description = "A gentle fawn made of crystallized snow. It heals nearby allies w.ith its aura but flees from conflict.",
 		modelName = "Icecuewee", primaryColor = Color3.fromRGB(200, 240, 250),
 		evolvesFrom = "icewee"
@@ -541,7 +650,6 @@ CreatureData.Creatures = {
 		id = "ceehorcee", displayName = "Ceehorcee", rarity = "Uncommon",
 		element = "Ice", class = "Assassin", behavior = "pack",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.1,
-		health = 65, attack = 17, defense = 9, speed = 14,
 		description = "A translucent predator that blends into ice fields. By the time you see it, its fangs are already at your throat.",
 		modelName = "Ceehorcee", primaryColor = Color3.fromRGB(100, 170, 230),flying = true, evolvesTo ="ceesteed", evolvesFrom = "ceeponee",
 		modelDisplaySize = 5.0,modelScaleMultiplier = 1.5,
@@ -552,7 +660,6 @@ CreatureData.Creatures = {
 		id = "glacius", displayName = "Glacius", rarity = "Rare",
 		element = "Ice", class = "Guardian", behavior = "gentle",
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
-		health = 150, attack = 12, defense = 30, speed = 4,
 		description = "An ancient ice construct. Nearly impervious to physical blows. Peaceful unless provoked.",
 		modelName = "Glacius", primaryColor = Color3.fromRGB(80, 160, 240),
 	},
@@ -560,7 +667,6 @@ CreatureData.Creatures = {
 		id = "lumina", displayName = "Lumina", rarity = "Rare",
 		element = "Ice", class = "Mage", behavior = "pack",
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
-		health = 95, attack = 26, defense = 14, speed = 10,
 		description = "A floating ice crystal that conjures devastating hailstorms. It aggressively pursues anything generating heat.",
 		modelName = "Lumina", primaryColor = Color3.fromRGB(60, 140, 255),
 		spawnPointType = "dungeon", flying = true
@@ -569,7 +675,6 @@ CreatureData.Creatures = {
 		id = "tundracrab", displayName = "Tundracrab", rarity = "Rare",
 		element = "Ice", class = "Bruiser", behavior = "lone",
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
-		health = 130, attack = 22, defense = 25, speed = 5,
 		description = "A massive crab with glacial armor plating. It patrols frozen shores alone, crushing anything in its path.",
 		modelName = "Tundracrab", primaryColor = Color3.fromRGB(90, 150, 200),
 		spawnPointType = "dungeon",
@@ -580,7 +685,6 @@ CreatureData.Creatures = {
 		id = "frostag", displayName = "Frostag", rarity = "Epic",
 		element = "Ice", class = "Assassin", behavior = "lone",
 		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
-		health = 150, attack = 40, defense = 18, speed = 14,
 		description = "A spectral blade given sentient form. It glides through blizzards, striking with lethal cold precision.",
 		modelName = "Frostag", primaryColor = Color3.fromRGB(50, 120, 220),
 		spawnPointType = "dungeon", modelDisplaySize = 8.0, modelScaleMultiplier = 2.0,
@@ -591,7 +695,6 @@ CreatureData.Creatures = {
 		id = "ceesteed", displayName = "Ceesteed", rarity = "Epic",
 		element = "Ice", class = "Guardian", behavior = "gentle",
 		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
-		health = 210, attack = 22, defense = 32, speed = 8,
 		description = "A massive yeti-like creature of compacted snow. It ignores most threats, but when provoked, nothing stops it.",
 		modelName = "Ceesteed", primaryColor = Color3.fromRGB(180, 210, 240),
 		spawnPointType = "dungeon",evolvesFrom = "ceehorcee",modelDisplaySize = 8.0,modelScaleMultiplier = 2.0,
@@ -603,7 +706,6 @@ CreatureData.Creatures = {
 		id = "glaciemperor", displayName = "Glaciemperor", rarity = "Legendary",
 		element = "Ice", class = "Mage", behavior = "lone",
 		spawnWeight = 1, baseIncome = 50, captureTime = 3.5,
-		health = 320, attack = 52, defense = 45, speed = 8,
 		description = "An ancient ice wyrm that commands blizzards with a thought. Entire regions freeze in its wake. The undisputed ruler of the frozen wastes.",
 		modelName = "Glaciemperor", primaryColor = Color3.fromRGB(40, 100, 200),
 		spawnPointType = "boss",modelDisplaySize = 15.0,
@@ -619,23 +721,20 @@ CreatureData.Creatures = {
 		id = "ragguette", displayName = "Ragguette", rarity = "Common",
 		element = "Wind", class = "Support", behavior = "skittish",
 		spawnWeight = 15, baseIncome = 1, captureTime = 0.6,
-		health = 40, attack = 10, defense = 5, speed = 12,
 		description = "A jittery insect that flickers with faint light. Flees when approached.",
 		modelName = "Ragguette", primaryColor = Color3.fromRGB(240, 220, 100),
 	},
 	{
-		id = "blinky", displayName = "Blinky", rarity = "Common",
+		id = "blanky", displayName = "Blanky", rarity = "Common",
 		element = "Wind", class = "Assassin", behavior = "gentle",
 		spawnWeight = 18, baseIncome = 1, captureTime = 0.5,
-		health = 60, attack = 5, defense = 12, speed = 6,
 		description = "A small air elemental shaped like a leaf. It drifts on currents, passively soothing creatures around it.",
-		modelName = "Blinky", primaryColor = Color3.fromRGB(160, 240, 180),
+		modelName = "Blanky", primaryColor = Color3.fromRGB(160, 240, 180),
 	},
 	{
 		id = "breezee", displayName = "Breezee", rarity = "Common",
 		element = "Wind", class = "Assassin", behavior = "pack",
 		spawnWeight = 17, baseIncome = 1, captureTime = 0.5, packSize = {3, 5},
-		health = 42, attack = 9, defense = 6, speed = 9,
 		description = "Tiny birds that gather in murmuration flocks. Their synchronized wingbeats create cutting air blades.",
 		modelName = "Breezee", primaryColor = Color3.fromRGB(180, 220, 170),
 		flying = true,
@@ -646,7 +745,6 @@ CreatureData.Creatures = {
 		id = "pursula", displayName = "Pursula", rarity = "Common",
 		element = "Wind", class = "Bruiser", behavior = "aggressive",
 		spawnWeight = 16, baseIncome = 1, captureTime = 0.5,
-		health = 55, attack = 10, defense = 7, speed = 8,
 		description = "A hyperactive wind hound that barrels into anything it sees. Fast, reckless, and surprisingly tough.",
 		modelName = "Pursula", primaryColor = Color3.fromRGB(140, 255, 160),
 		evolvesTo = "purseus",
@@ -655,7 +753,6 @@ CreatureData.Creatures = {
 		id = "cloudpuff", displayName = "Cloudpuff", rarity = "Common",
 		element = "Wind", class = "Guardian", behavior = "skittish",
 		spawnWeight = 15, baseIncome = 1, captureTime = 0.6,
-		health = 70, attack = 6, defense = 14, speed = 10,
 		description = "A cottontail made of solidified cloud. Surprisingly resilient but bolts at any sudden movement.",
 		modelName = "Cloudpuff", primaryColor = Color3.fromRGB(230, 250, 240),
 		spawnPointType = "dungeon",evolvesTo = "cloudwisp"
@@ -666,7 +763,6 @@ CreatureData.Creatures = {
 		id = "lofty", displayName = "Lofty", rarity = "Uncommon",
 		element = "Wind", class = "Assassin", behavior = "lone",
 		spawnWeight = 10, baseIncome = 3, captureTime = 1.0,
-		health = 65, attack = 16, defense = 8, speed = 14,
 		description = "A sleek predator that strikes from sudden gusts. Solitary hunter.",
 		modelName = "Lofty", primaryColor = Color3.fromRGB(170, 240, 200),
 	},
@@ -674,7 +770,6 @@ CreatureData.Creatures = {
 		id = "gagglestand", displayName = "Gagglestand", rarity = "Uncommon",
 		element = "Wind", class = "Support", behavior = "gentle",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.1,
-		health = 90, attack = 9, defense = 18, speed = 7,
 		description = "A flowering plant creature that disperses healing pollen on the wind. Peaceful and slow to anger.",
 		modelName = "Gagglestand", primaryColor = Color3.fromRGB(120, 220, 150),
 		evolvesFrom = "breezee", evolvesTo = "hurricrane",
@@ -684,7 +779,6 @@ CreatureData.Creatures = {
 		id = "purseus", displayName = "Purseus", rarity = "Uncommon",
 		element = "Wind", class = "Mage", behavior = "aggressive",
 		spawnWeight = 8, baseIncome = 3, captureTime = 1.2,
-		health = 70, attack = 15, defense = 10, speed = 12,
 		flying = true,
 		description = "A swirling vortex with glowing eyes. It hurls cutting wind blades at anything it spots.",
 		modelName = "Purseus", primaryColor = Color3.fromRGB(100, 200, 160),evolvesTo = "pursephone",evolvesFrom = "pursula",modelDisplaySize = 5.0,modelScaleMultiplier = 1.5
@@ -693,7 +787,6 @@ CreatureData.Creatures = {
 		id = "cloudwisp", displayName = "Cloudwisp", rarity = "Uncommon",
 		element = "Wind", class = "Bruiser", behavior = "lone",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.0,
-		health = 85, attack = 16, defense = 14, speed = 10,
 		description = "A raptor with wind-hardened talons that patrols mountain ridges. Its diving attacks hit like a battering ram.",
 		modelName = "Cloudwisp", primaryColor = Color3.fromRGB(150, 200, 170),
 		evolvesFrom = "cloudpuff",evolvesTo = "cloudsprite"
@@ -704,7 +797,6 @@ CreatureData.Creatures = {
 		id = "hurricrane", displayName = "Hurricrane", rarity = "Rare",
 		element = "Wind", class = "Mage", behavior = "lone",
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
-		health = 100, attack = 28, defense = 12, speed = 13,
 		flying = true,
 		description = "A manta ray that swims through the sky, trailing stormclouds. Its wing sweeps conjure devastating gales.",
 		modelName = "Hurricrane", primaryColor = Color3.fromRGB(100, 180, 200),
@@ -715,7 +807,6 @@ CreatureData.Creatures = {
 		id = "cloudsprite", displayName = "Cloudsprite", rarity = "Rare",
 		element = "Wind", class = "Mage", behavior = "lone",
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
-		health = 100, attack = 28, defense = 12, speed = 13,
 		flying = true,
 		description = "A manta ray that swims through the sky, trailing stormclouds. Its wing sweeps conjure devastating gales.",
 		modelName = "Cloudsprite", primaryColor = Color3.fromRGB(100, 180, 200),
@@ -725,7 +816,6 @@ CreatureData.Creatures = {
 		id = "shellshock", displayName = "Shellshock", rarity = "Rare",
 		element = "Wind", class = "Assassin", behavior = "aggressive",
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
-		health = 90, attack = 26, defense = 14, speed = 15,
 		description = "A scorching desert wind given physical form. It hunts relentlessly, searing targets with superheated air currents.",
 		modelName = "Shellshock", primaryColor = Color3.fromRGB(240, 220, 160),
 		spawnPointType = "dungeon",evolvesTo = "strikehawk", flying = true,modelDisplaySize = 5.0,modelScaleMultiplier = 2.0
@@ -734,7 +824,6 @@ CreatureData.Creatures = {
 		id = "pursephone", displayName = "Pursephone", rarity = "Rare",
 		element = "Wind", class = "Assassin", behavior = "aggressive",
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
-		health = 160, attack = 14, defense = 28, speed = 6,
 		description = "A towering fog golem that drifts through highland passes. It protects lost travelers and only retaliates when harmed.",
 		modelName = "Pursephone", primaryColor = Color3.fromRGB(200, 230, 220),
 		spawnPointType = "dungeon",modelDisplaySize = 7.0,modelScaleMultiplier = 2.0
@@ -745,7 +834,6 @@ CreatureData.Creatures = {
 		id = "skydon", displayName = "Skydon", rarity = "Epic",
 		element = "Wind", class = "Support", behavior = "skittish",
 		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
-		health = 160, attack = 18, defense = 25, speed = 16,
 		description = "Weaves healing currents from the wind itself. Extremely hard to catch.",
 		modelName = "Skydon", primaryColor = Color3.fromRGB(200, 255, 220),
 		spawnPointType = "dungeon", flying = true,modelDisplaySize = 15.0,
@@ -755,7 +843,6 @@ CreatureData.Creatures = {
 		id = "strikehawk", displayName = "Strikehawk", rarity = "Epic",
 		element = "Wind", class = "Bruiser", behavior = "aggressive",
 		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
-		health = 190, attack = 38, defense = 22, speed = 14,
 		description = "A massive gryphon wreathed in perpetual hurricane winds. It hunts from the eye of its own personal storm.",
 		modelName = "Strikehawk", primaryColor = Color3.fromRGB(80, 200, 150),
 		spawnPointType = "dungeon",modelDisplaySize = 15.0,flying = true, evolvesFrom = "shellshock",
@@ -767,7 +854,6 @@ CreatureData.Creatures = {
 		id = "aerovane", displayName = "Aerovane", rarity = "Legendary",
 		element = "Wind", class = "Assassin", behavior = "lone",
 		spawnWeight = 1, baseIncome = 50, captureTime = 3.5,
-		health = 290, attack = 55, defense = 35, speed = 14,
 		description = "The sovereign of all skies. Aerovane moves faster than sight and strikes harder than a thunderbolt. Legends say it can split mountains with a wingbeat.",
 		modelName = "Aerovane", primaryColor = Color3.fromRGB(80, 255, 180),
 		spawnPointType = "boss", flying = true,modelDisplaySize = 16.0,
@@ -775,15 +861,14 @@ CreatureData.Creatures = {
 	},
 
 	-- ============================
-	-- EARTH CREATURES (5C, 4U, 3R, 2E, 1L)f
-	-- ============================
+	-- EARTH CREATURES (5C, 4U, 3R, 2E, 1L)..
+	-- ============================..
 
 	-- Earth Common (5)
 	{
 		id = "cacty", displayName = "Cacty", rarity = "Common",
 		element = "Earth", class = "Bruiser", behavior = "pack",
 		spawnWeight = 20, baseIncome = 1, captureTime = 0.5, packSize = {2, 4},
-		health = 60, attack = 8, defense = 12, speed = 4,
 		description = "A blobby little creature made of mysterious goo. Travels in packs.",
 		modelName = "Cacty", primaryColor = Color3.fromRGB(120, 200, 80),
 		evolvesTo = "jackedty",modelDisplaySize = 2.0,modelScaleMultiplier = 1.0
@@ -792,23 +877,20 @@ CreatureData.Creatures = {
 		id = "applehead", displayName = "Applehead", rarity = "Common",
 		element = "Earth", class = "Guardian", behavior = "gentle",
 		spawnWeight = 20, baseIncome = 1, captureTime = 0.5,
-		health = 80, attack = 6, defense = 18, speed = 2,
 		description = "A tiny rock creature that rolls around aimlessly. Only fights back when provoked.",
 		modelName = "AppleHead", primaryColor = Color3.fromRGB(160, 140, 110),
 	},
 	{
-		id = "papap", displayName = "Papap", rarity = "Common",
+		id = "papapa", displayName = "Papapa", rarity = "Common",
 		element = "Earth", class = "Support", behavior = "gentle",
 		spawnWeight = 17, baseIncome = 1, captureTime = 0.5,
-		health = 65, attack = 5, defense = 14, speed = 3,
 		description = "A plump larva that burrows through topsoil, leaving enriched earth behind. Its presence makes nearby creatures healthier.",
-		modelName = "Papap", primaryColor = Color3.fromRGB(140, 120, 70),
+		modelName = "Papapa", primaryColor = Color3.fromRGB(140, 120, 70),
 	},
 	{
 		id = "squirebud", displayName = "Squire Bud", rarity = "Common",
 		element = "Earth", class = "Assassin", behavior = "skittish",
 		spawnWeight = 16, baseIncome = 1, captureTime = 0.6,
-		health = 45, attack = 10, defense = 8, speed = 10,
 		description = "A squirrel-like creature armored in bark. Incredibly fast and flighty, it vanishes into the underbrush in a blink.",
 		modelName = "SquireBud", primaryColor = Color3.fromRGB(130, 100, 60),
 		evolvesTo = "floraknight",
@@ -817,7 +899,6 @@ CreatureData.Creatures = {
 		id = "pylme", displayName = "Pylme", rarity = "Common",
 		element = "Earth", class = "Mage", behavior = "pack",
 		spawnWeight = 15, baseIncome = 1, captureTime = 0.6, packSize = {2, 3},
-		health = 50, attack = 9, defense = 10, speed = 5,
 		description = "Tiny mud elementals that hurl clods of enchanted earth. Their aim improves dramatically when they group up.",
 		modelName = "Pylme", primaryColor = Color3.fromRGB(110, 90, 50),
 		spawnPointType = "dungeon",evolvesTo = "bonoblade",
@@ -830,7 +911,6 @@ CreatureData.Creatures = {
 		id = "jackedty", displayName = "Jacked'ty", rarity = "Uncommon",
 		element = "Earth", class = "Bruiser", behavior = "aggressive",
 		spawnWeight = 8, baseIncome = 3, captureTime = 1.2,
-		health = 110, attack = 8, defense = 22, speed = 3,
 		description = "An ancient stone golem draped in living moss. A true gentle giant.",
 		modelName = "Jackedty", primaryColor = Color3.fromRGB(100, 160, 80),
 		evolvesFrom = "cacty", evolvesTo = "cactyjackedty",modelDisplaySize = 3.0,modelScaleMultiplier = 2.0,
@@ -839,7 +919,6 @@ CreatureData.Creatures = {
 		id = "mossy", displayName = "Mossy", rarity = "Uncommon",
 		element = "Earth", class = "Bruiser", behavior = "gentle",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.0,
-		health = 95, attack = 16, defense = 14, speed = 6,
 		description = "A bearlike creature with fists of solid granite. It charges anything that enters its territory.",
 		modelName = "Mossy", primaryColor = Color3.fromRGB(150, 130, 100),
 	},
@@ -847,7 +926,6 @@ CreatureData.Creatures = {
 		id = "floraknight", displayName = "Flora Knight", rarity = "Uncommon",
 		element = "Earth", class = "Mage", behavior = "lone",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.1,
-		health = 75, attack = 15, defense = 12, speed = 8,
 		description = "A serpentine creature woven from fern fronds and ancient vines. It channels nature magic to entangle prey.",
 		modelName = "FloraKnight", primaryColor = Color3.fromRGB(60, 150, 50),
 		evolvesFrom = "squirebud",evolvesTo = "generoot",modelDisplaySize = 5.0,modelScaleMultiplier = 1.5
@@ -856,7 +934,6 @@ CreatureData.Creatures = {
 		id = "bonoblade", displayName = "Bonoblade", rarity = "Uncommon",
 		element = "Earth", class = "Assassin", behavior = "aggressive",
 		spawnWeight = 8, baseIncome = 3, captureTime = 1.2,
-		health = 70, attack = 17, defense = 10, speed = 11,
 		description = "A burrowing predator that erupts from the ground to ambush unsuspecting prey with snapping jaws.",
 		modelName = "Bonoblade", primaryColor = Color3.fromRGB(100, 80, 40),
 		evolvesFrom = "pylme",evolvesTo = "guerilla",modelDisplaySize = 5.0,modelScaleMultiplier = 1.5
@@ -867,7 +944,6 @@ CreatureData.Creatures = {
 		id = "generoot", displayName = "Generoot", rarity = "Rare",
 		element = "Earth", class = "Bruiser", behavior = "lone",
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
-		health = 130, attack = 22, defense = 25, speed = 5,
 		description = "A hulking beast covered in razor-sharp thorns. Charges at intruders.",
 		modelName = "Generoot", primaryColor = Color3.fromRGB(50, 140, 60),
 		evolvesFrom = "floraknight",modelDisplaySize = 8.0, modelScaleMultiplier = 2.0,
@@ -876,7 +952,6 @@ CreatureData.Creatures = {
 		id = "sleaf", displayName = "Sleaf", rarity = "Rare",
 		element = "Earth", class = "Assassin", behavior = "pack",
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
-		health = 130, attack = 22, defense = 25, speed = 5,
 		description = "A hulking beast covered in razor-sharp thorns. Charges at intruders.",
 		modelName = "sleaf", primaryColor = Color3.fromRGB(50, 140, 60),
 		modelDisplaySize = 4.0, modelScaleMultiplier = 2.0,
@@ -885,7 +960,6 @@ CreatureData.Creatures = {
 		id = "guerilla", displayName = "Guerilla", rarity = "Rare",
 		element = "Earth", class = "Bruiser", behavior = "aggressive",
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
-		health = 120, attack = 14, defense = 22, speed = 12,
 		description = "A regal stag with antlers of living crystal that resonate with healing frequencies. Fiercely shy and nearly impossible to corner.",
 		modelName = "Guerilla", primaryColor = Color3.fromRGB(180, 200, 160),
 		modelDisplaySize = 8.0,modelScaleMultiplier = 2.0,
@@ -895,10 +969,9 @@ CreatureData.Creatures = {
 		id = "golor", displayName = "Golor", rarity = "Rare",
 		element = "Earth", class = "Guardian", behavior = "gentle",
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
-		health = 155, attack = 16, defense = 28, speed = 4,
 		description = "A treant whose bark has petrified into iron-hard wood. It stands sentinel over ancient groves, immovable and patient.",
 		modelName = "Golor", primaryColor = Color3.fromRGB(90, 120, 70),
-		spawnPointType = "dungeon",
+		spawnPointType = "dungeon",modelDisplaySize = 10,modelScaleMultiplier = 2.0,
 	},
 
 	-- Earth Epic (2)rfr
@@ -906,7 +979,6 @@ CreatureData.Creatures = {
 		id = "cactyjackedty", displayName = "CactyJackedty", rarity = "Epic",
 		element = "Earth", class = "Bruiser", behavior = "aggressive",
 		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
-		health = 200, attack = 40, defense = 28, speed = 8,
 		description = "A massive burrowing beast whose footsteps cause tremors. When it surfaces, the ground splits open around it.",
 		modelName = "CactyJackedty", primaryColor = Color3.fromRGB(120, 100, 50),
 		spawnPointType = "dungeon",
@@ -918,11 +990,11 @@ CreatureData.Creatures = {
 		id = "sheenx", displayName = "Sheenx", rarity = "Epic",
 		element = "Earth", class = "Support", behavior = "gentle",
 		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
-		health = 200, attack = 18, defense = 30, speed = 9,
 		description = "A living garden on legs. Flowers and herbs grow across its shell, providing potent healing to all nearby allies.",
 		modelName = "Sheenx", primaryColor = Color3.fromRGB(70, 180, 70),
 		spawnPointType = "dungeon",
 		mountable = true, mountOffset = {0, 3.5, -1.5}, mountScale = 2.2,
+		modelDisplaySize = 10,modelScaleMultiplier = 2.0,
 	},
 
 	-- Earth Legendary (1)s
@@ -930,7 +1002,6 @@ CreatureData.Creatures = {
 		id = "gymstone", displayName = "Gymstone", rarity = "Legendary",
 		element = "Earth", class = "Guardian", behavior = "gentle",
 		spawnWeight = 1, baseIncome = 50, captureTime = 3.5,
-		health = 400, attack = 30, defense = 60, speed = 3,
 		description = "Forged in the planet's core. An immovable gentle giant.",
 		modelName = "Gymstone", primaryColor = Color3.fromRGB(200, 160, 60),
 		spawnPointType = "boss",modelDisplaySize = 10, modelScaleMultiplier = 2.0,
@@ -946,7 +1017,6 @@ CreatureData.Creatures = {
 		id = "gloomrat", displayName = "Gloomrat", rarity = "Common",
 		element = "Shadow", class = "Assassin", behavior = "pack",
 		spawnWeight = 18, baseIncome = 1, captureTime = 0.5, packSize = {3, 5},
-		health = 40, attack = 10, defense = 5, speed = 10,
 		description = "Shadowy vermin that swarm in dark corners. Individually pathetic, but a pack of them can overwhelm the unprepared.",
 		modelName = "Gloomrat", primaryColor = Color3.fromRGB(80, 50, 100),
 	},
@@ -954,7 +1024,6 @@ CreatureData.Creatures = {
 		id = "duskmoth", displayName = "Duskmoth", rarity = "Common",
 		element = "Shadow", class = "Mage", behavior = "skittish",
 		spawnWeight = 16, baseIncome = 1, captureTime = 0.6,
-		health = 42, attack = 11, defense = 5, speed = 11,
 		description = "A moth that feeds on ambient darkness. Its wing scales release disorienting shadow dust when frightened.",
 		modelName = "Duskmoth", primaryColor = Color3.fromRGB(100, 60, 130),
 	},
@@ -962,7 +1031,6 @@ CreatureData.Creatures = {
 		id = "shadeblob", displayName = "Shadeblob", rarity = "Common",
 		element = "Shadow", class = "Guardian", behavior = "gentle",
 		spawnWeight = 17, baseIncome = 1, captureTime = 0.5,
-		health = 75, attack = 5, defense = 16, speed = 3,
 		description = "A slow-moving mass of living shadow. It absorbs attacks into its amorphous body, barely noticing the impact.",
 		modelName = "Shadeblob", primaryColor = Color3.fromRGB(50, 30, 70),
 	},
@@ -970,7 +1038,6 @@ CreatureData.Creatures = {
 		id = "murkling", displayName = "Murkling", rarity = "Common",
 		element = "Shadow", class = "Bruiser", behavior = "aggressive",
 		spawnWeight = 15, baseIncome = 1, captureTime = 0.5,
-		health = 55, attack = 12, defense = 7, speed = 7,
 		description = "A small, snarling shadow beast with oversized claws. It attacks anything that enters its dim territory.",
 		modelName = "Murkling", primaryColor = Color3.fromRGB(70, 40, 90),
 	},
@@ -978,7 +1045,6 @@ CreatureData.Creatures = {
 		id = "whisperling", displayName = "Whisperling", rarity = "Common",
 		element = "Shadow", class = "Support", behavior = "gentle",
 		spawnWeight = 15, baseIncome = 1, captureTime = 0.6,
-		health = 60, attack = 6, defense = 12, speed = 5,
 		description = "A wispy, floating spirit that murmurs soothing incantations. Its presence calms nearby creatures and mends minor wounds.",
 		modelName = "Whisperling", primaryColor = Color3.fromRGB(90, 60, 120),
 		spawnPointType = "dungeon",
@@ -989,7 +1055,6 @@ CreatureData.Creatures = {
 		id = "nightfang", displayName = "Nightfang", rarity = "Uncommon",
 		element = "Shadow", class = "Assassin", behavior = "aggressive",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.1,
-		health = 65, attack = 17, defense = 8, speed = 14,
 		description = "A bat-like hunter that drops from cave ceilings with razor talons extended. Silent until the moment of impact.",
 		modelName = "Nightfang", primaryColor = Color3.fromRGB(60, 30, 90),
 	},
@@ -997,7 +1062,6 @@ CreatureData.Creatures = {
 		id = "hexweaver", displayName = "Hexweaver", rarity = "Uncommon",
 		element = "Shadow", class = "Mage", behavior = "lone",
 		spawnWeight = 8, baseIncome = 3, captureTime = 1.2,
-		health = 75, attack = 16, defense = 12, speed = 8,
 		description = "A spider-like creature that spins webs of dark magic. It waits patiently in its lair for prey to stumble in.",
 		modelName = "Hexweaver", primaryColor = Color3.fromRGB(80, 40, 120),
 	},
@@ -1005,7 +1069,6 @@ CreatureData.Creatures = {
 		id = "grimshell", displayName = "Grimshell", rarity = "Uncommon",
 		element = "Shadow", class = "Guardian", behavior = "gentle",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.0,
-		health = 100, attack = 9, defense = 20, speed = 4,
 		description = "A hermit crab that inhabits shells made of solidified darkness. Its armor absorbs light along with damage.",
 		modelName = "Grimshell", primaryColor = Color3.fromRGB(40, 20, 60),
 	},
@@ -1013,7 +1076,6 @@ CreatureData.Creatures = {
 		id = "dreadpup", displayName = "Dreadpup", rarity = "Uncommon",
 		element = "Shadow", class = "Bruiser", behavior = "pack",
 		spawnWeight = 10, baseIncome = 3, captureTime = 1.0, packSize = {2, 3},
-		health = 80, attack = 15, defense = 10, speed = 10,
 		description = "Shadow hounds that hunt in small packs through dark corridors. Their coordinated attacks drain the will to fight.",
 		modelName = "Dreadpup", primaryColor = Color3.fromRGB(55, 35, 80),
 	},
@@ -1023,7 +1085,6 @@ CreatureData.Creatures = {
 		id = "shadowlurk", displayName = "Shadowlurk", rarity = "Rare",
 		element = "Shadow", class = "Assassin", behavior = "lone",
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
-		health = 85, attack = 30, defense = 10, speed = 15,
 		description = "Slips between shadows. You only see it when it wants you to.",
 		modelName = "Shadowlurk", primaryColor = Color3.fromRGB(60, 30, 100),
 		spawnPointType = "dungeon",
@@ -1032,7 +1093,6 @@ CreatureData.Creatures = {
 		id = "phantomsteed", displayName = "Phantomsteed", rarity = "Rare",
 		element = "Shadow", class = "Support", behavior = "skittish",
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
-		health = 110, attack = 16, defense = 18, speed = 14,
 		description = "A ghostly horse that phases through walls. It bolsters allies with spectral energy but vanishes if cornered.",
 		modelName = "Phantomsteed", primaryColor = Color3.fromRGB(100, 70, 150),
 	},
@@ -1040,7 +1100,6 @@ CreatureData.Creatures = {
 		id = "abysscrawler", displayName = "Abysscrawler", rarity = "Rare",
 		element = "Shadow", class = "Bruiser", behavior = "aggressive",
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
-		health = 140, attack = 24, defense = 22, speed = 6,
 		description = "A multi-limbed horror that drags itself from the deepest cave pits. Its mere presence extinguishes torches.",
 		modelName = "Abysscrawler", primaryColor = Color3.fromRGB(30, 15, 50),
 		spawnPointType = "dungeon",
@@ -1052,7 +1111,6 @@ CreatureData.Creatures = {
 		id = "umbralwyrm", displayName = "Umbralwyrm", rarity = "Epic",
 		element = "Shadow", class = "Mage", behavior = "lone",
 		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
-		health = 160, attack = 45, defense = 20, speed = 12,
 		description = "A serpentine wyrm made of living darkness. It devours light itself, casting devastating shadow magic from the void.",
 		modelName = "Umbralwyrm", primaryColor = Color3.fromRGB(50, 20, 80),
 		spawnPointType = "dungeon",
@@ -1062,7 +1120,6 @@ CreatureData.Creatures = {
 		id = "doomshield", displayName = "Doomshield", rarity = "Epic",
 		element = "Shadow", class = "Guardian", behavior = "gentle",
 		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
-		health = 210, attack = 20, defense = 35, speed = 8,
 		description = "An ancient sentinel forged from crystallized nightmares. It stands motionless for centuries until something disturbs its vigil.",
 		modelName = "Doomshield", primaryColor = Color3.fromRGB(40, 10, 65),
 		spawnPointType = "dungeon",
@@ -1074,7 +1131,6 @@ CreatureData.Creatures = {
 		id = "voidmaw", displayName = "Voidmaw", rarity = "Legendary",
 		element = "Shadow", class = "Mage", behavior = "lone",
 		spawnWeight = 1, baseIncome = 50, captureTime = 3.5,
-		health = 300, attack = 50, defense = 40, speed = 10,
 		description = "An ancient horror from the space between worlds. Extremely rare and dangerous.",
 		modelName = "Voidmaw", primaryColor = Color3.fromRGB(30, 0, 50),
 		spawnPointType = "boss",
@@ -1090,39 +1146,34 @@ CreatureData.Creatures = {
 		id = "monkwatt", displayName = "Monkwatt", rarity = "Common",
 		element = "Lightning", class = "Mage", behavior = "skittish",
 		spawnWeight = 17, baseIncome = 1, captureTime = 0.6,
-		health = 42, attack = 11, defense = 5, speed = 11,
 		description = "A tiny orb of crackling electricity. It panics when approached, discharging sparks in every direction as it flees.",
 		modelName = "Monkwatt", primaryColor = Color3.fromRGB(255, 240, 100),
 	},
 	{
 		id = "newt", displayName = "Newt", rarity = "Common",
-		element = "Lightning", class = "Bruiser", behavior = "lone",
+		element = "Lightning", class = "support", behavior = "lone",
 		spawnWeight = 18, baseIncome = 1, captureTime = 0.5, packSize = {3, 5},
-		health = 50, attack = 9, defense = 8, speed = 8,
 		description = "Electrified ants that march in formation. Their synchronized shocks can stun creatures many times their size.",
 		modelName = "Newt", primaryColor = Color3.fromRGB(240, 220, 60),
 	},
 	{
-		id = "voltpecker", displayName = "Voltpecker", rarity = "Common",
-		element = "Lightning", class = "Assassin", behavior = "aggressive",
+		id = "staticap", displayName = "Staticap", rarity = "Common",
+		element = "Lightning", class = "bruiser", behavior = "aggressive",
 		spawnWeight = 16, baseIncome = 1, captureTime = 0.5,
-		health = 40, attack = 12, defense = 5, speed = 12,
 		description = "A woodpecker whose beak delivers electric shocks. It aggressively pecks at anything shiny or metallic.",
-		modelName = "Voltpecker", primaryColor = Color3.fromRGB(255, 200, 40),
+		modelName = "Staticap", primaryColor = Color3.fromRGB(255, 200, 40), evolvesTo = "joltram",
 	},
 	{
-		id = "staticshell", displayName = "Staticshell", rarity = "Common",
+		id = "blinky", displayName = "Blinky", rarity = "Common",
 		element = "Lightning", class = "Guardian", behavior = "gentle",
 		spawnWeight = 17, baseIncome = 1, captureTime = 0.5,
-		health = 70, attack = 6, defense = 15, speed = 3,
 		description = "A tortoise whose shell crackles with stored static. It shocks anything that touches it, but never initiates conflict.",
-		modelName = "Staticshell", primaryColor = Color3.fromRGB(200, 190, 80),
+		modelName = "Blinky", primaryColor = Color3.fromRGB(200, 190, 80),
 	},
 	{
 		id = "sparkpuff", displayName = "Sparkpuff", rarity = "Common",
 		element = "Lightning", class = "Support", behavior = "gentle",
 		spawnWeight = 15, baseIncome = 1, captureTime = 0.6,
-		health = 60, attack = 5, defense = 11, speed = 6,
 		description = "A fluffy ball of static that zaps nearby allies with invigorating jolts. Its purring sounds like electrical humming.",
 		modelName = "Sparkpuff", primaryColor = Color3.fromRGB(255, 250, 150),
 		spawnPointType = "dungeon",
@@ -1133,24 +1184,22 @@ CreatureData.Creatures = {
 		id = "simicircuit", displayName = "Simicircuit", rarity = "Uncommon",
 		element = "Lightning", class = "Support", behavior = "pack",
 		spawnWeight = 8, baseIncome = 3, captureTime = 1.2, packSize = {2, 3},
-		health = 60, attack = 10, defense = 10, speed = 11,
 		description = "Tiny bolts arc between its tendrils, energizing allies nearby.",
 		modelName = "Simicircuit", primaryColor = Color3.fromRGB(255, 245, 130),
 		modelDisplaySize = 5.0,modelScaleMultiplier = 1.5
 	},
 	{
-		id = "thundermole", displayName = "Thundermole", rarity = "Uncommon",
+		id = "Joltram", displayName = "Joltram", rarity = "Uncommon",
 		element = "Lightning", class = "Bruiser", behavior = "aggressive",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.0,
-		health = 90, attack = 16, defense = 14, speed = 7,
 		description = "A burrowing creature that erupts from the ground in a shower of electric sparks. It headbutts targets with a charged skull.",
-		modelName = "Thundermole", primaryColor = Color3.fromRGB(220, 200, 50),
+		modelName = "Joltram", primaryColor = Color3.fromRGB(220, 200, 50),evolvesFrom = "staticap", evolvesTo = "bleetstrike",
+		modelDisplaySize = 5.0,modelScaleMultiplier = 1.5
 	},
 	{
 		id = "arcfox", displayName = "Arcfox", rarity = "Uncommon",
 		element = "Lightning", class = "Assassin", behavior = "lone",
 		spawnWeight = 10, baseIncome = 3, captureTime = 1.0,
-		health = 65, attack = 16, defense = 9, speed = 13,
 		description = "An electric fox that teleports short distances in bursts of lightning. It patrols alone, striking fast and vanishing.",
 		modelName = "Arcfox", primaryColor = Color3.fromRGB(200, 180, 255),
 	},
@@ -1158,7 +1207,6 @@ CreatureData.Creatures = {
 		id = "galvanite", displayName = "Galvanite", rarity = "Uncommon",
 		element = "Lightning", class = "Guardian", behavior = "gentle",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.1,
-		health = 100, attack = 9, defense = 20, speed = 5,
 		description = "A metallic golem that absorbs electrical attacks, growing stronger from them. Placid until provoked.",
 		modelName = "Galvanite", primaryColor = Color3.fromRGB(180, 170, 100),
 	},
@@ -1168,7 +1216,6 @@ CreatureData.Creatures = {
 		id = "kilokong", displayName = "Kilokong", rarity = "Rare",
 		element = "Lightning", class = "Bruiser", behavior = "aggressive",
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
-		health = 90, attack = 28, defense = 12, speed = 15,
 		description = "A serpent of pure plasma that moves like living lightning. Its strikes paralyze, and it never stops hunting once it has a target.",
 		modelName = "Kilokong", primaryColor = Color3.fromRGB(160, 120, 255),
 		spawnPointType = "dungeon",modelDisplaySize = 12,modelScaleMultiplier = 1.5,
@@ -1176,20 +1223,18 @@ CreatureData.Creatures = {
 	},
 	{
 		id = "newton", displayName = "New Ton", rarity = "Rare",
-		element = "Lightning", class = "Bruiser", behavior = "lone",
+		element = "Lightning", class = "Guardian", behavior = "lone",
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
-		health = 140, attack = 22, defense = 24, speed = 6,
 		description = "A rhinoceros-like beast with a horn that acts as a lightning rod. Its charges are accompanied by deafening thunderclaps.",
-		modelName = "Newton", primaryColor = Color3.fromRGB(200, 180, 60),modelDisplaySize = 12,modelScaleMultiplier = 1.5
+		modelName = "Newton", primaryColor = Color3.fromRGB(200, 180, 60),modelDisplaySize = 12,modelScaleMultiplier = 1.5,evolvesFrom = "newt",
 	},
 	{
-		id = "tempestweave", displayName = "Tempestweave", rarity = "Rare",
-		element = "Lightning", class = "Mage", behavior = "lone",
+		id = "bleetsrike", displayName = "Bleetsrike", rarity = "Rare",
+		element = "Lightning", class = "Bruiser", behavior = "lone",
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
-		health = 100, attack = 26, defense = 16, speed = 10,
 		description = "A floating jellyfish-like creature that drifts through mountain peaks, weaving devastating chain-lightning between its tendrils.",
-		modelName = "Tempestweave", primaryColor = Color3.fromRGB(140, 100, 255),
-		spawnPointType = "dungeon",
+		modelName = "Bleetsrike", primaryColor = Color3.fromRGB(140, 100, 255),
+		spawnPointType = "dungeon",evolvesFrom="joltram",modemodelDisplaySize = 12,modelScaleMultiplier = 1.5,
 	},
 
 	-- Lightning Epic (2)
@@ -1197,7 +1242,6 @@ CreatureData.Creatures = {
 		id = "stormclaw", displayName = "Stormclaw", rarity = "Epic",
 		element = "Lightning", class = "Bruiser", behavior = "aggressive",
 		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
-		health = 180, attack = 35, defense = 20, speed = 14,
 		description = "Lightning crackles between its claws. Hunts anything that moves.",
 		modelName = "Stormclaw", primaryColor = Color3.fromRGB(100, 80, 255),
 		spawnPointType = "dungeon",
@@ -1207,7 +1251,6 @@ CreatureData.Creatures = {
 		id = "ionwarden", displayName = "Ionwarden", rarity = "Epic",
 		element = "Lightning", class = "Support", behavior = "gentle",
 		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
-		health = 180, attack = 22, defense = 30, speed = 10,
 		description = "An ancient construct that projects a dome of crackling energy, shielding and supercharging all allies within. Passive until its charges are threatened.",
 		modelName = "Ionwarden", primaryColor = Color3.fromRGB(180, 160, 255),
 		spawnPointType = "dungeon",
@@ -1219,7 +1262,6 @@ CreatureData.Creatures = {
 		id = "thunderlord", displayName = "Thunderlord", rarity = "Legendary",
 		element = "Lightning", class = "Mage", behavior = "lone",
 		spawnWeight = 1, baseIncome = 50, captureTime = 3.5,
-		health = 340, attack = 55, defense = 38, speed = 12,
 		description = "The living embodiment of the storm. Thunderlord calls down apocalyptic lightning from perpetual thunderheads. Where it walks, the sky itself obeys.",
 		modelName = "Thunderlord", primaryColor = Color3.fromRGB(120, 80, 255),
 		spawnPointType = "boss",
@@ -1235,7 +1277,6 @@ CreatureData.Creatures = {
 		id = "spoutyl", displayName = "Spoutyl", rarity = "Common",
 		element = "Water", class = "assassin", behavior = "gentle",
 		spawnWeight = 15, baseIncome = 1, captureTime = 0.5,
-		health = 50, attack = 6, defense = 8, speed = 8,
 		description = "A tiny water spirit that heals allies with soothing droplets. Commonly found near pools and streams.",
 		modelName = "Spoutyl", primaryColor = Color3.fromRGB(80, 180, 255),
 		evolvesTo = "droxyl",
@@ -1244,7 +1285,6 @@ CreatureData.Creatures = {
 		id = "shellpack", displayName = "Shellpack", rarity = "Common",
 		element = "Water", class = "support", behavior = "skittish",
 		spawnWeight = 18, baseIncome = 1, captureTime = 0.6,
-		health = 38, attack = 12, defense = 4, speed = 12,
 		description = "A sleek creature that darts across water surfaces. Vanishes beneath the surface when startled.",
 		modelName = "Shellpack", primaryColor = Color3.fromRGB(60, 160, 220),
 		evolvesTo = "torqlander",
@@ -1253,7 +1293,6 @@ CreatureData.Creatures = {
 		id = "jawby", displayName = "Jawby", rarity = "Common",
 		element = "Water", class = "Guardian", behavior = "gentle",
 		spawnWeight = 16, baseIncome = 1, captureTime = 0.5,
-		health = 70, attack = 5, defense = 14, speed = 4,
 		description = "A creature draped in kelp-like fronds. Its thick hide absorbs blows while it waits in tide pools.",
 		modelName = "Jawby", primaryColor = Color3.fromRGB(40, 140, 100),
 		evolvesTo = "jawbite",
@@ -1262,7 +1301,6 @@ CreatureData.Creatures = {
 		id = "tidepup", displayName = "Tidepup", rarity = "Common",
 		element = "Water", class = "Bruiser", behavior = "pack",
 		spawnWeight = 17, baseIncome = 1, captureTime = 0.5, packSize = {2, 4},
-		health = 52, attack = 11, defense = 7, speed = 7,
 		description = "Small aquatic pups that travel in packs. Together they create surging waves that knock foes off balance.",
 		modelName = "Tidepup", primaryColor = Color3.fromRGB(70, 170, 255),
 	},
@@ -1270,7 +1308,6 @@ CreatureData.Creatures = {
 		id = "splashfin", displayName = "Splashfin", rarity = "Common",
 		element = "Water", class = "Mage", behavior = "aggressive",
 		spawnWeight = 14, baseIncome = 1, captureTime = 0.6,
-		health = 44, attack = 13, defense = 6, speed = 9,
 		description = "A fish-like creature that shoots pressurized water at prey. Hunts in shallow waters.",
 		modelName = "Splashfin", primaryColor = Color3.fromRGB(50, 150, 230),
 	},
@@ -1280,7 +1317,6 @@ CreatureData.Creatures = {
 		id = "droxyl", displayName = "Droxyl", rarity = "Uncommon",
 		element = "Water", class = "Assassin", behavior = "pack",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.1,
-		health = 68, attack = 18, defense = 8, speed = 14,
 		description = "A fox adapted to river life. Strikes with razor-sharp water blades from the shadows of rapids.",
 		modelName = "Droxyl", primaryColor = Color3.fromRGB(90, 180, 240),
 		evolvesTo = "hydroxyl", evolvesFrom = "spoutyl",modelDisplaySize = 6.0,modelScaleMultiplier = 1.5,
@@ -1289,7 +1325,6 @@ CreatureData.Creatures = {
 		id = "clawkid", displayName = "Clawkid", rarity = "Uncommon",
 		element = "Water", class = "Guardian", behavior = "pack",
 		spawnWeight = 10, baseIncome = 3, captureTime = 1.0,
-		health = 115, attack = 8, defense = 22, speed = 3,
 		description = "A turtle-like creature with a coral shell. Its hardened armor deflects most attacks.",
 		modelName = "Clawkid", primaryColor = Color3.fromRGB(255, 100, 100),
 		evolvesTo = "clawqueen",modelDisplaySize = 5.0,modelScaleMultiplier = 1.5,
@@ -1298,7 +1333,6 @@ CreatureData.Creatures = {
 		id = "torqlander", displayName = "Torqlander", rarity = "Uncommon",
 		element = "Water", class = "Mage", behavior = "lone",
 		spawnWeight = 8, baseIncome = 3, captureTime = 1.2,
-		health = 72, attack = 16, defense = 10, speed = 10,
 		description = "Emerges from morning mist to strike with condensed water bolts. Fades back into fog when threatened.",
 		modelName = "Torqlander", primaryColor = Color3.fromRGB(180, 210, 255),
 		evolvesTo = "shellnaut",modelDisplaySize = 4.0,modelScaleMultiplier = 1.5,
@@ -1308,7 +1342,6 @@ CreatureData.Creatures = {
 		id = "brinepup", displayName = "Brinepup", rarity = "Uncommon",
 		element = "Water", class = "Bruiser", behavior = "pack",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.0, packSize = {2, 3},
-		health = 88, attack = 15, defense = 12, speed = 8,
 		description = "Salt-water pups that coat their foes in brine. Their bite stings and slows prey.",
 		modelName = "Brinepup", primaryColor = Color3.fromRGB(100, 140, 180),
 	},
@@ -1318,7 +1351,6 @@ CreatureData.Creatures = {
 		id = "hydroxyl", displayName = "Hydroxyl", rarity = "Rare",
 		element = "Water", class = "Assassin", behavior = "lone",
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
-		health = 105, attack = 26, defense = 14, speed = 12,
 		description = "A serpent that flows like water. Constricts and drowns prey in whirlpools of its own making.",
 		modelName = "Hydroxyl", primaryColor = Color3.fromRGB(40, 120, 200),
 		spawnPointType = "dungeon", evolvesFrom = "droxyl",modelDisplaySize = 10,modelScaleMultiplier = 1.5
@@ -1327,7 +1359,6 @@ CreatureData.Creatures = {
 		id = "Shellnaut", displayName = "Shellnaut", rarity = "Rare",
 		element = "Water", class = "Guardian", behavior = "lone",
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
-		health = 145, attack = 12, defense = 28, speed = 6,
 		description = "A massive crab-like guardian. Rises with the tide to shield allies behind walls of water.",
 		modelName = "Shellnaut", primaryColor = Color3.fromRGB(60, 140, 220),
 		spawnPointType = "dungeon",modelDisplaySize = 10,modelScaleMultiplier = 1.5,
@@ -1337,7 +1368,6 @@ CreatureData.Creatures = {
 		id = "jawbite", displayName = "Jawbite", rarity = "Rare",
 		element = "Water", class = "Support", behavior = "gentle",
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
-		health = 100, attack = 14, defense = 18, speed = 11,
 		description = "Summons healing rains and cleansing waves. Allies fight longer when a Brinecaller watches over them.",
 		modelName = "Jawbite", primaryColor = Color3.fromRGB(80, 160, 240),modelDisplaySize = 10,modelScaleMultiplier = 1.5,
 		evolvesFrom = "jawby",
@@ -1348,7 +1378,6 @@ CreatureData.Creatures = {
 		id = "clawqueen", displayName = "Claw Queen", rarity = "Epic",
 		element = "Water", class = "Mage", behavior = "aggressive",
 		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
-		health = 135, attack = 40, defense = 16, speed = 11,
 		description = "Commands storm surges and lightning-struck seas. Its tidal blasts devastate entire shorelines.",
 		modelName = "ClawQueen", primaryColor = Color3.fromRGB(50, 100, 200),
 		spawnPointType = "dungeon",modelDisplaySize = 12,modelScaleMultiplier = 1.5,
@@ -1359,7 +1388,6 @@ CreatureData.Creatures = {
 		id = "leviathan", displayName = "Leviathan", rarity = "Epic",
 		element = "Water", class = "Bruiser", behavior = "lone",
 		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
-		health = 230, attack = 35, defense = 30, speed = 7,
 		description = "A colossal beast of the deep. One sweep of its tail creates tsunamis that swallow ships whole.",
 		modelName = "Leviathan", primaryColor = Color3.fromRGB(30, 80, 160),
 		spawnPointType = "dungeon",
@@ -1371,7 +1399,6 @@ CreatureData.Creatures = {
 		id = "conchious", displayName = "Conchious", rarity = "Legendary",
 		element = "Water", class = "Mage", behavior = "lone",
 		spawnWeight = 1, baseIncome = 50, captureTime = 3.5,
-		health = 350, attack = 52, defense = 42, speed = 10,
 		description = "The sovereign of the darkest depths. Abyssalking controls pressure, cold, and crushing darkness. Few who dive deep ever return.",
 		modelName = "Conchious", primaryColor = Color3.fromRGB(20, 50, 120),
 		spawnPointType = "boss",modelDisplaySize = 13,modelScaleMultiplier = 1.5,
@@ -1387,34 +1414,252 @@ CreatureData.Creatures = {
 		id = "light_siegling_standin", displayName = "Light Siegling", rarity = "Common",
 		element = "Light", class = "Support", behavior = "gentle",
 		spawnWeight = 1, baseIncome = 1, captureTime = 0.5,
-		health = 50, attack = 6, defense = 8, speed = 6,
 		description = "A radiant placeholder Siegling. Full Light roster coming soon.",
 		modelName = "Egg", primaryColor = Color3.fromRGB(255, 250, 200),
 	},
-	-- Psychic stand-in
+	-- Psychic stand-ins (full rarity spread)
+	-- Psychic Common (5)
 	{
-		id = "psychic_siegling_standin", displayName = "Psychic Siegling", rarity = "Common",
+		id = "mentaroo", displayName = "Mentaroo", rarity = "Common",
 		element = "Psychic", class = "Mage", behavior = "gentle",
-		spawnWeight = 1, baseIncome = 1, captureTime = 0.5,
-		health = 48, attack = 10, defense = 6, speed = 7,
+		spawnWeight = 18, baseIncome = 1, captureTime = 0.5,
 		description = "A mind-touched placeholder Siegling. Full Psychic roster coming soon.",
-		modelName = "mentaroo", primaryColor = Color3.fromRGB(200, 150, 255),
+		modelName = "Mentaroo", primaryColor = Color3.fromRGB(200, 150, 255),
 	},
-	-- Metal stand-in
 	{
-		id = "metal_siegling_standin", displayName = "Metal Siegling", rarity = "Common",
+		id = "luvy", displayName = "Luvy", rarity = "Common",
+		element = "Psychic", class = "Support", behavior = "skittish",
+		spawnWeight = 17, baseIncome = 1, captureTime = 0.5,
+		description = "A mind-touched placeholder Siegling. Full Psychic roster coming soon.",
+		modelName = "Luvy", primaryColor = Color3.fromRGB(195, 145, 250),
+		evolvesTo = "luvysore",
+	},
+	{
+		id = "papap", displayName = "Papap", rarity = "Common",
+		element = "Psychic", class = "Assassin", behavior = "lone",
+		spawnWeight = 16, baseIncome = 1, captureTime = 0.5,
+		description = "A mind-touched placeholder Siegling. Full Psychic roster coming soon.",
+		modelName = "papap", primaryColor = Color3.fromRGB(205, 160, 255),
+	},
+	{
+		id = "psychic_siegling_c4", displayName = "Psychic Siegling C4", rarity = "Common",
+		element = "Psychic", class = "Guardian", behavior = "gentle",
+		spawnWeight = 15, baseIncome = 1, captureTime = 0.5,
+		description = "A mind-touched placeholder Siegling. Full Psychic roster coming soon.",
+		modelName = "mentaroo", primaryColor = Color3.fromRGB(190, 140, 245),
+	},
+	{
+		id = "psychic_siegling_c5", displayName = "Psychic Siegling C5", rarity = "Common",
+		element = "Psychic", class = "Bruiser", behavior = "pack",
+		spawnWeight = 14, baseIncome = 1, captureTime = 0.5, packSize = {2, 3},
+		description = "A mind-touched placeholder Siegling. Full Psychic roster coming soon.",
+		modelName = "mentaroo", primaryColor = Color3.fromRGB(185, 135, 240),
+	},
+	-- Psychic Uncommon (4)
+	{
+		id = "psychic_siegling_u1", displayName = "Psychic Siegling U1", rarity = "Uncommon",
+		element = "Psychic", class = "Mage", behavior = "gentle",
+		spawnWeight = 10, baseIncome = 3, captureTime = 1.1,
+		description = "A mind-touched placeholder Siegling. Full Psychic roster coming soon.",
+		modelName = "mentaroo", primaryColor = Color3.fromRGB(190, 140, 245),
+	},
+	{
+		id = "luvysore", displayName = "Luvysore", rarity = "Uncommon",
+		element = "Psychic", class = "Support", behavior = "lone",
+		spawnWeight = 9, baseIncome = 3, captureTime = 1.1,
+		description = "A mind-touched placeholder Siegling. Full Psychic roster coming soon.",
+		modelName = "LuvySore", primaryColor = Color3.fromRGB(205, 155, 255),
+		evolvesFrom = "luvy",evolvesTo = "luvyduvysore",modelDisplaySize = 4,modelScaleMultiplier = 1.5,
+	},
+	{
+		id = "psychic_siegling_u3", displayName = "Psychic Siegling U3", rarity = "Uncommon",
+		element = "Psychic", class = "Assassin", behavior = "aggressive",
+		spawnWeight = 9, baseIncome = 3, captureTime = 1.1,
+		description = "A mind-touched placeholder Siegling. Full Psychic roster coming soon.",
+		modelName = "mentaroo", primaryColor = Color3.fromRGB(180, 130, 235),
+	},
+	{
+		id = "psychic_siegling_u4", displayName = "Psychic Siegling U4", rarity = "Uncommon",
+		element = "Psychic", class = "Guardian", behavior = "gentle",
+		spawnWeight = 8, baseIncome = 3, captureTime = 1.1,
+		description = "A mind-touched placeholder Siegling. Full Psychic roster coming soon.",
+		modelName = "mentaroo", primaryColor = Color3.fromRGB(200, 150, 250),
+	},
+	-- Psychic Rare (3)
+	{
+		id = "psychic_siegling_r1", displayName = "Psychic Siegling R1", rarity = "Rare",
+		element = "Psychic", class = "Mage", behavior = "lone",
+		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
+		description = "A mind-touched placeholder Siegling. Full Psychic roster coming soon.",
+		modelName = "mentaroo", primaryColor = Color3.fromRGB(210, 165, 255),
+		spawnPointType = "dungeon",
+	},
+	{
+		id = "psychic_siegling_r2", displayName = "Psychic Siegling R2", rarity = "Rare",
+		element = "Psychic", class = "Support", behavior = "gentle",
+		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
+		description = "A mind-touched placeholder Siegling. Full Psychic roster coming soon.",
+		modelName = "mentaroo", primaryColor = Color3.fromRGB(195, 150, 245),
+		spawnPointType = "dungeon",
+	},
+	{
+		id = "psychic_siegling_r3", displayName = "Psychic Siegling R3", rarity = "Rare",
+		element = "Psychic", class = "Assassin", behavior = "aggressive",
+		spawnWeight = 4, baseIncome = 8, captureTime = 1.8,
+		description = "A mind-touched placeholder Siegling. Full Psychic roster coming soon.",
+		modelName = "mentaroo", primaryColor = Color3.fromRGB(185, 140, 235),
+		spawnPointType = "dungeon",
+	},
+	-- Psychic Epic (2)
+	{
+		id = "luvyduvysore", displayName = "Luvy Duvysore", rarity = "Epic",
+		element = "Psychic", class = "Mage", behavior = "lone",
+		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
+		description = "A powerful placeholder Siegling. Full Psychic roster coming soon.",
+		modelName = "LuvyDuvySore", primaryColor = Color3.fromRGB(220, 175, 255),
+		spawnPointType = "dungeon",evolvesFrom = "luvysore",modelDisplaySize = 8,modelScaleMultiplier = 1.5,
+	},
+	{
+		id = "psychic_siegling_e2", displayName = "Psychic Siegling E2", rarity = "Epic",
+		element = "Psychic", class = "Guardian", behavior = "gentle",
+		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
+		description = "A powerful placeholder Siegling. Full Psychic roster coming soon.",
+		modelName = "mentaroo", primaryColor = Color3.fromRGB(205, 160, 250),
+		spawnPointType = "dungeon",
+	},
+	-- Psychic Legendary (1)
+	{
+		id = "psychic_siegling_l1", displayName = "Psychic Siegling L1", rarity = "Legendary",
+		element = "Psychic", class = "Mage", behavior = "lone",
+		spawnWeight = 1, baseIncome = 50, captureTime = 3.5,
+		description = "A sovereign placeholder Siegling. Full Psychic roster coming soon.",
+		modelName = "mentaroo", primaryColor = Color3.fromRGB(230, 185, 255),
+		spawnPointType = "boss",
+	},
+	-- Metal stand-ins (full rarity spread)
+	-- Metal Common (5)
+	{
+		id = "bearby", displayName = "Bearby", rarity = "Common",
 		element = "Metal", class = "Guardian", behavior = "gentle",
-		spawnWeight = 1, baseIncome = 1, captureTime = 0.5,
-		health = 60, attack = 7, defense = 14, speed = 4,
+		spawnWeight = 18, baseIncome = 1, captureTime = 0.5,
+		description = "A metallic placeholder Siegling. Full Metal roster coming soon.",
+		modelName = "Bearby", primaryColor = Color3.fromRGB(160, 170, 180),
+		evolvesTo = "bearnade",
+	},
+	{
+		id = "metal_siegling_c2", displayName = "Metal Siegling C2", rarity = "Common",
+		element = "Metal", class = "Bruiser", behavior = "pack",
+		spawnWeight = 17, baseIncome = 1, captureTime = 0.5, packSize = {2, 3},
+		description = "A metallic placeholder Siegling. Full Metal roster coming soon.",
+		modelName = "Egg", primaryColor = Color3.fromRGB(155, 165, 175),
+	},
+	{
+		id = "metal_siegling_c3", displayName = "Metal Siegling C3", rarity = "Common",
+		element = "Metal", class = "Assassin", behavior = "aggressive",
+		spawnWeight = 16, baseIncome = 1, captureTime = 0.5,
+		description = "A metallic placeholder Siegling. Full Metal roster coming soon.",
+		modelName = "Egg", primaryColor = Color3.fromRGB(150, 160, 170),
+	},
+	{
+		id = "metal_siegling_c4", displayName = "Metal Siegling C4", rarity = "Common",
+		element = "Metal", class = "Support", behavior = "gentle",
+		spawnWeight = 15, baseIncome = 1, captureTime = 0.5,
+		description = "A metallic placeholder Siegling. Full Metal roster coming soon.",
+		modelName = "Egg", primaryColor = Color3.fromRGB(165, 175, 185),
+	},
+	{
+		id = "metal_siegling_c5", displayName = "Metal Siegling C5", rarity = "Common",
+		element = "Metal", class = "Mage", behavior = "lone",
+		spawnWeight = 14, baseIncome = 1, captureTime = 0.5,
+		description = "A metallic placeholder Siegling. Full Metal roster coming soon.",
+		modelName = "Egg", primaryColor = Color3.fromRGB(145, 155, 165),
+	},
+	-- Metal Uncommon (4)
+	{
+		id = "bearnade", displayName = "Bearnade", rarity = "Uncommon",
+		element = "Metal", class = "Guardian", behavior = "gentle",
+		spawnWeight = 10, baseIncome = 3, captureTime = 1.1,
+		description = "A metallic placeholder Siegling. Full Metal roster coming soon.",
+		modelName = "Bearnade", primaryColor = Color3.fromRGB(170, 180, 190),modelDisplaySize = 5,modelScaleMultiplier = 1.5,
+		evolvesFrom = "bearby",evolvesTo = "bearzooka",
+	},
+	{
+		id = "metal_siegling_u2", displayName = "Metal Siegling U2", rarity = "Uncommon",
+		element = "Metal", class = "Bruiser", behavior = "pack",
+		spawnWeight = 9, baseIncome = 3, captureTime = 1.1, packSize = {2, 3},
+		description = "A metallic placeholder Siegling. Full Metal roster coming soon.",
+		modelName = "Egg", primaryColor = Color3.fromRGB(165, 175, 185),
+	},
+	{
+		id = "metal_siegling_u3", displayName = "Metal Siegling U3", rarity = "Uncommon",
+		element = "Metal", class = "Support", behavior = "gentle",
+		spawnWeight = 9, baseIncome = 3, captureTime = 1.1,
 		description = "A metallic placeholder Siegling. Full Metal roster coming soon.",
 		modelName = "Egg", primaryColor = Color3.fromRGB(160, 170, 180),
+	},
+	{
+		id = "metal_siegling_u4", displayName = "Metal Siegling U4", rarity = "Uncommon",
+		element = "Metal", class = "Mage", behavior = "lone",
+		spawnWeight = 8, baseIncome = 3, captureTime = 1.1,
+		description = "A metallic placeholder Siegling. Full Metal roster coming soon.",
+		modelName = "Egg", primaryColor = Color3.fromRGB(155, 165, 175),
+	},
+	-- Metal Rare (3)
+	{
+		id = "bearzooka", displayName = "Bearzooka", rarity = "Rare",
+		element = "Metal", class = "Guardian", behavior = "lone",
+		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
+		description = "A reinforced placeholder Siegling. Full Metal roster coming soon.",
+		modelName = "Bearzooka", primaryColor = Color3.fromRGB(175, 185, 195),
+		spawnPointType = "dungeon",evolvesFrom = "bearnade",modelDisplaySize = 12,modelScaleMultiplier = 1.5,
+	},
+	{
+		id = "metal_siegling_r2", displayName = "Metal Siegling R2", rarity = "Rare",
+		element = "Metal", class = "Bruiser", behavior = "aggressive",
+		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
+		description = "A reinforced placeholder Siegling. Full Metal roster coming soon.",
+		modelName = "Egg", primaryColor = Color3.fromRGB(170, 180, 190),
+		spawnPointType = "dungeon",
+	},
+	{
+		id = "metal_siegling_r3", displayName = "Metal Siegling R3", rarity = "Rare",
+		element = "Metal", class = "Support", behavior = "gentle",
+		spawnWeight = 4, baseIncome = 8, captureTime = 1.8,
+		description = "A reinforced placeholder Siegling. Full Metal roster coming soon.",
+		modelName = "Egg", primaryColor = Color3.fromRGB(165, 175, 185),
+		spawnPointType = "dungeon",
+	},
+	-- Metal Epic (2)
+	{
+		id = "metal_siegling_e1", displayName = "Metal Siegling E1", rarity = "Epic",
+		element = "Metal", class = "Guardian", behavior = "lone",
+		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
+		description = "A hardened placeholder Siegling. Full Metal roster coming soon.",
+		modelName = "Egg", primaryColor = Color3.fromRGB(180, 190, 200),
+		spawnPointType = "dungeon",
+	},
+	{
+		id = "metal_siegling_e2", displayName = "Metal Siegling E2", rarity = "Epic",
+		element = "Metal", class = "Bruiser", behavior = "aggressive",
+		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
+		description = "A hardened placeholder Siegling. Full Metal roster coming soon.",
+		modelName = "Egg", primaryColor = Color3.fromRGB(175, 185, 195),
+		spawnPointType = "dungeon",
+	},
+	-- Metal Legendary (1)
+	{
+		id = "metal_siegling_l1", displayName = "Metal Siegling L1", rarity = "Legendary",
+		element = "Metal", class = "Guardian", behavior = "lone",
+		spawnWeight = 1, baseIncome = 50, captureTime = 3.5,
+		description = "An indomitable placeholder Siegling. Full Metal roster coming soon.",
+		modelName = "Egg", primaryColor = Color3.fromRGB(190, 200, 210),
+		spawnPointType = "boss",
 	},
 	-- Poison stand-in
 	{
 		id = "poison_siegling_standin", displayName = "Poison Siegling", rarity = "Common",
 		element = "Poison", class = "Assassin", behavior = "skittish",
 		spawnWeight = 1, baseIncome = 1, captureTime = 0.5,
-		health = 42, attack = 11, defense = 5, speed = 9,
 		description = "A toxic placeholder Siegling. Full Poison roster coming soon.",
 		modelName = "Egg", primaryColor = Color3.fromRGB(120, 220, 80),
 	},
@@ -1423,11 +1668,31 @@ CreatureData.Creatures = {
 		id = "undead_siegling_standin", displayName = "Undead Siegling", rarity = "Common",
 		element = "Undead", class = "Bruiser", behavior = "lone",
 		spawnWeight = 1, baseIncome = 1, captureTime = 0.5,
-		health = 55, attack = 10, defense = 9, speed = 5,
 		description = "An undead placeholder Siegling. Full Undead roster coming soon.",
 		modelName = "Ragguette", primaryColor = Color3.fromRGB(140, 120, 160),
 	},
 }
+
+for _, c in ipairs(CreatureData.Creatures) do
+	local s = CreatureData.AllocateBaseStats(c.rarity, c.class, c.element, c.id)
+	c.health = s.health
+	c.attack = s.attack
+	c.defense = s.defense
+	c.speed = s.speed
+end
+
+for _, c in ipairs(CreatureData.Creatures) do
+	local sum = c.health + c.attack + c.defense + c.speed
+	local expected = CreatureData.RarityStatBudget[c.rarity]
+	assert(
+		expected and sum == expected,
+		("[CreatureData] %s stat sum %d ~= rarity budget %s"):format(
+			tostring(c.id),
+			sum,
+			tostring(expected)
+		)
+	)
+end
 
 -- ======================================
 -- LOOKUP HELPERS

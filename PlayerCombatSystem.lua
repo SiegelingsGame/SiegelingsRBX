@@ -215,6 +215,8 @@ function PlayerCombatSystem.Init(pdm, cai, favSys)
 	if playerAttack then
 		playerAttack.OnServerEvent:Connect(function(player, attackType, origin, direction, targetUniqueId)
 			if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then return end
+			local hum = player.Character:FindFirstChildOfClass("Humanoid")
+			if not hum or hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Dead then return end
 			local root = player.Character.HumanoidRootPart
 
 			-- Sanity: origin must be near player

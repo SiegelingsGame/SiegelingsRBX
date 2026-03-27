@@ -80,10 +80,10 @@ GameConfig.Floor2LevelReq         = 5      -- player level required
 GameConfig.Floor3Cost             = 500  -- coins to buy Floor 3
 GameConfig.Floor3LevelReq         = 10     -- player level required
 GameConfig.Floor4Cost             = 500 -- coins to buy Floor 4 (Siegelord Arena)
-GameConfig.Floor4LevelReq         = 25    -- player level required for Floor 4
+GameConfig.Floor4LevelReq         = 25    -- player level required for Floor 4...
 
 -- Evolution & Combine (monster duplication / variant tiers)
-GameConfig.EvolutionMinLevel      = 10      -- level required for 1st evolution (base form)
+GameConfig.EvolutionMinLevel      = 10      -- level required for 1st evolution (base form).
 GameConfig.EvolutionMinLevel2     = 25      -- level required for 2nd evolution (evolved form)
 GameConfig.CombineCost            = 0      -- gold cost to combine 3 into next variant (0 = free)
 GameConfig.RecyclerDuplicateCount = 3      -- min same-creature duplicates to trade for 1 egg (1 rarity tier higher)
@@ -452,8 +452,8 @@ GameConfig.BreathDrownDamage         = 20    -- HP lost per tick when drowning (
 GameConfig.BreathDrownTickInterval   = 5     -- seconds between drown damage ticks
 GameConfig.BreathWaterCreatureBonus  = 2     -- extra seconds of breath per water creature level (equipped favorite)
 GameConfig.BreathWaterCreatureMaxBonus = 60  -- cap on bonus breath from water creature level
--- Seconds after entering water before O2 starts draining; meter shows immediately (swimming + WaterBlock + ocean volume)
-GameConfig.BreathSubmergeGraceSeconds = 1
+-- Seconds fully submerged before O2 meter appears + starts draining
+GameConfig.BreathSubmergeGraceSeconds = 5
 
 -- Player movement
 GameConfig.PlayerWalkSpeed      = 16    -- normal walk speed (studs/sec)
@@ -464,7 +464,7 @@ GameConfig.PlayerRangedDamage   = 4
 GameConfig.PlayerRangedRange    = 25
 GameConfig.PlayerRangedCooldown = 0.8   -- seconds
 GameConfig.PlayerRangedSpeed    = 120   -- projectile studs/sec
-GameConfig.PlayerMeleeDamage    = 10
+GameConfig.PlayerMeleeDamage    = 6
 GameConfig.PlayerMeleeRange     = 10
 GameConfig.PlayerMeleeCooldown  = 1.2
 GameConfig.PlayerMeleeRadius    = 8     -- AOE radius for melee swing
@@ -641,6 +641,23 @@ GameConfig.BadlandsSpawnShieldDuration  = 30    -- seconds of PvP immunity on en
 -- Broker NPC (Arena Hub): optional extra rotation (degrees) applied after spawn placement.
 -- Use if the mesh still appears flipped after fixing PrimaryPart in Studio (e.g. pitch = -90).
 GameConfig.BrokerNPCExtraRotationDegrees = { pitch = 90, yaw = 0, roll = 0 }
+
+-- Arena Hub: Curator Trader — sells five rotating Siegelings (2 Common, 1 Uncommon, 1 Rare, 1 Legendary).
+-- Priced above egg tiers; each slot can be bought with coins or diamonds (gems).
+GameConfig.ArenaTraderEnabled = true
+GameConfig.ArenaTrader = {
+	StockRefreshSeconds = 6 * 3600, -- full rotation (seconds)
+	-- Horizontal offset from The Broker (studs); Y is resolved with a downward raycast.
+	OffsetFromBrokerStuds = Vector3.new(-26, 0, 16),
+	-- If BrokerNPC is missing, place using HubArea.SpawnLocation + this offset instead.
+	FallbackOffsetFromSpawnStuds = Vector3.new(-26, 0, 16),
+	-- Optional extra rotation for TraderNPC after placement (degrees).
+	-- Keep this at pitch=90 to stand the current Trader model upright.
+	ExtraRotationDegrees = { pitch = 90, yaw = 0, roll = 0 },
+	-- Per-rarity prices (direct known creature — much higher than mystery eggs).
+	CoinPrice = { Common = 48000, Uncommon = 135000, Rare = 420000, Legendary = 1100000 },
+	GemPrice = { Common = 450, Uncommon = 1200, Rare = 3800, Legendary = 14000 },
+}
 
 -- Badlands: Bag
 GameConfig.BadlandsBagSlots             = 10    -- bag capacity

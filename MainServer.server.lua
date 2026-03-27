@@ -54,7 +54,7 @@ local getBattleTeam = makeFunc("GetBattleTeam")
 -- Companion
 makeEvent("CompanionSpawned")  -- server -> client: favorite companion model (for grow-from-beneath animation)
 makeEvent("CompanionFainted")  -- server -> client: creaturePos, creatureId (card flies to player; triggers respawn cooldown)
-makeEvent("CompanionRecalled")  -- server -> client: creaturePos, creatureId (water recall; same card effect, NO cooldown)
+makeEvent("CompanionRecalled")  -- server -> client: creaturePos, creatureId, reason ("water"|"distance"|"manual")
 local toggleAttackMode = makeEvent("ToggleAttackMode")
 local setCompanionTarget = makeEvent("SetCompanionTarget")
 local clearCompanionTarget = makeEvent("ClearCompanionTarget")
@@ -111,6 +111,9 @@ makeEvent("BadlandsXPGain"); makeEvent("BadlandsContractData"); makeEvent("Badla
 makeEvent("BadlandsLootBagSpawned"); makeEvent("BadlandsLootBagLoot"); makeEvent("BadlandsLootBagUpdate")
 makeEvent("BadlandsSacrificeCreature"); makeEvent("BadlandsSacrificeResult")
 
+-- Arena Hub: Curator Trader (rotating Siegeling stock)
+makeEvent("ArenaTraderStock") -- server -> client: payload when opening UI or when stock rotates
+
 -- Shared notifications
 makeEvent("ShowNotification")
 
@@ -149,6 +152,7 @@ local equipBaseColor = makeFunc("EquipBaseColor")
 -- Egg Shop
 makeFunc("BuyEgg"); makeEvent("EggResult")
 local inspectEgg = makeFunc("InspectEgg")
+makeFunc("BuyArenaTraderCreature") -- slotIndex, paymentType, creatureId, stockId
 
 -- Friends List / Laser Door
 makeEvent("AddBaseFriend"); makeEvent("RemoveBaseFriend"); makeFunc("GetFriendsList")
@@ -359,6 +363,17 @@ do
 	end
 end
 
+local ArenaTraderSystem = nil
+do
+	local ok, result = pcall(function() return require(ServerScriptService.ArenaTraderSystem) end)
+	if ok then
+		ArenaTraderSystem = result
+		print("[MainServer] ArenaTraderSystem require OK")
+	else
+		warn("[MainServer] ArenaTraderSystem require FAILED: " .. tostring(result))
+	end
+end
+
 local DecorSystem = nil
 do
 	local ok, result = pcall(function() return require(ServerScriptService.DecorSystem) end)
@@ -544,6 +559,12 @@ if BadlandsSystem then
 		BadlandsSystem.Init(PlayerDataManager, FavoriteCreatureSystem, MountSystem, CreatureAI)
 	end)
 	if ok then print("[MainServer] BadlandsSystem OK") else warn("[MainServer] BadlandsSystem failed: " .. tostring(err)) end
+end
+if ArenaTraderSystem then
+	local ok, err = pcall(function()
+		ArenaTraderSystem.Init(PlayerDataManager)
+	end)
+	if ok then print("[MainServer] ArenaTraderSystem OK") else warn("[MainServer] ArenaTraderSystem failed: " .. tostring(err)) end
 end
 if DecorSystem then
 	local ok, err = pcall(function() DecorSystem.Init(PlayerDataManager) end)
@@ -1706,7 +1727,7 @@ recallCompanion.OnServerEvent:Connect(function(plr)
 	-- Fire CompanionRecalled so client plays the card-fly-to-player animation
 	local recalledEvt = eventsFolder:FindFirstChild("CompanionRecalled")
 	if recalledEvt and creaturePos then
-		recalledEvt:FireClient(plr, creaturePos, creatureId)
+		recalledEvt:FireClient(plr, creaturePos, creatureId, "manual")
 	end
 	-- Despawn the model but do NOT clear favoriteUid
 	FavoriteCreatureSystem.DespawnCompanion(plr)

@@ -149,6 +149,9 @@
       "BadlandsSystem": {
         "$path": "BadlandsSystem.lua"
       },
+      "ArenaTraderSystem": {
+        "$path": "ArenaTraderSystem.lua"
+      },
       "DecorSystem": {
         "$path": "DecorSystem.lua"
       }
@@ -260,6 +263,9 @@
         },
         "BadlandsBrokerClient": {
           "$path": "BadlandsBrokerClient.client.lua"
+        },
+        "ArenaTraderClient": {
+          "$path": "ArenaTraderClient.client.lua"
         },
         "BadlandsClient": {
           "$path": "BadlandsClient.client.lua"

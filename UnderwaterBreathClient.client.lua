@@ -27,7 +27,7 @@ local DROWN_TICK_INTERVAL = GameConfig.BreathDrownTickInterval or 5
 local BONUS_PER_LEVEL = GameConfig.BreathWaterCreatureBonus or 2
 local MAX_BONUS = GameConfig.BreathWaterCreatureMaxBonus or 60
 -- Full bar, no O2 drain for this many seconds after submerging (see GameConfig.BreathSubmergeGraceSeconds)
-local SUBMERGE_GRACE = GameConfig.BreathSubmergeGraceSeconds or 1
+local SUBMERGE_GRACE = GameConfig.BreathSubmergeGraceSeconds or 5
 
 -- ══════════════════════════════════════════════════════════════════════════
 -- STATE
@@ -43,8 +43,10 @@ local meterVisible = false
 local spawnGraceTimer = 0
 local SPAWN_GRACE = 1.5
 local oxygenDepleted = false
-local HEAD_SUBMERGE_BUFFER = 0.35 -- studs head must be below water surface before O2 drains
+local HEAD_SUBMERGE_BUFFER = 3 -- studs head must be below water surface before O2 drains
 local TERRAIN_WATER_SAMPLE_RADIUS = 1.5
+local swimTimer = 0              -- tracks continuous seconds in Swimming state
+local SWIM_CONFIRM_TIME = 0      -- O2 uses head-underwater test; no extra swimming confirm needed..
 
 -- ══════════════════════════════════════════════════════════════════════════
 -- BREATH METER UI
@@ -214,6 +216,15 @@ local function isTerrainWaterAtPosition(worldPos)
 	return mats[1] and mats[1][1] and mats[1][1][1] == Enum.Material.Water
 end
 
+local function isHeadUnderTerrainWater(headPos)
+	-- Only count as underwater when water exists at head and still at a small
+	-- point above head, so surface swimming/wading doesn't drain O2.
+	if not isTerrainWaterAtPosition(headPos) then
+		return false
+	end
+	return isTerrainWaterAtPosition(headPos + Vector3.new(0, HEAD_SUBMERGE_BUFFER, 0))
+end
+
 local function isPlayerSubmerged()
 	local character = player.Character
 	if not character then return false end
@@ -223,20 +234,15 @@ local function isPlayerSubmerged()
 	local head = character:FindFirstChild("Head")
 	local probe = head and head.Position or (root.Position + Vector3.new(0, 1.5, 0)) -- approx head position fallback
 	local waterPart = getContainingWaterPart(probe)
-	if not waterPart then
-		return false
-	end
-	local surfaceY = waterPart.CFrame:PointToWorldSpace(Vector3.new(0, waterPart.Size.Y * 0.5, 0)).Y
-	if probe.Y <= (surfaceY - HEAD_SUBMERGE_BUFFER) then
-		return true
+	if waterPart then
+		local surfaceY = waterPart.CFrame:PointToWorldSpace(Vector3.new(0, waterPart.Size.Y * 0.5, 0)).Y
+		return probe.Y <= (surfaceY - HEAD_SUBMERGE_BUFFER)
 	end
 
-	-- Terrain water path: only evaluate when Roblox says we're swimming, and only if head sample is water.
-	-- This preserves the "surface/wading != O2 drain" behavior while restoring depletion underwater.
-	if humanoid and humanoid:GetState() == Enum.HumanoidStateType.Swimming then
-		return isTerrainWaterAtPosition(probe)
-	end
-	return false
+	-- Terrain water path: if we are swimming, allow terrain-water check even
+	-- when there is no tagged WaterBlock/ocean part at head position.
+	return humanoid and humanoid:GetState() == Enum.HumanoidStateType.Swimming
+		and isHeadUnderTerrainWater(probe)
 end
 
 local function setOxygenDepletedState(depleted)
@@ -296,7 +302,18 @@ RunService.Heartbeat:Connect(function(dt)
 		return
 	end
 
-	local submerged = isPlayerSubmerged()
+	-- Track continuous swimming time (kept for stability; SWIM_CONFIRM_TIME may be 0)
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local isSwimming = humanoid and humanoid:GetState() == Enum.HumanoidStateType.Swimming
+	if isSwimming then
+		swimTimer = swimTimer + dt
+	else
+		swimTimer = 0
+	end
+
+	-- Only run submerge check after optional confirm time
+	local submerged = swimTimer >= SWIM_CONFIRM_TIME and isPlayerSubmerged()
 
 	if submerged and not isUnderwater then
 		isUnderwater = true
@@ -307,8 +324,7 @@ RunService.Heartbeat:Connect(function(dt)
 		cachedBonus = getWaterCreatureBonus()
 		maxBreath = BASE_BREATH_TIME + cachedBonus
 		breathRemaining = maxBreath
-		showMeter()
-		updateMeterVisual()
+		hideMeter()
 	elseif not submerged and isUnderwater then
 		-- Just exited water
 		isUnderwater = false
@@ -322,17 +338,17 @@ RunService.Heartbeat:Connect(function(dt)
 
 	if not isUnderwater then return end
 
-	-- Short grace: full bar, no drain (BreathSubmergeGraceSeconds)
+	-- Grace: meter hidden + no drain until SUBMERGE_GRACE seconds submerged
 	if not breathActive then
 		underwaterGraceTimer = underwaterGraceTimer + dt
-		breathRemaining = maxBreath
-		updateMeterVisual()
 		if underwaterGraceTimer < SUBMERGE_GRACE then
 			return
 		end
 		breathActive = true
 		drownTickTimer = 0
 		breathRemaining = maxBreath
+		showMeter()
+		updateMeterVisual()
 	end
 
 	-- Drain breath (only after grace period)
@@ -390,6 +406,7 @@ player.CharacterAdded:Connect(function()
 	meterVisible = false
 	container.Visible = false
 	spawnGraceTimer = SPAWN_GRACE
+	swimTimer = 0
 	setOxygenDepletedState(false)
 end)
 

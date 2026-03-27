@@ -129,7 +129,7 @@ local function doRecall(player, reason)
 	local bodyForPos = comp.model and (CreatureModelLoader.GetBodyPart(comp.model) or comp.model:FindFirstChild("Body"))
 	local creaturePos = bodyForPos and bodyForPos.Position or comp.model:GetPivot().Position
 	local evt = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("CompanionRecalled")
-	if evt then evt:FireClient(player, creaturePos, comp.creatureId) end
+	if evt then evt:FireClient(player, creaturePos, comp.creatureId, reason) end
 	if comp.model and comp.model.Parent then comp.model:Destroy() end
 	activeCompanions[player.UserId] = nil
 	if reason == "water" then

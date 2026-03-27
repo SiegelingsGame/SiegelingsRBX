@@ -684,11 +684,17 @@ if Evt.companionSpawned then
 		task.defer(updateFavOrb)
 	end)
 end
--- When non-water favorite enters water: companion is carded (turns into card, flies to player); update UI to show "Summon [name]"
+-- Companion carded (water, wandered too far, or player recalled): update UI to show "Summon [name]"
 if Evt.companionRecalled and Evt.companionRecalled:IsA("RemoteEvent") then
-	Evt.companionRecalled.OnClientEvent:Connect(function()
+	Evt.companionRecalled.OnClientEvent:Connect(function(_creaturePos, _creatureId, reason)
 		companionOut = false
-		Notify.Toast("Companion carded (water)", C.textSec, 2.5)
+		if reason == "distance" then
+			-- FavoriteCreatureSystem already sends the wandered-too-far notification
+		elseif reason == "water" then
+			Notify.Toast("Companion can't follow you in water — returned to card.", C.textSec, 2.5)
+		else
+			Notify.Toast("Companion returned to card.", C.textSec, 2.5)
+		end
 		task.defer(updateFavOrb)
 	end)
 end

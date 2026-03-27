@@ -1009,11 +1009,19 @@ end
 -- @return { [Player] = BasePart } — mapping of player to spawn point
 -- ═══════════════════════════════════════════════════════════════════════════════
 local function assignSpawnPoints(playerList)
-	local points = getExtractionPoints()
+	-- Players should always enter at dedicated SpawnPoints.
+	-- Extraction points are gameplay objectives and are not reliable entry spawns.
+	local points = {}
+	local sp = getSpawnPoints()
+	for _, p in ipairs(sp) do
+		table.insert(points, p.part)
+	end
 	if #points == 0 then
-		warn("[Badlands] No ExtractionPoints found in workspace.Badlands — falling back to SpawnPoints")
-		local sp = getSpawnPoints()
-		for _, p in ipairs(sp) do table.insert(points, p.part) end
+		-- Last-resort fallback for maps that only have extraction markers configured.
+		points = getExtractionPoints()
+		if #points > 0 then
+			warn("[Badlands] No SpawnPoints found; falling back to ExtractionPoints for entry teleports")
+		end
 	end
 	if #points == 0 then
 		warn("[Badlands] No spawn locations found at all!")
@@ -1288,7 +1296,13 @@ local function startRun(playerList)
 			if spawnPart then
 				teleportToSpawnPoint(player, spawnPart)
 			else
-				warn("[Badlands] No spawn point assigned for " .. player.Name)
+				local allPoints = getSpawnPoints()
+				if #allPoints > 0 and allPoints[1].part then
+					warn("[Badlands] No assigned spawn for " .. player.Name .. " (late join) — using SpawnPoints[1] fallback")
+					teleportToSpawnPoint(player, allPoints[1].part)
+				else
+					warn("[Badlands] No spawn point assigned for " .. player.Name)
+				end
 			end
 
 			-- Notify the joining player
@@ -1376,7 +1390,14 @@ local function startRun(playerList)
 		if spawnPart then
 			teleportToSpawnPoint(player, spawnPart)
 		else
-			warn("[Badlands] No spawn point assigned for " .. player.Name)
+			-- Hard fallback: if assignment fails, force-teleport to first available point.
+			local allPoints = getSpawnPoints()
+			if #allPoints > 0 and allPoints[1].part then
+				warn("[Badlands] No assigned spawn for " .. player.Name .. " — using SpawnPoints[1] fallback")
+				teleportToSpawnPoint(player, allPoints[1].part)
+			else
+				warn("[Badlands] No spawn point assigned for " .. player.Name)
+			end
 		end
 	end
 
@@ -1781,10 +1802,34 @@ local function findQualifyingCreatures(player)
 	local data = PlayerDataManager.GetData(player)
 	if not data or not data.inventory then return {} end
 
+	-- Build a set of "locked" UIDs that cannot be sacrificed right now.
+	-- This keeps the Broker list aligned with server-side validation so players
+	-- do not spend the 10s channel on a creature that will be rejected.
+	local lockedUids = {}
+	if data.favoriteUid and data.favoriteUid ~= "" then
+		lockedUids[tostring(data.favoriteUid)] = true
+	end
+	for _, slotUid in pairs(data.baseSlots or {}) do
+		if slotUid and slotUid ~= "" then
+			lockedUids[tostring(slotUid)] = true
+		end
+	end
+	for _, slotUid in pairs(data.defenseSlots or {}) do
+		if slotUid and slotUid ~= "" then
+			lockedUids[tostring(slotUid)] = true
+		end
+	end
+	for _, slotUid in pairs(data.battleTeam or {}) do
+		if slotUid and slotUid ~= "" then
+			lockedUids[tostring(slotUid)] = true
+		end
+	end
+
 	local qualifying = {}
 	for _, entry in ipairs(data.inventory) do
 		local matches, _ = creatureMatchesContract(entry, contract)
-		if matches then
+		local uidStr = tostring(entry.uid or "")
+		if matches and uidStr ~= "" and not lockedUids[uidStr] then
 			local info = CreatureData.GetById(entry.id)
 			if info and not string.find(entry.id, "standin")
 				and info.modelName and info.modelName ~= "Egg" then
@@ -2512,7 +2557,7 @@ function BadlandsSystem.Init(playerDataMgr, favCreatureSys, mountSys, creatureAI
 				local data = PlayerDataManager.GetData(player)
 				if data then
 					-- Check if it's the favorite
-					if data.favoriteCreature and tostring(data.favoriteCreature) == tostring(uid) then
+					if data.favoriteUid and tostring(data.favoriteUid) == tostring(uid) then
 						fireClient("BadlandsQueueReject", player,
 							"You can't sacrifice your equipped favorite. Unequip it first.")
 						return

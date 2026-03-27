@@ -201,7 +201,7 @@ local function showTraderUI(payload)
 	sub.TextSize = 14
 	sub.TextXAlignment = Enum.TextXAlignment.Left
 	sub.TextColor3 = C.muted
-	sub.Text = "The Curator — premium Siegelings (rotation refreshes periodically)"
+	sub.Text = "The Curator — Common through Legendary (incl. Epic), Silver/Gold variants — rotation refreshes periodically"
 	sub.Parent = mainFrame
 
 	local countdown = Instance.new("TextLabel")
@@ -276,7 +276,9 @@ local function showTraderUI(payload)
 		nameLbl.TextSize = 17
 		nameLbl.TextXAlignment = Enum.TextXAlignment.Left
 		nameLbl.TextColor3 = C.white
-		nameLbl.Text = slot.displayName or slot.creatureId or "?"
+		local variant = (slot.variant == "Silver" or slot.variant == "Gold") and slot.variant or nil
+		local variantSuffix = variant and (" · " .. variant) or ""
+		nameLbl.Text = (slot.displayName or slot.creatureId or "?") .. variantSuffix
 		nameLbl.Parent = card
 
 		local meta = Instance.new("TextLabel")
@@ -290,7 +292,7 @@ local function showTraderUI(payload)
 		meta.TextColor3 = C.muted
 		meta.TextWrapped = true
 		local el = slot.element or ""
-		meta.Text = (slot.rarity or "") .. (el ~= "" and (" · " .. el) or "")
+		meta.Text = (slot.rarity or "") .. (el ~= "" and (" · " .. el) or "") .. (variant and (" · Variant: " .. variant) or "")
 		meta.Parent = card
 
 		local coinBtn = makeButton(

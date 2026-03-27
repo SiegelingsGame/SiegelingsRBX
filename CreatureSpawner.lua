@@ -143,6 +143,66 @@ local function getSpreadPosition(center, spreadRadius)
 	return applyArenaExclusion(Vector3.new(x, y, z))
 end
 
+-- Biomes that host a second element on *Point2 parts.
+-- Primary element uses SpawnPoint/DungeonPoint/BossPoint.
+-- Secondary element uses SpawnPoint2/DungeonPoint2/BossPoint2 (with fallback to primary points).
+local BIOME_SECONDARY_POINT_RULES = {
+	CaveBiome = { primary = "Shadow", secondary = "Metal" },
+	DesertBiome = { primary = "Psychic", secondary = "Undead" },
+	OceanBiome = { primary = "Water", secondary = "Poison" },
+	ElectricBiome = { primary = "Lightning", secondary = "Light" },
+	-- Common alias folder names for the electric zone
+	PeaksBiome = { primary = "Lightning", secondary = "Light" },
+	ElectriBiome = { primary = "Lightning", secondary = "Light" },
+}
+
+local function collectNamedPoints(biomeFolder, pointNames)
+	local wanted = {}
+	for _, name in ipairs(pointNames or {}) do
+		wanted[name] = true
+	end
+	local points = {}
+	for _, child in ipairs(biomeFolder:GetChildren()) do
+		if child:IsA("BasePart") and wanted[child.Name] then
+			table.insert(points, child)
+		end
+	end
+	return points
+end
+
+local function getPointNamesForElementInBiome(biomeFolderName, element, pointBaseName)
+	local rule = BIOME_SECONDARY_POINT_RULES[biomeFolderName]
+	if not rule then
+		return { pointBaseName }
+	end
+	if element == rule.secondary then
+		return { pointBaseName .. "2", pointBaseName }
+	end
+	if element == rule.primary then
+		return { pointBaseName, pointBaseName .. "2" }
+	end
+	return { pointBaseName }
+end
+
+local function getBiomeElementTargetsForPointType(biomeFolderName, pointBaseName)
+	local rule = BIOME_SECONDARY_POINT_RULES[biomeFolderName]
+	if rule then
+		return {
+			-- Primary element stays on the original point set.
+			{ element = rule.primary, pointNames = { pointBaseName } },
+			-- Secondary element is intended for *Point2, but can fallback to *Point.
+			{ element = rule.secondary, pointNames = { pointBaseName .. "2", pointBaseName } },
+		}
+	end
+	local element = CreatureData.GetElementForBiomeFolder(biomeFolderName)
+	if not element then
+		return {}
+	end
+	return {
+		{ element = element, pointNames = { pointBaseName } },
+	}
+end
+
 -- Zone-aware spawn: pick a SpawnPoint from the creature's matching biome
 -- Tries primary and alias folder names (e.g. AquaticBiome, WaterBiome, OceanBiome for Water)
 -- Returns: Vector3 position or nil (caller should fallback to random).
@@ -166,13 +226,8 @@ local function getZoneSpawnPosition(creatureId)
 	end
 	if not biomeFolder then return nil end
 
-	-- Collect all SpawnPoint parts in this biome folder
-	local spawnPoints = {}
-	for _, child in ipairs(biomeFolder:GetChildren()) do
-		if child:IsA("BasePart") and child.Name == "SpawnPoint" then
-			table.insert(spawnPoints, child)
-		end
-	end
+	local pointNames = getPointNamesForElementInBiome(biomeFolder.Name, info.element, "SpawnPoint")
+	local spawnPoints = collectNamedPoints(biomeFolder, pointNames)
 
 	if #spawnPoints == 0 then return nil end
 
@@ -205,7 +260,29 @@ end
 -- Creates the physical model, billboard, HP bar, highlight, etc.
 -- This is shared by all spawn types (regular, dungeon, boss).
 
-local function createCreatureModel(creatureId, position)
+local function applyShinyMaterial(creatureModel)
+	local didApply = false
+	for _, d in ipairs(creatureModel:GetDescendants()) do
+		if d:IsA("MeshPart") then
+			d.Material = Enum.Material.Neon
+			didApply = true
+		elseif d:IsA("SpecialMesh") then
+			local parentPart = d.Parent
+			if parentPart and parentPart:IsA("BasePart") then
+				parentPart.Material = Enum.Material.Neon
+				didApply = true
+			end
+		end
+	end
+	if not didApply then
+		local body = CreatureModelLoader.GetBodyPart(creatureModel) or creatureModel:FindFirstChild("Body")
+		if body and body:IsA("BasePart") then
+			body.Material = Enum.Material.Neon
+		end
+	end
+end
+
+local function createCreatureModel(creatureId, position, isShiny)
 	local data = CreatureData.GetById(creatureId)
 	if not data then return nil end
 
@@ -375,6 +452,10 @@ local function createCreatureModel(creatureId, position)
 	-- Default to Idle animation (for rigged models with Humanoid)
 	CreatureAnimation.Setup(model, creatureId, "Idle")
 
+	if isShiny then
+		applyShinyMaterial(model)
+	end
+
 	return model
 end
 
@@ -447,6 +528,13 @@ local function startBobAnimation(model)
 	end)
 end
 
+local function shouldSpawnShiny()
+	local shinyChance = tonumber(GameConfig.ShinySpawnChance) or 0.02
+	if shinyChance <= 0 then return false end
+	if shinyChance >= 1 then return true end
+	return math.random() < shinyChance
+end
+
 -- ======================================
 -- INTERNAL SPAWN HELPER
 -- ======================================
@@ -455,8 +543,11 @@ end
 -- variant: optional "Silver" or "Gold" for night spawns (captured creatures get this variant)
 -- Returns: model or nil
 
-local function spawnSingleCreature(creatureId, position, packId, variant)
-	local ok, model = pcall(createCreatureModel, creatureId, position)
+local function spawnSingleCreature(creatureId, position, packId, variant, isShiny)
+	if isShiny == nil then
+		isShiny = shouldSpawnShiny()
+	end
+	local ok, model = pcall(createCreatureModel, creatureId, position, isShiny)
 	if not ok then
 		warn("[CreatureSpawner] createCreatureModel ERROR for", creatureId .. ":", tostring(model))
 		return nil
@@ -465,6 +556,9 @@ local function spawnSingleCreature(creatureId, position, packId, variant)
 
 	if variant and (variant == "Silver" or variant == "Gold") then
 		model:SetAttribute("Variant", variant)
+	end
+	if isShiny then
+		model:SetAttribute("Shiny", true)
 	end
 
 	-- startBobAnimation(model)
@@ -561,13 +655,10 @@ function CreatureSpawner.SpawnDungeonCreatures()
 	-- Iterate through all biome folders
 	for _, biomeFolder in ipairs(biomesFolder:GetChildren()) do
 		if biomeFolder:IsA("Folder") then
-			-- Determine which element this biome belongs to
-			local element = CreatureData.GetElementForBiomeFolder(biomeFolder.Name)
-			if not element then continue end
-
-			-- Find all DungeonPoint parts in this biome
-			for _, child in ipairs(biomeFolder:GetChildren()) do
-				if child:IsA("BasePart") and child.Name == "DungeonPoint" then
+			local targets = getBiomeElementTargetsForPointType(biomeFolder.Name, "DungeonPoint")
+			for _, target in ipairs(targets) do
+				local points = collectNamedPoints(biomeFolder, target.pointNames)
+				for _, point in ipairs(points) do
 					-- Check world creature cap
 					local currentCount = #CollectionService:GetTagged(CREATURE_TAG)
 					if currentCount >= getEffectiveMaxCreatures() then return end
@@ -581,10 +672,10 @@ function CreatureSpawner.SpawnDungeonCreatures()
 					for _ = 1, spawnCount do
 						if #CollectionService:GetTagged(CREATURE_TAG) >= getEffectiveMaxCreatures() then break end
 
-						local creatureId = CreatureData.GetDungeonCreatureId(element, GameConfig.SpawnOnlyCreaturesWithModels)
+						local creatureId = CreatureData.GetDungeonCreatureId(target.element, GameConfig.SpawnOnlyCreaturesWithModels)
 						if creatureId then
 							local info = CreatureData.GetById(creatureId)
-							local position = getSpreadPosition(child.Position, spread)
+							local position = getSpreadPosition(point.Position, spread)
 							local variant = info and getNightSpawnVariant(info.rarity) or nil
 
 							-- Pack creatures at dungeons still form packs
@@ -595,7 +686,7 @@ function CreatureSpawner.SpawnDungeonCreatures()
 								for i = 1, packCount do
 									if #CollectionService:GetTagged(CREATURE_TAG) >= getEffectiveMaxCreatures() then break end
 									local pos = i == 1 and position or getGroupSpawnPosition(position, 8)
-									local model = spawnSingleCreature(creatureId, pos, packId, variant)
+									spawnSingleCreature(creatureId, pos, packId, variant)
 								end
 							else
 								spawnSingleCreature(creatureId, position, nil, variant)
@@ -624,28 +715,26 @@ function CreatureSpawner.SpawnBossCreatures()
 
 	for _, biomeFolder in ipairs(biomesFolder:GetChildren()) do
 		if biomeFolder:IsA("Folder") then
-			local element = CreatureData.GetElementForBiomeFolder(biomeFolder.Name)
-			if not element then continue end
-
-			-- Find BossPoint in this biome
-			for _, child in ipairs(biomeFolder:GetChildren()) do
-				if child:IsA("BasePart") and child.Name == "BossPoint" then
+			local targets = getBiomeElementTargetsForPointType(biomeFolder.Name, "BossPoint")
+			for _, target in ipairs(targets) do
+				local points = collectNamedPoints(biomeFolder, target.pointNames)
+				for _, point in ipairs(points) do
 					-- Check respawn cooldown
-					local lastSpawn = bossSpawnTimers[child]
+					local lastSpawn = bossSpawnTimers[point]
 					if lastSpawn and (now - lastSpawn) < bossRespawnTime then
 						continue -- Still on cooldown
 					end
 
 					-- Check if a boss is already alive near this point
 					local bossAlive = false
-					local bossCreatureId = CreatureData.GetBossCreatureId(element, GameConfig.SpawnOnlyCreaturesWithModels)
+					local bossCreatureId = CreatureData.GetBossCreatureId(target.element, GameConfig.SpawnOnlyCreaturesWithModels)
 					if bossCreatureId then
 						for model, data in pairs(activeCreatures) do
 							if data.id == bossCreatureId and model.Parent then
 								-- Check if this boss is near this specific BossPoint
 								local body = CreatureModelLoader.GetBodyPart(model) or model:FindFirstChild("Body")
 								if body then
-									local dist = (body.Position - child.Position).Magnitude
+									local dist = (body.Position - point.Position).Magnitude
 									if dist < 100 then -- Within reasonable range of the BossPoint
 										bossAlive = true
 										break
@@ -664,11 +753,11 @@ function CreatureSpawner.SpawnBossCreatures()
 					-- Spawn the boss!
 					if bossCreatureId then
 						local spread = GameConfig.BossPointSpread or 10
-						local position = getSpreadPosition(child.Position, spread)
+						local position = getSpreadPosition(point.Position, spread)
 						local model = spawnSingleCreature(bossCreatureId, position, nil)
 
 						if model then
-							bossSpawnTimers[child] = now
+							bossSpawnTimers[point] = now
 							model:SetAttribute("IsBoss", true)
 						end
 					end
@@ -684,8 +773,11 @@ end
 -- Used by external systems (raids, events, etc.) that need to spawn
 -- a specific creature at an explicit position.
 
-function CreatureSpawner.SpawnSpecificCreature(creatureId, position)
-	return spawnSingleCreature(creatureId, position, nil)
+function CreatureSpawner.SpawnSpecificCreature(creatureId, position, variant, isShiny)
+	if isShiny == nil then
+		isShiny = false
+	end
+	return spawnSingleCreature(creatureId, position, nil, variant, isShiny)
 end
 
 -- ======================================
@@ -811,11 +903,12 @@ function CreatureSpawner.StartSpawning()
 					local lvl = model:GetAttribute("CreatureLevel") or 1
 					local xp = model:GetAttribute("CreatureXP") or 0
 					local variant = model:GetAttribute("Variant")
+					local isShiny = model:GetAttribute("Shiny") == true
 					if EvolutionEffects and EvolutionEffects.PlayDevolutionEffect then
 						EvolutionEffects.PlayDevolutionEffect(pos)
 					end
 					CreatureSpawner.RemoveCreature(model)
-					local newModel = CreatureSpawner.SpawnSpecificCreature(baseId, pos)
+					local newModel = CreatureSpawner.SpawnSpecificCreature(baseId, pos, variant, isShiny)
 					if newModel then
 						newModel:SetAttribute("CreatureLevel", lvl)
 						newModel:SetAttribute("CreatureXP", xp)
@@ -842,11 +935,12 @@ function CreatureSpawner.StartSpawning()
 				local lvl = model:GetAttribute("CreatureLevel") or 1
 				local xp = model:GetAttribute("CreatureXP") or 0
 				local variant = model:GetAttribute("Variant")
+				local isShiny = model:GetAttribute("Shiny") == true
 				if EvolutionEffects and EvolutionEffects.PlayEvolutionEffect then
 					EvolutionEffects.PlayEvolutionEffect(pos)
 				end
 				CreatureSpawner.RemoveCreature(model)
-				local newModel = CreatureSpawner.SpawnSpecificCreature(evolvedId, pos)
+				local newModel = CreatureSpawner.SpawnSpecificCreature(evolvedId, pos, variant, isShiny)
 				if newModel then
 					newModel:SetAttribute("CreatureLevel", lvl)
 					newModel:SetAttribute("CreatureXP", xp)

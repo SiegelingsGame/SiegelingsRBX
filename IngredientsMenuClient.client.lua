@@ -1,5 +1,6 @@
 -- IngredientsMenuClient.client.lua - StarterPlayerScripts
 -- Ingredient bank UI, campfire mix/craft, world pickup prompts + sparkle FX.
+-- Last updated: 2026-03-28 14:30
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -38,11 +39,17 @@ local cookCfg = GameConfig.Cooking or {}
 if cookCfg.Enabled == false then return end
 
 local C = {
-	bg = Color3.fromRGB(14, 16, 24),
-	card = Color3.fromRGB(22, 26, 38),
-	muted = Color3.fromRGB(120, 125, 140),
+	bg = Color3.fromRGB(18, 22, 28),
+	card = Color3.fromRGB(26, 32, 42),
+	muted = Color3.fromRGB(120, 132, 148),
 	white = Color3.new(1, 1, 1),
 	accent = Color3.fromRGB(220, 180, 90),
+	teal = Color3.fromRGB(72, 168, 168),
+	tealGlow = Color3.fromRGB(100, 220, 210),
+	gold = Color3.fromRGB(230, 150, 55),
+	goldDeep = Color3.fromRGB(180, 95, 35),
+	cyan = Color3.fromRGB(120, 235, 255),
+	pad = Color3.fromRGB(195, 200, 210),
 }
 
 local bank = {}
@@ -70,6 +77,19 @@ local recipeTimeLimit = 12
 local recipeTimerConn = nil
 local closeRecipeFrame
 local unbindViewportUpdate = nil
+
+local layoutIngredients = nil
+local layoutChef = nil
+local ingLeftHost = nil
+local chefLeftHost = nil
+local craftPad = nil
+local slotsHost = nil
+local combineHubBtn = nil
+local recipeLogList = nil
+local combinePulseConn = nil
+local bodyFrame = nil
+local headerAccent = nil
+local bankScroll = nil
 
 local PICKUP_TAG = "WorldIngredientPickup"
 local CAMPFIRE_TAG = "ArenaCampfire"
@@ -132,39 +152,98 @@ local function rebuildBankList()
 		local def = IngredientData.GetById(row.id)
 		local btn = Instance.new("TextButton")
 		btn.Name = row.id
-		btn.Size = UDim2.new(1, -8, 0, 36)
-		btn.BackgroundColor3 = (selectedId == row.id) and Color3.fromRGB(40, 48, 70) or C.card
+		local rowH = cookMode and 56 or 36
+		btn.Size = UDim2.new(1, -8, 0, rowH)
+		btn.BackgroundColor3 = (selectedId == row.id) and Color3.fromRGB(34, 42, 56) or C.card
 		btn.BorderSizePixel = 0
-		btn.AutoButtonColor = true
+		btn.AutoButtonColor = not cookMode
 		btn.Text = ""
 		btn.LayoutOrder = idx
 		btn.Parent = bankList
 		local c = Instance.new("UICorner")
-		c.CornerRadius = UDim.new(0, 6)
+		c.CornerRadius = UDim.new(0, cookMode and 10 or 6)
 		c.Parent = btn
 		local stroke = Instance.new("UIStroke")
-		stroke.Color = rarityColor(def and def.rarity)
-		stroke.Thickness = 2
+		stroke.Color = (selectedId == row.id) and C.gold or rarityColor(def and def.rarity)
+		stroke.Thickness = (selectedId == row.id and cookMode) and 2.5 or 2
+		stroke.Transparency = 0.15
 		stroke.Parent = btn
-		local tl = Instance.new("TextLabel")
-		tl.BackgroundTransparency = 1
-		tl.Position = UDim2.new(0, 10, 0, 0)
-		tl.Size = UDim2.new(0.65, -10, 1, 0)
-		tl.Font = Enum.Font.GothamMedium
-		tl.TextSize = 14
-		tl.TextColor3 = C.white
-		tl.TextXAlignment = Enum.TextXAlignment.Left
-		tl.Text = (def and def.displayName) or row.id
-		tl.Parent = btn
-		local tr = Instance.new("TextLabel")
-		tr.BackgroundTransparency = 1
-		tr.Position = UDim2.new(0.65, 0, 0, 0)
-		tr.Size = UDim2.new(0.35, -10, 1, 0)
-		tr.Font = Enum.Font.GothamBold
-		tr.TextSize = 15
-		tr.TextColor3 = C.accent
-		tr.Text = "x" .. tostring(row.n)
-		tr.Parent = btn
+
+		if cookMode then
+			local icon = Instance.new("Frame")
+			icon.Name = "Icon"
+			icon.Size = UDim2.fromOffset(44, 44)
+			icon.Position = UDim2.new(0, 6, 0.5, -22)
+			icon.BackgroundColor3 = Color3.fromRGB(32, 38, 50)
+			icon.BorderSizePixel = 0
+			icon.Parent = btn
+			Instance.new("UICorner", icon).CornerRadius = UDim.new(0, 8)
+			local iconStroke = Instance.new("UIStroke")
+			iconStroke.Color = rarityColor(def and def.rarity)
+			iconStroke.Thickness = 2
+			iconStroke.Parent = icon
+			local glyph = Instance.new("TextLabel")
+			glyph.BackgroundTransparency = 1
+			glyph.Size = UDim2.new(1, 0, 1, 0)
+			glyph.Font = Enum.Font.GothamBlack
+			glyph.TextSize = 20
+			glyph.TextColor3 = C.white
+			local nm = (def and def.displayName) or row.id
+			glyph.Text = string.upper(string.sub(nm, 1, 1))
+			glyph.Parent = icon
+			local badge = Instance.new("TextLabel")
+			badge.Name = "QtyBadge"
+			badge.BackgroundColor3 = Color3.fromRGB(40, 48, 62)
+			badge.Size = UDim2.fromOffset(28, 18)
+			badge.Position = UDim2.new(1, -30, 0, 2)
+			badge.Font = Enum.Font.GothamBold
+			badge.TextSize = 11
+			badge.TextColor3 = C.cyan
+			badge.Text = "x" .. tostring(row.n)
+			badge.Parent = icon
+			Instance.new("UICorner", badge).CornerRadius = UDim.new(0, 4)
+			local tl = Instance.new("TextLabel")
+			tl.BackgroundTransparency = 1
+			tl.Position = UDim2.new(0, 56, 0, 8)
+			tl.Size = UDim2.new(1, -120, 0, 22)
+			tl.Font = Enum.Font.GothamBold
+			tl.TextSize = 15
+			tl.TextColor3 = C.white
+			tl.TextXAlignment = Enum.TextXAlignment.Left
+			tl.Text = nm
+			tl.Parent = btn
+			local tr = Instance.new("TextLabel")
+			tr.BackgroundTransparency = 1
+			tr.Position = UDim2.new(1, -56, 0, 8)
+			tr.Size = UDim2.fromOffset(48, 20)
+			tr.Font = Enum.Font.GothamBold
+			tr.TextSize = 13
+			tr.TextColor3 = C.accent
+			tr.TextXAlignment = Enum.TextXAlignment.Right
+			tr.Text = "x" .. tostring(row.n)
+			tr.Parent = btn
+		else
+			local tl = Instance.new("TextLabel")
+			tl.BackgroundTransparency = 1
+			tl.Position = UDim2.new(0, 10, 0, 0)
+			tl.Size = UDim2.new(0.65, -10, 1, 0)
+			tl.Font = Enum.Font.GothamMedium
+			tl.TextSize = 14
+			tl.TextColor3 = C.white
+			tl.TextXAlignment = Enum.TextXAlignment.Left
+			tl.Text = (def and def.displayName) or row.id
+			tl.Parent = btn
+			local tr = Instance.new("TextLabel")
+			tr.BackgroundTransparency = 1
+			tr.Position = UDim2.new(0.65, 0, 0, 0)
+			tr.Size = UDim2.new(0.35, -10, 1, 0)
+			tr.Font = Enum.Font.GothamBold
+			tr.TextSize = 15
+			tr.TextColor3 = C.accent
+			tr.Text = "x" .. tostring(row.n)
+			tr.Parent = btn
+		end
+
 		btn.MouseButton1Click:Connect(function()
 			selectedId = row.id
 			rebuildBankList()
@@ -180,7 +259,133 @@ local function mixTotal()
 	return t
 end
 
+local SLOT_UI_POS = {
+	UDim2.new(0.5, 0, 0.11, 0),
+	UDim2.new(0.87, 0, 0.5, 0),
+	UDim2.new(0.5, 0, 0.89, 0),
+	UDim2.new(0.13, 0, 0.5, 0),
+}
+local CHEF_SLOT_COUNT = 4
+
+local function rebuildRecipeLog()
+	if not recipeLogList then return end
+	clearChildren(recipeLogList)
+	local layout = Instance.new("UIListLayout")
+	layout.Padding = UDim.new(0, 4)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Parent = recipeLogList
+	if #mix == 0 then
+		local empty = Instance.new("TextLabel")
+		empty.BackgroundTransparency = 1
+		empty.Size = UDim2.new(1, 0, 0, 18)
+		empty.Font = Enum.Font.Gotham
+		empty.TextSize = 12
+		empty.TextColor3 = C.muted
+		empty.TextXAlignment = Enum.TextXAlignment.Left
+		empty.Text = "Add ingredients from the bank — valid mixes follow campfire recipes."
+		empty.TextWrapped = true
+		empty.Parent = recipeLogList
+		return
+	end
+	for i, e in ipairs(mix) do
+		local def = IngredientData.GetById(e.id)
+		local row = Instance.new("Frame")
+		row.BackgroundColor3 = Color3.fromRGB(32, 40, 52)
+		row.Size = UDim2.new(1, -4, 0, 26)
+		row.BorderSizePixel = 0
+		row.LayoutOrder = i
+		row.Parent = recipeLogList
+		Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
+		local dot = Instance.new("Frame")
+		dot.Size = UDim2.fromOffset(8, 8)
+		dot.Position = UDim2.new(0, 8, 0.5, -4)
+		dot.BackgroundColor3 = C.tealGlow
+		dot.BorderSizePixel = 0
+		dot.Parent = row
+		Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+		local lbl = Instance.new("TextLabel")
+		lbl.BackgroundTransparency = 1
+		lbl.Position = UDim2.new(0, 22, 0, 0)
+		lbl.Size = UDim2.new(1, -28, 1, 0)
+		lbl.Font = Enum.Font.GothamMedium
+		lbl.TextSize = 12
+		lbl.TextColor3 = C.white
+		lbl.TextXAlignment = Enum.TextXAlignment.Left
+		lbl.Text = string.format("%s ×%s", (def and def.displayName) or e.id, tostring(e.qty))
+		lbl.Parent = row
+	end
+end
+
+local function rebuildCraftingSlots()
+	if not slotsHost or not craftingMixRemoveSlot then return end
+	clearChildren(slotsHost)
+	local maxMix = math.min(tonumber(cookCfg.MaxMixIngredients) or CHEF_SLOT_COUNT, CHEF_SLOT_COUNT)
+	for si = 1, maxMix do
+		local e = mix[si]
+		local slot = Instance.new("TextButton")
+		slot.Name = "Slot" .. si
+		slot.AnchorPoint = Vector2.new(0.5, 0.5)
+		slot.Position = SLOT_UI_POS[si] or UDim2.new(0.5, 0, 0.5, 0)
+		slot.Size = UDim2.fromOffset(62, 62)
+		slot.BackgroundColor3 = e and Color3.fromRGB(44, 52, 68) or Color3.fromRGB(36, 42, 54)
+		slot.BorderSizePixel = 0
+		slot.AutoButtonColor = false
+		slot.Text = ""
+		slot.ZIndex = 2
+		slot.Parent = slotsHost
+		Instance.new("UICorner", slot).CornerRadius = UDim.new(1, 0)
+		local sStroke = Instance.new("UIStroke")
+		sStroke.Color = e and C.tealGlow or C.muted
+		sStroke.Thickness = e and 2.5 or 1.5
+		sStroke.Transparency = e and 0.2 or 0.5
+		sStroke.Parent = slot
+		if e then
+			local def = IngredientData.GetById(e.id)
+			local g = Instance.new("TextLabel")
+			g.BackgroundTransparency = 1
+			g.Size = UDim2.new(1, -4, 0.55, 0)
+			g.Position = UDim2.new(0, 2, 0.08, 0)
+			g.Font = Enum.Font.GothamBlack
+			g.TextSize = 18
+			g.TextColor3 = C.white
+			g.Text = string.upper(string.sub((def and def.displayName) or e.id, 1, 1))
+			g.Parent = slot
+			local q = Instance.new("TextLabel")
+			q.BackgroundTransparency = 1
+			q.Size = UDim2.new(1, 0, 0.4, 0)
+			q.Position = UDim2.new(0, 0, 0.55, 0)
+			q.Font = Enum.Font.GothamBold
+			q.TextSize = 11
+			q.TextColor3 = C.cyan
+			q.Text = "×" .. tostring(e.qty)
+			q.Parent = slot
+			slot.MouseButton1Click:Connect(function()
+				pcall(function()
+					craftingMixRemoveSlot:InvokeServer(si)
+				end)
+				syncMix()
+				rebuildMixList()
+			end)
+		else
+			local lab = Instance.new("TextLabel")
+			lab.BackgroundTransparency = 1
+			lab.Size = UDim2.new(1, -4, 1, -4)
+			lab.Font = Enum.Font.GothamBold
+			lab.TextSize = 10
+			lab.TextColor3 = C.muted
+			lab.Text = "SLOT\n" .. si
+			lab.TextWrapped = true
+			lab.Parent = slot
+		end
+	end
+end
+
 local function rebuildMixList()
+	if cookMode and slotsHost then
+		rebuildCraftingSlots()
+		rebuildRecipeLog()
+		return
+	end
 	if not mixList then return end
 	clearChildren(mixList)
 	local layout = Instance.new("UIListLayout")
@@ -224,6 +429,32 @@ local function rebuildMixList()
 	end
 end
 
+local function applyIngredientsMenuLayout()
+	if not mainFrame then return end
+	if MobileWindowLayout.IsMobile() then
+		local bounds = MobileWindowLayout.GetBounds({
+			leftInset = 12,
+			rightInset = 12,
+			topInset = 10,
+			bottomInset = 14,
+			bottomMobileExtra = 18,
+		})
+		local maxW = cookMode and 740 or 520
+		local maxH = cookMode and 560 or 420
+		local width = math.min(maxW, math.floor(bounds.width))
+		local height = math.min(maxH, math.floor(bounds.height))
+		mainFrame.Size = UDim2.fromOffset(width, height)
+	else
+		if cookMode then
+			mainFrame.Size = UDim2.fromOffset(720, 540)
+		else
+			mainFrame.Size = UDim2.fromOffset(520, 420)
+		end
+	end
+	mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+	mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+end
+
 local function setVisible(v)
 	if gui then
 		gui.Enabled = v
@@ -237,21 +468,46 @@ local function setVisible(v)
 			mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
 		end
 		if panelScale then
-			panelScale.Scale = cookMode and 0.5 or 1
+			panelScale.Scale = 1
 		end
+		if layoutIngredients and layoutChef and ingLeftHost and chefLeftHost and bankScroll then
+			layoutIngredients.Visible = not cookMode
+			layoutChef.Visible = cookMode
+			if cookMode then
+				bankScroll.Parent = chefLeftHost
+				bankScroll.Position = UDim2.new(0, 0, 0, 0)
+				bankScroll.Size = UDim2.new(1, 0, 1, 0)
+			else
+				bankScroll.Parent = ingLeftHost
+				bankScroll.Position = UDim2.new(0, 0, 0, 0)
+				bankScroll.Size = UDim2.new(1, 0, 1, 0)
+			end
+		end
+		if headerAccent then
+			headerAccent.BackgroundColor3 = cookMode and C.teal or Color3.fromRGB(45, 52, 68)
+		end
+		local mfStroke = mainFrame and mainFrame:FindFirstChild("PanelStroke")
+		if mfStroke and mfStroke:IsA("UIStroke") then
+			mfStroke.Color = cookMode and C.tealGlow or Color3.fromRGB(50, 55, 75)
+			mfStroke.Thickness = cookMode and 1.5 or 1
+		end
+		applyIngredientsMenuLayout()
 		syncBank()
 		syncMix()
 		rebuildBankList()
 		rebuildMixList()
 		if titleLbl then
-			titleLbl.Text = cookMode and "Campfire Cooking" or "Ingredients"
+			titleLbl.Text = cookMode and "MASTER CHEF CRAFTING" or "Ingredients"
 		end
 		if craftBtn then
-			craftBtn.Visible = cookMode and craftAtCampfire ~= nil
+			craftBtn.Visible = false
+		end
+		if combineHubBtn then
+			combineHubBtn.Visible = cookMode and craftAtCampfire ~= nil
 		end
 		if qualityLabel then
 			if cookMode then
-				qualityLabel.Text = "Projected quality: Poor x0.9 / Good x1.0 / Great x1.12 / Perfect x1.25 (potency)"
+				qualityLabel.Text = "Quality tiers: Poor ×0.9 · Good ×1.0 · Great ×1.12 · Perfect ×1.25 (potency)"
 			else
 				qualityLabel.Text = ""
 			end
@@ -386,8 +642,12 @@ local function buildGui()
 	mainFrame.BackgroundColor3 = C.bg
 	mainFrame.BorderSizePixel = 0
 	mainFrame.Parent = gui
-	Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 10)
-	Instance.new("UIStroke", mainFrame).Color = Color3.fromRGB(50, 55, 75)
+	Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 12)
+	local panelStroke = Instance.new("UIStroke")
+	panelStroke.Name = "PanelStroke"
+	panelStroke.Color = Color3.fromRGB(50, 55, 75)
+	panelStroke.Thickness = 1
+	panelStroke.Parent = mainFrame
 	panelScale = Instance.new("UIScale")
 	panelScale.Scale = 1
 	panelScale.Parent = mainFrame
@@ -395,30 +655,11 @@ local function buildGui()
 	mainFrame.Active = true
 	mainFrame.Draggable = true
 
-	local function applyResponsiveWindowLayout()
-		if not mainFrame then return end
-		if MobileWindowLayout.IsMobile() then
-			local bounds = MobileWindowLayout.GetBounds({
-				leftInset = 12,
-				rightInset = 12,
-				topInset = 10,
-				bottomInset = 14,
-				bottomMobileExtra = 18,
-			})
-			local width = math.min(520, math.floor(bounds.width))
-			local height = math.min(420, math.floor(bounds.height))
-			mainFrame.Size = UDim2.fromOffset(width, height)
-		else
-			mainFrame.Size = UDim2.fromOffset(520, 420)
-		end
-		mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-		mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
-	end
-	applyResponsiveWindowLayout()
+	applyIngredientsMenuLayout()
 	if unbindViewportUpdate then
 		unbindViewportUpdate()
 	end
-	unbindViewportUpdate = MobileWindowLayout.BindViewportUpdate(applyResponsiveWindowLayout)
+	unbindViewportUpdate = MobileWindowLayout.BindViewportUpdate(applyIngredientsMenuLayout)
 
 	titleLbl = Instance.new("TextLabel")
 	titleLbl.BackgroundTransparency = 1
@@ -442,6 +683,13 @@ local function buildGui()
 	qualityLabel.Text = ""
 	qualityLabel.Parent = mainFrame
 
+	headerAccent = Instance.new("Frame")
+	headerAccent.BackgroundColor3 = Color3.fromRGB(45, 52, 68)
+	headerAccent.BorderSizePixel = 0
+	headerAccent.Size = UDim2.new(0.55, 0, 0, 3)
+	headerAccent.Position = UDim2.new(0, 16, 0, 40)
+	headerAccent.Parent = mainFrame
+
 	local closeBtn = Instance.new("TextButton")
 	closeBtn.Size = UDim2.new(0, 36, 0, 36)
 	closeBtn.Position = UDim2.new(1, -44, 0, 8)
@@ -457,17 +705,45 @@ local function buildGui()
 		setVisible(false)
 	end)
 
-	local bankScroll = Instance.new("ScrollingFrame")
+	bodyFrame = Instance.new("Frame")
+	bodyFrame.BackgroundTransparency = 1
+	bodyFrame.ClipsDescendants = false
+	bodyFrame.Position = UDim2.new(0, 0, 0, 52)
+	bodyFrame.Size = UDim2.new(1, 0, 1, -104)
+	bodyFrame.Parent = mainFrame
+
+	layoutIngredients = Instance.new("Frame")
+	layoutIngredients.BackgroundTransparency = 1
+	layoutIngredients.Size = UDim2.new(1, 0, 1, 0)
+	layoutIngredients.Parent = bodyFrame
+
+	ingLeftHost = Instance.new("Frame")
+	ingLeftHost.BackgroundTransparency = 1
+	ingLeftHost.Position = UDim2.new(0, 8, 0, 4)
+	ingLeftHost.Size = UDim2.new(0.48, -12, 1, -8)
+	ingLeftHost.Parent = layoutIngredients
+
+	local ingRightHost = Instance.new("Frame")
+	ingRightHost.BackgroundTransparency = 1
+	ingRightHost.Position = UDim2.new(0.52, 4, 0, 4)
+	ingRightHost.Size = UDim2.new(0.48, -14, 1, -8)
+	ingRightHost.Parent = layoutIngredients
+
+	bankScroll = Instance.new("ScrollingFrame")
 	bankScroll.Name = "Bank"
-	bankScroll.Position = UDim2.new(0, 12, 0, 52)
-	bankScroll.Size = UDim2.new(0.48, -8, 1, -120)
+	bankScroll.Position = UDim2.new(0, 0, 0, 0)
+	bankScroll.Size = UDim2.new(1, 0, 1, 0)
 	bankScroll.BackgroundColor3 = C.card
 	bankScroll.BorderSizePixel = 0
 	bankScroll.ScrollBarThickness = 6
 	bankScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 	bankScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-	bankScroll.Parent = mainFrame
-	Instance.new("UICorner", bankScroll).CornerRadius = UDim.new(0, 8)
+	bankScroll.Parent = ingLeftHost
+	Instance.new("UICorner", bankScroll).CornerRadius = UDim.new(0, 10)
+	local bankStroke = Instance.new("UIStroke")
+	bankStroke.Color = Color3.fromRGB(55, 65, 82)
+	bankStroke.Transparency = 0.4
+	bankStroke.Parent = bankScroll
 
 	bankList = Instance.new("Frame")
 	bankList.BackgroundTransparency = 1
@@ -478,14 +754,14 @@ local function buildGui()
 
 	local mixScroll = Instance.new("ScrollingFrame")
 	mixScroll.Name = "Mix"
-	mixScroll.Position = UDim2.new(0.52, 0, 0, 52)
-	mixScroll.Size = UDim2.new(0.48, -20, 1, -120)
+	mixScroll.Position = UDim2.new(0, 0, 0, 0)
+	mixScroll.Size = UDim2.new(1, 0, 1, 0)
 	mixScroll.BackgroundColor3 = C.card
 	mixScroll.BorderSizePixel = 0
 	mixScroll.ScrollBarThickness = 6
 	mixScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-	mixScroll.Parent = mainFrame
-	Instance.new("UICorner", mixScroll).CornerRadius = UDim.new(0, 8)
+	mixScroll.Parent = ingRightHost
+	Instance.new("UICorner", mixScroll).CornerRadius = UDim.new(0, 10)
 
 	mixList = Instance.new("Frame")
 	mixList.BackgroundTransparency = 1
@@ -502,12 +778,153 @@ local function buildGui()
 	mixHeader.TextSize = 14
 	mixHeader.TextColor3 = C.muted
 	mixHeader.TextXAlignment = Enum.TextXAlignment.Left
-	mixHeader.Text = "Mix (3–5 items)"
+	mixHeader.Text = "Mix (3–4 items)"
 	mixHeader.Parent = mixScroll
+
+	layoutChef = Instance.new("Frame")
+	layoutChef.Name = "ChefLayout"
+	layoutChef.Visible = false
+	layoutChef.BackgroundTransparency = 1
+	layoutChef.Size = UDim2.new(1, 0, 1, 0)
+	layoutChef.Parent = bodyFrame
+
+	chefLeftHost = Instance.new("Frame")
+	chefLeftHost.BackgroundTransparency = 1
+	chefLeftHost.Position = UDim2.new(0, 8, 0, 4)
+	chefLeftHost.Size = UDim2.new(0.30, -8, 1, -8)
+	chefLeftHost.Parent = layoutChef
+
+	local chefRightHost = Instance.new("Frame")
+	chefRightHost.BackgroundTransparency = 1
+	chefRightHost.Position = UDim2.new(0.30, 8, 0, 4)
+	chefRightHost.Size = UDim2.new(0.70, -16, 1, -8)
+	chefRightHost.Parent = layoutChef
+
+	craftPad = Instance.new("Frame")
+	craftPad.Name = "CraftPad"
+	craftPad.BackgroundColor3 = C.pad
+	craftPad.BackgroundTransparency = 0.08
+	craftPad.Position = UDim2.new(0, 0, 0, 0)
+	craftPad.Size = UDim2.new(1, -6, 1, -124)
+	craftPad.BorderSizePixel = 0
+	craftPad.ClipsDescendants = true
+	craftPad.Parent = chefRightHost
+	Instance.new("UICorner", craftPad).CornerRadius = UDim.new(0, 18)
+	local padStroke = Instance.new("UIStroke")
+	padStroke.Color = C.teal
+	padStroke.Thickness = 1.2
+	padStroke.Transparency = 0.45
+	padStroke.Parent = craftPad
+
+	slotsHost = Instance.new("Frame")
+	slotsHost.Name = "Slots"
+	slotsHost.BackgroundTransparency = 1
+	slotsHost.Size = UDim2.new(1, -16, 1, -16)
+	slotsHost.Position = UDim2.new(0, 8, 0, 8)
+	slotsHost.Parent = craftPad
+
+	combineHubBtn = Instance.new("TextButton")
+	combineHubBtn.Name = "CombineHub"
+	combineHubBtn.AnchorPoint = Vector2.new(0.5, 0.5)
+	combineHubBtn.Position = UDim2.new(0.5, 0, 0.5, 0)
+	combineHubBtn.Size = UDim2.fromOffset(94, 94)
+	combineHubBtn.BackgroundColor3 = Color3.fromRGB(48, 56, 72)
+	combineHubBtn.BorderSizePixel = 0
+	combineHubBtn.Text = ""
+	combineHubBtn.ZIndex = 5
+	combineHubBtn.AutoButtonColor = false
+	combineHubBtn.Visible = false
+	combineHubBtn.Parent = craftPad
+	Instance.new("UICorner", combineHubBtn).CornerRadius = UDim.new(1, 0)
+	local hubStroke = Instance.new("UIStroke")
+	hubStroke.Color = C.gold
+	hubStroke.Thickness = 4
+	hubStroke.Parent = combineHubBtn
+	local vortex = Instance.new("Frame")
+	vortex.BackgroundColor3 = Color3.fromRGB(40, 120, 140)
+	vortex.BackgroundTransparency = 0.35
+	vortex.BorderSizePixel = 0
+	vortex.Size = UDim2.new(1, -12, 1, -12)
+	vortex.Position = UDim2.new(0, 6, 0, 6)
+	vortex.ZIndex = combineHubBtn.ZIndex
+	vortex.Active = false
+	vortex.Parent = combineHubBtn
+	Instance.new("UICorner", vortex).CornerRadius = UDim.new(1, 0)
+	local vg = Instance.new("UIGradient")
+	vg.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(70, 210, 230)),
+		ColorSequenceKeypoint.new(0.45, Color3.fromRGB(140, 250, 255)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(50, 140, 180)),
+	})
+	vg.Rotation = 0
+	vg.Parent = vortex
+	if combinePulseConn then
+		combinePulseConn:Disconnect()
+	end
+	combinePulseConn = RunService.Heartbeat:Connect(function(dt)
+		if not vortex.Parent then
+			return
+		end
+		vg.Rotation = (vg.Rotation + 50 * dt) % 360
+	end)
+	local hubLbl = Instance.new("TextLabel")
+	hubLbl.BackgroundTransparency = 1
+	hubLbl.Size = UDim2.new(1, -4, 1, -4)
+	hubLbl.ZIndex = combineHubBtn.ZIndex + 1
+	hubLbl.Font = Enum.Font.GothamBlack
+	hubLbl.TextSize = 11
+	hubLbl.TextColor3 = C.white
+	hubLbl.TextWrapped = true
+	hubLbl.Text = "COMBINE\nRESULTS"
+	hubLbl.Active = false
+	hubLbl.Parent = combineHubBtn
+
+	local recipeLogFrame = Instance.new("Frame")
+	recipeLogFrame.Name = "RecipeLog"
+	recipeLogFrame.AnchorPoint = Vector2.new(0, 1)
+	recipeLogFrame.Position = UDim2.new(0, 0, 1, -2)
+	recipeLogFrame.Size = UDim2.new(0.58, 0, 0, 116)
+	recipeLogFrame.BackgroundColor3 = Color3.fromRGB(22, 28, 36)
+	recipeLogFrame.BorderSizePixel = 0
+	recipeLogFrame.ZIndex = 5
+	recipeLogFrame.Parent = chefRightHost
+	Instance.new("UICorner", recipeLogFrame).CornerRadius = UDim.new(0, 12)
+	local logStroke = Instance.new("UIStroke")
+	logStroke.Color = C.tealGlow
+	logStroke.Thickness = 1
+	logStroke.Transparency = 0.55
+	logStroke.Parent = recipeLogFrame
+
+	local logHeader = Instance.new("TextLabel")
+	logHeader.BackgroundTransparency = 1
+	logHeader.Size = UDim2.new(1, -12, 0, 22)
+	logHeader.Position = UDim2.new(0, 8, 0, 4)
+	logHeader.Font = Enum.Font.GothamBlack
+	logHeader.TextSize = 11
+	logHeader.TextColor3 = C.white
+	logHeader.TextXAlignment = Enum.TextXAlignment.Left
+	logHeader.Text = "RECIPE LOG & PREVIEW"
+	logHeader.Parent = recipeLogFrame
+
+	local logScroll = Instance.new("ScrollingFrame")
+	logScroll.BackgroundTransparency = 1
+	logScroll.Position = UDim2.new(0, 6, 0, 28)
+	logScroll.Size = UDim2.new(1, -12, 1, -34)
+	logScroll.ScrollBarThickness = 4
+	logScroll.ScrollBarImageColor3 = C.teal
+	logScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+	logScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	logScroll.Parent = recipeLogFrame
+
+	recipeLogList = Instance.new("Frame")
+	recipeLogList.BackgroundTransparency = 1
+	recipeLogList.Size = UDim2.new(1, -4, 0, 0)
+	recipeLogList.AutomaticSize = Enum.AutomaticSize.Y
+	recipeLogList.Parent = logScroll
 
 	local btnRow = Instance.new("Frame")
 	btnRow.BackgroundTransparency = 1
-	btnRow.Position = UDim2.new(0, 12, 1, -56)
+	btnRow.Position = UDim2.new(0, 12, 1, -52)
 	btnRow.Size = UDim2.new(1, -24, 0, 44)
 	btnRow.Parent = mainFrame
 
@@ -549,7 +966,7 @@ local function buildGui()
 	add5.Parent = btnRow
 	add5.MouseButton1Click:Connect(function()
 		if not selectedId then return end
-		local maxMix = tonumber(cookCfg.MaxMixIngredients) or 5
+		local maxMix = tonumber(cookCfg.MaxMixIngredients) or CHEF_SLOT_COUNT
 		local room = maxMix - mixTotal()
 		local q = math.min(5, math.max(0, room))
 		if q <= 0 then return end
@@ -590,11 +1007,7 @@ local function buildGui()
 		end
 	end)
 
-	craftBtn = mkBtn("Cook!", 0.22, Color3.fromRGB(50, 120, 70))
-	craftBtn.Position = UDim2.new(0.72, 24, 0, 0)
-	craftBtn.Visible = false
-	craftBtn.Parent = btnRow
-	craftBtn.MouseButton1Click:Connect(function()
+	local function startCampfireCookFlow()
 		if not getCampfireRecipePattern then
 			submitRecipeMinigame()
 			return
@@ -611,11 +1024,19 @@ local function buildGui()
 			return
 		end
 		openRecipeFrame(dataOrMsg)
-	end)
+	end
+
+	craftBtn = mkBtn("Cook!", 0.22, Color3.fromRGB(50, 120, 70))
+	craftBtn.Position = UDim2.new(0.72, 24, 0, 0)
+	craftBtn.Visible = false
+	craftBtn.Parent = btnRow
+	craftBtn.MouseButton1Click:Connect(startCampfireCookFlow)
+	combineHubBtn.MouseButton1Click:Connect(startCampfireCookFlow)
 
 	recipeFrame = Instance.new("Frame")
 	recipeFrame.Name = "RecipeStage"
 	recipeFrame.Visible = false
+	recipeFrame.ZIndex = 15
 	recipeFrame.BackgroundColor3 = Color3.fromRGB(10, 13, 20)
 	recipeFrame.BorderSizePixel = 0
 	recipeFrame.Size = UDim2.new(1, -24, 1, -96)

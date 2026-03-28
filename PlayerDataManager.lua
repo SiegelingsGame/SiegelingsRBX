@@ -1,5 +1,6 @@
 -- PlayerDataManager.lua - ServerScriptService (ModuleScript)
 -- Manages all persistent player data.
+-- Last updated: 2026-03-28 14:30
 
 local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
@@ -1848,7 +1849,7 @@ function PlayerDataManager.CraftingMixAdd(player, ingredientId, qty)
 	local def = IngredientData.GetById(ingredientId)
 	if not def then return false, "Unknown ingredient" end
 	local cook = GameConfig.Cooking or {}
-	local maxMix = tonumber(cook.MaxMixIngredients) or 5
+	local maxMix = tonumber(cook.MaxMixIngredients) or 4
 	local mix = getOrInitMix(player.UserId)
 	if mixTotalQty(mix) + qty > maxMix then return false, "Mix is full (max " .. tostring(maxMix) .. " items)" end
 	local d = playerCache[player.UserId]
@@ -1879,7 +1880,7 @@ function PlayerDataManager.CraftingMixTrimQty(player, index, newQty)
 	local e = mix[index]
 	if newQty <= 0 then table.remove(mix, index) return true end
 	local cook = GameConfig.Cooking or {}
-	local maxMix = tonumber(cook.MaxMixIngredients) or 5
+	local maxMix = tonumber(cook.MaxMixIngredients) or 4
 	local other = mixTotalQty(mix) - e.qty
 	if other + newQty > maxMix then return false, "Would exceed mix size" end
 	local d = playerCache[player.UserId]

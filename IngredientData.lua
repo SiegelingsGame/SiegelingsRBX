@@ -1,5 +1,6 @@
 -- IngredientData.lua - ReplicatedStorage/Modules/IngredientData
 -- 8 biomes × 5 rarities; crafting rules and buff resolution.
+-- Last updated: 2026-03-28 14:30
 
 local CreatureData = require(script.Parent.CreatureData)
 
@@ -192,7 +193,7 @@ end
 function IngredientData.ComputeCraft(mixNormalized, cfg)
 	cfg = cfg or {}
 	local minN = tonumber(cfg.MinMixIngredients) or 3
-	local maxN = tonumber(cfg.MaxMixIngredients) or 5
+	local maxN = tonumber(cfg.MaxMixIngredients) or 4
 	local divBonus = tonumber(cfg.DiversityBonusRaritySteps) or 0.25
 
 	local total = 0

@@ -1,5 +1,6 @@
 -- SiegeMasterSystem.lua - ServerScriptService (ModuleScript)
 -- Spawns "Siege Master" in/near arena and opens siege provisions shop UI.
+-- Last updated: 2026-03-28 15:00
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
@@ -41,30 +42,58 @@ local function resolveArenaAnchor()
 	return nil
 end
 
+local function findBrokerPositionAndCFrame()
+	for _, desc in ipairs(Workspace:GetDescendants()) do
+		if desc.Name == "BrokerNPC" and (desc:IsA("Model") or desc:IsA("BasePart")) then
+			if desc:IsA("Model") then
+				local pp = desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart", true)
+				if pp then
+					return pp.Position, pp.CFrame
+				end
+			else
+				return desc.Position, desc.CFrame
+			end
+		end
+	end
+	return nil, nil
+end
+
+-- Curator uses Broker + ArenaTrader.OffsetFromBrokerStuds; Siege Master mirrors: Broker - that offset (same distance, other side).
 local function buildSpawnCFrame()
 	local cfg = getConfig()
-	local arenaOffset = cfg.OffsetFromArenaCenterStuds or Vector3.new(-22, 0, -8)
-	local fallbackOffset = cfg.FallbackOffsetFromSpawnStuds or Vector3.new(-12, 0, -24)
+	local traderCfg = GameConfig.ArenaTrader or {}
+	local offsetFromBroker = traderCfg.OffsetFromBrokerStuds or Vector3.new(-26, 0, 0)
+	local traderSpawnFallback = traderCfg.FallbackOffsetFromSpawnStuds or Vector3.new(-26, 0, 16)
+
+	local hub = Workspace:FindFirstChild("HubArea")
+	local spawnRef = hub and hub:FindFirstChild("SpawnLocation")
+	local brokerPos, brokerCF = findBrokerPositionAndCFrame()
 
 	local baseXZ
-	local arenaPos = resolveArenaAnchor()
-	if arenaPos then
-		baseXZ = arenaPos + Vector3.new(arenaOffset.X, 0, arenaOffset.Z)
+	if brokerPos then
+		baseXZ = brokerPos - Vector3.new(offsetFromBroker.X, 0, offsetFromBroker.Z)
+	elseif spawnRef and spawnRef:IsA("BasePart") then
+		baseXZ = spawnRef.Position - Vector3.new(traderSpawnFallback.X, 0, traderSpawnFallback.Z)
 	else
-		local hub = Workspace:FindFirstChild("HubArea")
-		local spawnRef = hub and hub:FindFirstChild("SpawnLocation")
-		if not spawnRef or not spawnRef:IsA("BasePart") then
+		local arenaPos = resolveArenaAnchor()
+		if arenaPos then
+			local arenaOffset = cfg.OffsetFromArenaCenterStuds or Vector3.new(-22, 0, -8)
+			baseXZ = arenaPos + Vector3.new(arenaOffset.X, 0, arenaOffset.Z)
+		else
 			return nil
 		end
-		baseXZ = spawnRef.Position + Vector3.new(fallbackOffset.X, 0, fallbackOffset.Z)
 	end
 
-	local rayOrigin = Vector3.new(baseXZ.X, baseXZ.Y + 70, baseXZ.Z)
+	local rayY = (spawnRef and spawnRef:IsA("BasePart") and spawnRef.Position.Y) or baseXZ.Y
+	local rayOrigin = Vector3.new(baseXZ.X, rayY + 70, baseXZ.Z)
 	local rayResult = Workspace:Raycast(rayOrigin, Vector3.new(0, -260, 0))
 	local groundY = rayResult and rayResult.Position.Y or baseXZ.Y
 	local pos = Vector3.new(baseXZ.X, groundY + 2.5, baseXZ.Z)
 
 	local baseCF = CFrame.new(pos)
+	if brokerCF then
+		baseCF = CFrame.new(pos) * (brokerCF - brokerCF.Position)
+	end
 	local extraRot = cfg.ExtraRotationDegrees
 	if type(extraRot) == "table" then
 		local pitch = tonumber(extraRot.pitch) or 0
@@ -90,27 +119,16 @@ local function createSiegeMaster()
 	end
 
 	if not siegeMasterNPC then
-		local spawnCF = buildSpawnCFrame()
-		if not spawnCF then
-			warn("[SiegeMaster] Could not resolve arena spawn position")
+		local spawnCFNew = buildSpawnCFrame()
+		if not spawnCFNew then
+			warn("[SiegeMaster] Could not resolve spawn position (Broker / SpawnLocation / Arena)")
 			return nil
 		end
-
 		local template = ReplicatedStorage:FindFirstChild("SiegeMasterNPC")
 		if template and (template:IsA("Model") or template:IsA("BasePart")) then
 			local npc = template:Clone()
 			npc.Name = "SiegeMasterNPC"
 			npc.Parent = Workspace
-			if npc:IsA("Model") then
-				if not npc.PrimaryPart then
-					npc.PrimaryPart = npc:FindFirstChildWhichIsA("BasePart", true)
-				end
-				if npc.PrimaryPart then
-					npc:PivotTo(spawnCF)
-				end
-			else
-				npc.CFrame = spawnCF * CFrame.new(0, npc.Size.Y * 0.5, 0)
-			end
 			siegeMasterNPC = npc
 		else
 			local p = Instance.new("Part")
@@ -120,9 +138,34 @@ local function createSiegeMaster()
 			p.CanCollide = true
 			p.Material = Enum.Material.Slate
 			p.Color = Color3.fromRGB(175, 182, 192)
-			p.CFrame = spawnCF * CFrame.new(0, p.Size.Y * 0.5, 0)
 			p.Parent = Workspace
 			siegeMasterNPC = p
+		end
+		if siegeMasterNPC:IsA("Model") then
+			local pp = siegeMasterNPC.PrimaryPart or siegeMasterNPC:FindFirstChildWhichIsA("BasePart", true)
+			if pp then
+				if not siegeMasterNPC.PrimaryPart then
+					siegeMasterNPC.PrimaryPart = pp
+				end
+				siegeMasterNPC:PivotTo(spawnCFNew)
+			end
+		elseif siegeMasterNPC:IsA("BasePart") then
+			siegeMasterNPC.CFrame = spawnCFNew * CFrame.new(0, siegeMasterNPC.Size.Y * 0.5, 0)
+		end
+	else
+		local spawnCFExisting = buildSpawnCFrame()
+		if spawnCFExisting then
+			if siegeMasterNPC:IsA("Model") then
+				local pp = siegeMasterNPC.PrimaryPart or siegeMasterNPC:FindFirstChildWhichIsA("BasePart", true)
+				if pp then
+					if not siegeMasterNPC.PrimaryPart then
+						siegeMasterNPC.PrimaryPart = pp
+					end
+					siegeMasterNPC:PivotTo(spawnCFExisting)
+				end
+			elseif siegeMasterNPC:IsA("BasePart") then
+				siegeMasterNPC.CFrame = spawnCFExisting * CFrame.new(0, siegeMasterNPC.Size.Y * 0.5, 0)
+			end
 		end
 	end
 

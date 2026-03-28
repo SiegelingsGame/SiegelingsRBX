@@ -3,6 +3,7 @@
 	ReplicatedStorage/Modules/GameConfigData
 	Actual config data. Required lazily by GameConfig to avoid recursive require.
 ]]
+-- Last updated: 2026-03-28 15:00
 -- lol
 
 local GameConfig = {}
@@ -205,7 +206,7 @@ GameConfig.Cooking = {
 	MaxStackPerIngredientId = 999,
 	MaxTotalIngredientCount = 2500,
 	MinMixIngredients = 3,
-	MaxMixIngredients = 5,
+	MaxMixIngredients = 4,
 	DiversityBonusRaritySteps = 0.25,
 	CraftCooldownSeconds = 2,
 	BuffDurationByRarity = {
@@ -750,12 +751,12 @@ GameConfig.ArenaTrader = {
 }
 
 -- Arena Hub: Siege Master vendor (food + XP provisioning)
+-- Placement: opposite side of The Broker from The Curator — position = Broker − ArenaTrader.OffsetFromBrokerStuds
+-- (Curator is Broker + that offset). If Broker is missing: SpawnLocation − ArenaTrader.FallbackOffsetFromSpawnStuds.
+-- Only if both are missing: OffsetFromArenaCenterStuds from Arena.ArenaCenter (legacy).
 GameConfig.SiegeMasterEnabled = true
 GameConfig.SiegeMaster = {
-	-- Relative to ArenaCenter when present (raycast finds floor Y automatically).
 	OffsetFromArenaCenterStuds = Vector3.new(-22, 0, -8),
-	-- If arena center is missing, fallback uses HubArea.SpawnLocation + this offset.
-	FallbackOffsetFromSpawnStuds = Vector3.new(-12, 0, -24),
 	ExtraRotationDegrees = { pitch = 0, yaw = 145, roll = 0 },
 	PromptRange = 12,
 	PurchaseRange = 22, -- must be this close to buy siege-only items

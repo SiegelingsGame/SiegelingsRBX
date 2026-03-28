@@ -1,8 +1,17 @@
-# Update log / Memory — Last updated: 2026-03-27 14:45
+# Update log / Memory — Last updated: 2026-03-28 15:00
 
 Before committing: refresh this file's top timestamp and add an entry below; add or update `-- Last updated: YYYY-MM-DD HH:MM` at the top of each changed script.
 
 ---
+
+## 2026-03-28 15:00
+- **SiegeMasterSystem.lua**, **GameConfigData.lua** – Siege Master spawns opposite The Curator: `Broker − ArenaTrader.OffsetFromBrokerStuds` (mirror of Curator’s `Broker + offset`); fallback mirrors spawn-offset when Broker is absent; pre-placed `SiegeMasterNPC` is re-pivoted on init when a spawn frame resolves.
+
+## 2026-03-28 14:30
+- **IngredientsMenuClient.client.lua**, **GameConfigData.lua**, **PlayerDataManager.lua**, **IngredientData.lua** – Campfire mix capped at four ingredients: diamond UI shows four slots only; `GameConfig.Cooking.MaxMixIngredients` set to 4 with matching server/normalize defaults and mix header text “3–4 items”.
+
+## 2026-03-28 12:00
+- **IngredientsMenuClient.client.lua** – Rebuilt campfire cooking UI: “Master Chef” layout with teal-framed panel, ingredient cards with icon tiles, diamond mix slots (up to five), gold-rimmed rotating “Combine Results” hub, recipe log strip, and responsive larger window in cook mode; ingredient-only (`I`) view keeps the classic bank + mix columns.
 
 ## 2026-03-27 14:45
 - **CreatureSpawner.lua**, **BadlandsClient.client.lua**, **BadlandsSystem.lua** – Resolved git merge conflicts: kept cave terrain fallback + `CreatureData` outer-biome pairing for dungeon/boss/zone spawns; BadBag HUD uses favorite-card vertical alignment with panel anchored below the button; sacrifice queue rejects both `favoriteUid` and legacy `favoriteCreature`.

@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════════════
--- Last updated: 2026-03-27 12:00
+-- Last updated: 2026-03-27 14:45
 -- BadlandsClient.client.lua
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- Client-side HUD and UI for active Badlands runs:
@@ -123,10 +123,8 @@ local BADGE_HEIGHT = 40
 local BADGE_GAP = 8
 local BADGE_SLOT = 2
 local BADGE_DISPLAY_ORDER = 52
-
--- BadBag HUD button: one full button height below the old Battle Menu slot (76) so it clears
--- the top ticker row and sits to the left of FavoriteSummonCard (66, 76, 50×72).
-local BADBAG_BTN_Y = 76 + 54  -- 130
+local BAG_FALLBACK_X = 12
+local BAG_FALLBACK_Y = 76
 
 local function disconnectTickerLayoutSignals()
 	for _, conn in ipairs(tickerLayoutConns) do
@@ -160,37 +158,51 @@ local function layoutHudElements()
 		timerFrame.Position = UDim2.new(0.5, 0, 0, yTop)
 	end
 
-	-- BadBag button: left of the favorite card; Y one row below old Battle Menu (12,76) to stay on-screen.
+	-- BadBag: align vertically with FavoriteSummonCard when visible; fallback to BattleMenu anchor.
+	local bagAlignedY = BAG_FALLBACK_Y
+	local favCard = playerGui:FindFirstChild("FavoriteSummonCard", true)
+	if favCard and favCard:IsA("GuiObject") and favCard.Visible then
+		local favPos = favCard.AbsolutePosition
+		local favSize = favCard.AbsoluteSize
+		local bagH = (bagButton and bagButton.AbsoluteSize.Y > 0) and bagButton.AbsoluteSize.Y or 54
+		bagAlignedY = math.floor(favPos.Y + ((favSize.Y - bagH) * 0.5))
+	end
 	if bagButton and bagButton.Parent then
-		bagButton.Position = UDim2.new(0, 12, 0, BADBAG_BTN_Y)
+		bagButton.Position = UDim2.new(0, BAG_FALLBACK_X, 0, bagAlignedY)
 	end
 
 	if bagPanel and bagPanel.Parent then
-		-- Same 6px gap below the button as before (was 136 under y=76 btn)
-		bagPanel.Position = UDim2.new(0, 12, 0, BADBAG_BTN_Y + 54 + 6)
+		bagPanel.Position = UDim2.new(0, BAG_FALLBACK_X, 0, bagAlignedY + 54 + 6)
 	end
 
-	-- BL toggle badge: bottom area, to the left of the "Tracking Sieglings" target bar
+	-- BL toggle badge: same row as timer, just to its left.
 	if hudToggleBadge and hudToggleBadge.Parent then
-		-- Position in the bottom-center area, left of the combat tracker bar.
-		-- The target bar is at (0.5, 1, -offset) anchored bottom-center.
-		-- Place BL badge to its left. We use scale positioning so it adapts.
 		local camera = workspace.CurrentCamera
 		if camera then
-			local vh = camera.ViewportSize.Y
 			local vw = camera.ViewportSize.X
-			-- Match the target bar's vertical position: just above the HUD button bar
-			local hudHeightPx = (32 / 1080) * 1.35 * vh
-			local offsetFromBottom = hudHeightPx + 8
-			-- Target bar is 376px wide at center; BL badge goes to its left
-			local targetBarHalfW = 188  -- TARGET_BAR_WIDTH / 2 (12 + 5*64 + 4*8 + 12 = 376)
-			local badgeX = math.floor(vw / 2 - targetBarHalfW - BADGE_GAP - BADGE_WIDTH)
-			local badgeY = math.floor(vh - offsetFromBottom - BADGE_HEIGHT)
+			local badgeW = hudToggleBadge.AbsoluteSize.X > 0 and hudToggleBadge.AbsoluteSize.X or BADGE_WIDTH
+			local badgeH = hudToggleBadge.AbsoluteSize.Y > 0 and hudToggleBadge.AbsoluteSize.Y or BADGE_HEIGHT
+
+			-- Align against timer frame when available; otherwise estimate timer position.
+			local timerX, timerY, timerH
+			if timerFrame and timerFrame.Parent then
+				timerX = timerFrame.AbsolutePosition.X
+				timerY = timerFrame.AbsolutePosition.Y
+				timerH = timerFrame.AbsoluteSize.Y > 0 and timerFrame.AbsoluteSize.Y or 40
+			else
+				local fallbackTimerW = 200
+				timerX = math.floor((vw * 0.5) - (fallbackTimerW * 0.5))
+				timerY = yTop
+				timerH = 40
+			end
+
+			local badgeX = math.floor(timerX - BADGE_GAP - badgeW)
+			local badgeY = math.floor(timerY + ((timerH - badgeH) * 0.5))
 			hudToggleBadge.Position = UDim2.new(0, badgeX, 0, badgeY)
 			hudToggleBadge.AnchorPoint = Vector2.new(0, 0)
 		else
-			hudToggleBadge.Position = UDim2.new(0.5, -260, 1, -80)
-			hudToggleBadge.AnchorPoint = Vector2.new(1, 1)
+			hudToggleBadge.Position = UDim2.new(0.5, -120, 0, yTop)
+			hudToggleBadge.AnchorPoint = Vector2.new(0, 0)
 		end
 	end
 end
@@ -443,11 +455,11 @@ local function createBagButton()
 	local gui = ensureScreenGui()
 
 	-- FIX #24: BadBag button replaces the Battle Menu button when in Badlands (left of favorite card).
-	-- 46×54; Y = BADBAG_BTN_Y so the control clears the ticker and aligns with the favorite card band.
+	-- 46×54; layoutHudElements() repositions using FavoriteSummonCard when visible.
 	bagButton = Instance.new("TextButton")
 	bagButton.Name = "BadBagButton"
 	bagButton.Size = UDim2.new(0, 46, 0, 54)
-	bagButton.Position = UDim2.new(0, 12, 0, BADBAG_BTN_Y)
+	bagButton.Position = UDim2.new(0, BAG_FALLBACK_X, 0, BAG_FALLBACK_Y)
 	bagButton.AnchorPoint = Vector2.new(0, 0)
 	bagButton.BackgroundColor3 = C.accent
 	bagButton.BackgroundTransparency = 0.15
@@ -1210,6 +1222,28 @@ local function stopTimerLoop()
 	if timerConn then timerConn:Disconnect(); timerConn = nil end
 end
 
+local function resetBadlandsRuntimeState(clearGui)
+	inBadlands = false
+	stopTimerLoop()
+	hideExtractionUI()
+	runStartTime = 0
+	runDuration = 600
+	bagPanelOpen = false
+
+	-- Remove timer immediately so death/expel state never leaves stale countdown UI.
+	if timerFrame and timerFrame.Parent then
+		timerFrame:Destroy()
+	end
+	timerFrame = nil
+	timerLabel = nil
+
+	if clearGui then
+		destroyScreenGui()
+	else
+		applyHudVisibility()
+	end
+end
+
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- EVENT LISTENERS
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -1236,6 +1270,8 @@ if runStartEvt then
 		hudVisible = true
 		startTimerLoop()
 		refreshBagUI()
+		task.defer(layoutHudElements)
+		task.delay(0.25, layoutHudElements)
 		applyHudVisibility()
 
 		if Notify and Notify.Toast then
@@ -1286,8 +1322,7 @@ end
 -- BadlandsExtracted: extraction succeeded — show results
 if extractedEvt then
 	extractedEvt.OnClientEvent:Connect(function(data)
-		inBadlands = false
-		stopTimerLoop()
+		resetBadlandsRuntimeState(false)
 		showExtractionSuccess(data or {})
 		task.delay(10, destroyScreenGui)
 	end)
@@ -1296,9 +1331,7 @@ end
 -- BadlandsRunEnd: expelled (time ran out) or eliminated
 if runEndEvt then
 	runEndEvt.OnClientEvent:Connect(function(data)
-		inBadlands = false
-		stopTimerLoop()
-		hideExtractionUI()
+		resetBadlandsRuntimeState(false)
 		showExpelledScreen(data or {})
 		task.delay(8, destroyScreenGui)
 	end)
@@ -1307,9 +1340,7 @@ end
 -- BadlandsEliminated: player was killed by another player
 if eliminatedEvt then
 	eliminatedEvt.OnClientEvent:Connect(function(data)
-		inBadlands = false
-		stopTimerLoop()
-		hideExtractionUI()
+		resetBadlandsRuntimeState(false)
 
 		local gui = ensureScreenGui()
 		local overlay = Instance.new("Frame")
@@ -1349,6 +1380,14 @@ if eliminatedEvt then
 		end)
 	end)
 end
+
+-- Authoritative failsafe: if server clears InBadlands but a client event is missed,
+-- force-close the Badlands HUD/timer so state cannot get stuck.
+player:GetAttributeChangedSignal("InBadlands"):Connect(function()
+	if player:GetAttribute("InBadlands") ~= true then
+		resetBadlandsRuntimeState(true)
+	end
+end)
 
 -- Q key now opens InventoryUI BadBag tab directly (handled by InventoryUIManager)
 

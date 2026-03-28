@@ -18,6 +18,7 @@ GameConfig.NightDarknessTransitionHours = 0.75 -- smooth night brightness fade i
 -- Night spawn variants: Common/Uncommon → Silver chance; Rare+ → Gold chance (0–1)
 GameConfig.NightSpawnSilverChance = 0.10  -- chance for Common/Uncommon at night
 GameConfig.NightSpawnGoldChance = 0.05    -- chance for Rare+ at night
+GameConfig.ShinySpawnChance = 0.02        -- chance any spawned world creature becomes shiny (Neon mesh material)
 -- World creatures with evolutions: at night randomly evolve (base→evolved), at dawn devolve
 GameConfig.NightWorldEvolutionChance   = 0.20  -- per creature per check (base form with evolvesTo)
 GameConfig.NightWorldEvolutionInterval = 30     -- seconds .between evolution checks
@@ -31,7 +32,7 @@ GameConfig.DebugDoubleSpeed = false             -- true = player WalkSpeed is 32
 GameConfig.QuickSpawnDebugMode = false         -- true = bypass loading gate (skip Events/LoadingReady wait) for fast testing
 GameConfig.CombinerRecyclerPromptAllPlots = true -- true = add E prompts to Combiner/Recycler on ALL plots (for testing; set false for release)
 GameConfig.DebugBrokerGoldOnly = false             -- true = The Broker only asks for 100 gold coins instead of a creature sacrifice (for testing)
-GameConfig.DebugBrokerCacty = false                -- true = The Broker always asks for a Lv1 Common Earth Cacty (for testing)
+GameConfig.DebugBrokerCacty = true                -- true = The Broker always asks for a Lv1 Common Earth Cacty (for testing)
 
 -- Economy
 GameConfig.StartingCoins       = 1000
@@ -616,7 +617,7 @@ GameConfig.DecorCostByRarity = {
 }
 
 -- Gym Battle System — Floor 4 personal arena (visitors battle owner's battle team)
-GameConfig.GymBattleTickSpeed    = 1.2    -- seconds between combat ticks (matches arena)
+GameConfig.GymBattleTickSpeed    = 1.2    -- seconds between combat ticks (matches arena)0
 GameConfig.GymBattleWinGold      = 200    -- flat gold reward for winning a gym battle
 GameConfig.GymBattleCooldown     = 60     -- seconds before same challenger can re-challenge
 GameConfig.GymBountyBase         = 100    -- starting bounty on a fresh gym (coins)
@@ -642,21 +643,23 @@ GameConfig.BadlandsSpawnShieldDuration  = 30    -- seconds of PvP immunity on en
 -- Use if the mesh still appears flipped after fixing PrimaryPart in Studio (e.g. pitch = -90).
 GameConfig.BrokerNPCExtraRotationDegrees = { pitch = 90, yaw = 0, roll = 0 }
 
--- Arena Hub: Curator Trader — sells five rotating Siegelings (2 Common, 1 Uncommon, 1 Rare, 1 Legendary).
+-- Arena Hub: Curator Trader — sells six rotating Siegelings (2 Common, 1 Uncommon, 1 Rare, 1 Epic, 1 Legendary).
 -- Priced above egg tiers; each slot can be bought with coins or diamonds (gems).
 GameConfig.ArenaTraderEnabled = true
 GameConfig.ArenaTrader = {
 	StockRefreshSeconds = 6 * 3600, -- full rotation (seconds)
 	-- Horizontal offset from The Broker (studs); Y is resolved with a downward raycast.
-	OffsetFromBrokerStuds = Vector3.new(-26, 0, 16),
+	OffsetFromBrokerStuds = Vector3.new(-26, 0, 0),
 	-- If BrokerNPC is missing, place using HubArea.SpawnLocation + this offset instead.
 	FallbackOffsetFromSpawnStuds = Vector3.new(-26, 0, 16),
 	-- Optional extra rotation for TraderNPC after placement (degrees).
 	-- Keep this at pitch=90 to stand the current Trader model upright.
 	ExtraRotationDegrees = { pitch = 90, yaw = 0, roll = 0 },
 	-- Per-rarity prices (direct known creature — much higher than mystery eggs).
-	CoinPrice = { Common = 48000, Uncommon = 135000, Rare = 420000, Legendary = 1100000 },
-	GemPrice = { Common = 450, Uncommon = 1200, Rare = 3800, Legendary = 14000 },
+	CoinPrice = { Common = 1000, Uncommon = 5000, Rare = 25000, Epic = 50000, Legendary = 100000 },
+	GemPrice = { Common = 500, Uncommon = 1000, Rare = 2500, Epic = 5000, Legendary = 10000 },
+	-- Curator stock variants are restricted to Silver/Gold only.
+	VariantWeights = { Silver = 50, Gold = 50 },
 }
 
 -- Badlands: Bag
@@ -665,9 +668,9 @@ GameConfig.BadlandsLootBagDespawnTime   = 60    -- seconds before dropped bag de
 GameConfig.BadlandsLootBagBeaconRange   = 200   -- visible distance (studs)
 
 -- Badlands: Creature Spawning
--- ALL Badlands creatures are Gold/Legend variant, 1.5–2x scale, stat-boosted.
+-- ALL Badlands creatures are Gold/Legend variant, 1.5–2x scale, stat-boosted.09
 -- Every rarity can spawn (Common through Legendary) but they are ALL elite versions.
-GameConfig.BadlandsInitialSpawnCount    = 20    -- creatures spawned on run start
+GameConfig.BadlandsInitialSpawnCount    = 20    -- creatures spawned on run startbj
 GameConfig.BadlandsSpawnInterval        = 8     -- seconds between new spawns
 GameConfig.BadlandsMaxCreatures         = 40    -- creature cap in zone
 GameConfig.BadlandsCreatureScaleMin     = 1.5   -- minimum model scale multiplier (1.5x normal)

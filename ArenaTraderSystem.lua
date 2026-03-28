@@ -1,5 +1,5 @@
 -- ArenaTraderSystem.lua — ServerScriptService (ModuleScript)
--- Arena Hub NPC: sells five rotating Siegelings (2 Common, 1 Uncommon, 1 Rare, 1 Legendary).
+-- Arena Hub NPC: sells six rotating Siegelings (2 Common, 1 Uncommon, 1 Rare, 1 Epic, 1 Legendary).
 -- Placement: offset from BrokerNPC when present, else HubArea.SpawnLocation + fallback offset.
 
 local Players = game:GetService("Players")
@@ -82,12 +82,32 @@ local function priceForRarity(rarity)
 	return c, g
 end
 
+local function isTraderVariantAllowed(variant)
+	return variant == "Silver" or variant == "Gold"
+end
+
+local function rollTraderVariant()
+	local cfg = getTraderConfig()
+	local weights = cfg.VariantWeights
+	if type(weights) == "table" then
+		local silverW = math.max(0, tonumber(weights.Silver) or 0)
+		local goldW = math.max(0, tonumber(weights.Gold) or 0)
+		local total = silverW + goldW
+		if total > 0 then
+			local r = math.random() * total
+			return (r <= silverW) and "Silver" or "Gold"
+		end
+	end
+	return (math.random() < 0.5) and "Silver" or "Gold"
+end
+
 local function rollStock()
 	local cfg = getTraderConfig()
 	local refresh = tonumber(cfg.StockRefreshSeconds) or (6 * 3600)
 	local c1, c2 = pickTwoDistinctCommons()
 	local u = pickCreatureForRarity("Uncommon")
 	local r = pickCreatureForRarity("Rare")
+	local e = pickCreatureForRarity("Epic")
 	local l = pickCreatureForRarity("Legendary")
 
 	local slots = {}
@@ -96,6 +116,7 @@ local function rollStock()
 		{ rarity = "Common", id = c2 },
 		{ rarity = "Uncommon", id = u },
 		{ rarity = "Rare", id = r },
+		{ rarity = "Epic", id = e },
 		{ rarity = "Legendary", id = l },
 	}
 	for _, row in ipairs(order) do
@@ -103,6 +124,7 @@ local function rollStock()
 		table.insert(slots, {
 			rarity = row.rarity,
 			creatureId = row.id,
+			variant = rollTraderVariant(),
 			coinCost = coinCost,
 			gemCost = gemCost,
 		})
@@ -379,7 +401,8 @@ local function tryPurchase(player, slotIndex, paymentType, creatureId, stockId)
 		end
 	end
 
-	local uid = PlayerDataManager.AddCreature(player, slot.creatureId, 1, 0, "Normal", nil, { source = "arena_trader" })
+	local variant = isTraderVariantAllowed(slot.variant) and slot.variant or rollTraderVariant()
+	local uid = PlayerDataManager.AddCreature(player, slot.creatureId, 1, 0, variant, nil, { source = "arena_trader" })
 	if not uid then
 		-- Refund
 		if paymentType == "gems" then
@@ -416,6 +439,7 @@ function ArenaTraderSystem.GetStockPayload()
 			slotIndex = i,
 			rarity = s.rarity,
 			creatureId = s.creatureId,
+			variant = isTraderVariantAllowed(s.variant) and s.variant or "Silver",
 			displayName = info and info.displayName or (s.creatureId or "?"),
 			element = info and info.element or "",
 			coinCost = s.coinCost,

@@ -19,6 +19,7 @@
 		could spawn creatures from a different element in any biome.
 		See CreatureData.GetCreaturesByElement() for the data side.
 ]]
+-- Last updated: 2026-03-27 14:45
 
 local CollectionService = game:GetService("CollectionService")
 local HttpService = game:GetService("HttpService")
@@ -253,7 +254,29 @@ end
 -- Creates the physical model, billboard, HP bar, highlight, etc.
 -- This is shared by all spawn types (regular, dungeon, boss).
 
-local function createCreatureModel(creatureId, position)
+local function applyShinyMaterial(creatureModel)
+	local didApply = false
+	for _, d in ipairs(creatureModel:GetDescendants()) do
+		if d:IsA("MeshPart") then
+			d.Material = Enum.Material.Neon
+			didApply = true
+		elseif d:IsA("SpecialMesh") then
+			local parentPart = d.Parent
+			if parentPart and parentPart:IsA("BasePart") then
+				parentPart.Material = Enum.Material.Neon
+				didApply = true
+			end
+		end
+	end
+	if not didApply then
+		local body = CreatureModelLoader.GetBodyPart(creatureModel) or creatureModel:FindFirstChild("Body")
+		if body and body:IsA("BasePart") then
+			body.Material = Enum.Material.Neon
+		end
+	end
+end
+
+local function createCreatureModel(creatureId, position, isShiny)
 	local data = CreatureData.GetById(creatureId)
 	if not data then return nil end
 
@@ -423,6 +446,10 @@ local function createCreatureModel(creatureId, position)
 	-- Default to Idle animation (for rigged models with Humanoid)
 	CreatureAnimation.Setup(model, creatureId, "Idle")
 
+	if isShiny then
+		applyShinyMaterial(model)
+	end
+
 	return model
 end
 
@@ -495,6 +522,13 @@ local function startBobAnimation(model)
 	end)
 end
 
+local function shouldSpawnShiny()
+	local shinyChance = tonumber(GameConfig.ShinySpawnChance) or 0.02
+	if shinyChance <= 0 then return false end
+	if shinyChance >= 1 then return true end
+	return math.random() < shinyChance
+end
+
 -- ======================================
 -- INTERNAL SPAWN HELPER
 -- ======================================
@@ -503,8 +537,11 @@ end
 -- variant: optional "Silver" or "Gold" for night spawns (captured creatures get this variant)
 -- Returns: model or nil
 
-local function spawnSingleCreature(creatureId, position, packId, variant)
-	local ok, model = pcall(createCreatureModel, creatureId, position)
+local function spawnSingleCreature(creatureId, position, packId, variant, isShiny)
+	if isShiny == nil then
+		isShiny = shouldSpawnShiny()
+	end
+	local ok, model = pcall(createCreatureModel, creatureId, position, isShiny)
 	if not ok then
 		warn("[CreatureSpawner] createCreatureModel ERROR for", creatureId .. ":", tostring(model))
 		return nil
@@ -513,6 +550,9 @@ local function spawnSingleCreature(creatureId, position, packId, variant)
 
 	if variant and (variant == "Silver" or variant == "Gold") then
 		model:SetAttribute("Variant", variant)
+	end
+	if isShiny then
+		model:SetAttribute("Shiny", true)
 	end
 
 	-- startBobAnimation(model)
@@ -756,8 +796,11 @@ end
 -- Used by external systems (raids, events, etc.) that need to spawn
 -- a specific creature at an explicit position.
 
-function CreatureSpawner.SpawnSpecificCreature(creatureId, position)
-	return spawnSingleCreature(creatureId, position, nil)
+function CreatureSpawner.SpawnSpecificCreature(creatureId, position, variant, isShiny)
+	if isShiny == nil then
+		isShiny = false
+	end
+	return spawnSingleCreature(creatureId, position, nil, variant, isShiny)
 end
 
 -- ======================================
@@ -883,11 +926,12 @@ function CreatureSpawner.StartSpawning()
 					local lvl = model:GetAttribute("CreatureLevel") or 1
 					local xp = model:GetAttribute("CreatureXP") or 0
 					local variant = model:GetAttribute("Variant")
+					local isShiny = model:GetAttribute("Shiny") == true
 					if EvolutionEffects and EvolutionEffects.PlayDevolutionEffect then
 						EvolutionEffects.PlayDevolutionEffect(pos)
 					end
 					CreatureSpawner.RemoveCreature(model)
-					local newModel = CreatureSpawner.SpawnSpecificCreature(baseId, pos)
+					local newModel = CreatureSpawner.SpawnSpecificCreature(baseId, pos, variant, isShiny)
 					if newModel then
 						newModel:SetAttribute("CreatureLevel", lvl)
 						newModel:SetAttribute("CreatureXP", xp)
@@ -914,11 +958,12 @@ function CreatureSpawner.StartSpawning()
 				local lvl = model:GetAttribute("CreatureLevel") or 1
 				local xp = model:GetAttribute("CreatureXP") or 0
 				local variant = model:GetAttribute("Variant")
+				local isShiny = model:GetAttribute("Shiny") == true
 				if EvolutionEffects and EvolutionEffects.PlayEvolutionEffect then
 					EvolutionEffects.PlayEvolutionEffect(pos)
 				end
 				CreatureSpawner.RemoveCreature(model)
-				local newModel = CreatureSpawner.SpawnSpecificCreature(evolvedId, pos)
+				local newModel = CreatureSpawner.SpawnSpecificCreature(evolvedId, pos, variant, isShiny)
 				if newModel then
 					newModel:SetAttribute("CreatureLevel", lvl)
 					newModel:SetAttribute("CreatureXP", xp)

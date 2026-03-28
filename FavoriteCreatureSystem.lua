@@ -968,7 +968,7 @@ local function startCompanionBehavior(player, model, creatureId)
 	local entry = PlayerDataManager.GetFavorite(player)
 	local lvl = entry and entry.level or 1
 	local variant = entry and (entry.variant or "Normal") or "Normal"
-	local stats = PlayerDataManager.GetEffectiveStats(creatureId, lvl, variant)
+	local stats = PlayerDataManager.GetEffectiveStats(creatureId, lvl, variant, player)
 	local attackStat = stats and stats.attack or (info.attack * (1 + GameConfig.StatGainPerLevel * (lvl - 1)))
 	local baseDamage = math.max(5, math.floor(attackStat * GameConfig.CompanionBaseDamage / 10))
 	local body = CreatureModelLoader.GetBodyPart(model) or model:FindFirstChild("Body")
@@ -1541,7 +1541,7 @@ function FavoriteCreatureSystem.SpawnCompanion(player)
 	local lvl = entry.level or 1
 	local xp = entry.xp or 0
 	local variant = entry.variant or "Normal"
-	local stats = PlayerDataManager.GetEffectiveStats(entry.id, lvl, variant)
+	local stats = PlayerDataManager.GetEffectiveStats(entry.id, lvl, variant, player)
 	local scaledHP = stats and stats.health or math.floor(info.health * (1 + GameConfig.StatGainPerLevel * (lvl - 1)))
 
 	-- Update billboard to show level and XP

@@ -113,6 +113,7 @@ makeEvent("BadlandsSacrificeCreature"); makeEvent("BadlandsSacrificeResult")
 
 -- Arena Hub: Curator Trader (rotating Siegeling stock)
 makeEvent("ArenaTraderStock") -- server -> client: payload when opening UI or when stock rotates
+makeEvent("OpenSiegeMasterShop") -- server -> client: open siege provisions catalog
 
 -- Shared notifications
 makeEvent("ShowNotification")
@@ -220,6 +221,20 @@ local getRebirthInfo = makeFunc("GetRebirthInfo")
 local requestRebirth = makeEvent("RequestRebirth")
 makeEvent("RebirthSuccess")   -- server -> client: newRebirthLevel, bonuses
 makeEvent("RebirthFailed")   -- server -> client: errorMessage
+
+-- Ingredient bank / campfire crafting
+local getIngredientBank = makeFunc("GetIngredientBank")
+makeEvent("IngredientBankChanged")
+local collectIngredient = makeEvent("CollectIngredient")
+local craftAtCampfire = makeFunc("CraftAtCampfire")
+local getCampfireRecipePattern = makeFunc("GetCampfireRecipePattern")
+local craftAtCampfireWithQuality = makeFunc("CraftAtCampfireWithQuality")
+local ingredientDestroy = makeFunc("IngredientDestroy")
+local craftingMixAdd = makeFunc("CraftingMixAdd")
+local craftingMixRemoveSlot = makeFunc("CraftingMixRemoveSlot")
+local craftingMixClear = makeFunc("CraftingMixClear")
+local craftingMixSetQty = makeFunc("CraftingMixSetQty")
+local getCraftingMix = makeFunc("GetCraftingMix")
 
 print("[MainServer] All RemoteEvents created")
 
@@ -330,6 +345,9 @@ pcall(function() EvolutionCombineSystem = require(ServerScriptService.EvolutionC
 local CombinerRecyclerSystem = nil
 pcall(function() CombinerRecyclerSystem = require(ServerScriptService.CombinerRecyclerSystem) end)
 
+local IngredientSpawnSystem = nil
+pcall(function() IngredientSpawnSystem = require(ServerScriptService.IngredientSpawnSystem) end)
+
 local KnightBaseSystem = nil
 do
 	local ok, result = pcall(function() return require(ServerScriptService.KnightBaseSystem) end)
@@ -371,6 +389,17 @@ do
 		print("[MainServer] ArenaTraderSystem require OK")
 	else
 		warn("[MainServer] ArenaTraderSystem require FAILED: " .. tostring(result))
+	end
+end
+
+local SiegeMasterSystem = nil
+do
+	local ok, result = pcall(function() return require(ServerScriptService.SiegeMasterSystem) end)
+	if ok then
+		SiegeMasterSystem = result
+		print("[MainServer] SiegeMasterSystem require OK")
+	else
+		warn("[MainServer] SiegeMasterSystem require FAILED: " .. tostring(result))
 	end
 end
 
@@ -523,6 +552,82 @@ if BuffShopSystem then
 	local ok, err = pcall(function() BuffShopSystem.Init(PlayerDataManager) end)
 	if ok then print("[MainServer] BuffShopSystem OK") else warn("[MainServer] BuffShopSystem failed: " .. tostring(err)) end
 end
+if IngredientSpawnSystem then
+	local ok, err = pcall(function() IngredientSpawnSystem.Init(PlayerDataManager, BuffShopSystem) end)
+	if ok then print("[MainServer] IngredientSpawnSystem OK") else warn("[MainServer] IngredientSpawnSystem failed: " .. tostring(err)) end
+end
+if getIngredientBank then
+	getIngredientBank.OnServerInvoke = function(plr)
+		return PlayerDataManager.GetIngredientBankSnapshot(plr)
+	end
+end
+if collectIngredient then
+	collectIngredient.OnServerEvent:Connect(function(plr, pickupUid)
+		if not IngredientSpawnSystem then return end
+		local ok, err = IngredientSpawnSystem.ServerCollectPickup(plr, pickupUid)
+		if not ok and err and type(err) == "string" then
+			local n = eventsFolder:FindFirstChild("ShowNotification")
+			if n then n:FireClient(plr, err, "error", nil) end
+		end
+	end)
+end
+if craftAtCampfire then
+	craftAtCampfire.OnServerInvoke = function(plr)
+		if not IngredientSpawnSystem then return false, nil, nil, "System off" end
+		return IngredientSpawnSystem.ServerCraft(plr)
+	end
+end
+if getCampfireRecipePattern then
+	getCampfireRecipePattern.OnServerInvoke = function(plr)
+		if not IngredientSpawnSystem then return false, "System off" end
+		return IngredientSpawnSystem.GetRecipePattern(plr)
+	end
+end
+if craftAtCampfireWithQuality then
+	craftAtCampfireWithQuality.OnServerInvoke = function(plr, qualityPayload)
+		if not IngredientSpawnSystem then return false, nil, nil, "System off" end
+		return IngredientSpawnSystem.ServerCraftWithQuality(plr, qualityPayload)
+	end
+end
+if ingredientDestroy then
+	ingredientDestroy.OnServerInvoke = function(plr, ingredientId, amount)
+		ingredientId = tostring(ingredientId or "")
+		amount = tonumber(amount) or 0
+		if ingredientId == "" or amount <= 0 then return false, "Invalid" end
+		local ok = PlayerDataManager.DestroyIngredient(plr, ingredientId, amount)
+		if ok then
+			local ev = eventsFolder:FindFirstChild("IngredientBankChanged")
+			if ev then ev:FireClient(plr, PlayerDataManager.GetIngredientBankSnapshot(plr)) end
+		end
+		return ok
+	end
+end
+if craftingMixAdd then
+	craftingMixAdd.OnServerInvoke = function(plr, ingredientId, qty)
+		return PlayerDataManager.CraftingMixAdd(plr, tostring(ingredientId or ""), qty)
+	end
+end
+if craftingMixRemoveSlot then
+	craftingMixRemoveSlot.OnServerInvoke = function(plr, index)
+		return PlayerDataManager.CraftingMixRemoveSlot(plr, index)
+	end
+end
+if craftingMixClear then
+	craftingMixClear.OnServerInvoke = function(plr)
+		PlayerDataManager.CraftingMixClear(plr)
+		return true
+	end
+end
+if craftingMixSetQty then
+	craftingMixSetQty.OnServerInvoke = function(plr, index, newQty)
+		return PlayerDataManager.CraftingMixTrimQty(plr, index, newQty)
+	end
+end
+if getCraftingMix then
+	getCraftingMix.OnServerInvoke = function(plr)
+		return PlayerDataManager.GetCraftingMix(plr)
+	end
+end
 if CosmeticSystem then
 	local ok, err = pcall(function() CosmeticSystem.Init(PlayerDataManager) end)
 	if ok then print("[MainServer] CosmeticSystem OK") else warn("[MainServer] CosmeticSystem failed: " .. tostring(err)) end
@@ -565,6 +670,12 @@ if ArenaTraderSystem then
 		ArenaTraderSystem.Init(PlayerDataManager)
 	end)
 	if ok then print("[MainServer] ArenaTraderSystem OK") else warn("[MainServer] ArenaTraderSystem failed: " .. tostring(err)) end
+end
+if SiegeMasterSystem then
+	local ok, err = pcall(function()
+		SiegeMasterSystem.Init()
+	end)
+	if ok then print("[MainServer] SiegeMasterSystem OK") else warn("[MainServer] SiegeMasterSystem failed: " .. tostring(err)) end
 end
 if DecorSystem then
 	local ok, err = pcall(function() DecorSystem.Init(PlayerDataManager) end)

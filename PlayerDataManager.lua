@@ -7,6 +7,7 @@ local HttpService = game:GetService("HttpService")
 
 local GameConfig = require(game.ReplicatedStorage.Modules.GameConfig)
 local CreatureData = require(game.ReplicatedStorage.Modules.CreatureData)
+local IngredientData = require(game.ReplicatedStorage.Modules.IngredientData)
 
 local PlayerDataManager = {}
 
@@ -83,8 +84,12 @@ local function getDefaultData()
 		-- Some achievements are derived from existing stats/inventory; others are driven by systems via AchievementsSystem.
 		achievements = {},
 		achievementMetrics = { counters = {}, best = {}, sets = {} },
+		ingredientBank = {}, -- { [ingredientId] = count }
 	}
 end
+
+-- Per-player campfire mix (server-only; not persisted)
+local craftingMixByUserId = {}
 
 -- DataStore converts number keys to strings. This fixes them back.
 local function normalizeBattleTeam(bt)
@@ -193,6 +198,39 @@ local function normalizeSingleUnlockData(data)
 	end
 
 	return fixed
+end
+
+local function normalizeIngredientBank(raw)
+	local fixed = {}
+	if type(raw) ~= "table" then
+		return fixed
+	end
+	for k, v in pairs(raw) do
+		local id = tostring(k)
+		local n = math.floor(tonumber(v) or 0)
+		if id ~= "" and n > 0 then
+			fixed[id] = n
+		end
+	end
+	return fixed
+end
+
+local function mixTotalQty(mix)
+	local t = 0
+	for _, e in ipairs(mix) do
+		t = t + (tonumber(e.qty) or 0)
+	end
+	return t
+end
+
+local function mixCountForId(mix, id)
+	local t = 0
+	for _, e in ipairs(mix) do
+		if e.id == id then
+			t = t + (tonumber(e.qty) or 0)
+		end
+	end
+	return t
 end
 
 -- Count how many slots are filled in battleTeam (uses pairs so string keys from serialization are counted)
@@ -396,6 +434,9 @@ end
 function PlayerDataManager.AddXP(player, uid, amount)
 	local d = playerCache[player.UserId]
 	if not d then return 0, false end
+	if PlayerDataManager.HasBuff(player, "siegelingxpboost") then
+		amount = amount * 2
+	end
 	local su = tostring(uid or "")
 	if su == "" then return 0, false end
 	for _, e in ipairs(d.inventory) do
@@ -431,7 +472,7 @@ end
 
 -- Get effective stats for a creature: rank-based level scaling (biggest base stat grows fastest),
 -- then amplified by tier (Silver/Gold/Legend) and rarity.
-function PlayerDataManager.GetEffectiveStats(creatureId, level, variant)
+function PlayerDataManager.GetEffectiveStats(creatureId, level, variant, player)
 	local info = CreatureData.GetById(creatureId)
 	if not info then return nil end
 	level = level or 1
@@ -477,11 +518,86 @@ function PlayerDataManager.GetEffectiveStats(creatureId, level, variant)
 	local rarityMult = rarityMults[rarity] or 1
 
 	local mult = variantMult * rarityMult
+	local extraHealthMult = 1
+	local extraAttackMult = 1
+	local extraDefenseMult = 1
+	local extraSpeedMult = 1
+	if player then
+		local element = info.element or ""
+		local class = info.class or ""
+		if element == "Water" and PlayerDataManager.HasBuff(player, "food_water_siegeling") then
+			extraHealthMult = extraHealthMult * 1.3
+		end
+		if element == "Fire" and PlayerDataManager.HasBuff(player, "food_fire_siegeling") then
+			extraAttackMult = extraAttackMult * 1.3
+		end
+		if element == "Earth" and PlayerDataManager.HasBuff(player, "food_earth_siegeling") then
+			extraDefenseMult = extraDefenseMult * 1.3
+		end
+		if element == "Wind" and PlayerDataManager.HasBuff(player, "food_wind_siegeling") then
+			extraSpeedMult = extraSpeedMult * 1.3
+		end
+
+		local cook = GameConfig.Cooking or {}
+		local sMultTbl = cook.SiegelingStatMultByRarity or {}
+		local function applyCraft(statName, m)
+			if statName == "health" then
+				extraHealthMult = extraHealthMult * m
+			elseif statName == "attack" then
+				extraAttackMult = extraAttackMult * m
+			elseif statName == "defense" then
+				extraDefenseMult = extraDefenseMult * m
+			elseif statName == "speed" then
+				extraSpeedMult = extraSpeedMult * m
+			end
+		end
+		local elemFocus = {
+			Fire = "attack",
+			Ice = "defense",
+			Wind = "speed",
+			Earth = "defense",
+			Water = "health",
+			Shadow = "attack",
+			Light = "defense",
+			Lightning = "speed",
+			Psychic = "attack",
+			Metal = "defense",
+			Poison = "health",
+			Undead = "attack",
+		}
+		local classFocus = {
+			Bruiser = "health",
+			Mage = "attack",
+			Guardian = "defense",
+			Assassin = "speed",
+			Support = "health",
+		}
+		local elemCraft = PlayerDataManager.GetBuffInfo(player, "craft_siegeling_element")
+		if elemCraft and elemCraft.meta and elemCraft.meta.element == element then
+			local r = elemCraft.meta.craftRarity or "Common"
+			local q = tonumber(elemCraft.meta.qualityPotencyMult) or 1
+			local m = (tonumber(sMultTbl[r]) or 1.12) * q
+			local st = elemFocus[element]
+			if st then
+				applyCraft(st, m)
+			end
+		end
+		local clsCraft = PlayerDataManager.GetBuffInfo(player, "craft_siegeling_class")
+		if clsCraft and clsCraft.meta and clsCraft.meta.class == class then
+			local r = clsCraft.meta.craftRarity or "Common"
+			local q = tonumber(clsCraft.meta.qualityPotencyMult) or 1
+			local m = (tonumber(sMultTbl[r]) or 1.12) * q
+			local st = classFocus[class]
+			if st then
+				applyCraft(st, m)
+			end
+		end
+	end
 	return {
-		health = math.floor(baseStats.health * levelMult.health * mult),
-		attack = math.floor(baseStats.attack * levelMult.attack * mult),
-		defense = math.floor(baseStats.defense * levelMult.defense * mult),
-		speed = math.floor(baseStats.speed * levelMult.speed * mult),
+		health = math.floor(baseStats.health * levelMult.health * mult * extraHealthMult),
+		attack = math.floor(baseStats.attack * levelMult.attack * mult * extraAttackMult),
+		defense = math.floor(baseStats.defense * levelMult.defense * mult * extraDefenseMult),
+		speed = math.floor(baseStats.speed * levelMult.speed * mult * extraSpeedMult),
 		level = level,
 		variant = variant,
 	}
@@ -1515,6 +1631,7 @@ function PlayerDataManager.OnPlayerJoin(player)
 			end
 			data.battleTeam = normalizeBattleTeam(data.battleTeam)
 		end
+		data.ingredientBank = normalizeIngredientBank(data.ingredientBank)
 		-- Clear removed themes (OceanBreeze, InvisibleBase) so plots return to visible
 		if data.exterior then
 			if data.exterior.owned then
@@ -1542,12 +1659,22 @@ function PlayerDataManager.OnPlayerJoin(player)
 			if coinsEvt then
 				coinsEvt:FireClient(player, d.coins)
 			end
+			local ingEvt = events and events:FindFirstChild("IngredientBankChanged")
+			if ingEvt and d.ingredientBank then
+				local snap = {}
+				for id, n in pairs(d.ingredientBank) do
+					snap[id] = n
+				end
+				ingEvt:FireClient(player, snap)
+			end
 		end
 	end)
 end
 
 function PlayerDataManager.OnPlayerLeave(player)
-	local d = playerCache[player.UserId]
+	local uid = player.UserId
+	craftingMixByUserId[uid] = nil
+	local d = playerCache[uid]
 	if d then
 		-- Release plot so another player can claim it
 		if d.plotId and d.plotId > 0 and claimedPlotIds[d.plotId] == player.UserId then
@@ -1613,6 +1740,155 @@ function PlayerDataManager.IsFriend(player, otherUserId)
 	return false
 end
 
+-- -- INGREDIENT BANK & CAMPFIRE MIX --
+
+function PlayerDataManager.GetIngredientBank(player)
+	local d = playerCache[player.UserId]
+	if not d then return {} end
+	if not d.ingredientBank then d.ingredientBank = {} end
+	return d.ingredientBank
+end
+
+function PlayerDataManager.GetIngredientBankSnapshot(player)
+	local bank = PlayerDataManager.GetIngredientBank(player)
+	local copy = {}
+	for id, n in pairs(bank) do
+		copy[id] = n
+	end
+	return copy
+end
+
+function PlayerDataManager.GetTotalIngredientCount(player)
+	local bank = PlayerDataManager.GetIngredientBank(player)
+	local t = 0
+	for _, n in pairs(bank) do
+		t = t + (tonumber(n) or 0)
+	end
+	return t
+end
+
+function PlayerDataManager.AddIngredient(player, ingredientId, amount)
+	amount = math.floor(tonumber(amount) or 0)
+	if amount <= 0 then return false, "Bad amount" end
+	if not IngredientData.GetById(ingredientId) then return false, "Unknown ingredient" end
+	local d = playerCache[player.UserId]
+	if not d then return false, "No data" end
+	if not d.ingredientBank then d.ingredientBank = {} end
+	local cook = GameConfig.Cooking or {}
+	local maxPer = tonumber(cook.MaxStackPerIngredientId) or 999
+	local maxTot = tonumber(cook.MaxTotalIngredientCount) or 2500
+	local cur = d.ingredientBank[ingredientId] or 0
+	if cur + amount > maxPer then return false, "Stack limit for this ingredient" end
+	local tot = PlayerDataManager.GetTotalIngredientCount(player) + amount
+	if tot > maxTot then return false, "Ingredient bank full" end
+	d.ingredientBank[ingredientId] = cur + amount
+	return true
+end
+
+function PlayerDataManager.DestroyIngredient(player, ingredientId, amount)
+	amount = math.floor(tonumber(amount) or 0)
+	if amount <= 0 then return false, "Bad amount" end
+	local d = playerCache[player.UserId]
+	if not d or not d.ingredientBank then return false, "No data" end
+	local cur = d.ingredientBank[ingredientId] or 0
+	if cur < amount then return false, "Not enough" end
+	local left = cur - amount
+	if left <= 0 then d.ingredientBank[ingredientId] = nil else d.ingredientBank[ingredientId] = left end
+	return true
+end
+
+--- mixList: { { id = string, qty = number }, ... } (merged ids optional)
+function PlayerDataManager.TryConsumeIngredients(player, mixList)
+	if type(mixList) ~= "table" then return false end
+	local need = {}
+	for _, e in ipairs(mixList) do
+		local id = tostring(e.id or "")
+		local q = math.floor(tonumber(e.qty) or 0)
+		if id ~= "" and q > 0 then
+			need[id] = (need[id] or 0) + q
+		end
+	end
+	local d = playerCache[player.UserId]
+	if not d or not d.ingredientBank then return false end
+	for id, q in pairs(need) do
+		if (d.ingredientBank[id] or 0) < q then return false end
+	end
+	for id, q in pairs(need) do
+		local left = (d.ingredientBank[id] or 0) - q
+		if left <= 0 then d.ingredientBank[id] = nil else d.ingredientBank[id] = left end
+	end
+	return true
+end
+
+local function getOrInitMix(uid)
+	local m = craftingMixByUserId[uid]
+	if not m then
+		m = {}
+		craftingMixByUserId[uid] = m
+	end
+	return m
+end
+
+function PlayerDataManager.GetCraftingMix(player)
+	local mix = getOrInitMix(player.UserId)
+	local out = {}
+	for i, e in ipairs(mix) do
+		out[i] = { id = e.id, qty = e.qty }
+	end
+	return out
+end
+
+function PlayerDataManager.CraftingMixClear(player)
+	craftingMixByUserId[player.UserId] = {}
+end
+
+function PlayerDataManager.CraftingMixAdd(player, ingredientId, qty)
+	qty = math.floor(tonumber(qty) or 0)
+	if qty <= 0 then return false, "Bad qty" end
+	local def = IngredientData.GetById(ingredientId)
+	if not def then return false, "Unknown ingredient" end
+	local cook = GameConfig.Cooking or {}
+	local maxMix = tonumber(cook.MaxMixIngredients) or 5
+	local mix = getOrInitMix(player.UserId)
+	if mixTotalQty(mix) + qty > maxMix then return false, "Mix is full (max " .. tostring(maxMix) .. " items)" end
+	local d = playerCache[player.UserId]
+	if not d or not d.ingredientBank then return false, "No data" end
+	local inMix = mixCountForId(mix, ingredientId)
+	local have = d.ingredientBank[ingredientId] or 0
+	if inMix + qty > have then return false, "Not enough in bank" end
+	table.insert(mix, { id = ingredientId, qty = qty })
+	return true
+end
+
+--- Remove one stack entry by index (1-based).
+function PlayerDataManager.CraftingMixRemoveSlot(player, index)
+	local mix = craftingMixByUserId[player.UserId]
+	if not mix then return false end
+	index = math.floor(tonumber(index) or 0)
+	if index < 1 or index > #mix then return false end
+	table.remove(mix, index)
+	return true
+end
+
+function PlayerDataManager.CraftingMixTrimQty(player, index, newQty)
+	local mix = craftingMixByUserId[player.UserId]
+	if not mix then return false end
+	index = math.floor(tonumber(index) or 0)
+	newQty = math.floor(tonumber(newQty) or 0)
+	if index < 1 or index > #mix then return false end
+	local e = mix[index]
+	if newQty <= 0 then table.remove(mix, index) return true end
+	local cook = GameConfig.Cooking or {}
+	local maxMix = tonumber(cook.MaxMixIngredients) or 5
+	local other = mixTotalQty(mix) - e.qty
+	if other + newQty > maxMix then return false, "Would exceed mix size" end
+	local d = playerCache[player.UserId]
+	local have = d and d.ingredientBank and (d.ingredientBank[e.id] or 0) or 0
+	if mixCountForId(mix, e.id) - e.qty + newQty > have then return false, "Not enough in bank" end
+	e.qty = newQty
+	return true
+end
+
 -- -- ACTIVE BUFFS --
 
 function PlayerDataManager.GetActiveBuffs(player)
@@ -1626,11 +1902,27 @@ function PlayerDataManager.GetActiveBuffs(player)
 	return d.activeBuffs
 end
 
-function PlayerDataManager.ActivateBuff(player, buffId, duration)
+function PlayerDataManager.ActivateBuff(player, buffId, duration, meta)
 	local d = playerCache[player.UserId]; if not d then return false end
 	if not d.activeBuffs then d.activeBuffs = {} end
-	d.activeBuffs[buffId] = { expiresAt = tick() + duration, activatedAt = tick() }
+	local entry = { expiresAt = tick() + duration, activatedAt = tick() }
+	if type(meta) == "table" then
+		entry.meta = meta
+	end
+	d.activeBuffs[buffId] = entry
 	return true
+end
+
+--- Returns buff entry { expiresAt, activatedAt, meta? } or nil if missing/expired.
+function PlayerDataManager.GetBuffInfo(player, buffId)
+	local d = playerCache[player.UserId]; if not d or not d.activeBuffs then return nil end
+	local info = d.activeBuffs[buffId]
+	if not info then return nil end
+	if info.expiresAt and info.expiresAt <= tick() then
+		d.activeBuffs[buffId] = nil
+		return nil
+	end
+	return info
 end
 
 function PlayerDataManager.HasBuff(player, buffId)

@@ -21,6 +21,7 @@ if not Events then return end
 
 local buyBuff = Events:WaitForChild("BuyBuff", 8)
 local getInventory = Events:WaitForChild("GetInventory", 8)
+local openSiegeMasterShop = Events:FindFirstChild("OpenSiegeMasterShop")
 
 -- -- COLORS --
 local C = {
@@ -65,12 +66,22 @@ local BUFF_EMOJIS = {
 	antifall = emoji(0x1FAB6),
 	swimspeed = emoji(0x1F42C),
 	lucky = emoji(0x1F340),
+	siegelingxpboost = emoji(0x1F9EA),
+	food_powerstew = emoji(0x1F372),
+	food_ironbroth = emoji(0x1F35C),
+	food_swiftsnack = emoji(0x1F35F),
+	food_fire_siegeling = emoji(0x1F525),
+	food_earth_siegeling = emoji(0x1FAA8),
+	food_wind_siegeling = emoji(0x1F32A),
+	food_water_siegeling = emoji(0x1F4A7),
 }
 
 local buffConfigById = {}
 for _, item in ipairs(GameConfig.BuffShopItems) do
 	buffConfigById[item.id] = item
 end
+
+local currentShopMode = "default"
 
 local function getBuffDisplayName(buffId)
 	local config = buffConfigById[buffId]
@@ -506,12 +517,30 @@ local function refreshCurrency()
 	end
 end
 
+local function getVisibleBuffItems()
+	local visible = {}
+	for _, item in ipairs(GameConfig.BuffShopItems) do
+		if currentShopMode == "siege_master" then
+			if item.shop == "siege_master" then
+				table.insert(visible, item)
+			end
+		else
+			if item.shop ~= "siege_master" then
+				table.insert(visible, item)
+			end
+		end
+	end
+	return visible
+end
+
 local function buildShopItems()
 	for _, child in ipairs(scroll:GetChildren()) do
 		if child:IsA("Frame") then child:Destroy() end
 	end
 
-	for i, item in ipairs(GameConfig.BuffShopItems) do
+	titleLbl.Text = (currentShopMode == "siege_master") and "SIEGE MASTER PROVISIONS" or "BUFF SHOP"
+
+	for i, item in ipairs(getVisibleBuffItems()) do
 		local card = Instance.new("Frame")
 		card.Size = UDim2.new(1, 0, 0, 60)
 		card.LayoutOrder = i; card.BackgroundColor3 = C.card
@@ -612,20 +641,24 @@ local function getHUDToggle()
 	end
 	return evt
 end
+local function openPanelForMode(mode)
+	currentShopMode = mode or "default"
+	if not panel.Visible then applyPanelScale(panel) end
+	applyResponsiveContentLayout()
+	panel.Visible = true
+	MobileWindowLayout.NotifyMenuOpened()
+	refreshCurrency()
+	buildShopItems()
+	updateActiveBuffsDisplay()
+end
+
 local function onHUDToggle(menuName)
 	if menuName == "BuffShopGUI" then
-		if not panel.Visible then applyPanelScale(panel) end
-		applyResponsiveContentLayout()
-		panel.Visible = not panel.Visible
 		if panel.Visible then
-			MobileWindowLayout.NotifyMenuOpened()
-		else
+			panel.Visible = false
 			MobileWindowLayout.NotifyMenuClosed()
-		end
-		if panel.Visible then
-			refreshCurrency()
-			buildShopItems()
-			updateActiveBuffsDisplay()
+		else
+			openPanelForMode("default")
 		end
 	end
 end
@@ -633,6 +666,12 @@ getHUDToggle().Event:Connect(onHUDToggle)
 playerGui.ChildAdded:Connect(function(child)
 	if child.Name == "HUDToggleMenu" and child:IsA("BindableEvent") then child.Event:Connect(onHUDToggle) end
 end)
+
+if openSiegeMasterShop then
+	openSiegeMasterShop.OnClientEvent:Connect(function()
+		openPanelForMode("siege_master")
+	end)
+end
 
 MobileWindowLayout.BindViewportUpdate(function()
 	if panel.Visible then

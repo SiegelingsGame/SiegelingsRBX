@@ -487,7 +487,7 @@ local function placeTeam(team, teamFolder, teamColor, sizeMultiplier, enemyFolde
 			local model = spawnBattleCreature(entry.id, targetPoint, teamColor, sizeMultiplier, faceTowardPos)
 			if model then
 				local variant = entry.variant or "Normal"
-				local stats = PlayerDataManager.GetEffectiveStats(entry.id, entry.level or 1, variant)
+				local stats = PlayerDataManager.GetEffectiveStats(entry.id, entry.level or 1, variant, currentKing)
 				local lvl = entry.level or 1
 				local maxFocus = GameConfig.FocusMax or 100
 				if stats then

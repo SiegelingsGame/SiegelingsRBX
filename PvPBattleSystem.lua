@@ -606,8 +606,8 @@ local function startPvPBattle(requester, target)
 	end
 
 	-- Use GetEffectiveStats so level, tier (variant), and rarity scale attack/def/health/speed
-	local statsReq = PlayerDataManager.GetEffectiveStats and PlayerDataManager.GetEffectiveStats(favReq.id, favReq.level or 1, favReq.variant or "Normal")
-	local statsTarg = PlayerDataManager.GetEffectiveStats and PlayerDataManager.GetEffectiveStats(favTarg.id, favTarg.level or 1, favTarg.variant or "Normal")
+	local statsReq = PlayerDataManager.GetEffectiveStats and PlayerDataManager.GetEffectiveStats(favReq.id, favReq.level or 1, favReq.variant or "Normal", requester)
+	local statsTarg = PlayerDataManager.GetEffectiveStats and PlayerDataManager.GetEffectiveStats(favTarg.id, favTarg.level or 1, favTarg.variant or "Normal", target)
 	if not statsReq then
 		statsReq = { health = infoReq.health, attack = infoReq.attack, defense = infoReq.defense, speed = infoReq.speed }
 		local lvl = favReq.level or 1

@@ -670,7 +670,8 @@ local function spawnBaseOrb(creatureId, pointPart, uid, plotModel, slotType, slo
 		local aiState = CreatureAI.GetState(model)
 		if aiState and PlayerDataManager and PlayerDataManager.GetEffectiveStats then
 			local lvl = creatureLevel or 1
-			local stats = PlayerDataManager.GetEffectiveStats(creatureId, lvl, creatureVariant)
+			local ownerPlayer = ownerUserId and Players:GetPlayerByUserId(ownerUserId) or nil
+			local stats = PlayerDataManager.GetEffectiveStats(creatureId, lvl, creatureVariant, ownerPlayer)
 			local maxHp = stats and stats.health or math.floor(info.health * (1 + (GameConfig.StatGainPerLevel or 0.08) * (lvl - 1)))
 			aiState.hp = maxHp
 			aiState.maxHp = maxHp
@@ -1662,7 +1663,8 @@ local function runDefenseTurretLoop()
 			-- Scale damage by creature level, tier, and rarity (GetEffectiveStats)
 			local defLevel = defModel:GetAttribute("CreatureLevel") or 1
 			local defVariant = defModel:GetAttribute("CreatureVariant") or "Normal"
-			local defStats = (PlayerDataManager and PlayerDataManager.GetEffectiveStats) and PlayerDataManager.GetEffectiveStats(info.id, defLevel, defVariant)
+			local ownerPlayer = Players:GetPlayerByUserId(tonumber(defModel:GetAttribute("OwnerUserId")) or 0)
+			local defStats = (PlayerDataManager and PlayerDataManager.GetEffectiveStats) and PlayerDataManager.GetEffectiveStats(info.id, defLevel, defVariant, ownerPlayer)
 			local atkStat = defStats and defStats.attack or (info.attack * (1 + GameConfig.StatGainPerLevel * (defLevel - 1)))
 			local baseDmg = math.max(3, math.floor(atkStat * GameConfig.DefenseBaseDamage / 10))
 			local attackColor = Color3.fromRGB(220, 60, 70)

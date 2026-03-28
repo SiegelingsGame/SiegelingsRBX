@@ -12,6 +12,8 @@
         "CreatureModelLoader": { "$path": "CreatureModelLoader.lua" },
         "GameConfig": { "$path": "GameConfig.lua" },
         "GameConfigData": { "$path": "GameConfigData.lua" },
+        "BiomeZone": { "$path": "BiomeZone.lua" },
+        "IngredientData": { "$path": "IngredientData.lua" },
         "NotificationManager": { "$path": "NotificationManager.lua" },
         "LivingWorldData": { "$path": "LivingWorldData.lua" },
         "CodexModelViewer": { "$path": "CodexModelViewer.lua" },
@@ -154,6 +156,12 @@
       },
       "DecorSystem": {
         "$path": "DecorSystem.lua"
+      },
+      "IngredientSpawnSystem": {
+        "$path": "IngredientSpawnSystem.lua"
+      },
+      "SiegeMasterSystem": {
+        "$path": "SiegeMasterSystem.lua"
       }
     },
 
@@ -269,6 +277,9 @@
         },
         "BadlandsClient": {
           "$path": "BadlandsClient.client.lua"
+        },
+        "IngredientsMenuClient": {
+          "$path": "IngredientsMenuClient.client.lua"
         }
       }
     },

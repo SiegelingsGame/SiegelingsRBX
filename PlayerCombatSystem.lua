@@ -45,6 +45,17 @@ local function doRangedAttack(player, origin, direction, targetUniqueId)
 	local baseDmg = GameConfig.PlayerRangedDamage
 	local bonuses = PlayerDataManager.GetRebirthBonuses and PlayerDataManager.GetRebirthBonuses(player)
 	local mult = (bonuses and bonuses.damageMultiplier) or 1
+	if PlayerDataManager.HasBuff and PlayerDataManager.HasBuff(player, "food_powerstew") then
+		mult = mult * 1.35
+	end
+	local char = player.Character
+	local hum = char and char:FindFirstChild("Humanoid")
+	if hum then
+		local cm = hum:GetAttribute("BuffCraftAttackMult")
+		if type(cm) == "number" and cm > 0 then
+			mult = mult * cm
+		end
+	end
 	local dmg = math.floor(baseDmg * mult)
 
 	-- If targetUniqueId provided, only damage that creature (target-based combat)
@@ -126,6 +137,17 @@ local function doMeleeAttack(player, origin, targetUniqueId)
 	local baseDmg = GameConfig.PlayerMeleeDamage
 	local bonuses = PlayerDataManager.GetRebirthBonuses and PlayerDataManager.GetRebirthBonuses(player)
 	local mult = (bonuses and bonuses.damageMultiplier) or 1
+	if PlayerDataManager.HasBuff and PlayerDataManager.HasBuff(player, "food_powerstew") then
+		mult = mult * 1.35
+	end
+	local char = player.Character
+	local hum = char and char:FindFirstChild("Humanoid")
+	if hum then
+		local cm = hum:GetAttribute("BuffCraftAttackMult")
+		if type(cm) == "number" and cm > 0 then
+			mult = mult * cm
+		end
+	end
 	local dmg = math.floor(baseDmg * mult)
 	local radius = GameConfig.PlayerMeleeRadius
 	local hitCount = 0

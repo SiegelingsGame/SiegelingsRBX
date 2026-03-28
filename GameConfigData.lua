@@ -84,9 +84,9 @@ GameConfig.Floor4Cost             = 500 -- coins to buy Floor 4 (Siegelord Arena
 GameConfig.Floor4LevelReq         = 25    -- player level required for Floor 4...
 
 -- Evolution & Combine (monster duplication / variant tiers)
-GameConfig.EvolutionMinLevel      = 10      -- level required for 1st evolution (base form).
-GameConfig.EvolutionMinLevel2     = 25      -- level required for 2nd evolution (evolved form)
-GameConfig.CombineCost            = 0      -- gold cost to combine 3 into next variant (0 = free)
+GameConfig.EvolutionMinLevel      = 1      -- level required for 1st evolution (base form).
+GameConfig.EvolutionMinLevel2     = 1      -- level required for 2nd evolution (evolved form)
+GameConfig.CombineCost            = 100      -- gold cost to combine 3 into next variant (0 = free)
 GameConfig.RecyclerDuplicateCount = 3      -- min same-creature duplicates to trade for 1 egg (1 rarity tier higher)
 -- Egg hatch time (minutes) by creature level inside the egg: level 1→20min, 2→30, 3→60, 4→120, 5→600, 6+→300
 GameConfig.EggHatchMinutesByLevel = { 20, 30, 60, 120, 600, 300 }
@@ -169,9 +169,87 @@ GameConfig.GameplayMusic = {
     SoundGroupName  = "Music",
 }
 
+-- Biome regions for ingredient spawns (mirrors BiomeSkyboxClient zone order; server-side)
+GameConfig.BiomeZone = {
+	InnerWedgeMaxRadius = 1000,
+	OuterZones = {
+		{ path = { "Terrain", "DesertBaseplate" }, sky = "DesertSky" },
+		{ path = { "Terrain", "ElectricBaseplate" }, sky = "ElectricSky" },
+		{ path = { "Terrain", "OceanBaseplate" }, sky = "WaterSky" },
+	},
+	HubParts = {
+		{ "HubArea", "HubGround" },
+	},
+	RoadNames = { "CaveRoad", "ElectricRoad", "DesertRoad", "WetRoad" },
+	InnerWedges = {
+		{ from = "ElectricRoad", to = "CaveRoad", sky = "EarthSky" },
+		{ from = "CaveRoad", to = "WetRoad", sky = "FireSky" },
+		{ from = "WetRoad", to = "DesertRoad", sky = "IceSky" },
+		{ from = "DesertRoad", to = "ElectricRoad", sky = "WindSky" },
+	},
+	Cave = {
+		BaseplatePath = { "Terrain", "CaveBaseplate" },
+		VerticalRange = 700,
+	},
+}
+
+-- Campfire crafting / ingredient pickups
+GameConfig.Cooking = {
+	Enabled = true,
+	SpawnIntervalSeconds = 5,
+	MaxPickupsPerRegion = 10,
+	PickupLifetimeSeconds = 180,
+	PickupCollectRange = 22,
+	CampfireProximity = 22,
+	CampfirePartName = "Campfire",
+	MaxStackPerIngredientId = 999,
+	MaxTotalIngredientCount = 2500,
+	MinMixIngredients = 3,
+	MaxMixIngredients = 5,
+	DiversityBonusRaritySteps = 0.25,
+	CraftCooldownSeconds = 2,
+	BuffDurationByRarity = {
+		Common = 60,
+		Uncommon = 75,
+		Rare = 95,
+		Epic = 115,
+		Legendary = 140,
+	},
+	PlayerAttackMultByRarity = { Common = 1.10, Uncommon = 1.16, Rare = 1.24, Epic = 1.32, Legendary = 1.40 },
+	PlayerSpeedMultByRarity = { Common = 1.08, Uncommon = 1.14, Rare = 1.22, Epic = 1.30, Legendary = 1.38 },
+	PlayerHealthBonusByRarity = { Common = 0.12, Uncommon = 0.18, Rare = 0.25, Epic = 0.32, Legendary = 0.40 },
+	SiegelingStatMultByRarity = { Common = 1.08, Uncommon = 1.12, Rare = 1.18, Epic = 1.24, Legendary = 1.30 },
+
+	-- Campfire recipe minigame settings
+	Minigame = {
+		Enabled = true,
+		PatternTimeLimit = 12, -- seconds
+		Attempts = 1,
+		RequirePerfectMatch = false, -- false = partial match still crafts with lower quality
+		QualityThresholds = {
+			Perfect = 0.90,
+			Great = 0.75,
+			Good = 0.55,
+		},
+		PatternSessionTimeout = 30, -- seconds to submit after receiving recipe pattern
+	},
+	QualityPotencyMult = {
+		Poor = 0.90,
+		Good = 1.00,
+		Great = 1.12,
+		Perfect = 1.25,
+	},
+	QualityDurationMult = {
+		Poor = 0.90,
+		Good = 1.00,
+		Great = 1.15,
+		Perfect = 1.30,
+	},
+}
+
 -- Spawning (SpawnPoints should stay full; common creatures prioritized)
 -- Reduced from 200 to 150 for performance (night bonus +100 still applies)
-GameConfig.MaxWorldCreatures   = 400
+GameConfig.MaxWorldCreatures   = 500
 GameConfig.SpawnIntervalMin    = 0.5   -- faster spawns so SpawnPoints stay full
 GameConfig.SpawnIntervalMax    = 1.5
 GameConfig.SpawnsPerCycle      = 4     -- spawn this many per cycle when under 50% capacity (else 1-2)
@@ -267,33 +345,33 @@ GameConfig.ArenaSummaryMaxDistance     = 900  -- studs; summary hides beyond thi
 GameConfig.ArenaHealthBarShowDistance  = 10   -- studs; arena fighter HP bars only visible within this distance
 
 -- WaterGym (OceanBiome): touch ArenaBase for [E] Summon Gym; requires battle team; pay entry fee; fight 5 high-level Water/Ice/Fire
-GameConfig.WaterGymEntryFee       = 100   -- coins to challenge the gym leader
-GameConfig.WaterGymCreatureLevel  = 45    -- level of gym leader's squdad (high level)
-GameConfig.WaterGymPromptRange    = 10    -- studs; ProximityPrompt on ArenaBase
+GameConfig.WaterGymEntryFee       = 500   -- coins to challenge the gym leader
+GameConfig.WaterGymCreatureLevel  = 25    -- level of gym leader's squdad (high level)
+GameConfig.WaterGymPromptRange    = 30    -- studs; ProximityPrompt on ArenaBase
 GameConfig.WaterGymWinReward      = 5000   -- coins if player wins
 GameConfig.WaterGymWinXP          = 75200    -- player XP on gym win
 GameConfig.WaterGymCooldown       = 120   -- seconds; per-player cooldown between gym challenges
 
 -- CaveGym (CaveBiome): Shadow (+ Earth) element squad
-GameConfig.CaveGymEntryFee       = 100
-GameConfig.CaveGymCreatureLevel   = 45
-GameConfig.CaveGymPromptRange    = 10
+GameConfig.CaveGymEntryFee       = 500
+GameConfig.CaveGymCreatureLevel   = 25
+GameConfig.CaveGymPromptRange    = 30
 GameConfig.CaveGymWinReward      = 5000
 GameConfig.CaveGymWinXP           = 200
 GameConfig.CaveGymCooldown        = 120
 
 -- DesertGym (DesertBiome): Fire + Earth element squad
-GameConfig.DesertGymEntryFee      = 100
-GameConfig.DesertGymCreatureLevel = 45
-GameConfig.DesertGymPromptRange   = 10
+GameConfig.DesertGymEntryFee      = 500
+GameConfig.DesertGymCreatureLevel = 25
+GameConfig.DesertGymPromptRange   = 30
 GameConfig.DesertGymWinReward     = 5000
 GameConfig.DesertGymWinXP         = 200
 GameConfig.DesertGymCooldown      = 120
 
 -- ElectricGym (ElectricBiome): Lightning element squad
-GameConfig.ElectricGymEntryFee       = 100
-GameConfig.ElectricGymCreatureLevel = 45
-GameConfig.ElectricGymPromptRange   = 10
+GameConfig.ElectricGymEntryFee       = 500
+GameConfig.ElectricGymCreatureLevel = 25
+GameConfig.ElectricGymPromptRange   = 30
 GameConfig.ElectricGymWinReward     = 5000
 GameConfig.ElectricGymWinXP         = 200
 GameConfig.ElectricGymCooldown      = 120
@@ -354,7 +432,7 @@ GameConfig.AI_CreatureDamage   = 8      -- damage creatures deal to other creatu
 GameConfig.AI_CreatureProjectileSpeed = 80  -- projectile studs/sec when creatures attack
 
 -- Stealing (player E-interact, carry to base; creature walks back to owner if carrier dies)
-GameConfig.StealCarrySpeed      = 0.8     -- movement speed multiplier while carrying
+GameConfig.StealCarrySpeed      = 0.5     -- movement speed multiplier while carrying
 GameConfig.StealHomeRadius      = 30      -- how close to your plot center to "deliver"
 GameConfig.StealInteractRange   = 12     -- range for E to interact and pick up fainted base creature
 GameConfig.StealWalkBackSpeed   = 14     -- studs/sec when dropped creature walks back to owner's base
@@ -362,7 +440,7 @@ GameConfig.StealWalkBackSpeed   = 14     -- studs/sec when dropped creature walk
 -- Home Recall (channel 5s, interrupt on damage)
 GameConfig.HomeRecallChannelTime = 5   -- seconds to channel before teleporting to base
 GameConfig.HomeRecallCylinderRadius  = 10  -- studs radius of stay-in-bubble (interrupt zone)
-GameConfig.HomeRecallCylinderHeight  = 12  -- studs height of cylinder (legacy)
+GameConfig.HomeRecallCylinderHeight  = 600  -- studs height of cylinder (legacy)
 GameConfig.HomeRecallSkyHeight       = 600 -- studs: Heaven Beam extends this high
 GameConfig.HomeRecallBeamRadius      = 18  -- studs: beam width (UFO levitation ray style, fits player comfortably)
 GameConfig.HomeRecallGroundRadius    = 22  -- studs: impact circle radius
@@ -380,7 +458,7 @@ GameConfig.WaterBlockTag = "WaterBlock"  -- tag on Part(s) that define swim wate
 -- Aquatic creatures (spawned from OceanBiome / in WaterBlock): surface to "breathe" for this many seconds
 GameConfig.WaterBreathSurfaceDuration = 10
 GameConfig.WaterBreathUnderwaterBaseSeconds = 30   -- base time underwater before needing to surface (Common); higher rarity = longer
-GameConfig.WaterBreathRarityMultiplier = { Common = 1, Uncommon = 1.25, Rare = 1.5, Epic = 2, Legendary = 2.5 }
+GameConfig.WaterBreathRarityMultiplier = { Common = 1.2, Uncommon = 1.5, Rare = 2.0, Epic = 3.0, Legendary = 6.0 }
 GameConfig.WaterBlockSeekRange = 80     -- max studs from spawn to consider "seek out" nearest WaterBlock (OceanBiome water creatures)
 GameConfig.CompanionTargetRange = 40    -- range for manual target selection
 GameConfig.CompanionRespawnCD   = 30    -- seconds before companion respawns after fainting
@@ -420,8 +498,8 @@ GameConfig.MountModelScale           = 2.0  -- default scale for mount models (o
 
 -- ElectricBiome hazards (ElectroBall AOE)
 GameConfig.ElectroBallCount          = 50   -- total placed (grid + 1 per SpawnPoint/DungeonPoint/BossPoint)
-GameConfig.ElectroBallSpawnInterval  = 10   -- seconds between activations
-GameConfig.ElectroBallRadius         = 10   -- studs (10 foot) AOE radius
+GameConfig.ElectroBallSpawnInterval  = 30   -- seconds between activations
+GameConfig.ElectroBallRadius         = 20   -- studs (10 foot) AOE radius
 GameConfig.ElectroBallChargeSeconds  = 3    -- seconds for red fill (FF14-style)
 GameConfig.ElectroBallStunSeconds    = 1    -- stun duration after impact
 GameConfig.ElectroBallDamagePercent  = 0.25 -- 25% max health damage
@@ -431,7 +509,7 @@ GameConfig.RiggedModelFloorBuffer = 2.5  -- extra studs lift for Humanoid/rigged
 GameConfig.PointHeightOffset = 0  -- baseline extra studs when placing on Defense or Income points (all creatures)
 
 -- Defense turrets (base defense creatures)
-GameConfig.DefenseAttackRange   = 40    -- studs - attack range (within plot area)
+GameConfig.DefenseAttackRange   = 20    -- studs - attack range (within plot area)
 GameConfig.DefenseAttackCD      = 2.5   -- seconds between shots
 GameConfig.DefenseBaseDamage    = 12    -- multiplied by creature attack stat / 10
 GameConfig.DefensePassiveXP     = 3     -- XP per creature in defense slot per income tick (while stationed)
@@ -462,7 +540,7 @@ GameConfig.PlayerSprintSpeed    = 26    -- sprint speed when holding Shift or to
 
 -- Player Combat (outside arena)
 GameConfig.PlayerRangedDamage   = 4
-GameConfig.PlayerRangedRange    = 25
+GameConfig.PlayerRangedRange    = 35
 GameConfig.PlayerRangedCooldown = 0.8   -- seconds
 GameConfig.PlayerRangedSpeed    = 120   -- projectile studs/sec
 GameConfig.PlayerMeleeDamage    = 6
@@ -539,6 +617,15 @@ GameConfig.BuffShopItems = {
 	{id = "antifall",   name = "Featherfeet",       desc = "No fall damage for 45s",    duration = 45,  coinCost = 100, gemCost = 0},
 	{id = "swimspeed",  name = "Dolphin",           desc = "3x swim speed for 45s",     duration = 45,  coinCost = 85,  gemCost = 0},
 	{id = "lucky",      name = "Lucky Charm",       desc = "Better capture odds 90s",   duration = 90,  coinCost = 0,   gemCost = 6},
+	-- Siege Master stock (Arena-only provisioning)
+	{id = "siegelingxpboost", name = "Siegeling XP Draft", desc = "2x Siegeling XP for 180s", duration = 180, coinCost = 260, gemCost = 2, shop = "siege_master"},
+	{id = "food_powerstew", name = "Power Stew", desc = "+35% player attack for 120s", duration = 120, coinCost = 220, gemCost = 2, shop = "siege_master"},
+	{id = "food_ironbroth", name = "Iron Broth", desc = "+25% max health for 120s", duration = 120, coinCost = 220, gemCost = 2, shop = "siege_master"},
+	{id = "food_swiftsnack", name = "Swift Snack", desc = "+40% movement speed for 90s", duration = 90, coinCost = 180, gemCost = 1, shop = "siege_master"},
+	{id = "food_fire_siegeling", name = "Ember Feed", desc = "Fire Siegelings: +30% attack for 180s", duration = 180, coinCost = 260, gemCost = 2, shop = "siege_master"},
+	{id = "food_earth_siegeling", name = "Stone Feed", desc = "Earth Siegelings: +30% defense for 180s", duration = 180, coinCost = 260, gemCost = 2, shop = "siege_master"},
+	{id = "food_wind_siegeling", name = "Gale Feed", desc = "Wind Siegelings: +30% speed for 180s", duration = 180, coinCost = 260, gemCost = 2, shop = "siege_master"},
+	{id = "food_water_siegeling", name = "Tide Feed", desc = "Water Siegelings: +30% health for 180s", duration = 180, coinCost = 260, gemCost = 2, shop = "siege_master"},
 }
 
 -- Cosmetic Shop
@@ -580,8 +667,8 @@ GameConfig.CosmeticItems = {
 }
 
 -- Base Exterior Shop (purchase theme; equipping applies theme to walls, stairs, etc.)
--- Full themes: Haunted House, Retro Arcade
--- Color themes: single-color for backwall, front left/right walls, stairs (all floors)
+-- Full themes: Haunted House, Retro Arcadebnh
+-- Color themes: single-color for backwall, front left/right walls, stairs (all floors)nuj
 GameConfig.BaseExteriorItems = {
 	-- Full themes (500 coins each)
 	{id = "HauntedHouse", name = "Haunted House", desc = "Spooky base with walls, stairs & lanterns", coinCost = 500, gemCost = 0},
@@ -632,7 +719,7 @@ GameConfig.GymJumbotronEnabled   = false  -- toggle live jumbotron viewports on 
 -- ═══════════════════════════════════════════════════════════════════════════════.
 GameConfig.BadlandsEnabled              = true
 GameConfig.BadlandsMaxPlayers           = 8     -- max players per run
-GameConfig.BadlandsMinPlayers           = 4     -- min to start a run
+GameConfig.BadlandsMinPlayers           = 1     -- min to start a run
 GameConfig.BadlandsQueueTimeout         = 60    -- seconds before starting with < max players
 GameConfig.BadlandsRunDuration          = 600   -- 10 minutes (hard timer — expelled with only favorite)
 GameConfig.BadlandsHardDeadline         = 600   -- 10 minutes (hard collapse — same as run duration).
@@ -660,6 +747,18 @@ GameConfig.ArenaTrader = {
 	GemPrice = { Common = 500, Uncommon = 1000, Rare = 2500, Epic = 5000, Legendary = 10000 },
 	-- Curator stock variants are restricted to Silver/Gold only.
 	VariantWeights = { Silver = 50, Gold = 50 },
+}
+
+-- Arena Hub: Siege Master vendor (food + XP provisioning)
+GameConfig.SiegeMasterEnabled = true
+GameConfig.SiegeMaster = {
+	-- Relative to ArenaCenter when present (raycast finds floor Y automatically).
+	OffsetFromArenaCenterStuds = Vector3.new(-22, 0, -8),
+	-- If arena center is missing, fallback uses HubArea.SpawnLocation + this offset.
+	FallbackOffsetFromSpawnStuds = Vector3.new(-12, 0, -24),
+	ExtraRotationDegrees = { pitch = 0, yaw = 145, roll = 0 },
+	PromptRange = 12,
+	PurchaseRange = 22, -- must be this close to buy siege-only items
 }
 
 -- Badlands: Bag
@@ -694,7 +793,7 @@ GameConfig.BadlandsBonusBuffAmount     = 10    -- flat boost to ALL stats when o
 GameConfig.BadlandsOuterCollapseTime    = 480   -- 8 min: outer ring collapses
 GameConfig.BadlandsMidCollapseTime      = 540   -- 9 min: mid ring collapses
 GameConfig.BadlandsInnerCollapseTime    = 720   -- 12 min: inner ring collapses
-GameConfig.BadlandsCollapseDPS          = 5     -- HP/sec in collapsed zones
+GameConfig.BadlandsCollapseDPS          = 5     -- HP/sec in collapsed zonesf
 GameConfig.BadlandsCollapseTransition   = 30    -- seconds for ring to fully collapse
 
 -- Badlands: Extraction

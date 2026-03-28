@@ -959,7 +959,7 @@ end
 -- PLACE TEAMS
 -- --------------------------------------
 
-local function placeTeam(team, teamFolder, teamColor, sizeMultiplier, enemyFolder)
+local function placeTeam(team, teamFolder, teamColor, sizeMultiplier, enemyFolder, ownerPlayer)
 	local points = getPointsSorted(teamFolder)
 	local faceTowardPos = enemyFolder and getTeamCenter(enemyFolder)
 	-- Build a map: pointIndex -> part for direct slot lookup
@@ -990,7 +990,7 @@ local function placeTeam(team, teamFolder, teamColor, sizeMultiplier, enemyFolde
 			if model then
 				-- Use GetEffectiveStats so level + variant (Silver/Gold/Legend) apply
 				local variant = entry.variant or "Normal"
-				local stats = PlayerDataManager.GetEffectiveStats(entry.id, entry.level or 1, variant)
+				local stats = PlayerDataManager.GetEffectiveStats(entry.id, entry.level or 1, variant, ownerPlayer)
 				local lvl = entry.level or 1
 				local maxFocus = GameConfig.FocusMax or 100
 				if stats then
@@ -1757,8 +1757,8 @@ local function startRound()
 
 	-- Place teams
 	local kingGrowth = growthMultipliers[king.UserId] or 1
-	blueTeamCreatures = placeTeam(kingTeam, blueTeamFolder, "blue", kingGrowth, redTeamFolder)
-	redTeamCreatures = placeTeam(challengerTeam, redTeamFolder, "red", 1, blueTeamFolder)
+	blueTeamCreatures = placeTeam(kingTeam, blueTeamFolder, "blue", kingGrowth, redTeamFolder, king)
+	redTeamCreatures = placeTeam(challengerTeam, redTeamFolder, "red", 1, blueTeamFolder, challenger)
 
 	-- Broadcast team data for UI
 	if arenaEvents.BattleTeamsPlaced then
@@ -1896,8 +1896,8 @@ function ArenaSystem.StartGymBattle(player, gymFolder)
 	-- Place teams (player = blue, gym = red)
 	local redCenter = getTeamCenter(redTeamFolder)
 	local blueCenter = getTeamCenter(blueTeamFolder)
-	blueTeamCreatures = placeTeam(playerTeam, blueTeamFolder, "blue", 1, redCenter)
-	redTeamCreatures = placeTeam(gymTeam, redTeamFolder, "red", 1, blueCenter)
+	blueTeamCreatures = placeTeam(playerTeam, blueTeamFolder, "blue", 1, redCenter, player)
+	redTeamCreatures = placeTeam(gymTeam, redTeamFolder, "red", 1, blueCenter, nil)
 
 	if arenaEvents.BattleTeamsPlaced then
 		local blueData, redData = {}, {}

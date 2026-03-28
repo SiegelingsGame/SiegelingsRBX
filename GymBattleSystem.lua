@@ -850,7 +850,7 @@ end
 -- @param tag         string   — CollectionService tag for cleanup
 -- @return table[]    — spawned creature state (with .model reference)
 -- ═══════════════════════════════════════════════════════════════════════════════
-local function spawnTeam(team, teamFolder, teamName, enemyFolder, tag)
+local function spawnTeam(team, teamFolder, teamName, enemyFolder, tag, ownerPlayer)
 	local points = getPointsSorted(teamFolder)
 	local faceTowardPos = getTeamCenter(enemyFolder)
 	-- Build a map: pointIndex -> part for direct slot lookup
@@ -881,7 +881,7 @@ local function spawnTeam(team, teamFolder, teamName, enemyFolder, tag)
 			if model then
 				-- Use GetEffectiveStats so level + variant (Silver/Gold/Legend) apply
 				local variant = entry.variant or "Normal"
-				local stats = PlayerDataManager.GetEffectiveStats(entry.id, entry.level or 1, variant)
+				local stats = PlayerDataManager.GetEffectiveStats(entry.id, entry.level or 1, variant, ownerPlayer)
 				local lvl = entry.level or 1
 				local maxFocus = GameConfig.FocusMax or 100
 
@@ -1027,8 +1027,8 @@ local function runGymBattle(plotModel, owner, challenger)
 	task.wait(2)
 
 	-- Spawn teams (formation-based via slotIndex)
-	local ownerCreatures = spawnTeam(ownerTeam, ownerFolder, "red", challengerFolder, battleTag)
-	local challengerCreatures = spawnTeam(challengerTeam, challengerFolder, "blue", ownerFolder, battleTag)
+	local ownerCreatures = spawnTeam(ownerTeam, ownerFolder, "red", challengerFolder, battleTag, owner)
+	local challengerCreatures = spawnTeam(challengerTeam, challengerFolder, "blue", ownerFolder, battleTag, challenger)
 
 	-- ── State tracking for broadcast throttle ───────────────────────────────
 	local stateDirty = false

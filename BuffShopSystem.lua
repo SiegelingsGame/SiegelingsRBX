@@ -3,12 +3,20 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
 
 local BuffShopSystem = {}
 
 local PlayerDataManager
+local SiegeMasterSystem = nil
+pcall(function()
+	local mod = ServerScriptService:FindFirstChild("SiegeMasterSystem")
+	if mod then
+		SiegeMasterSystem = require(mod)
+	end
+end)
 
 -- Look up buff config by id
 local function getBuffConfig(buffId)
@@ -20,10 +28,14 @@ end
 
 -- -- APPLY BUFF EFFECTS --
 
-local function applyBuffEffect(player, buffId, duration)
+local function applyBuffEffect(player, buffId, duration, meta)
+	meta = type(meta) == "table" and meta or {}
 	local character = player.Character
 	if not character then return end
 	local humanoid = character:FindFirstChild("Humanoid")
+	local cook = GameConfig.Cooking or {}
+	local rarity = meta.craftRarity or "Common"
+	local qualityPotency = tonumber(meta.qualityPotencyMult) or 1
 
 	if buffId == "shield" then
 		-- -50% damage: use ForceField-like visuald
@@ -59,6 +71,79 @@ local function applyBuffEffect(player, buffId, duration)
 				end
 			end)
 		end
+
+	elseif buffId == "food_swiftsnack" then
+		if humanoid then
+			local original = humanoid.WalkSpeed
+			humanoid.WalkSpeed = original * 1.4
+			task.delay(duration, function()
+				if humanoid and humanoid.Parent then
+					humanoid.WalkSpeed = original
+				end
+			end)
+		end
+
+	elseif buffId == "food_ironbroth" then
+		if humanoid then
+			local origMax = humanoid.MaxHealth
+			local origHealth = humanoid.Health
+			local boostedMax = math.max(origMax + 1, math.floor(origMax * 1.25))
+			local bonusHealth = boostedMax - origMax
+			humanoid.MaxHealth = boostedMax
+			humanoid.Health = math.min(boostedMax, origHealth + bonusHealth)
+			task.delay(duration, function()
+				if humanoid and humanoid.Parent then
+					humanoid.MaxHealth = origMax
+					humanoid.Health = math.min(origMax, humanoid.Health)
+				end
+			end)
+		end
+
+	elseif buffId == "craft_neutral_attack" then
+		if humanoid then
+			local tbl = cook.PlayerAttackMultByRarity or {}
+			local mult = (tonumber(tbl[rarity]) or 1.15) * qualityPotency
+			humanoid:SetAttribute("BuffCraftAttackMult", mult)
+			task.delay(duration, function()
+				if humanoid and humanoid.Parent then
+					humanoid:SetAttribute("BuffCraftAttackMult", nil)
+				end
+			end)
+		end
+
+	elseif buffId == "craft_neutral_speed" then
+		if humanoid then
+			local tbl = cook.PlayerSpeedMultByRarity or {}
+			local mult = (tonumber(tbl[rarity]) or 1.12) * qualityPotency
+			local original = humanoid.WalkSpeed
+			humanoid.WalkSpeed = original * mult
+			task.delay(duration, function()
+				if humanoid and humanoid.Parent then
+					humanoid.WalkSpeed = original
+				end
+			end)
+		end
+
+	elseif buffId == "craft_neutral_health" then
+		if humanoid then
+			local tbl = cook.PlayerHealthBonusByRarity or {}
+			local bonus = (tonumber(tbl[rarity]) or 0.15) * qualityPotency
+			local origMax = humanoid.MaxHealth
+			local origHealth = humanoid.Health
+			local boostedMax = math.max(origMax + 1, math.floor(origMax * (1 + bonus)))
+			local addHp = boostedMax - origMax
+			humanoid.MaxHealth = boostedMax
+			humanoid.Health = math.min(boostedMax, origHealth + addHp)
+			task.delay(duration, function()
+				if humanoid and humanoid.Parent then
+					humanoid.MaxHealth = origMax
+					humanoid.Health = math.min(origMax, humanoid.Health)
+				end
+			end)
+		end
+
+	elseif buffId == "craft_siegeling_element" or buffId == "craft_siegeling_class" then
+		-- Passive: PlayerDataManager.GetEffectiveStats reads activeBuffs + meta
 
 	elseif buffId == "invuln" then
 		-- Full invulnerability via ForceField
@@ -230,6 +315,15 @@ local function applyBuffEffect(player, buffId, duration)
 	elseif buffId == "coinboost" then
 		-- Passive: PlayerDataManager.HasBuff checks activeBuffs; no character change
 		-- Buff is stored in PlayerDataManager; BaseIncomeSystem can check HasBuff
+	elseif buffId == "siegelingxpboost" then
+		-- Passive: PlayerDataManager.AddXP checks this buff for 2x Siegeling XP.
+	elseif buffId == "food_powerstew" then
+		-- Passive: PlayerCombatSystem checks this buff for bonus player damage.
+	elseif buffId == "food_fire_siegeling"
+		or buffId == "food_earth_siegeling"
+		or buffId == "food_wind_siegeling"
+		or buffId == "food_water_siegeling" then
+		-- Passive: PlayerDataManager.GetEffectiveStats checks these for elemental stat boosts.
 
 	elseif buffId == "haste" then
 		if humanoid then
@@ -301,9 +395,40 @@ local function applyBuffEffect(player, buffId, duration)
 end
 
 -- Buffs that only affect data (no character effect to re-apply on respawn)
-local PASSIVE_BUFF_IDS = { coinboost = true, lucky = true }
+local PASSIVE_BUFF_IDS = {
+	coinboost = true,
+	lucky = true,
+	siegelingxpboost = true,
+	food_powerstew = true,
+	food_fire_siegeling = true,
+	food_earth_siegeling = true,
+	food_wind_siegeling = true,
+	food_water_siegeling = true,
+	craft_siegeling_element = true,
+	craft_siegeling_class = true,
+}
 -- Instant one-shot buffs (no duration)
 local INSTANT_BUFF_IDS = { swap = true }
+
+local function isNearSiegeMaster(player, maxDistance)
+	if not player or not player.Character then
+		return false
+	end
+	local root = player.Character:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return false
+	end
+	local npc = SiegeMasterSystem and SiegeMasterSystem.GetNPC and SiegeMasterSystem.GetNPC()
+	if not npc or not npc.Parent then
+		return false
+	end
+	local anchor = (npc:IsA("Model") and (npc.PrimaryPart or npc:FindFirstChildWhichIsA("BasePart", true))) or npc
+	if not anchor or not anchor:IsA("BasePart") then
+		return false
+	end
+	local maxDist = tonumber(maxDistance) or tonumber(GameConfig.SiegeMaster and GameConfig.SiegeMaster.PurchaseRange) or 22
+	return (root.Position - anchor.Position).Magnitude <= maxDist
+end
 
 -- Re-apply active buff effects when player gets a character (e.g. after respawn)
 local function reapplyBuffsOnCharacter(player)
@@ -318,7 +443,7 @@ local function reapplyBuffsOnCharacter(player)
 			local expiresAt = info and info.expiresAt
 			if expiresAt and expiresAt > now then
 				local remaining = expiresAt - now
-				applyBuffEffect(player, buffId, remaining)
+				applyBuffEffect(player, buffId, remaining, info.meta)
 			end
 		end
 	end
@@ -364,6 +489,9 @@ function BuffShopSystem.Init(pdm)
 		buyBuffEvent.OnServerInvoke = function(player, buffId, currency)
 			local config = getBuffConfig(buffId)
 			if not config then return false, "Invalid buff" end
+			if config.shop == "siege_master" and not isNearSiegeMaster(player) then
+				return false, "Visit the Siege Master in the arena to buy this."
+			end
 
 			-- Check if already active (skip for instant buffs like swap)
 			if config.duration > 0 and PlayerDataManager.HasBuff(player, buffId) then
@@ -447,6 +575,10 @@ function BuffShopSystem.Init(pdm)
 	end)
 
 	print("[BuffShopSystem] Initialized - " .. #GameConfig.BuffShopItems .. " buffs available")
+end
+
+function BuffShopSystem.ApplyBuffEffectForPlayer(player, buffId, duration, meta)
+	applyBuffEffect(player, buffId, duration, meta)
 end
 
 return BuffShopSystem

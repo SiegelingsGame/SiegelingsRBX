@@ -92,7 +92,7 @@ local function getAllDungeonPoints()
 	for _, biomeFolder in ipairs(biomesFolder:GetChildren()) do
 		if biomeFolder:IsA("Folder") then
 			for _, child in ipairs(biomeFolder:GetChildren()) do
-				if child:IsA("BasePart") and child.Name == "DungeonPoint" then
+				if child:IsA("BasePart") and (child.Name == "DungeonPoint" or child.Name == "DungeonPoint2") then
 					table.insert(points, child)
 				end
 			end

@@ -695,8 +695,8 @@ GameConfig.BadlandsCollapseDPS          = 5     -- HP/sec in collapsed zones
 GameConfig.BadlandsCollapseTransition   = 30    -- seconds for ring to fully collapse
 
 -- Badlands: Extraction
-GameConfig.BadlandsExtractionTime       = 15    -- seconds to channel
-GameConfig.BadlandsExtractionMinTime    = 8     -- hard floor with run power reduction
+GameConfig.BadlandsExtractionTime       = 5     -- seconds to channel
+GameConfig.BadlandsExtractionMinTime    = 5     -- hard floor with run power reduction
 GameConfig.BadlandsExtractionBeaconRange= 200   -- visible to all (studs)
 GameConfig.BadlandsExtractionPointCount = 12     -- number of extraction points
 

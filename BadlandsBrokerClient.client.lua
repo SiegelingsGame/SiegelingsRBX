@@ -85,6 +85,10 @@ local C = {
 	textSec   = Color3.fromRGB(140, 145, 160),
 	grey      = Color3.fromRGB(80, 85, 100),
 	divider   = Color3.fromRGB(40, 42, 55),
+	-- Match InventoryUIManager creature-card placement cues
+	income    = Color3.fromRGB(50, 220, 120),
+	defense   = Color3.fromRGB(220, 60, 70),
+	battle    = Color3.fromRGB(130, 100, 255),
 }
 
 -- Rarity colors for creature cards
@@ -104,6 +108,9 @@ local mainFrame = nil         -- Main broker panel
 local wantedViewer = nil      -- CodexModelViewer for wanted creature
 local selectedUid = nil       -- UID of creature player has selected to offer
 local selectedCreatureId = nil -- creature id of selected creature
+local selectedOnDefense = false
+local selectedOnIncome = false
+local selectedOnBattle = false
 local isAnimating = false     -- True during recall animation
 local isBusy = false          -- Debounce
 local viewportLayoutUnbind = nil
@@ -197,6 +204,9 @@ local function closeBrokerUI()
 	mainFrame = nil
 	selectedUid = nil
 	selectedCreatureId = nil
+	selectedOnDefense = false
+	selectedOnIncome = false
+	selectedOnBattle = false
 	isBusy = false
 	isAnimating = false
 end
@@ -670,14 +680,47 @@ local function showBrokerUI(data)
 		UDim2.new(1, 0, 0, 40),
 		UDim2.new(0, 0, 1, -44)
 	)
-	actionBtn.TextSize = 16
 	actionBtn.Name = "ActionBtn"
+	-- Long accept labels (e.g. defense/income/battle) must shrink to fit the button width.
+	actionBtn.TextScaled = true
+	actionBtn.TextWrapped = true
+	actionBtn.TextSize = 16 -- reference size; scaling is bounded below
+	local actionBtnTextConstraint = Instance.new("UITextSizeConstraint")
+	actionBtnTextConstraint.MinTextSize = 7
+	actionBtnTextConstraint.MaxTextSize = 16
+	actionBtnTextConstraint.Parent = actionBtn
+	local actionBtnPad = Instance.new("UIPadding")
+	actionBtnPad.PaddingLeft = UDim.new(0, 10)
+	actionBtnPad.PaddingRight = UDim.new(0, 10)
+	actionBtnPad.PaddingTop = UDim.new(0, 4)
+	actionBtnPad.PaddingBottom = UDim.new(0, 4)
+	actionBtnPad.Parent = actionBtn
 
 	-- Track which creature card is currently highlighted
 	local selectedCard = nil
 
 	-- ── Update action button state ──
 	local actionState = "none" -- "none" | "place" | "accept"
+
+	local function getAcceptButtonLabel()
+		local parts = {}
+		if selectedOnDefense then table.insert(parts, "defense") end
+		if selectedOnIncome then table.insert(parts, "income") end
+		if selectedOnBattle then table.insert(parts, "battle") end
+		if #parts == 0 then
+			return "Accept — Sacrifice & Enter"
+		end
+		if #parts == 1 then
+			if selectedOnDefense then
+				return "Accept and remove from defense point?"
+			end
+			if selectedOnIncome then
+				return "Accept and remove from income point?"
+			end
+			return "Accept and remove from battle team?"
+		end
+		return "Accept and clear " .. table.concat(parts, ", ") .. "?"
+	end
 
 	local function updateActionButton()
 		if actionState == "none" then
@@ -689,7 +732,7 @@ local function showBrokerUI(data)
 			actionBtn.BackgroundColor3 = C.green
 			actionBtn.BackgroundTransparency = 0.1
 		elseif actionState == "accept" then
-			actionBtn.Text = "Accept — Sacrifice & Enter"
+			actionBtn.Text = getAcceptButtonLabel()
 			actionBtn.BackgroundColor3 = C.green
 			actionBtn.BackgroundTransparency = 0.1
 		end
@@ -715,10 +758,27 @@ local function showBrokerUI(data)
 		local MAX_QUALIFYING_SHOWN = 5
 		for i, creature in ipairs(qualifying) do
 			if i > MAX_QUALIFYING_SHOWN then break end
+			local onDef = creature.onDefense == true
+			local onInc = creature.onIncome == true
+			local onBat = creature.onBattle == true
+			local cardBg = C.bgLight
+			local wmText, wmColor = nil, nil
+			-- Same priority feel as inventory: defense / income / battle
+			if onDef then
+				cardBg = Color3.fromRGB(40, 22, 22)
+				wmText, wmColor = "DEFENSE", C.defense
+			elseif onInc then
+				cardBg = Color3.fromRGB(22, 38, 28)
+				wmText, wmColor = "INCOME", C.income
+			elseif onBat then
+				cardBg = Color3.fromRGB(25, 24, 38)
+				wmText, wmColor = "BATTLE", C.battle
+			end
+
 			local card = Instance.new("TextButton")
 			card.Name = "Card_" .. (creature.uid or i)
 			card.Size = UDim2.new(1, -8, 0, 50)
-			card.BackgroundColor3 = C.bgLight
+			card.BackgroundColor3 = cardBg
 			card.BackgroundTransparency = 0.2
 			card.BorderSizePixel = 0
 			card.Text = ""
@@ -731,6 +791,24 @@ local function showBrokerUI(data)
 			cardStroke.Color = C.divider
 			cardStroke.Thickness = 1
 
+			-- Inventory-style status watermark (background flavor text)
+			if wmText then
+				local watermark = Instance.new("TextLabel")
+				watermark.Name = "StatusWatermark"
+				watermark.Size = UDim2.new(1, 0, 1, 0)
+				watermark.BackgroundTransparency = 1
+				watermark.RichText = true
+				watermark.Text = "<i>" .. wmText .. "</i>"
+				watermark.TextColor3 = wmColor
+				watermark.TextTransparency = 0.92
+				watermark.Font = Enum.Font.GothamBlack
+				watermark.TextScaled = true
+				watermark.TextXAlignment = Enum.TextXAlignment.Left
+				watermark.TextYAlignment = Enum.TextYAlignment.Center
+				watermark.ZIndex = 1
+				watermark.Parent = card
+			end
+
 			-- Rarity indicator bar (left edge)
 			local rarityBar = Instance.new("Frame")
 			rarityBar.Name = "RarityBar"
@@ -738,6 +816,7 @@ local function showBrokerUI(data)
 			rarityBar.Position = UDim2.new(0, 2, 0, 2)
 			rarityBar.BackgroundColor3 = RARITY_COLORS[creature.rarity] or C.grey
 			rarityBar.BorderSizePixel = 0
+			rarityBar.ZIndex = 2
 			rarityBar.Parent = card
 			Instance.new("UICorner", rarityBar).CornerRadius = UDim.new(0, 2)
 
@@ -752,6 +831,7 @@ local function showBrokerUI(data)
 			nameLabel.TextSize = 13
 			nameLabel.TextXAlignment = Enum.TextXAlignment.Left
 			nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+			nameLabel.ZIndex = 2
 			nameLabel.Parent = card
 
 			-- Details line: Lv, variant, element
@@ -766,6 +846,7 @@ local function showBrokerUI(data)
 			detailLabel.Font = Enum.Font.GothamMedium
 			detailLabel.TextSize = 11
 			detailLabel.TextXAlignment = Enum.TextXAlignment.Left
+			detailLabel.ZIndex = 2
 			detailLabel.Parent = card
 
 			-- Rarity label (right side)
@@ -778,6 +859,7 @@ local function showBrokerUI(data)
 			rarityLabel.Font = Enum.Font.GothamBold
 			rarityLabel.TextSize = 11
 			rarityLabel.TextXAlignment = Enum.TextXAlignment.Right
+			rarityLabel.ZIndex = 2
 			rarityLabel.Parent = card
 
 			-- Bonus tag if this creature matches the Broker's bonus pick
@@ -792,6 +874,7 @@ local function showBrokerUI(data)
 				bonusTag.Font = Enum.Font.GothamBold
 				bonusTag.TextSize = 10
 				bonusTag.TextXAlignment = Enum.TextXAlignment.Right
+				bonusTag.ZIndex = 2
 				bonusTag.Parent = card
 
 				cardStroke.Color = C.gold
@@ -815,6 +898,9 @@ local function showBrokerUI(data)
 				selectedCard = card
 				selectedUid = creature.uid
 				selectedCreatureId = creature.id
+				selectedOnDefense = onDef
+				selectedOnIncome = onInc
+				selectedOnBattle = onBat
 				cardStroke.Color = C.green
 				cardStroke.Thickness = 2
 
@@ -832,7 +918,7 @@ local function showBrokerUI(data)
 		if isBusy or isAnimating then return end
 
 		if actionState == "place" and selectedUid then
-			-- Player clicked Place → advance to Accept
+			-- Player clicked Place → advance to Accept (label reflects base placement)
 			actionState = "accept"
 			updateActionButton()
 

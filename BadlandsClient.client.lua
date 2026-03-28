@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════════════
--- Last updated: 2026-03-21 00:41
+-- Last updated: 2026-03-27 12:00
 -- BadlandsClient.client.lua
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- Client-side HUD and UI for active Badlands runs:
@@ -124,6 +124,10 @@ local BADGE_GAP = 8
 local BADGE_SLOT = 2
 local BADGE_DISPLAY_ORDER = 52
 
+-- BadBag HUD button: one full button height below the old Battle Menu slot (76) so it clears
+-- the top ticker row and sits to the left of FavoriteSummonCard (66, 76, 50×72).
+local BADBAG_BTN_Y = 76 + 54  -- 130
+
 local function disconnectTickerLayoutSignals()
 	for _, conn in ipairs(tickerLayoutConns) do
 		conn:Disconnect()
@@ -156,14 +160,14 @@ local function layoutHudElements()
 		timerFrame.Position = UDim2.new(0.5, 0, 0, yTop)
 	end
 
-	-- BadBag button: replaces the BattleMenu button position (top-left)
-	-- Size and position match toggleBtn in InventoryUIManager (46×54 at 12,76)
+	-- BadBag button: left of the favorite card; Y one row below old Battle Menu (12,76) to stay on-screen.
 	if bagButton and bagButton.Parent then
-		bagButton.Position = UDim2.new(0, 12, 0, 76)
+		bagButton.Position = UDim2.new(0, 12, 0, BADBAG_BTN_Y)
 	end
 
 	if bagPanel and bagPanel.Parent then
-		bagPanel.Position = UDim2.new(0, 12, 0, 136)
+		-- Same 6px gap below the button as before (was 136 under y=76 btn)
+		bagPanel.Position = UDim2.new(0, 12, 0, BADBAG_BTN_Y + 54 + 6)
 	end
 
 	-- BL toggle badge: bottom area, to the left of the "Tracking Sieglings" target bar
@@ -354,6 +358,21 @@ end
 local refreshBagUI
 local toggleBagPanel
 
+-- Opens Sieglinq (Inventory UI) on the BadBag tab — same path as [Q] / HUD SieglinQ in Badlands.
+local function openSieglinqBadBagFromHud()
+	bagPanelOpen = false
+	if bagPanel and bagPanel.Parent then
+		bagPanel.Visible = false
+	end
+	local evt = playerGui:FindFirstChild("HUDToggleMenu")
+	if not evt or not evt:IsA("BindableEvent") then
+		evt = Instance.new("BindableEvent")
+		evt.Name = "HUDToggleMenu"
+		evt.Parent = playerGui
+	end
+	evt:Fire("InventoryUI")
+end
+
 local function createHudToggleBadge()
 	if hudToggleBadge and hudToggleBadge.Parent then
 		layoutHudElements()
@@ -423,12 +442,12 @@ local function createBagButton()
 
 	local gui = ensureScreenGui()
 
-	-- FIX #24: BadBag button replaces the Battle Menu button (top-left) when in Badlands.
-	-- Matches toggleBtn in InventoryUIManager: 46×54, position (12, 76), same corner radius.
+	-- FIX #24: BadBag button replaces the Battle Menu button when in Badlands (left of favorite card).
+	-- 46×54; Y = BADBAG_BTN_Y so the control clears the ticker and aligns with the favorite card band.
 	bagButton = Instance.new("TextButton")
 	bagButton.Name = "BadBagButton"
 	bagButton.Size = UDim2.new(0, 46, 0, 54)
-	bagButton.Position = UDim2.new(0, 12, 0, 76)
+	bagButton.Position = UDim2.new(0, 12, 0, BADBAG_BTN_Y)
 	bagButton.AnchorPoint = Vector2.new(0, 0)
 	bagButton.BackgroundColor3 = C.accent
 	bagButton.BackgroundTransparency = 0.15
@@ -447,9 +466,7 @@ local function createBagButton()
 	stroke.Transparency = 0.5
 
 	bagButton.MouseButton1Click:Connect(function()
-		if toggleBagPanel then
-			toggleBagPanel()
-		end
+		openSieglinqBadBagFromHud()
 	end)
 
 	updateBagButtonText()
@@ -767,7 +784,7 @@ toggleBagPanel = function()
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
--- Extraction UI: shows bag inventory + progress bar during 15s channel
+-- Extraction UI: shows bag inventory + progress bar during extraction channel
 -- ═══════════════════════════════════════════════════════════════════════════════
 local function showExtractionUI(data)
 	local gui = ensureScreenGui()
@@ -776,7 +793,7 @@ local function showExtractionUI(data)
 	if extractionUI then extractionUI:Destroy(); extractionUI = nil end
 
 	local bag = data.bag or {}
-	local channelTime = data.channelTime or 15
+	local channelTime = data.channelTime or 5
 
 	-- ── Full-screen overlay ──
 	local overlay = Instance.new("Frame")

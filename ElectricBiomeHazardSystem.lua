@@ -6,7 +6,7 @@
 	Required in your place:
 		Workspace.Biomes.PeaksBiome (or ElectricBiome / ElectriBiome) - folder containing:
 		  - ElectricGround or ElectriGround (Part, Model, or Folder of parts) OR any BasePart with Size X,Z > 5
-		  - Optional: SpawnPoint, DungeonPoint, BossPoint parts for extra positions
+		  - Optional: SpawnPoint(2), DungeonPoint(2), BossPoint(2) parts for extra positions
 		ReplicatedStorage.Hazards.ElectroBall - optional; if missing, a default neon ball Part is created
 ]]
 
@@ -233,6 +233,14 @@ local function createExplosionEffect(position)
 	end)
 end
 
+-- Lightning-element creatures are immune to ElectroBall damage (same as stun immunity below).
+local function creatureImmuneToElectroBallDamage(model)
+	if not model then return false end
+	local cid = model:GetAttribute("CreatureId")
+	local info = cid and CreatureData.GetById(cid)
+	return info and info.element == "Lightning"
+end
+
 -- ══════════════════════════════════════════════════════════════════════════════
 -- Touch Damage: applied when a single entity contacts a growing orb via .Touched.
 -- One hit per entity per orb — the "damaged" table prevents repeat damage.
@@ -256,6 +264,7 @@ local function applyTouchDamage(hit, damaged)
 
 	-- World creature
 	if CollectionService:HasTag(entity, WORLD_CREATURE_TAG) and not entity:GetAttribute("Fainted") then
+		if creatureImmuneToElectroBallDamage(entity) then return end
 		damaged[entity] = true
 		if WorldCreatureHP then
 			local hp, maxHp = WorldCreatureHP.GetHP(entity)
@@ -270,6 +279,7 @@ local function applyTouchDamage(hit, damaged)
 
 	-- Companion creature
 	if CollectionService:HasTag(entity, COMPANION_TAG) then
+		if creatureImmuneToElectroBallDamage(entity) then return end
 		damaged[entity] = true
 		local FCS = nil
 		pcall(function() FCS = require(ServerScriptService.FavoriteCreatureSystem) end)
@@ -317,6 +327,7 @@ local function checkDamageInRadius(center, radius, damaged)
 	if WorldCreatureHP then
 		for _, model in ipairs(CollectionService:GetTagged(WORLD_CREATURE_TAG)) do
 			if not model.Parent or model:GetAttribute("Fainted") or damaged[model] then continue end
+			if creatureImmuneToElectroBallDamage(model) then continue end
 			local body = (CreatureModelLoader and CreatureModelLoader.GetBodyPart and CreatureModelLoader.GetBodyPart(model))
 				or model:FindFirstChild("Body") or model.PrimaryPart
 			if not body then continue end
@@ -335,6 +346,7 @@ local function checkDamageInRadius(center, radius, damaged)
 	-- Companions
 	for _, model in ipairs(CollectionService:GetTagged(COMPANION_TAG)) do
 		if not model.Parent or damaged[model] then continue end
+		if creatureImmuneToElectroBallDamage(model) then continue end
 		local body = (CreatureModelLoader and CreatureModelLoader.GetBodyPart and CreatureModelLoader.GetBodyPart(model))
 			or model:FindFirstChild("Body") or model.PrimaryPart
 		if not body then continue end
@@ -360,8 +372,9 @@ end
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- Stun-Only AOE: applied to everything in the aura the instant orb hits 300%.
--- Does NOT deal damage — damage comes from touch/overlap during the growth phase.
--- Lightning companions grant players stun immunity; Lightning creatures are immune.
+-- Does NOT deal damage — damage comes from touch/overlap during the growth phase
+-- (Lightning creatures skip that damage too; see creatureImmuneToElectroBallDamage).
+-- Lightning companions grant players stun immunity; Lightning creatures are immune to stun.
 -- @param center  Vector3 position of the orb
 -- @param radius  number  final aura radius at 300%
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -604,7 +617,9 @@ collectPointPositions = function()
 	for _, child in ipairs(biomeFolder:GetDescendants()) do
 		if not child:IsA("BasePart") then continue end
 		local name = child.Name
-		if name == "SpawnPoint" or name == "DungeonPoint" or name == "BossPoint" then
+		if name == "SpawnPoint" or name == "SpawnPoint2"
+			or name == "DungeonPoint" or name == "DungeonPoint2"
+			or name == "BossPoint" or name == "BossPoint2" then
 			local p = child.Position
 			local variance = (math.random() * 2 - 1) * GRID_VARIANCE
 			local varianceZ = (math.random() * 2 - 1) * GRID_VARIANCE

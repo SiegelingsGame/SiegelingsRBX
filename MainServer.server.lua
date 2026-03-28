@@ -556,7 +556,7 @@ end
 -- Badlands: roguelike PvPvE mode (depends on PDM, FCS, MountSystem, CreatureAI)
 if BadlandsSystem then
 	local ok, err = pcall(function()
-		BadlandsSystem.Init(PlayerDataManager, FavoriteCreatureSystem, MountSystem, CreatureAI)
+		BadlandsSystem.Init(PlayerDataManager, FavoriteCreatureSystem, MountSystem, CreatureAI, BasePlacementSystem)
 	end)
 	if ok then print("[MainServer] BadlandsSystem OK") else warn("[MainServer] BadlandsSystem failed: " .. tostring(err)) end
 end

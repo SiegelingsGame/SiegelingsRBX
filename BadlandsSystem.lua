@@ -61,6 +61,7 @@ local PlayerDataManager
 local FavoriteCreatureSystem
 local MountSystem
 local CreatureAI
+local BasePlacementSystem
 
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- Config (from GameConfig with fallbacks)
@@ -72,8 +73,8 @@ local HARD_DEADLINE          = GameConfig.BadlandsHardDeadline         or 600
 local EXTRACT_ACTIVATE_AT    = GameConfig.BadlandsExtractionActivateAt or 420
 local SPAWN_SHIELD_DURATION  = GameConfig.BadlandsSpawnShieldDuration  or 30
 local BAG_SLOTS              = GameConfig.BadlandsBagSlots             or 10
-local EXTRACTION_TIME        = GameConfig.BadlandsExtractionTime       or 15
-local EXTRACTION_MIN_TIME    = GameConfig.BadlandsExtractionMinTime    or 8
+local EXTRACTION_TIME        = GameConfig.BadlandsExtractionTime       or 5
+local EXTRACTION_MIN_TIME    = GameConfig.BadlandsExtractionMinTime    or 5
 local LOOT_BAG_DESPAWN       = GameConfig.BadlandsLootBagDespawnTime   or 60
 local COLLAPSE_DPS           = GameConfig.BadlandsCollapseDPS          or 5
 local ENABLED                = GameConfig.BadlandsEnabled
@@ -1771,9 +1772,35 @@ local function creatureMatchesContract(entry, contract)
 	return true, "Qualifies"
 end
 
+--- Slot placement flags for Broker UI (defense / income / battle).
+-- @param data player data table
+-- @param uid creature uid
+local function getPlacementFlagsForUid(data, uid)
+	if not data then return false, false, false end
+	local su = tostring(uid or "")
+	if su == "" then return false, false, false end
+	local onDefense, onIncome, onBattle = false, false, false
+	if data.defenseSlots then
+		for _, slotUid in pairs(data.defenseSlots) do
+			if tostring(slotUid) == su then onDefense = true break end
+		end
+	end
+	if data.baseSlots then
+		for _, slotUid in pairs(data.baseSlots) do
+			if tostring(slotUid) == su then onIncome = true break end
+		end
+	end
+	if data.battleTeam then
+		for _, slotUid in pairs(data.battleTeam) do
+			if slotUid and tostring(slotUid) == su then onBattle = true break end
+		end
+	end
+	return onDefense, onIncome, onBattle
+end
+
 --- Find all creatures in a player's inventory that match the daily contract.
 -- @param player Player
--- @return table[] — array of { uid, id, level, variant, displayName, rarity }
+-- @return table[] — array of { uid, id, level, variant, displayName, rarity, onDefense, onIncome, onBattle }
 local function findQualifyingCreatures(player)
 	if not PlayerDataManager then return {} end
 
@@ -1788,6 +1815,7 @@ local function findQualifyingCreatures(player)
 			local info = CreatureData.GetById(entry.id)
 			if info and not string.find(entry.id, "standin")
 				and info.modelName and info.modelName ~= "Egg" then
+				local onDefense, onIncome, onBattle = getPlacementFlagsForUid(data, entry.uid)
 				table.insert(qualifying, {
 					uid         = entry.uid,
 					id          = entry.id,
@@ -1796,6 +1824,9 @@ local function findQualifyingCreatures(player)
 					displayName = info and info.displayName or entry.id,
 					rarity      = info and info.rarity or "Common",
 					element     = info and info.element or "Unknown",
+					onDefense   = onDefense,
+					onIncome    = onIncome,
+					onBattle    = onBattle,
 				})
 			end
 		end
@@ -2320,8 +2351,9 @@ end
 -- @param favCreatureSys      FavoriteCreatureSystem module
 -- @param mountSys            MountSystem module
 -- @param creatureAISys       CreatureAI module
+-- @param basePlacementSys    BasePlacementSystem module (optional; clears plot orbs on broker sacrifice)
 -- ═══════════════════════════════════════════════════════════════════════════════
-function BadlandsSystem.Init(playerDataMgr, favCreatureSys, mountSys, creatureAISys)
+function BadlandsSystem.Init(playerDataMgr, favCreatureSys, mountSys, creatureAISys, basePlacementSys)
 	if not ENABLED then
 		print("[Badlands] BadlandsSystem DISABLED via GameConfig.BadlandsEnabled")
 		return
@@ -2331,6 +2363,7 @@ function BadlandsSystem.Init(playerDataMgr, favCreatureSys, mountSys, creatureAI
 	FavoriteCreatureSystem = favCreatureSys
 	MountSystem = mountSys
 	CreatureAI = creatureAISys
+	BasePlacementSystem = basePlacementSys
 
 	eventsFolder = ReplicatedStorage:FindFirstChild("Events")
 
@@ -2507,59 +2540,39 @@ function BadlandsSystem.Init(playerDataMgr, favCreatureSys, mountSys, creatureAI
 					return
 				end
 
-				-- Validate creature is not currently assigned (favorite, income, defense, battle)
-				-- Prevent sacrificing actively-deployed creatures
+				-- Favorite / companion must be cleared first (same as inventory rules)
 				local data = PlayerDataManager.GetData(player)
 				if data then
-					-- Check if it's the favorite
-					if data.favoriteCreature and tostring(data.favoriteCreature) == tostring(uid) then
+					local fav = data.favoriteUid or data.favoriteCreature
+					if fav and tostring(fav) == tostring(uid) then
 						fireClient("BadlandsQueueReject", player,
 							"You can't sacrifice your equipped favorite. Unequip it first.")
 						return
 					end
-
-					-- Check base income slots
-					if data.baseSlots then
-						for _, slotUid in pairs(data.baseSlots) do
-							if tostring(slotUid) == tostring(uid) then
-								fireClient("BadlandsQueueReject", player,
-									"That creature is assigned to income. Remove it first.")
-								return
-							end
-						end
-					end
-
-					-- Check defense slots
-					if data.defenseSlots then
-						for _, slotUid in pairs(data.defenseSlots) do
-							if tostring(slotUid) == tostring(uid) then
-								fireClient("BadlandsQueueReject", player,
-									"That creature is assigned to defense. Remove it first.")
-								return
-							end
-						end
-					end
-
-					-- Check battle team
-					if data.battleTeam then
-						for _, slotUid in pairs(data.battleTeam) do
-							if tostring(slotUid) == tostring(uid) then
-								fireClient("BadlandsQueueReject", player,
-									"That creature is on your battle team. Remove it first.")
-								return
-							end
-						end
-					end
 				end
+
+				local onDefense, onIncome, onBattle = getPlacementFlagsForUid(data, uid)
 
 				-- ── All checks passed: sacrifice the creature and queue the player ──
 
 				-- Get creature info for the confirmation message
 				local info = CreatureData.GetById(entry.id)
 				local displayName = info and info.displayName or entry.id
+
+				local placementParts = {}
+				if onDefense then table.insert(placementParts, "defense") end
+				if onIncome then table.insert(placementParts, "income") end
+				if onBattle then table.insert(placementParts, "battle team") end
+				local placementSuffix = ""
+				if #placementParts > 0 then
+					placementSuffix = " Cleared from your "
+						.. table.concat(placementParts, ", ")
+						.. "."
+				end
+
 				local sacrificeMsg = string.format(
-					"%s (Lv%d %s) has been consumed by The Broker.",
-					displayName, entry.level or 1, entry.variant or "Normal"
+					"%s (Lv%d %s) has been consumed by The Broker.%s",
+					displayName, entry.level or 1, entry.variant or "Normal", placementSuffix
 				)
 
 				-- Check if this is the bonus creature for extra buffs
@@ -2568,7 +2581,7 @@ function BadlandsSystem.Init(playerDataMgr, favCreatureSys, mountSys, creatureAI
 					isBonus = true
 				end
 
-				-- Remove creature from inventory (permanent sacrifice)
+				-- Remove creature from inventory (permanent sacrifice; also clears slot assignments in data).
 				local removeOk = pcall(function()
 					PlayerDataManager.RemoveCreature(player, uid)
 				end)
@@ -2577,6 +2590,13 @@ function BadlandsSystem.Init(playerDataMgr, favCreatureSys, mountSys, creatureAI
 					fireClient("BadlandsQueueReject", player,
 						"Failed to sacrifice creature — try again.")
 					return
+				end
+
+				-- Despawn defense/income/battle orbs on the plot (RemoveCreature does not destroy world models).
+				if BasePlacementSystem and BasePlacementSystem.ClearOrbByUid then
+					pcall(function()
+						BasePlacementSystem.ClearOrbByUid(player, uid, true)
+					end)
 				end
 
 				if isBonus then

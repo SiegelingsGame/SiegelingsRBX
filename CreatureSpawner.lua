@@ -11,6 +11,8 @@
 		- One or more "SpawnPoint" parts for regular spawns
 		- One or more "DungeonPoint" parts for dungeon encounters
 		- One "BossPoint" part for the legendary boss
+	Outer dual-element biomes (Desert / Ocean / Electric / Cave) also use SpawnPoint2,
+	DungeonPoint2, BossPoint2 for the secondary element (see CreatureData.OuterBiomePrimarySecondary).
 
 	FUTURE: Cross-biome spawning
 		The spawn functions accept element overrides so an EventSystem
@@ -143,6 +145,27 @@ local function getSpreadPosition(center, spreadRadius)
 	return applyArenaExclusion(Vector3.new(x, y, z))
 end
 
+-- When Biomes.CaveBiome is missing or has no spawn parts, avoid falling back to the
+-- origin ring (hub/arena). Uses workspace.Terrain.CaveBaseplate if present (GameConfig.CaveBiome path).
+local function getCaveTerrainFallbackPosition()
+	local terrain = workspace:FindFirstChild("Terrain")
+	local plate = terrain and terrain:FindFirstChild("CaveBaseplate")
+	if not plate or not plate:IsA("BasePart") then
+		return nil
+	end
+	local cf = plate.CFrame
+	local size = plate.Size
+	local margin = 0.12
+	local halfX = size.X * (0.5 - margin)
+	local halfZ = size.Z * (0.5 - margin)
+	local lx = (math.random() * 2 - 1) * halfX
+	local lz = (math.random() * 2 - 1) * halfZ
+	local localPos = Vector3.new(lx, size.Y * 0.5 + 4, lz)
+	local world = cf:PointToWorldSpace(localPos)
+	local y = raycastGroundY(world.X, world.Z, world.Y)
+	return applyArenaExclusion(Vector3.new(world.X, y, world.Z))
+end
+
 -- Zone-aware spawn: pick a SpawnPoint from the creature's matching biome
 -- Tries primary and alias folder names (e.g. AquaticBiome, WaterBiome, OceanBiome for Water)
 -- Returns: Vector3 position or nil (caller should fallback to random).
@@ -155,7 +178,12 @@ local function getZoneSpawnPosition(creatureId)
 	if not folderNames or #folderNames == 0 then return nil end
 
 	local biomesFolder = workspace:FindFirstChild("Biomes")
-	if not biomesFolder then return nil end
+	if not biomesFolder then
+		if info.element == "Shadow" or info.element == "Metal" then
+			return getCaveTerrainFallbackPosition()
+		end
+		return nil
+	end
 
 	local biomeFolder = nil
 	for _, name in ipairs(folderNames) do
@@ -164,17 +192,37 @@ local function getZoneSpawnPosition(creatureId)
 			if f then biomeFolder = f; break end
 		end
 	end
-	if not biomeFolder then return nil end
+	if not biomeFolder then
+		if info.element == "Shadow" or info.element == "Metal" then
+			return getCaveTerrainFallbackPosition()
+		end
+		return nil
+	end
 
-	-- Collect all SpawnPoint parts in this biome folder
+	local slot = CreatureData.GetOuterBiomeElementSlot(biomeFolder.Name, info.element)
+	local pointName = (slot == "secondary") and "SpawnPoint2" or "SpawnPoint"
+
 	local spawnPoints = {}
 	for _, child in ipairs(biomeFolder:GetChildren()) do
-		if child:IsA("BasePart") and child.Name == "SpawnPoint" then
+		if child:IsA("BasePart") and child.Name == pointName then
 			table.insert(spawnPoints, child)
 		end
 	end
+	-- Secondary slot: if SpawnPoint2 missing, fall back to primary SpawnPoint
+	if #spawnPoints == 0 and pointName == "SpawnPoint2" then
+		for _, child in ipairs(biomeFolder:GetChildren()) do
+			if child:IsA("BasePart") and child.Name == "SpawnPoint" then
+				table.insert(spawnPoints, child)
+			end
+		end
+	end
 
-	if #spawnPoints == 0 then return nil end
+	if #spawnPoints == 0 then
+		if info.element == "Shadow" or info.element == "Metal" then
+			return getCaveTerrainFallbackPosition()
+		end
+		return nil
+	end
 
 	-- Pick a random SpawnPoint and spread around it (getSpreadPosition applies arena exclusion)
 	local chosen = spawnPoints[math.random(1, #spawnPoints)]
@@ -550,58 +598,70 @@ end
 -- ======================================
 -- DUNGEON SPAWN (DungeonPoints)
 -- ======================================
--- Spawns rarer/harder creatures near DungeonPoint parts.
--- Called periodically by the dungeon spawn loop.
--- Each DungeonPoint gets 1-3 creatures per cycle.
+-- Spawns rarer/harder creatures near DungeonPoint / DungeonPoint2 parts.
+-- Outer dual biomes: DungeonPoint = primary element, DungeonPoint2 = secondary.
+-- Returns false if world is at creature cap before this batch starts (caller stops all dungeon spawns).
+
+local function spawnDungeonBatchAtPart(child, element)
+	if not element then return true end
+	if #CollectionService:GetTagged(CREATURE_TAG) >= getEffectiveMaxCreatures() then
+		return false
+	end
+
+	local minCount = GameConfig.DungeonSpawnCount and GameConfig.DungeonSpawnCount[1] or 1
+	local maxCount = GameConfig.DungeonSpawnCount and GameConfig.DungeonSpawnCount[2] or 3
+	local spawnCount = math.random(minCount, maxCount)
+	local spread = GameConfig.DungeonPointSpread or 15
+
+	for _ = 1, spawnCount do
+		if #CollectionService:GetTagged(CREATURE_TAG) >= getEffectiveMaxCreatures() then break end
+
+		local creatureId = CreatureData.GetDungeonCreatureId(element, GameConfig.SpawnOnlyCreaturesWithModels)
+		if creatureId then
+			local info = CreatureData.GetById(creatureId)
+			local position = getSpreadPosition(child.Position, spread)
+			local variant = info and getNightSpawnVariant(info.rarity) or nil
+
+			if info and info.behavior == "pack" and info.packSize then
+				local packId = CreatureAI and CreatureAI.GeneratePackId() or nil
+				local min, max = info.packSize[1] or 2, info.packSize[2] or 3
+				local packCount = math.random(min, max)
+				for i = 1, packCount do
+					if #CollectionService:GetTagged(CREATURE_TAG) >= getEffectiveMaxCreatures() then break end
+					local pos = i == 1 and position or getGroupSpawnPosition(position, 8)
+					spawnSingleCreature(creatureId, pos, packId, variant)
+				end
+			else
+				spawnSingleCreature(creatureId, position, nil, variant)
+			end
+		end
+	end
+	return true
+end
 
 function CreatureSpawner.SpawnDungeonCreatures()
 	local biomesFolder = workspace:FindFirstChild("Biomes")
 	if not biomesFolder then return end
 
-	-- Iterate through all biome folders
 	for _, biomeFolder in ipairs(biomesFolder:GetChildren()) do
-		if biomeFolder:IsA("Folder") then
-			-- Determine which element this biome belongs to
+		if not biomeFolder:IsA("Folder") then continue end
+
+		local pair = CreatureData.GetOuterBiomeElementPair(biomeFolder.Name)
+		if pair then
+			for _, child in ipairs(biomeFolder:GetChildren()) do
+				if not child:IsA("BasePart") then continue end
+				if child.Name == "DungeonPoint" then
+					if not spawnDungeonBatchAtPart(child, pair[1]) then return end
+				elseif child.Name == "DungeonPoint2" then
+					if not spawnDungeonBatchAtPart(child, pair[2]) then return end
+				end
+			end
+		else
 			local element = CreatureData.GetElementForBiomeFolder(biomeFolder.Name)
 			if not element then continue end
-
-			-- Find all DungeonPoint parts in this biome
 			for _, child in ipairs(biomeFolder:GetChildren()) do
 				if child:IsA("BasePart") and child.Name == "DungeonPoint" then
-					-- Check world creature cap
-					local currentCount = #CollectionService:GetTagged(CREATURE_TAG)
-					if currentCount >= getEffectiveMaxCreatures() then return end
-
-					-- Spawn 1-3 creatures at this DungeonPoint
-					local minCount = GameConfig.DungeonSpawnCount and GameConfig.DungeonSpawnCount[1] or 1
-					local maxCount = GameConfig.DungeonSpawnCount and GameConfig.DungeonSpawnCount[2] or 3
-					local spawnCount = math.random(minCount, maxCount)
-					local spread = GameConfig.DungeonPointSpread or 15
-
-					for _ = 1, spawnCount do
-						if #CollectionService:GetTagged(CREATURE_TAG) >= getEffectiveMaxCreatures() then break end
-
-						local creatureId = CreatureData.GetDungeonCreatureId(element, GameConfig.SpawnOnlyCreaturesWithModels)
-						if creatureId then
-							local info = CreatureData.GetById(creatureId)
-							local position = getSpreadPosition(child.Position, spread)
-							local variant = info and getNightSpawnVariant(info.rarity) or nil
-
-							-- Pack creatures at dungeons still form packs
-							if info and info.behavior == "pack" and info.packSize then
-								local packId = CreatureAI and CreatureAI.GeneratePackId() or nil
-								local min, max = info.packSize[1] or 2, info.packSize[2] or 3
-								local packCount = math.random(min, max)
-								for i = 1, packCount do
-									if #CollectionService:GetTagged(CREATURE_TAG) >= getEffectiveMaxCreatures() then break end
-									local pos = i == 1 and position or getGroupSpawnPosition(position, 8)
-									local model = spawnSingleCreature(creatureId, pos, packId, variant)
-								end
-							else
-								spawnSingleCreature(creatureId, position, nil, variant)
-							end
-						end
-					end
+					if not spawnDungeonBatchAtPart(child, element) then return end
 				end
 			end
 		end
@@ -611,9 +671,52 @@ end
 -- ======================================
 -- BOSS SPAWN (BossPoints)
 -- ======================================
--- Spawns the legendary creature for each biome at its BossPoint.
--- Respects a cooldown timer so bosses don't instantly respawn.
--- Only spawns if no existing boss creature is alive at that point.
+-- Spawns legendaries at BossPoint / BossPoint2. Outer dual biomes: primary vs secondary boss.
+-- Returns false if at world cap (caller stops remaining boss checks).
+
+local function trySpawnBossAt(child, element, now, bossRespawnTime)
+	if not element then return true end
+
+	local lastSpawn = bossSpawnTimers[child]
+	if lastSpawn and (now - lastSpawn) < bossRespawnTime then
+		return true
+	end
+
+	local bossCreatureId = CreatureData.GetBossCreatureId(element, GameConfig.SpawnOnlyCreaturesWithModels)
+	local bossAlive = false
+	if bossCreatureId then
+		for model, data in pairs(activeCreatures) do
+			if data.id == bossCreatureId and model.Parent then
+				local body = CreatureModelLoader.GetBodyPart(model) or model:FindFirstChild("Body")
+				if body then
+					local dist = (body.Position - child.Position).Magnitude
+					if dist < 100 then
+						bossAlive = true
+						break
+					end
+				end
+			end
+		end
+	end
+
+	if bossAlive then return true end
+
+	if #CollectionService:GetTagged(CREATURE_TAG) >= getEffectiveMaxCreatures() then
+		return false
+	end
+
+	if bossCreatureId then
+		local spread = GameConfig.BossPointSpread or 10
+		local position = getSpreadPosition(child.Position, spread)
+		local model = spawnSingleCreature(bossCreatureId, position, nil)
+
+		if model then
+			bossSpawnTimers[child] = now
+			model:SetAttribute("IsBoss", true)
+		end
+	end
+	return true
+end
 
 function CreatureSpawner.SpawnBossCreatures()
 	local biomesFolder = workspace:FindFirstChild("Biomes")
@@ -623,55 +726,24 @@ function CreatureSpawner.SpawnBossCreatures()
 	local bossRespawnTime = GameConfig.BossRespawnTime or 300
 
 	for _, biomeFolder in ipairs(biomesFolder:GetChildren()) do
-		if biomeFolder:IsA("Folder") then
+		if not biomeFolder:IsA("Folder") then continue end
+
+		local pair = CreatureData.GetOuterBiomeElementPair(biomeFolder.Name)
+		if pair then
+			for _, child in ipairs(biomeFolder:GetChildren()) do
+				if not child:IsA("BasePart") then continue end
+				if child.Name == "BossPoint" then
+					if not trySpawnBossAt(child, pair[1], now, bossRespawnTime) then return end
+				elseif child.Name == "BossPoint2" then
+					if not trySpawnBossAt(child, pair[2], now, bossRespawnTime) then return end
+				end
+			end
+		else
 			local element = CreatureData.GetElementForBiomeFolder(biomeFolder.Name)
 			if not element then continue end
-
-			-- Find BossPoint in this biome
 			for _, child in ipairs(biomeFolder:GetChildren()) do
 				if child:IsA("BasePart") and child.Name == "BossPoint" then
-					-- Check respawn cooldown
-					local lastSpawn = bossSpawnTimers[child]
-					if lastSpawn and (now - lastSpawn) < bossRespawnTime then
-						continue -- Still on cooldown
-					end
-
-					-- Check if a boss is already alive near this point
-					local bossAlive = false
-					local bossCreatureId = CreatureData.GetBossCreatureId(element, GameConfig.SpawnOnlyCreaturesWithModels)
-					if bossCreatureId then
-						for model, data in pairs(activeCreatures) do
-							if data.id == bossCreatureId and model.Parent then
-								-- Check if this boss is near this specific BossPoint
-								local body = CreatureModelLoader.GetBodyPart(model) or model:FindFirstChild("Body")
-								if body then
-									local dist = (body.Position - child.Position).Magnitude
-									if dist < 100 then -- Within reasonable range of the BossPoint
-										bossAlive = true
-										break
-									end
-								end
-							end
-						end
-					end
-
-					if bossAlive then continue end
-
-					-- Check world creature cap
-					local currentCount = #CollectionService:GetTagged(CREATURE_TAG)
-					if currentCount >= getEffectiveMaxCreatures() then return end
-
-					-- Spawn the boss!
-					if bossCreatureId then
-						local spread = GameConfig.BossPointSpread or 10
-						local position = getSpreadPosition(child.Position, spread)
-						local model = spawnSingleCreature(bossCreatureId, position, nil)
-
-						if model then
-							bossSpawnTimers[child] = now
-							model:SetAttribute("IsBoss", true)
-						end
-					end
+					if not trySpawnBossAt(child, element, now, bossRespawnTime) then return end
 				end
 			end
 		end

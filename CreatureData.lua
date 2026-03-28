@@ -31,11 +31,13 @@
 		1. Create a folder under workspace.Biomes with the biome name
 		2. Add SpawnPoint, DungeonPoint, and BossPoint parts inside it
 		3. Map the biome in ZoneBiomeFolder below
+		4. Outer dual-element biomes (see OuterBiomePrimarySecondary): also add
+		   SpawnPoint2, DungeonPoint2, BossPoint2 for the secondary element in that folder
 
 	SPAWN POINT TYPES (spawnPointType field):
 		nil / omitted   = Spawns at regular SpawnPoints in its biome
 		"dungeon"       = Spawns at DungeonPoints (harder encounters)
-		"boss"          = Spawns at BossPoints (one legendary per biome)
+		"boss"          = Spawns at BossPoints (one legendary per biome; outer dual biomes also use BossPoint2)
 
 	FLYING (flying field):
 		true = Creature hovers at player height (FlyingHoverHeight) above ground
@@ -170,7 +172,55 @@ CreatureData.ZoneBiomeFolderAliases = {
 	aquatic = { "WaterBiome", "AquaticBiome", "Water" },
 	peaks   = { "PeaksBiome", "ElectriBiome" },
 	desert  = {},  -- DesertBiome only (no alias)
+	-- CaveGym also accepts CaveBiome_; cave terrain may use Terrain.CaveBaseplate without Biomes.CaveBiome
+	caves   = { "Cave", "CaveBiome_", "CryptBiome", "CavernBiome" },
 }
+
+-- Outer baseplate biomes where two elements share one folder. Primary element uses
+-- SpawnPoint / DungeonPoint / BossPoint; secondary uses SpawnPoint2 / DungeonPoint2 / BossPoint2.
+-- Order: { primaryElement, secondaryElement } — must match ZonePreference for those biomes.
+CreatureData.OuterBiomePrimarySecondary = {
+	DesertBiome = { "Psychic", "Undead" },
+	OceanBiome = { "Water", "Poison" },
+	ElectricBiome = { "Lightning", "Light" },
+	CaveBiome = { "Shadow", "Metal" },
+}
+
+-- Returns { primaryElement, secondaryElement } for dual outer biomes, or nil.
+-- Resolves alias folder names (e.g. WaterBiome) to the canonical pair.
+function CreatureData.GetOuterBiomeElementPair(biomeFolderName)
+	local tbl = CreatureData.OuterBiomePrimarySecondary
+	if not tbl then return nil end
+	if tbl[biomeFolderName] then
+		return tbl[biomeFolderName]
+	end
+	for _, folderName in pairs(CreatureData.ZoneBiomeFolder) do
+		if folderName == biomeFolderName then
+			return tbl[folderName]
+		end
+	end
+	local aliases = CreatureData.ZoneBiomeFolderAliases
+	if aliases then
+		for zone, names in pairs(aliases) do
+			for _, alias in ipairs(names) do
+				if alias == biomeFolderName then
+					local canonical = CreatureData.ZoneBiomeFolder[zone]
+					return canonical and tbl[canonical]
+				end
+			end
+		end
+	end
+	return nil
+end
+
+-- "primary" | "secondary" | nil — for routing spawns to SpawnPoint vs SpawnPoint2 (etc.)
+function CreatureData.GetOuterBiomeElementSlot(biomeFolderName, element)
+	local pair = CreatureData.GetOuterBiomeElementPair(biomeFolderName)
+	if not pair then return nil end
+	if element == pair[1] then return "primary" end
+	if element == pair[2] then return "secondary" end
+	return nil
+end
 
 -- Get the biome folder name for a creature's element (primary name only)
 function CreatureData.GetBiomeFolderForElement(element)
@@ -861,8 +911,8 @@ CreatureData.Creatures = {
 	},
 
 	-- ============================
-	-- EARTH CREATURES (5C, 4U, 3R, 2E, 1L)..
-	-- ============================..
+	-- EARTH CREATURES (5C, 4U, 3R, 2E, 1L).
+	-- ============================
 
 	-- Earth Common (5)
 	{
@@ -2090,9 +2140,8 @@ function CreatureData.GetRandomCreatureIdByRarity(rarity)
 	return list[math.random(#list)].id
 end
 
--- Reverse lookup: biome folder name -> element.
--- e.g. "VolcanicBiome" -> "Fire", "WaterBiome" or "AquaticBiome" -> "Water"
--- Used by CreatureSpawner to determine what element to spawn at a given biome's DungeonPoint or BossPoint.
+-- Reverse lookup: biome folder name -> one element (first match; ambiguous on dual outer biomes).
+-- For outer dual biomes, CreatureSpawner uses OuterBiomePrimarySecondary + * / *2 parts instead.
 -- Returns: element string or nil
 function CreatureData.GetElementForBiomeFolder(biomeFolderName)
 	for zone, folderName in pairs(CreatureData.ZoneBiomeFolder) do

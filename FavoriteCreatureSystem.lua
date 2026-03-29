@@ -275,6 +275,7 @@ local COMPANION_STAND_UP_ANGLES = {
 	skydon = {-180, 0, 0},
 	applehead = {-90, 0, 0},
 	emberfin = {-90, 0, 0},
+	cozycub = {-90, 0, 0},
 }
 
 local function needsFacingCorrection(model)

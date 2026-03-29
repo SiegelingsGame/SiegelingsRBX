@@ -1,5 +1,6 @@
 -- IngredientSpawnSystem.lua - ServerScriptService ModuleScript
--- World ingredient pickups, arena campfire, crafting validation.
+-- World ingredient pickups, CookNPC hub chef (crafting), crafting validation.
+-- Last updated: 2026-03-28 17:30
 
 local HttpService = game:GetService("HttpService")
 local CollectionService = game:GetService("CollectionService")
@@ -14,7 +15,9 @@ local IngredientData = require(ReplicatedStorage.Modules.IngredientData)
 local IngredientSpawnSystem = {}
 
 local TAG_PICKUP = "WorldIngredientPickup"
-local TAG_CAMPFIRE = "ArenaCampfire"
+local TAG_COOK_NPC = "CookNPC"
+-- Legacy tag still applied alongside CookNPC so older tooling keeps working.
+local TAG_CAMPFIRE_LEGACY = "ArenaCampfire"
 local PICKUP_FOLDER_NAME = "IngredientPickupsLive"
 
 local PlayerDataManager
@@ -114,60 +117,187 @@ function IngredientSpawnSystem.TrySpawnOneInRegion(region)
 	adjustRegionCount(region, 1)
 end
 
-function IngredientSpawnSystem.EnsureCampfire()
+local function getCookNpcConfig()
 	local cook = getCook()
+	return cook.CookNPC or {}
+end
+
+local function resolveArenaAnchor()
 	local arena = Workspace:FindFirstChild("Arena")
-	if not arena then return nil end
-
-	local name = cook.CampfirePartName or "Campfire"
-	local existing = arena:FindFirstChild(name, true)
-	if existing then
-		local attachPart = existing:IsA("BasePart") and existing
-			or existing:FindFirstChildWhichIsA("BasePart", true)
-		if attachPart and not attachPart:FindFirstChildOfClass("ProximityPrompt") then
-			local prompt = Instance.new("ProximityPrompt")
-			prompt.ActionText = "Cook"
-			prompt.ObjectText = "Campfire"
-			prompt.MaxActivationDistance = tonumber(cook.CampfireProximity) or 22
-			prompt.HoldDuration = 0
-			prompt.RequiresLineOfSight = false
-			prompt.Parent = attachPart
-		end
-		if existing:IsA("Model") then
-			CollectionService:AddTag(existing, TAG_CAMPFIRE)
-		elseif attachPart then
-			CollectionService:AddTag(attachPart, TAG_CAMPFIRE)
-		end
-		return attachPart
+	if not arena then
+		return nil
 	end
+	local center = arena:FindFirstChild("ArenaCenter", true)
+	if center and center:IsA("BasePart") then
+		return center.Position
+	end
+	local blueTeam = arena:FindFirstChild("BlueTeam", true)
+	if blueTeam then
+		local bp = blueTeam:FindFirstChild("BattlePoint1", true)
+		if bp and bp:IsA("BasePart") then
+			return bp.Position
+		end
+	end
+	return nil
+end
 
-	local model = Instance.new("Model")
-	model.Name = name
-	local logs = Instance.new("Part")
-	logs.Name = "Logs"
-	logs.Anchored = true
-	logs.Size = Vector3.new(4, 0.8, 2.5)
-	logs.Material = Enum.Material.Wood
-	logs.Color = Color3.fromRGB(90, 55, 35)
-	logs.Parent = model
-	local anchor = arena:FindFirstChild("ArenaCenter", true)
-	if anchor and anchor:IsA("BasePart") then
-		model:PivotTo(anchor.CFrame * CFrame.new(0, 1, 0))
+local function findBrokerPositionAndCFrame()
+	for _, desc in ipairs(Workspace:GetDescendants()) do
+		if desc.Name == "BrokerNPC" and (desc:IsA("Model") or desc:IsA("BasePart")) then
+			if desc:IsA("Model") then
+				local pp = desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart", true)
+				if pp then
+					return pp.Position, pp.CFrame
+				end
+			else
+				return desc.Position, desc.CFrame
+			end
+		end
+	end
+	return nil, nil
+end
+
+local function buildCookNPCSpawnCFrame()
+	local cookRoot = getCook()
+	local cfg = getCookNpcConfig()
+	local offsetFromBroker = cfg.OffsetFromBrokerStuds or Vector3.new(0, 0, 22)
+	local fallbackSpawn = cfg.FallbackOffsetFromSpawnStuds or Vector3.new(0, 0, 22)
+	local arenaFallback = cfg.OffsetFromArenaCenterStuds or Vector3.new(0, 0, 8)
+
+	local hub = Workspace:FindFirstChild("HubArea")
+	local spawnRef = hub and hub:FindFirstChild("SpawnLocation")
+	local brokerPos, brokerCF = findBrokerPositionAndCFrame()
+
+	local baseXZ
+	if brokerPos then
+		baseXZ = brokerPos + Vector3.new(offsetFromBroker.X, 0, offsetFromBroker.Z)
+	elseif spawnRef and spawnRef:IsA("BasePart") then
+		baseXZ = spawnRef.Position + Vector3.new(fallbackSpawn.X, 0, fallbackSpawn.Z)
 	else
-		model:PivotTo(CFrame.new(0, 8, 0))
+		local arenaPos = resolveArenaAnchor()
+		if arenaPos then
+			baseXZ = arenaPos + Vector3.new(arenaFallback.X, 0, arenaFallback.Z)
+		else
+			return nil
+		end
 	end
-	model.PrimaryPart = logs
-	local prompt = Instance.new("ProximityPrompt")
+
+	local rayY = (spawnRef and spawnRef:IsA("BasePart") and spawnRef.Position.Y) or baseXZ.Y
+	local rayOrigin = Vector3.new(baseXZ.X, rayY + 70, baseXZ.Z)
+	local rayResult = Workspace:Raycast(rayOrigin, Vector3.new(0, -260, 0))
+	local groundY = rayResult and rayResult.Position.Y or baseXZ.Y
+	local pos = Vector3.new(baseXZ.X, groundY + 2.5, baseXZ.Z)
+
+	local baseCF = CFrame.new(pos)
+	if brokerCF then
+		baseCF = CFrame.new(pos) * (brokerCF - brokerCF.Position)
+	end
+	local extraRot = cfg.ExtraRotationDegrees or { pitch = 90, yaw = 0, roll = 0 }
+	if type(extraRot) == "table" then
+		local pitch = tonumber(extraRot.pitch) or 0
+		local yaw = tonumber(extraRot.yaw) or 0
+		local roll = tonumber(extraRot.roll) or 0
+		if pitch ~= 0 or yaw ~= 0 or roll ~= 0 then
+			baseCF = baseCF * CFrame.Angles(math.rad(pitch), math.rad(yaw), math.rad(roll))
+		end
+	end
+	return baseCF
+end
+
+local function ensureCookNPCPromptAndTags(npc, cookRoot, cfg)
+	local attach = npc:IsA("BasePart") and npc or npc:FindFirstChildWhichIsA("BasePart", true)
+	if not attach then
+		return
+	end
+	local prompt = attach:FindFirstChildOfClass("ProximityPrompt")
+	if not prompt then
+		prompt = Instance.new("ProximityPrompt")
+		prompt.Name = "CookNPCPrompt"
+		prompt.Parent = attach
+	end
 	prompt.ActionText = "Cook"
-	prompt.ObjectText = "Campfire"
-	prompt.MaxActivationDistance = tonumber(cook.CampfireProximity) or 22
+	prompt.ObjectText = cfg.PromptObjectText or "Campfire Chef"
+	prompt.MaxActivationDistance = tonumber(cookRoot.CampfireProximity) or 22
 	prompt.HoldDuration = 0
 	prompt.RequiresLineOfSight = false
-	prompt.Parent = logs
-	model.Parent = arena
-	CollectionService:AddTag(model, TAG_CAMPFIRE)
-	return logs
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+
+	if npc:IsA("Model") then
+		CollectionService:AddTag(npc, TAG_COOK_NPC)
+		CollectionService:AddTag(npc, TAG_CAMPFIRE_LEGACY)
+	else
+		CollectionService:AddTag(npc, TAG_COOK_NPC)
+		CollectionService:AddTag(npc, TAG_CAMPFIRE_LEGACY)
+	end
+
+	if not npc:FindFirstChild("CookNPCHighlight", true) then
+		local highlight = Instance.new("Highlight")
+		highlight.Name = "CookNPCHighlight"
+		highlight.FillColor = Color3.fromRGB(40, 210, 95)
+		highlight.FillTransparency = 0.55
+		highlight.OutlineColor = Color3.fromRGB(120, 255, 160)
+		highlight.OutlineTransparency = 0.12
+		highlight.Parent = npc
+	end
 end
+
+function IngredientSpawnSystem.EnsureCookNPC()
+	local cookRoot = getCook()
+	if cookRoot.Enabled == false then
+		return true
+	end
+	local cfg = getCookNpcConfig()
+	local templateName = cfg.TemplateName or "CookNPC"
+	local instanceName = cfg.InstanceName or "CookNPC"
+
+	local npc = nil
+	for _, desc in ipairs(Workspace:GetDescendants()) do
+		if desc.Name == instanceName and (desc:IsA("Model") or desc:IsA("BasePart")) then
+			npc = desc
+			break
+		end
+	end
+
+	local spawnCF = buildCookNPCSpawnCFrame()
+	if not spawnCF then
+		return false
+	end
+
+	if not npc then
+		local template = ReplicatedStorage:FindFirstChild(templateName)
+		if not template or not (template:IsA("Model") or template:IsA("BasePart")) then
+			warn(("[IngredientSpawn] CookNPC template '%s' not found in ReplicatedStorage (Model or BasePart)"):format(templateName))
+			return true
+		end
+		npc = template:Clone()
+		npc.Name = instanceName
+		npc.Parent = Workspace
+	end
+
+	if npc:IsA("Model") then
+		local pp = npc.PrimaryPart or npc:FindFirstChildWhichIsA("BasePart", true)
+		if pp then
+			if not npc.PrimaryPart then
+				npc.PrimaryPart = pp
+			end
+			npc:PivotTo(spawnCF)
+		end
+		for _, d in ipairs(npc:GetDescendants()) do
+			if d:IsA("BasePart") then
+				d.Anchored = true
+			end
+		end
+	elseif npc:IsA("BasePart") then
+		npc.Anchored = true
+		npc.CFrame = spawnCF * CFrame.new(0, npc.Size.Y * 0.5, 0)
+	end
+
+	ensureCookNPCPromptAndTags(npc, cookRoot, cfg)
+	return true
+end
+
+-- Back-compat name (same as EnsureCookNPC).
+IngredientSpawnSystem.EnsureCampfire = IngredientSpawnSystem.EnsureCookNPC
 
 local function isNearCampfire(player)
 	local cook = getCook()
@@ -175,7 +305,7 @@ local function isNearCampfire(player)
 	local root = char and char:FindFirstChild("HumanoidRootPart")
 	if not root then return false end
 	local maxDist = tonumber(cook.CampfireProximity) or 22
-	for _, inst in ipairs(CollectionService:GetTagged(TAG_CAMPFIRE)) do
+	for _, inst in ipairs(CollectionService:GetTagged(TAG_COOK_NPC)) do
 		local part = inst:IsA("BasePart") and inst or inst:FindFirstChildWhichIsA("BasePart", true)
 		if part and (root.Position - part.Position).Magnitude <= maxDist then
 			return true
@@ -208,7 +338,7 @@ end
 
 function IngredientSpawnSystem.GetRecipePattern(player)
 	if not isNearCampfire(player) then
-		return false, "Stand by the campfire."
+		return false, "Stand near the cook."
 	end
 	local cook = getCook()
 	local mini = cook.Minigame or {}
@@ -264,7 +394,7 @@ end
 function IngredientSpawnSystem.ServerCraft(player)
 	local cook = getCook()
 	if not isNearCampfire(player) then
-		return false, nil, nil, "Stand by the campfire."
+		return false, nil, nil, "Stand near the cook."
 	end
 	local uid = player.UserId
 	local now = os.clock()
@@ -310,7 +440,7 @@ function IngredientSpawnSystem.ServerCraftWithQuality(player, payload)
 	local cook = getCook()
 	local mini = cook.Minigame or {}
 	if not isNearCampfire(player) then
-		return false, nil, nil, "Stand by the campfire."
+		return false, nil, nil, "Stand near the cook."
 	end
 	local uid = player.UserId
 	local now = os.clock()
@@ -418,8 +548,14 @@ function IngredientSpawnSystem.Init(pdm, buffShop)
 		pickupsFolder.Parent = Workspace
 	end
 
-	task.defer(function()
-		IngredientSpawnSystem.EnsureCampfire()
+	task.spawn(function()
+		local t0 = os.clock()
+		while cookEnabled and os.clock() - t0 < 60 do
+			if IngredientSpawnSystem.EnsureCookNPC() then
+				break
+			end
+			task.wait(0.35)
+		end
 	end)
 
 	local interval = math.max(2, tonumber(cook.SpawnIntervalSeconds) or 5)

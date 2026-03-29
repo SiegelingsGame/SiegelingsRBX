@@ -154,6 +154,7 @@ end
 
 local function showTraderUI(payload)
 	closeUI()
+	stockUISession = stockUISession + 1
 	local session = stockUISession
 	currentPayload = payload
 
@@ -320,13 +321,17 @@ local function showTraderUI(payload)
 				return
 			end
 			busy = true
-			local ok, msg = buyFn:InvokeServer(slot.slotIndex, paymentType, slot.creatureId, payload.stockId)
+			local ok, msg, newStock = buyFn:InvokeServer(slot.slotIndex, paymentType, slot.creatureId, payload.stockId)
 			busy = false
 			if ok then
 				if Notify and Notify.Toast then
 					Notify.Toast(msg or "Purchased!", C.green, 2.5)
 				end
-				closeUI()
+				if type(newStock) == "table" and type(newStock.slots) == "table" then
+					showTraderUI(newStock)
+				else
+					closeUI()
+				end
 			else
 				if Notify and Notify.Toast then
 					Notify.Toast(msg or "Purchase failed", Color3.fromRGB(255, 90, 80), 3)

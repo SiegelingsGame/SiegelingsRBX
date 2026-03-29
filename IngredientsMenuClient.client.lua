@@ -1,6 +1,6 @@
 -- IngredientsMenuClient.client.lua - StarterPlayerScripts
 -- Ingredient bank UI, campfire mix/craft, world pickup prompts + sparkle FX.
--- Last updated: 2026-03-28 14:30
+-- Last updated: 2026-03-28 19:00
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -32,6 +32,7 @@ local ingredientDestroy = Events:FindFirstChild("IngredientDestroy")
 local craftingMixAdd = Events:FindFirstChild("CraftingMixAdd")
 local craftingMixRemoveSlot = Events:FindFirstChild("CraftingMixRemoveSlot")
 local craftingMixClear = Events:FindFirstChild("CraftingMixClear")
+local craftingMixPlaceAt = Events:FindFirstChild("CraftingMixPlaceAt")
 
 if not getIngredientBank or not collectIngredient then return end
 
@@ -92,7 +93,8 @@ local headerAccent = nil
 local bankScroll = nil
 
 local PICKUP_TAG = "WorldIngredientPickup"
-local CAMPFIRE_TAG = "ArenaCampfire"
+local COOK_NPC_TAG = "CookNPC"
+local COOK_NPC_TAG_LEGACY = "ArenaCampfire"
 
 local function rarityColor(r)
 	local rr = CreatureData.Rarities and CreatureData.Rarities[r]
@@ -124,6 +126,42 @@ local function clearChildren(f)
 	end
 end
 
+local function mixSlotEntryValid(e)
+	return type(e) == "table" and e.id and e.id ~= "" and (tonumber(e.qty) or 0) > 0
+end
+
+local function mixTotal()
+	local t = 0
+	for _, e in ipairs(mix) do
+		if mixSlotEntryValid(e) then
+			t = t + (tonumber(e.qty) or 0)
+		end
+	end
+	return t
+end
+
+local function qtyInMixForIngredient(ingredientId)
+	if not ingredientId or ingredientId == "" then
+		return 0
+	end
+	local t = 0
+	for _, e in ipairs(mix) do
+		if mixSlotEntryValid(e) and e.id == ingredientId then
+			t = t + (tonumber(e.qty) or 0)
+		end
+	end
+	return t
+end
+
+--- In cook mode, bank rows show how many of each id are still free to place (bank total minus qty already in the mix).
+local function bankCountShownForRow(id, rawBankN)
+	local n = tonumber(rawBankN) or 0
+	if not cookMode then
+		return n
+	end
+	return math.max(0, n - qtyInMixForIngredient(id))
+end
+
 local function rebuildBankList()
 	if not bankList then return end
 	clearChildren(bankList)
@@ -150,6 +188,7 @@ local function rebuildBankList()
 
 	for idx, row in ipairs(order) do
 		local def = IngredientData.GetById(row.id)
+		local shownN = bankCountShownForRow(row.id, row.n)
 		local btn = Instance.new("TextButton")
 		btn.Name = row.id
 		local rowH = cookMode and 56 or 36
@@ -199,7 +238,7 @@ local function rebuildBankList()
 			badge.Font = Enum.Font.GothamBold
 			badge.TextSize = 11
 			badge.TextColor3 = C.cyan
-			badge.Text = "x" .. tostring(row.n)
+			badge.Text = "x" .. tostring(shownN)
 			badge.Parent = icon
 			Instance.new("UICorner", badge).CornerRadius = UDim.new(0, 4)
 			local tl = Instance.new("TextLabel")
@@ -220,7 +259,7 @@ local function rebuildBankList()
 			tr.TextSize = 13
 			tr.TextColor3 = C.accent
 			tr.TextXAlignment = Enum.TextXAlignment.Right
-			tr.Text = "x" .. tostring(row.n)
+			tr.Text = "x" .. tostring(shownN)
 			tr.Parent = btn
 		else
 			local tl = Instance.new("TextLabel")
@@ -240,7 +279,7 @@ local function rebuildBankList()
 			tr.Font = Enum.Font.GothamBold
 			tr.TextSize = 15
 			tr.TextColor3 = C.accent
-			tr.Text = "x" .. tostring(row.n)
+			tr.Text = "x" .. tostring(shownN)
 			tr.Parent = btn
 		end
 
@@ -251,12 +290,13 @@ local function rebuildBankList()
 	end
 end
 
-local function mixTotal()
-	local t = 0
+local function mixAnyFilled()
 	for _, e in ipairs(mix) do
-		t = t + (tonumber(e.qty) or 0)
+		if mixSlotEntryValid(e) then
+			return true
+		end
 	end
-	return t
+	return false
 end
 
 local SLOT_UI_POS = {
@@ -274,7 +314,7 @@ local function rebuildRecipeLog()
 	layout.Padding = UDim.new(0, 4)
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Parent = recipeLogList
-	if #mix == 0 then
+	if not mixAnyFilled() then
 		local empty = Instance.new("TextLabel")
 		empty.BackgroundTransparency = 1
 		empty.Size = UDim2.new(1, 0, 0, 18)
@@ -288,6 +328,9 @@ local function rebuildRecipeLog()
 		return
 	end
 	for i, e in ipairs(mix) do
+		if not mixSlotEntryValid(e) then
+			continue
+		end
 		local def = IngredientData.GetById(e.id)
 		local row = Instance.new("Frame")
 		row.BackgroundColor3 = Color3.fromRGB(32, 40, 52)
@@ -316,18 +359,37 @@ local function rebuildRecipeLog()
 	end
 end
 
+local function tryPlaceIngredientInSlot(si)
+	if not craftingMixPlaceAt then
+		Notify.Toast("Cooking service unavailable", Color3.fromRGB(255, 100, 80), 2)
+		return
+	end
+	local callOk, ok, errMsg = pcall(function()
+		return craftingMixPlaceAt:InvokeServer(si, selectedId, 1)
+	end)
+	if not callOk then
+		Notify.Toast("Could not reach server", Color3.fromRGB(255, 100, 80), 2)
+	elseif not ok then
+		Notify.Toast(tostring(errMsg) or "Cannot add to slot", Color3.fromRGB(255, 100, 80), 2)
+	end
+	syncMix()
+	rebuildMixList()
+	rebuildBankList()
+end
+
 local function rebuildCraftingSlots()
 	if not slotsHost or not craftingMixRemoveSlot then return end
 	clearChildren(slotsHost)
 	local maxMix = math.min(tonumber(cookCfg.MaxMixIngredients) or CHEF_SLOT_COUNT, CHEF_SLOT_COUNT)
 	for si = 1, maxMix do
 		local e = mix[si]
+		local has = mixSlotEntryValid(e)
 		local slot = Instance.new("TextButton")
 		slot.Name = "Slot" .. si
 		slot.AnchorPoint = Vector2.new(0.5, 0.5)
 		slot.Position = SLOT_UI_POS[si] or UDim2.new(0.5, 0, 0.5, 0)
 		slot.Size = UDim2.fromOffset(62, 62)
-		slot.BackgroundColor3 = e and Color3.fromRGB(44, 52, 68) or Color3.fromRGB(36, 42, 54)
+		slot.BackgroundColor3 = has and Color3.fromRGB(44, 52, 68) or Color3.fromRGB(36, 42, 54)
 		slot.BorderSizePixel = 0
 		slot.AutoButtonColor = false
 		slot.Text = ""
@@ -335,11 +397,11 @@ local function rebuildCraftingSlots()
 		slot.Parent = slotsHost
 		Instance.new("UICorner", slot).CornerRadius = UDim.new(1, 0)
 		local sStroke = Instance.new("UIStroke")
-		sStroke.Color = e and C.tealGlow or C.muted
-		sStroke.Thickness = e and 2.5 or 1.5
-		sStroke.Transparency = e and 0.2 or 0.5
+		sStroke.Color = has and C.tealGlow or C.muted
+		sStroke.Thickness = has and 2.5 or 1.5
+		sStroke.Transparency = has and 0.2 or 0.5
 		sStroke.Parent = slot
-		if e then
+		if has then
 			local def = IngredientData.GetById(e.id)
 			local g = Instance.new("TextLabel")
 			g.BackgroundTransparency = 1
@@ -360,11 +422,16 @@ local function rebuildCraftingSlots()
 			q.Text = "×" .. tostring(e.qty)
 			q.Parent = slot
 			slot.MouseButton1Click:Connect(function()
-				pcall(function()
-					craftingMixRemoveSlot:InvokeServer(si)
-				end)
-				syncMix()
-				rebuildMixList()
+				if cookMode and selectedId and craftingMixPlaceAt then
+					tryPlaceIngredientInSlot(si)
+				else
+					pcall(function()
+						craftingMixRemoveSlot:InvokeServer(si)
+					end)
+					syncMix()
+					rebuildMixList()
+					rebuildBankList()
+				end
 			end)
 		else
 			local lab = Instance.new("TextLabel")
@@ -376,6 +443,16 @@ local function rebuildCraftingSlots()
 			lab.Text = "SLOT\n" .. si
 			lab.TextWrapped = true
 			lab.Parent = slot
+			slot.MouseButton1Click:Connect(function()
+				if not cookMode then
+					return
+				end
+				if not selectedId then
+					Notify.Toast("Select an ingredient, then tap a slot", Color3.fromRGB(255, 200, 100), 2.5)
+					return
+				end
+				tryPlaceIngredientInSlot(si)
+			end)
 		end
 	end
 end
@@ -391,7 +468,12 @@ local function rebuildMixList()
 	local layout = Instance.new("UIListLayout")
 	layout.Padding = UDim.new(0, 4)
 	layout.Parent = mixList
-	for i, e in ipairs(mix) do
+	local maxSlots = tonumber(cookCfg.MaxMixIngredients) or CHEF_SLOT_COUNT
+	for i = 1, maxSlots do
+		local e = mix[i]
+		if not mixSlotEntryValid(e) then
+			continue
+		end
 		local def = IngredientData.GetById(e.id)
 		local row = Instance.new("Frame")
 		row.BackgroundColor3 = C.card
@@ -419,12 +501,14 @@ local function rebuildMixList()
 		rm.TextSize = 12
 		rm.Parent = row
 		Instance.new("UICorner", rm).CornerRadius = UDim.new(0, 4)
+		local slotIndex = i
 		rm.MouseButton1Click:Connect(function()
 			pcall(function()
-				craftingMixRemoveSlot:InvokeServer(i)
+				craftingMixRemoveSlot:InvokeServer(slotIndex)
 			end)
 			syncMix()
 			rebuildMixList()
+			rebuildBankList()
 		end)
 	end
 end
@@ -959,6 +1043,7 @@ local function buildGui()
 		end
 		syncMix()
 		rebuildMixList()
+		rebuildBankList()
 	end)
 
 	local add5 = mkBtn("+5", 0.12, Color3.fromRGB(45, 90, 140))
@@ -978,6 +1063,7 @@ local function buildGui()
 		end
 		syncMix()
 		rebuildMixList()
+		rebuildBankList()
 	end)
 
 	local clr = mkBtn("Clear mix", 0.18, Color3.fromRGB(70, 55, 45))
@@ -989,6 +1075,7 @@ local function buildGui()
 		end)
 		syncMix()
 		rebuildMixList()
+		rebuildBankList()
 	end)
 
 	local destroyB = mkBtn("Destroy 1", 0.18, Color3.fromRGB(90, 40, 40))
@@ -1210,7 +1297,11 @@ for _, p in ipairs(CollectionService:GetTagged(PICKUP_TAG)) do
 	hookPickup(p)
 end
 
-local function hookCampfire(inst)
+local function hasCookTag(inst)
+	return CollectionService:HasTag(inst, COOK_NPC_TAG) or CollectionService:HasTag(inst, COOK_NPC_TAG_LEGACY)
+end
+
+local function hookCookNPC(inst)
 	local part = inst:IsA("BasePart") and inst or inst:FindFirstChildWhichIsA("BasePart", true)
 	if not part then return end
 	local prompt = part:FindFirstChildOfClass("ProximityPrompt")
@@ -1220,12 +1311,24 @@ local function hookCampfire(inst)
 	end)
 end
 
-CollectionService:GetInstanceAddedSignal(CAMPFIRE_TAG):Connect(hookCampfire)
-for _, inst in ipairs(CollectionService:GetTagged(CAMPFIRE_TAG)) do
-	hookCampfire(inst)
+local function hookCookIfTagged(inst)
+	if hasCookTag(inst) then
+		hookCookNPC(inst)
+	end
 end
 
-local function isCampfirePrompt(prompt)
+CollectionService:GetInstanceAddedSignal(COOK_NPC_TAG):Connect(hookCookIfTagged)
+CollectionService:GetInstanceAddedSignal(COOK_NPC_TAG_LEGACY):Connect(hookCookIfTagged)
+for _, inst in ipairs(CollectionService:GetTagged(COOK_NPC_TAG)) do
+	hookCookNPC(inst)
+end
+for _, inst in ipairs(CollectionService:GetTagged(COOK_NPC_TAG_LEGACY)) do
+	if not CollectionService:HasTag(inst, COOK_NPC_TAG) then
+		hookCookNPC(inst)
+	end
+end
+
+local function isCookNPCPrompt(prompt)
 	if not prompt or not prompt:IsA("ProximityPrompt") then
 		return false
 	end
@@ -1233,11 +1336,11 @@ local function isCampfirePrompt(prompt)
 	if not parent or not parent:IsA("Instance") then
 		return false
 	end
-	if CollectionService:HasTag(parent, CAMPFIRE_TAG) then
+	if hasCookTag(parent) then
 		return true
 	end
 	local modelAncestor = parent:FindFirstAncestorOfClass("Model")
-	if modelAncestor and CollectionService:HasTag(modelAncestor, CAMPFIRE_TAG) then
+	if modelAncestor and hasCookTag(modelAncestor) then
 		return true
 	end
 	return false
@@ -1247,7 +1350,7 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt, triggerPlayer)
 	if triggerPlayer ~= player then
 		return
 	end
-	if isCampfirePrompt(prompt) then
+	if isCookNPCPrompt(prompt) then
 		openCooking()
 	end
 end)

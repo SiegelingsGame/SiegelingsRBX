@@ -1536,8 +1536,9 @@ local function mkCard(entry, creature, data, order)
 				task.delay(0.35, function() if refreshInventory then refreshInventory() end end)
 			end)
 		end)
-	elseif isBattle then
-		-- Battle team creatures: Dismiss + Sell buttons
+	elseif isBattle and not isFav then
+		-- Battle team (not favorite): Dismiss + Sell only. Favorites use the normal row below
+		-- so Mount / Income / Defense stay available even while the creature is on the team.
 		local sellLeft, sellWidth = reserveButtonSlot("Sell")
 		local sellBtn = mkBtn("Sell", sellLeft, sellWidth, Color3.fromRGB(200, 60, 60), true)
 		sellBtn.MouseButton1Click:Connect(function()

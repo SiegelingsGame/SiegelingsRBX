@@ -10,7 +10,8 @@ local PlayerDataManager -- set during Init
 local LeaderboardSystem = {}
 
 local REFRESH_INTERVAL = 30
-local MAX_ENTRIES = 10
+local MAX_ENTRIES = 10 -- physical arena boards
+local REMOTE_MAX_ENTRIES = 3 -- full-screen UI: top 3 only
 
 -- Scale factor for physical board text (increase to make text larger and more readable)
 -- Lower PixelsPerStud = larger display; higher TextSize = bigger text
@@ -52,7 +53,7 @@ local BOARD_DEFS = {
 
 local boardRefs = {} -- { [partName] = { part = Part } }
 
--- Gather sorted leaderboard data from all online playersb
+-- Gather sorted leaderboard data from all online playersbf
 local function gatherLeaderboardData(statGetter)
 	local entries = {}
 	for _, player in ipairs(Players:GetPlayers()) do
@@ -195,7 +196,7 @@ local function onGetLeaderboardData(player, category)
 	if category == "pvp" then
 		local entries = gatherPvPLeaderboardData()
 		local result = {}
-		for i = 1, math.min(MAX_ENTRIES, #entries) do
+		for i = 1, math.min(REMOTE_MAX_ENTRIES, #entries) do
 			local e = entries[i]
 			table.insert(result, {
 				rank = i,
@@ -231,7 +232,7 @@ local function onGetLeaderboardData(player, category)
 	local entries = gatherLeaderboardData(boardDef.getStat)
 	local result = {}
 
-	for i = 1, math.min(MAX_ENTRIES, #entries) do
+	for i = 1, math.min(REMOTE_MAX_ENTRIES, #entries) do
 		local e = entries[i]
 		table.insert(result, {
 			rank = i,

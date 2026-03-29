@@ -231,6 +231,7 @@ local getCampfireRecipePattern = makeFunc("GetCampfireRecipePattern")
 local craftAtCampfireWithQuality = makeFunc("CraftAtCampfireWithQuality")
 local ingredientDestroy = makeFunc("IngredientDestroy")
 local craftingMixAdd = makeFunc("CraftingMixAdd")
+local craftingMixPlaceAt = makeFunc("CraftingMixPlaceAt")
 local craftingMixRemoveSlot = makeFunc("CraftingMixRemoveSlot")
 local craftingMixClear = makeFunc("CraftingMixClear")
 local craftingMixSetQty = makeFunc("CraftingMixSetQty")
@@ -605,6 +606,11 @@ end
 if craftingMixAdd then
 	craftingMixAdd.OnServerInvoke = function(plr, ingredientId, qty)
 		return PlayerDataManager.CraftingMixAdd(plr, tostring(ingredientId or ""), qty)
+	end
+end
+if craftingMixPlaceAt then
+	craftingMixPlaceAt.OnServerInvoke = function(plr, slotIndex, ingredientId, qty)
+		return PlayerDataManager.CraftingMixPlaceAt(plr, slotIndex, tostring(ingredientId or ""), qty)
 	end
 end
 if craftingMixRemoveSlot then

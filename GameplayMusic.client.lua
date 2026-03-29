@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════════════
--- Last updated: 2026-03-21
+-- Last updated: 2026-03-28
 -- GameplayMusic.client.lua
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- Multi-track biome music system with battle theme override.
@@ -8,8 +8,10 @@
 -- Naming convention: "Sieglings_[TrackName]"
 --
 -- Track routing (priority order):
---   1. COMBAT → Sieglings_BattleTheme  (arena, gym, PvP, badlands)
---   2. BIOME  → mapped from current skybox name:
+--   1. COMBAT → Sieglings_BattleTheme  (InBattleMusic / badlands / PvP — not arena proximity alone)
+--   2. OUTER BIOME → Desert / Electric / Water sky (from baseplates): beats main-arena proximity BGM
+--   3. NEAR MAIN ARENA → battle theme within ArenaBattleMusicRadius of BattlePoints / ArenaCenter
+--   4. BIOME  → mapped from current skybox name (cave, inner wedges, etc.):
 --        FireSky     → Sieglings_FireBiome
 --        IceSky      → Sieglings_SnowBiome
 --        WindSky     → Sieglings_WindBiome
@@ -19,7 +21,7 @@
 --        ElectricSky → Sieglings_ElectricBiome (if it exists, else Main Theme)
 --        WaterSky    → Sieglings_WaterBiome    (if it exists, else Main Theme)
 --        ArenaSky    → Sieglings_ Main Theme   (hub / default)
---   3. FALLBACK → Sieglings_ Main Theme
+--   5. FALLBACK → Sieglings_ Main Theme
 --
 -- BiomeSkyboxClient sets player attribute "CurrentSkyName" whenever the
 -- skybox changes. This script listens for that attribute.
@@ -29,6 +31,7 @@
 --   • player attribute "InBadlands"               == true
 --   • PvPBattleStart / PvPBattleEnd RemoteEvents
 --   • within ArenaBattleMusicRadius studs of any workspace.Arena BlueTeam/RedTeam BattlePoint
+--     (skipped while CurrentSkyName is an outer biome — see GameplayMusic.OuterBiomeSkies)
 --
 -- Crossfade: smooth transition between tracks. Outgoing fades to silence,
 -- incoming fades to target volume. Tracks keep playing silently so resuming
@@ -84,6 +87,25 @@ local SKY_TO_TRACK = config.SkyToTrack or {
 	ElectricSky = "Sieglings_ElectricBiome",
 	WaterSky    = "Sieglings_OceanBiome",
 }
+
+-- Sky names that match BiomeSkyboxClient outer baseplates (Desert / Electric / Ocean).
+-- While the player is in one of these zones, biome BGM wins over main-arena proximity battle music.
+local OUTER_BIOME_SKY = {}
+do
+	local list = config.OuterBiomeSkies
+	if type(list) == "table" then
+		for _, name in ipairs(list) do
+			if type(name) == "string" and name ~= "" then
+				OUTER_BIOME_SKY[name] = true
+			end
+		end
+	end
+	if next(OUTER_BIOME_SKY) == nil then
+		OUTER_BIOME_SKY.DesertSky = true
+		OUTER_BIOME_SKY.ElectricSky = true
+		OUTER_BIOME_SKY.WaterSky = true
+	end
+end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- Cave biome: positional override (not skybox-based)
@@ -475,30 +497,44 @@ local function crossfadeTo(targetTrack)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
--- Track selection: combat overrides biome, biome overrides default
+-- Track selection: combat > outer biome > arena proximity > cave > other biomes > main
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 --- Determine the correct track to play right now.
---- Priority: Combat > Cave (positional) > Biome (skybox) > Main Theme
 --- @return Sound — the Sound object to crossfade to
 local function getDesiredTrack()
-	-- Priority 1: Combat / main-arena battle-point radius → battle theme
-	if isInCombat() or nearMainArenaBattleMusicZone then
+	local skyName = player:GetAttribute("CurrentSkyName")
+
+	-- Priority 1: Real combat (participant, badlands, PvP) — not "near arena" alone
+	if isInCombat() then
 		return battleTheme or mainTheme
 	end
 
-	-- Priority 2: Cave biome (positional override — underground, no skybox change)
+	-- Priority 2: Outer biome zones (sky from BiomeSkyboxClient outer baseplates).
+	-- Beats main-arena proximity so desert/electric/ocean don't pick up hub battle BGM from range.
+	if skyName and OUTER_BIOME_SKY[skyName] then
+		local outerTrack = biomeTracks[skyName]
+		if outerTrack then
+			return outerTrack
+		end
+		return mainTheme or battleTheme
+	end
+
+	-- Priority 3: Main Siegelord arena — battle theme when near BattlePoints / ArenaCenter
+	if nearMainArenaBattleMusicZone then
+		return battleTheme or mainTheme
+	end
+
+	-- Priority 4: Cave (positional, no skybox)
 	if inCaveBiome and caveTrack then
 		return caveTrack
 	end
 
-	-- Priority 3: Biome-specific track based on current skybox
-	local skyName = player:GetAttribute("CurrentSkyName")
+	-- Priority 5: Other sky-driven biomes (inner wedges, etc.)
 	if skyName and biomeTracks[skyName] then
 		return biomeTracks[skyName]
 	end
 
-	-- Priority 4: Fallback → main theme
 	return mainTheme or battleTheme
 end
 

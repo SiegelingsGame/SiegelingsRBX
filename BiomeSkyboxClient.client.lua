@@ -60,10 +60,10 @@ local BATTLE_SKY_NAME = (type(biomeCfg.BattleSkyName) == "string" and biomeCfg.B
 --- Timeout (seconds) for WaitForChild calls during setup
 local WAIT_TIMEOUT = 15
 
---- Maximum XZ distance (studs) from hub center that inner-wedge detection applies.
+--- Maximum XZ distance (studs) from hub center that inner-wedge detection applies...
 --- Beyond this radius the player is in an outer biome zone, not an inner wedge.
 --- Set this to roughly the distance from hub center to the nearest outer baseplate edge.
-local INNER_WEDGE_MAX_RADIUS = 1000
+local INNER_WEDGE_MAX_RADIUS = 900
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- ZONE DEFINITIONS
@@ -80,7 +80,7 @@ local OUTER_ZONES = {
 }
 
 --- Hub ground parts that use the default arena skybox.
---- Each entry is an ancestor path under workspace.
+--- Each entry is an ancestor path under workspace
 local HUB_PARTS = {
 	{"HubArea", "HubGround"},
 }
@@ -92,7 +92,7 @@ local ROAD_NAMES = { "CaveRoad", "ElectricRoad", "DesertRoad", "WetRoad" }
 --- Inner biome wedges between two adjacent roads (clockwise sweep order).
 --- Road angles (from debug logs):
 ---   ElectricRoad ≈ -180°  (West / -X)
----   CaveRoad     ≈  -90°  (North / -Z)
+---   CaveRoad     ≈  -90°  (North / -Z)sd
 ---   WetRoad      ≈    0°  (East / +X)
 ---   DesertRoad   ≈   90°  (South / +Z)
 --- Clockwise order: Electric → Cave → Wet → Desert → Electric

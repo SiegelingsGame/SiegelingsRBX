@@ -911,7 +911,7 @@ CreatureData.Creatures = {
 	},
 
 	-- ============================
-	-- EARTH CREATURES (5C, 4U, 3R, 2E, 1L).
+	-- EARTH CREATURES (5C, 4U, 3R, 2E, 1L)
 	-- ============================
 
 	-- Earth Common (5)
@@ -1403,7 +1403,8 @@ CreatureData.Creatures = {
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
 		description = "A serpent that flows like water. Constricts and drowns prey in whirlpools of its own making.",
 		modelName = "Hydroxyl", primaryColor = Color3.fromRGB(40, 120, 200),
-		spawnPointType = "dungeon", evolvesFrom = "droxyl",modelDisplaySize = 10,modelScaleMultiplier = 1.5
+		spawnPointType = "dungeon", evolvesFrom = "droxyl",modelDisplaySize = 10,modelScaleMultiplier = 1.5,
+		mountable = true,
 	},
 	{
 		id = "Shellnaut", displayName = "Shellnaut", rarity = "Rare",
@@ -1412,7 +1413,7 @@ CreatureData.Creatures = {
 		description = "A massive crab-like guardian. Rises with the tide to shield allies behind walls of water.",
 		modelName = "Shellnaut", primaryColor = Color3.fromRGB(60, 140, 220),
 		spawnPointType = "dungeon",modelDisplaySize = 10,modelScaleMultiplier = 1.5,
-		evolvesFrom = "torqlander",
+		evolvesFrom = "torqlander",mountable = true,
 	},
 	{
 		id = "jawbite", displayName = "Jawbite", rarity = "Rare",
@@ -1429,7 +1430,7 @@ CreatureData.Creatures = {
 		element = "Water", class = "Mage", behavior = "aggressive",
 		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
 		description = "Commands storm surges and lightning-struck seas. Its tidal blasts devastate entire shorelines.",
-		modelName = "ClawQueen", primaryColor = Color3.fromRGB(50, 100, 200),
+		modelName = "Clawqueen", primaryColor = Color3.fromRGB(50, 100, 200),
 		spawnPointType = "dungeon",modelDisplaySize = 12,modelScaleMultiplier = 1.5,
 		mountable = true, mountType = "Swimming", mountOffset = {0, 3.5, -1.5}, mountScale = 2.2,
 		evolvesFrom = "clawkid",
@@ -1457,15 +1458,34 @@ CreatureData.Creatures = {
 
 	-- ============================
 	-- STAND-IN SIEGLINGS (placeholder until full rosters exist)
+	-- Evolve chains among stand-ins: Light, Poison, Undead only (not Psychic / Metal).
 	-- ============================
 
-	-- Light stand-in
+	-- Light stand-ins (evolve chain only for this element among stand-ins)
 	{
 		id = "light_siegling_standin", displayName = "Light Siegling", rarity = "Common",
 		element = "Light", class = "Support", behavior = "gentle",
-		spawnWeight = 1, baseIncome = 1, captureTime = 0.5,
+		spawnWeight = 18, baseIncome = 1, captureTime = 0.5,
 		description = "A radiant placeholder Siegling. Full Light roster coming soon.",
 		modelName = "Egg", primaryColor = Color3.fromRGB(255, 250, 200),
+		evolvesTo = "light_daybreak",
+	},
+	{
+		id = "light_daybreak", displayName = "Light Siegling (Daybreak)", rarity = "Uncommon",
+		element = "Light", class = "Support", behavior = "gentle",
+		spawnWeight = 10, baseIncome = 3, captureTime = 1.1,
+		description = "Brighter placeholder form on the Light evolve path.",
+		modelName = "Egg", primaryColor = Color3.fromRGB(255, 248, 210),
+		evolvesFrom = "light_siegling_standin", evolvesTo = "light_solbanner",
+	},
+	{
+		id = "light_solbanner", displayName = "Light Siegling (Solbanner)", rarity = "Rare",
+		element = "Light", class = "Guardian", behavior = "lone",
+		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
+		description = "Rare capstone of the Light stand-in line.",
+		modelName = "Egg", primaryColor = Color3.fromRGB(255, 245, 190),
+		spawnPointType = "dungeon",
+		evolvesFrom = "light_daybreak",
 	},
 	-- Psychic stand-ins (full rarity spread)
 	-- Psychic Common (5)
@@ -1654,7 +1674,7 @@ CreatureData.Creatures = {
 		description = "A metallic placeholder Siegling. Full Metal roster coming soon.",
 		modelName = "Egg", primaryColor = Color3.fromRGB(155, 165, 175),
 	},
-	-- Metal Rare (3)
+	-- Metal Rare (3)d
 	{
 		id = "bearzooka", displayName = "Bearzooka", rarity = "Rare",
 		element = "Metal", class = "Guardian", behavior = "lone",
@@ -1705,21 +1725,57 @@ CreatureData.Creatures = {
 		modelName = "Egg", primaryColor = Color3.fromRGB(190, 200, 210),
 		spawnPointType = "boss",
 	},
-	-- Poison stand-in
+	-- Poison stand-ins (evolve chain only for this element among stand-ins)
 	{
 		id = "poison_siegling_standin", displayName = "Poison Siegling", rarity = "Common",
 		element = "Poison", class = "Assassin", behavior = "skittish",
 		spawnWeight = 1, baseIncome = 1, captureTime = 0.5,
 		description = "A toxic placeholder Siegling. Full Poison roster coming soon.",
 		modelName = "Egg", primaryColor = Color3.fromRGB(120, 220, 80),
+		evolvesTo = "poison_venomidge",
 	},
-	-- Undead stand-in
+	{
+		id = "poison_venomidge", displayName = "Poison Siegling (Venomidge)", rarity = "Uncommon",
+		element = "Poison", class = "Assassin", behavior = "skittish",
+		spawnWeight = 10, baseIncome = 3, captureTime = 1.1,
+		description = "Uncommon step on the Poison stand-in evolve path.",
+		modelName = "Egg", primaryColor = Color3.fromRGB(125, 225, 75),
+		evolvesFrom = "poison_siegling_standin", evolvesTo = "poison_venomapex",
+	},
+	{
+		id = "poison_venomapex", displayName = "Poison Siegling (Venomapex)", rarity = "Rare",
+		element = "Poison", class = "Assassin", behavior = "aggressive",
+		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
+		description = "Rare capstone of the Poison stand-in line.",
+		modelName = "Egg", primaryColor = Color3.fromRGB(115, 220, 70),
+		spawnPointType = "dungeon",
+		evolvesFrom = "poison_venomidge",
+	},
+	-- Undead stand-ins (evolve chain only for this element among stand-ins)
 	{
 		id = "undead_siegling_standin", displayName = "Undead Siegling", rarity = "Common",
 		element = "Undead", class = "Bruiser", behavior = "lone",
-		spawnWeight = 1, baseIncome = 1, captureTime = 0.5,
+		spawnWeight = 18, baseIncome = 1, captureTime = 0.5,
 		description = "An undead placeholder Siegling. Full Undead roster coming soon.",
 		modelName = "Ragguette", primaryColor = Color3.fromRGB(140, 120, 160),
+		evolvesTo = "undead_gravewit",
+	},
+	{
+		id = "undead_gravewit", displayName = "Undead Siegling (Gravewit)", rarity = "Uncommon",
+		element = "Undead", class = "Mage", behavior = "lone",
+		spawnWeight = 10, baseIncome = 3, captureTime = 1.1,
+		description = "Uncommon step on the Undead stand-in evolve path.",
+		modelName = "Ragguette", primaryColor = Color3.fromRGB(135, 115, 155),
+		evolvesFrom = "undead_siegling_standin", evolvesTo = "undead_mausolem",
+	},
+	{
+		id = "undead_mausolem", displayName = "Undead Siegling (Mausolem)", rarity = "Rare",
+		element = "Undead", class = "Guardian", behavior = "lone",
+		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
+		description = "Rare capstone of the Undead stand-in line.",
+		modelName = "Ragguette", primaryColor = Color3.fromRGB(100, 85, 120),
+		spawnPointType = "dungeon",
+		evolvesFrom = "undead_gravewit",
 	},
 }
 

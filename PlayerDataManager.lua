@@ -216,18 +216,42 @@ local function normalizeIngredientBank(raw)
 	return fixed
 end
 
+local function getMaxMixIngredients()
+	local cook = GameConfig.Cooking or {}
+	return tonumber(cook.MaxMixIngredients) or 4
+end
+
+--- mix[1..max] = { id, qty } or false (empty slot). Legacy compact lists are re-packed from slot 1.
+local function ensureFixedMixSlots(mix, maxMix)
+	maxMix = maxMix or getMaxMixIngredients()
+	local entries = {}
+	for _, e in ipairs(mix) do
+		if type(e) == "table" and e.id and tostring(e.id) ~= "" and (tonumber(e.qty) or 0) > 0 then
+			table.insert(entries, { id = tostring(e.id), qty = math.floor(e.qty) })
+		end
+	end
+	for k in pairs(mix) do
+		mix[k] = nil
+	end
+	for i = 1, maxMix do
+		mix[i] = entries[i] or false
+	end
+end
+
 local function mixTotalQty(mix)
 	local t = 0
-	for _, e in ipairs(mix) do
-		t = t + (tonumber(e.qty) or 0)
+	for _, e in pairs(mix) do
+		if type(e) == "table" and (tonumber(e.qty) or 0) > 0 then
+			t = t + e.qty
+		end
 	end
 	return t
 end
 
 local function mixCountForId(mix, id)
 	local t = 0
-	for _, e in ipairs(mix) do
-		if e.id == id then
+	for _, e in pairs(mix) do
+		if type(e) == "table" and e.id == id then
 			t = t + (tonumber(e.qty) or 0)
 		end
 	end
@@ -1831,61 +1855,161 @@ local function getOrInitMix(uid)
 end
 
 function PlayerDataManager.GetCraftingMix(player)
+	local maxMix = getMaxMixIngredients()
 	local mix = getOrInitMix(player.UserId)
+	if next(mix) == nil then
+		for i = 1, maxMix do
+			mix[i] = false
+		end
+	else
+		ensureFixedMixSlots(mix, maxMix)
+	end
 	local out = {}
-	for i, e in ipairs(mix) do
-		out[i] = { id = e.id, qty = e.qty }
+	for i = 1, maxMix do
+		local e = mix[i]
+		if type(e) == "table" and e.id and tostring(e.id) ~= "" and (tonumber(e.qty) or 0) > 0 then
+			out[i] = { id = e.id, qty = e.qty }
+		else
+			out[i] = { id = "", qty = 0 }
+		end
 	end
 	return out
 end
 
 function PlayerDataManager.CraftingMixClear(player)
-	craftingMixByUserId[player.UserId] = {}
+	local maxMix = getMaxMixIngredients()
+	local mix = {}
+	for i = 1, maxMix do
+		mix[i] = false
+	end
+	craftingMixByUserId[player.UserId] = mix
+end
+
+--- Place qty of ingredientId into a fixed slot (1..max). Replaces occupied slot; stacks if same id.
+function PlayerDataManager.CraftingMixPlaceAt(player, slotIndex, ingredientId, qty)
+	ingredientId = tostring(ingredientId or "")
+	qty = math.floor(tonumber(qty) or 0)
+	if ingredientId == "" or qty <= 0 then
+		return false, "Bad ingredient or qty"
+	end
+	local def = IngredientData.GetById(ingredientId)
+	if not def then
+		return false, "Unknown ingredient"
+	end
+	local maxMix = getMaxMixIngredients()
+	slotIndex = math.floor(tonumber(slotIndex) or 0)
+	if slotIndex < 1 or slotIndex > maxMix then
+		return false, "Bad slot"
+	end
+	local mix = getOrInitMix(player.UserId)
+	ensureFixedMixSlots(mix, maxMix)
+
+	local old = mix[slotIndex]
+	if type(old) ~= "table" or not old.id or (tonumber(old.qty) or 0) <= 0 then
+		old = nil
+	end
+
+	local newQtyAtSlot = qty
+	if old and old.id == ingredientId then
+		newQtyAtSlot = old.qty + qty
+	end
+
+	local totalAfter = mixTotalQty(mix) - (old and old.qty or 0) + newQtyAtSlot
+	if totalAfter > maxMix then
+		return false, "Mix is full (max " .. tostring(maxMix) .. " items)"
+	end
+
+	local inMixOtherSlots = 0
+	for i = 1, maxMix do
+		if i ~= slotIndex then
+			local e = mix[i]
+			if type(e) == "table" and e.id == ingredientId then
+				inMixOtherSlots = inMixOtherSlots + (tonumber(e.qty) or 0)
+			end
+		end
+	end
+
+	local d = playerCache[player.UserId]
+	if not d or not d.ingredientBank then
+		return false, "No data"
+	end
+	local have = d.ingredientBank[ingredientId] or 0
+	if inMixOtherSlots + newQtyAtSlot > have then
+		return false, "Not enough in bank"
+	end
+
+	mix[slotIndex] = { id = ingredientId, qty = newQtyAtSlot }
+	return true
 end
 
 function PlayerDataManager.CraftingMixAdd(player, ingredientId, qty)
 	qty = math.floor(tonumber(qty) or 0)
-	if qty <= 0 then return false, "Bad qty" end
+	if qty <= 0 then
+		return false, "Bad qty"
+	end
 	local def = IngredientData.GetById(ingredientId)
-	if not def then return false, "Unknown ingredient" end
-	local cook = GameConfig.Cooking or {}
-	local maxMix = tonumber(cook.MaxMixIngredients) or 4
+	if not def then
+		return false, "Unknown ingredient"
+	end
+	local maxMix = getMaxMixIngredients()
 	local mix = getOrInitMix(player.UserId)
-	if mixTotalQty(mix) + qty > maxMix then return false, "Mix is full (max " .. tostring(maxMix) .. " items)" end
-	local d = playerCache[player.UserId]
-	if not d or not d.ingredientBank then return false, "No data" end
-	local inMix = mixCountForId(mix, ingredientId)
-	local have = d.ingredientBank[ingredientId] or 0
-	if inMix + qty > have then return false, "Not enough in bank" end
-	table.insert(mix, { id = ingredientId, qty = qty })
-	return true
+	ensureFixedMixSlots(mix, maxMix)
+	for i = 1, maxMix do
+		if mix[i] == false then
+			return PlayerDataManager.CraftingMixPlaceAt(player, i, ingredientId, qty)
+		end
+	end
+	return false, "Mix is full (max " .. tostring(maxMix) .. " items)"
 end
 
---- Remove one stack entry by index (1-based).
+--- Clear one fixed slot (1-based).
 function PlayerDataManager.CraftingMixRemoveSlot(player, index)
 	local mix = craftingMixByUserId[player.UserId]
-	if not mix then return false end
+	if not mix then
+		return false
+	end
 	index = math.floor(tonumber(index) or 0)
-	if index < 1 or index > #mix then return false end
-	table.remove(mix, index)
+	local maxMix = getMaxMixIngredients()
+	ensureFixedMixSlots(mix, maxMix)
+	if index < 1 or index > maxMix then
+		return false
+	end
+	if mix[index] == false or type(mix[index]) ~= "table" then
+		return false
+	end
+	mix[index] = false
 	return true
 end
 
 function PlayerDataManager.CraftingMixTrimQty(player, index, newQty)
 	local mix = craftingMixByUserId[player.UserId]
-	if not mix then return false end
+	if not mix then
+		return false
+	end
 	index = math.floor(tonumber(index) or 0)
 	newQty = math.floor(tonumber(newQty) or 0)
-	if index < 1 or index > #mix then return false end
+	local maxMix = getMaxMixIngredients()
+	ensureFixedMixSlots(mix, maxMix)
+	if index < 1 or index > maxMix then
+		return false
+	end
 	local e = mix[index]
-	if newQty <= 0 then table.remove(mix, index) return true end
-	local cook = GameConfig.Cooking or {}
-	local maxMix = tonumber(cook.MaxMixIngredients) or 4
+	if type(e) ~= "table" or not e.id then
+		return false
+	end
+	if newQty <= 0 then
+		mix[index] = false
+		return true
+	end
 	local other = mixTotalQty(mix) - e.qty
-	if other + newQty > maxMix then return false, "Would exceed mix size" end
+	if other + newQty > maxMix then
+		return false, "Would exceed mix size"
+	end
 	local d = playerCache[player.UserId]
 	local have = d and d.ingredientBank and (d.ingredientBank[e.id] or 0) or 0
-	if mixCountForId(mix, e.id) - e.qty + newQty > have then return false, "Not enough in bank" end
+	if mixCountForId(mix, e.id) - e.qty + newQty > have then
+		return false, "Not enough in bank"
+	end
 	e.qty = newQty
 	return true
 end

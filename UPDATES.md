@@ -1,8 +1,20 @@
-# Update log / Memory — Last updated: 2026-03-28 15:00
+# Update log / Memory — Last updated: 2026-03-28 19:00
 
 Before committing: refresh this file's top timestamp and add an entry below; add or update `-- Last updated: YYYY-MM-DD HH:MM` at the top of each changed script.
 
 ---
+
+## 2026-03-28 19:00
+- **MainServer.server.lua**, **IngredientsMenuClient.client.lua** – Cooking mix: new `CraftingMixPlaceAt` RemoteFunction wired server-side; chef slots 1–4 accept **tap after selecting an ingredient** (empty slot places, filled slot replaces/stacks when something is selected, otherwise removes). Non–cook-mode mix list Remove uses real slot indices.
+
+## 2026-03-28 17:30
+- **IngredientSpawnSystem.lua** – CookNPC gets a green `Highlight` (`CookNPCHighlight`) so the chef reads clearly in the hub.
+
+## 2026-03-28 17:00
+- **IngredientSpawnSystem.lua**, **GameConfigData.lua**, **IngredientsMenuClient.client.lua** – Replaced arena `Campfire` part with hub **CookNPC**: clone `ReplicatedStorage.CookNPC`, place at `Broker + Cooking.CookNPC.OffsetFromBrokerStuds` (raycast Y, `pitch=90` upright, broker-facing), ProximityPrompt “Cook”; retries until Broker exists; client listens for `CookNPC` (+ legacy `ArenaCampfire`) tags.
+
+## 2026-03-28 16:15
+- **GameConfigData.lua** – `SiegeMaster.ExtraRotationDegrees` set to `pitch = 90` (same as Curator/Broker) so the Siege Master mesh stands upright instead of lying flat; reset yaw to 0 so facing follows the Broker’s orientation.
 
 ## 2026-03-28 15:00
 - **SiegeMasterSystem.lua**, **GameConfigData.lua** – Siege Master spawns opposite The Curator: `Broker − ArenaTrader.OffsetFromBrokerStuds` (mirror of Curator’s `Broker + offset`); fallback mirrors spawn-offset when Broker is absent; pre-placed `SiegeMasterNPC` is re-pivoted on init when a spawn frame resolves.

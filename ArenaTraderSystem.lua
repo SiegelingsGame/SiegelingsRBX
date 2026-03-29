@@ -136,6 +136,55 @@ local function rollStock()
 	-- Do not push UI to all players — only send stock when they use the ProximityPrompt.
 end
 
+-- Replace one slot after a purchase (same rarity / prices; new creature + variant). StockId unchanged.
+local function refillPurchasedSlot(slotIndex)
+	if type(slotIndex) ~= "number" or slotIndex < 1 or slotIndex > #stockState.slots then
+		return
+	end
+	local prev = stockState.slots[slotIndex]
+	if not prev or not prev.rarity then
+		return
+	end
+	local rarity = prev.rarity
+	local newId
+
+	if rarity == "Common" then
+		local otherCommonId
+		for i, s in ipairs(stockState.slots) do
+			if i ~= slotIndex and s.rarity == "Common" then
+				otherCommonId = s.creatureId
+				break
+			end
+		end
+		local tries = 0
+		repeat
+			newId = pickCreatureForRarity("Common")
+			tries = tries + 1
+		until not newId
+				or (newId ~= otherCommonId and newId ~= prev.creatureId)
+				or tries >= 64
+	else
+		local tries = 0
+		repeat
+			newId = pickCreatureForRarity(rarity)
+			tries = tries + 1
+		until not newId or newId ~= prev.creatureId or tries >= 48
+	end
+
+	if not newId then
+		newId = prev.creatureId
+	end
+
+	local coinCost, gemCost = priceForRarity(rarity)
+	stockState.slots[slotIndex] = {
+		rarity = rarity,
+		creatureId = newId,
+		variant = rollTraderVariant(),
+		coinCost = coinCost,
+		gemCost = gemCost,
+	}
+end
+
 local function findBrokerPositionAndCFrame()
 	for _, desc in ipairs(Workspace:GetDescendants()) do
 		if desc.Name == "BrokerNPC" and (desc:IsA("Model") or desc:IsA("BasePart")) then
@@ -428,7 +477,9 @@ local function tryPurchase(player, slotIndex, paymentType, creatureId, stockId)
 		notif:FireClient(player, "Acquired " .. nm .. "!", "info")
 	end
 
-	return true, "Purchased"
+	refillPurchasedSlot(slotIndex)
+
+	return true, "Purchased", ArenaTraderSystem.GetStockPayload()
 end
 
 function ArenaTraderSystem.GetStockPayload()

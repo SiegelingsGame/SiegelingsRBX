@@ -1,7 +1,7 @@
 -- LeaderboardClient.lua - StarterPlayer.StarterPlayerScripts (LocalScript)
 -- Full-screen leaderboard panel. Toggle with L key or HUD button.
 -- Tabs: Income, Victories, PvP, Sieglings.
--- Shows top 3 with avatars + runner-ups (4th+) at the bottom.
+-- Top 3 only: Smash-style tilted portrait frames (2nd | 1st | 3rd).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -38,9 +38,16 @@ local C = {
 local RANK_COLORS = { C.gold, C.silver, C.bronze }
 local RANK_LABELS = { "1ST", "2ND", "3RD" }
 
+-- Smash-style layout: left = 2nd, center = 1st (elevated), right = 3rd
+local SMASH_DISPLAY_ORDER = {
+	{ rank = 2, slot = "left" },
+	{ rank = 1, slot = "center" },
+	{ rank = 3, slot = "right" },
+}
+
 -- Panel scales with viewport; on mobile allow smaller scale so it fits on screen
-local PANEL_DESIGN_W = 540
-local PANEL_DESIGN_H = 520
+local PANEL_DESIGN_W = 580
+local PANEL_DESIGN_H = 468
 local PANEL_SCALE_MIN = 0.32
 local PANEL_SCALE_MAX = 1
 local VIEWPORT_PADDING = 24
@@ -81,16 +88,19 @@ local function applyPanelScale(pnl)
 	MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
 end
 
--- Thumbnail cache to avoid repeated async calls
+-- Thumbnail cache to avoid repeated async calls (key = userId .. "_" .. sizeName)
 local thumbnailCache = {}
 
-local function getPlayerThumbnail(userId)
-	if thumbnailCache[userId] then return thumbnailCache[userId] end
+local function getPlayerThumbnail(userId, thumbSize)
+	thumbSize = thumbSize or Enum.ThumbnailSize.Size150x150
+	local sizeName = tostring(thumbSize.Name)
+	local cacheKey = tostring(userId) .. "_" .. sizeName
+	if thumbnailCache[cacheKey] then return thumbnailCache[cacheKey] end
 	local ok, content = pcall(function()
-		return Players:GetUserThumbnailAsync(userId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
+		return Players:GetUserThumbnailAsync(userId, Enum.ThumbnailType.HeadShot, thumbSize)
 	end)
 	if ok and content then
-		thumbnailCache[userId] = content
+		thumbnailCache[cacheKey] = content
 		return content
 	end
 	return nil
@@ -167,29 +177,21 @@ local currentTab = "income"
 local tabButtons = {}
 local contentFrame, myRankBar, myRankLabel
 
--- Content area (ScrollingFrame for the whole content including podium + runners)
-contentFrame = Instance.new("ScrollingFrame")
+-- Content area (top 3 portraits only — no scroll list)
+contentFrame = Instance.new("Frame")
 contentFrame.Size = UDim2.new(1, -20, 1, -130)
 contentFrame.Position = UDim2.new(0, 10, 0, 88)
 contentFrame.BackgroundColor3 = C.bgLight
 contentFrame.BorderSizePixel = 0
-contentFrame.ScrollBarThickness = 4
-contentFrame.ScrollBarImageColor3 = Color3.fromRGB(80, 85, 100)
-contentFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-contentFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+contentFrame.ClipsDescendants = false
 contentFrame.Parent = panel
 Instance.new("UICorner", contentFrame).CornerRadius = UDim.new(0, 8)
 
-local listLayout = Instance.new("UIListLayout")
-listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-listLayout.Padding = UDim.new(0, 4)
-listLayout.Parent = contentFrame
-
 local listPadding = Instance.new("UIPadding")
-listPadding.PaddingTop = UDim.new(0, 6)
-listPadding.PaddingLeft = UDim.new(0, 6)
-listPadding.PaddingRight = UDim.new(0, 6)
-listPadding.PaddingBottom = UDim.new(0, 6)
+listPadding.PaddingTop = UDim.new(0, 10)
+listPadding.PaddingLeft = UDim.new(0, 8)
+listPadding.PaddingRight = UDim.new(0, 8)
+listPadding.PaddingBottom = UDim.new(0, 10)
 listPadding.Parent = contentFrame
 
 -- Player's own rank bar
@@ -262,167 +264,170 @@ local function formatEntryValue(entry, isBattle, isPvp)
 	end
 end
 
--- Create a podium card for a top-3 player
-local function createPodiumCard(rank, entry, isBattle, isPvp)
+local THUMB_SMASH_CENTER = Enum.ThumbnailSize.Size420x420
+local THUMB_SMASH_SIDE = Enum.ThumbnailSize.Size180x180
+
+-- Smash-style portrait: tilted panel, oversized rank watermark, thick metallic border
+local function createSmashPortraitSlot(rank, entry, isBattle, isPvp, slotKind)
 	local rankColor = RANK_COLORS[rank] or C.textSec
 	local isMe = entry and entry.name == player.Name
+	local rotation = slotKind == "left" and -5 or slotKind == "right" and 5 or 0
+	local isCenter = slotKind == "center"
 
-	local card = Instance.new("Frame")
-	card.Name = "Podium_" .. rank
-	card.Size = UDim2.new(1 / 3, -6, 0, 150)
-	card.BackgroundColor3 = isMe and C.playerHL or C.card
-	card.BorderSizePixel = 0
-	Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
+	local slot = Instance.new("Frame")
+	slot.Name = "SmashSlot_" .. rank
+	slot.BackgroundTransparency = 1
+	slot.BorderSizePixel = 0
+	slot.ZIndex = isCenter and 3 or 2
 
-	local cardStroke = Instance.new("UIStroke")
-	cardStroke.Color = rankColor
-	cardStroke.Thickness = rank == 1 and 2 or 1
-	cardStroke.Transparency = 0.4
-	cardStroke.Parent = card
+	local shadow = Instance.new("Frame")
+	shadow.Name = "DropShadow"
+	shadow.AnchorPoint = Vector2.new(0.5, 0.5)
+	shadow.Position = UDim2.new(0.5, 5, 0.52, 6)
+	shadow.Size = UDim2.new(0.86, 0, 0.8, 0)
+	shadow.BackgroundColor3 = Color3.new(0, 0, 0)
+	shadow.BackgroundTransparency = 0.55
+	shadow.BorderSizePixel = 0
+	shadow.Rotation = rotation
+	shadow.ZIndex = slot.ZIndex - 1
+	shadow.Parent = slot
+	Instance.new("UICorner", shadow).CornerRadius = UDim.new(0, 6)
 
-	-- Rank badge at top
-	local rankBadge = Instance.new("TextLabel")
-	rankBadge.Size = UDim2.new(1, 0, 0, 20)
-	rankBadge.Position = UDim2.new(0, 0, 0, 4)
-	rankBadge.BackgroundTransparency = 1
-	rankBadge.Text = RANK_LABELS[rank] or ("#" .. rank)
-	rankBadge.TextColor3 = rankColor
-	rankBadge.Font = Enum.Font.GothamBlack
-	rankBadge.TextSize = rank == 1 and 16 or 13
-	rankBadge.Parent = card
+	local tilt = Instance.new("Frame")
+	tilt.Name = "PortraitTilt"
+	tilt.AnchorPoint = Vector2.new(0.5, 0.5)
+	tilt.Position = UDim2.new(0.5, 0, 0.48, 0)
+	tilt.Size = UDim2.new(0.92, 0, isCenter and 0.9 or 0.82, 0)
+	tilt.BackgroundColor3 = isMe and C.playerHL:Lerp(Color3.new(0, 0, 0), 0.5) or Color3.fromRGB(16, 18, 28)
+	tilt.BorderSizePixel = 0
+	tilt.Rotation = rotation
+	tilt.ZIndex = slot.ZIndex
+	tilt.Parent = slot
+	Instance.new("UICorner", tilt).CornerRadius = UDim.new(0, 5)
 
-	-- Avatar image
-	local avatarFrame = Instance.new("Frame")
-	avatarFrame.Size = UDim2.new(0, 60, 0, 60)
-	avatarFrame.Position = UDim2.new(0.5, -30, 0, 26)
-	avatarFrame.BackgroundColor3 = Color3.fromRGB(35, 37, 50)
-	avatarFrame.BorderSizePixel = 0
-	avatarFrame.Parent = card
-	Instance.new("UICorner", avatarFrame).CornerRadius = UDim.new(1, 0)
+	local tiltGrad = Instance.new("UIGradient")
+	tiltGrad.Rotation = 100
+	tiltGrad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+		ColorSequenceKeypoint.new(0.45, Color3.fromRGB(120, 125, 150)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(40, 42, 58)),
+	})
+	tiltGrad.Transparency = NumberSequence.new(0.88)
+	tiltGrad.Parent = tilt
 
-	local avatarStroke = Instance.new("UIStroke")
-	avatarStroke.Color = rankColor
-	avatarStroke.Thickness = 2
-	avatarStroke.Parent = avatarFrame
+	local outerStroke = Instance.new("UIStroke")
+	outerStroke.Color = rankColor
+	outerStroke.Thickness = isCenter and 4 or 3
+	outerStroke.Transparency = isMe and 0.05 or 0.15
+	outerStroke.Parent = tilt
+
+	local innerStroke = Instance.new("UIStroke")
+	innerStroke.Color = Color3.fromRGB(255, 255, 255)
+	innerStroke.Thickness = 1
+	innerStroke.Transparency = 0.82
+	innerStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	innerStroke.Parent = tilt
+
+	local bigRank = Instance.new("TextLabel")
+	bigRank.Name = "RankWatermark"
+	bigRank.Size = UDim2.new(1, 0, 0.42, 0)
+	bigRank.Position = UDim2.new(0, 4, 0, -4)
+	bigRank.BackgroundTransparency = 1
+	bigRank.Text = RANK_LABELS[rank] or ("#" .. tostring(rank))
+	bigRank.TextColor3 = rankColor
+	bigRank.Font = Enum.Font.GothamBlack
+	bigRank.TextSize = isCenter and 52 or 36
+	bigRank.TextXAlignment = Enum.TextXAlignment.Left
+	bigRank.TextYAlignment = Enum.TextYAlignment.Top
+	bigRank.TextTransparency = 0.5
+	bigRank.ZIndex = tilt.ZIndex
+	bigRank.Parent = tilt
 
 	local avatarImg = Instance.new("ImageLabel")
-	avatarImg.Size = UDim2.new(1, 0, 1, 0)
-	avatarImg.BackgroundTransparency = 1
+	avatarImg.Name = "Portrait"
+	avatarImg.AnchorPoint = Vector2.new(0.5, 0)
+	avatarImg.Position = UDim2.new(0.5, 0, 0.08, 0)
+	avatarImg.Size = UDim2.new(1, -12, isCenter and 0.52 or 0.48, 0)
+	avatarImg.BackgroundColor3 = Color3.fromRGB(8, 9, 14)
+	avatarImg.BackgroundTransparency = 0.2
+	avatarImg.BorderSizePixel = 0
 	avatarImg.Image = ""
-	avatarImg.ScaleType = Enum.ScaleType.Fit
-	avatarImg.Parent = avatarFrame
-	Instance.new("UICorner", avatarImg).CornerRadius = UDim.new(1, 0)
+	avatarImg.ScaleType = Enum.ScaleType.Crop
+	avatarImg.ZIndex = tilt.ZIndex + 1
+	avatarImg.Parent = tilt
+	Instance.new("UICorner", avatarImg).CornerRadius = UDim.new(0, 3)
 
-	-- Load thumbnail async
+	local avStroke = Instance.new("UIStroke")
+	avStroke.Color = rankColor
+	avStroke.Thickness = 2
+	avStroke.Transparency = 0.35
+	avStroke.Parent = avatarImg
+
+	local bottomBar = Instance.new("Frame")
+	bottomBar.Name = "NamePlate"
+	bottomBar.AnchorPoint = Vector2.new(0.5, 1)
+	bottomBar.Position = UDim2.new(0.5, 0, 1, -4)
+	bottomBar.Size = UDim2.new(1, -8, 0, isCenter and 52 or 46)
+	bottomBar.BackgroundColor3 = rankColor:Lerp(Color3.new(0, 0, 0), 0.72)
+	bottomBar.BorderSizePixel = 0
+	bottomBar.ZIndex = tilt.ZIndex + 2
+	bottomBar.Parent = tilt
+	Instance.new("UICorner", bottomBar).CornerRadius = UDim.new(0, 4)
+
+	local barStroke = Instance.new("UIStroke")
+	barStroke.Color = rankColor
+	barStroke.Thickness = 1
+	barStroke.Transparency = 0.4
+	barStroke.Parent = bottomBar
+
+	local nameLbl = Instance.new("TextLabel")
+	nameLbl.Size = UDim2.new(1, -8, 0.45, 0)
+	nameLbl.Position = UDim2.new(0, 4, 0, 3)
+	nameLbl.BackgroundTransparency = 1
+	nameLbl.Text = entry and entry.name or "---"
+	nameLbl.TextColor3 = isMe and Color3.fromRGB(180, 230, 255) or C.text
+	nameLbl.Font = Enum.Font.GothamBlack
+	nameLbl.TextSize = isCenter and 14 or 12
+	nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+	nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+	nameLbl.ZIndex = bottomBar.ZIndex
+	nameLbl.Parent = bottomBar
+
+	local valueLbl = Instance.new("TextLabel")
+	valueLbl.Size = UDim2.new(1, -8, 0.48, 0)
+	valueLbl.Position = UDim2.new(0, 4, 0.5, 0)
+	valueLbl.BackgroundTransparency = 1
+	valueLbl.Text = formatEntryValue(entry, isBattle, isPvp)
+	valueLbl.TextColor3 = Color3.fromRGB(255, 248, 220)
+	valueLbl.Font = Enum.Font.GothamBold
+	valueLbl.TextSize = isCenter and 12 or 10
+	valueLbl.TextWrapped = true
+	valueLbl.TextXAlignment = Enum.TextXAlignment.Left
+	valueLbl.TextYAlignment = Enum.TextYAlignment.Top
+	valueLbl.ZIndex = bottomBar.ZIndex
+	valueLbl.Parent = bottomBar
+
 	if entry and entry.userId then
+		local thumbSize = isCenter and THUMB_SMASH_CENTER or THUMB_SMASH_SIDE
 		task.spawn(function()
-			local thumb = getPlayerThumbnail(entry.userId)
+			local thumb = getPlayerThumbnail(entry.userId, thumbSize)
 			if thumb and avatarImg.Parent then
 				avatarImg.Image = thumb
 			end
 		end)
 	end
 
-	-- Player name
-	local nameLbl = Instance.new("TextLabel")
-	nameLbl.Size = UDim2.new(1, -8, 0, 16)
-	nameLbl.Position = UDim2.new(0, 4, 0, 90)
-	nameLbl.BackgroundTransparency = 1
-	nameLbl.Text = entry and entry.name or "---"
-	nameLbl.TextColor3 = isMe and Color3.fromRGB(100, 200, 255) or C.text
-	nameLbl.Font = Enum.Font.GothamBold
-	nameLbl.TextSize = 12
-	nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
-	nameLbl.Parent = card
-
-	-- Stat value
-	local valueLbl = Instance.new("TextLabel")
-	valueLbl.Size = UDim2.new(1, -8, 0, 28)
-	valueLbl.Position = UDim2.new(0, 4, 0, 108)
-	valueLbl.BackgroundTransparency = 1
-	valueLbl.Text = formatEntryValue(entry, isBattle, isPvp)
-	valueLbl.TextColor3 = C.accent
-	valueLbl.Font = Enum.Font.GothamMedium
-	valueLbl.TextSize = 11
-	valueLbl.TextWrapped = true
-	valueLbl.Parent = card
-
-	return card
+	return slot
 end
 
--- Create a compact row for runner-up entries (4th+)
-local function createRunnerUpRow(i, entry, isBattle, isPvp)
-	local isMe = entry and entry.name == player.Name
-	local row = Instance.new("Frame")
-	row.Name = "RunnerUp_" .. i
-	row.Size = UDim2.new(1, 0, 0, 30)
-	row.BackgroundColor3 = isMe and C.playerHL or (i % 2 == 0 and Color3.fromRGB(22, 24, 35) or Color3.fromRGB(18, 20, 30))
-	row.BorderSizePixel = 0
-	Instance.new("UICorner", row).CornerRadius = UDim.new(0, 5)
-
-	-- Rank
-	local rankLbl = Instance.new("TextLabel")
-	rankLbl.Size = UDim2.new(0, 32, 1, 0)
-	rankLbl.Position = UDim2.new(0, 4, 0, 0)
-	rankLbl.BackgroundTransparency = 1
-	rankLbl.Text = "#" .. i
-	rankLbl.TextColor3 = C.textSec
-	rankLbl.Font = Enum.Font.GothamBold
-	rankLbl.TextSize = 13
-	rankLbl.Parent = row
-
-	-- Small avatar
-	local miniAvatar = Instance.new("ImageLabel")
-	miniAvatar.Size = UDim2.new(0, 22, 0, 22)
-	miniAvatar.Position = UDim2.new(0, 38, 0.5, -11)
-	miniAvatar.BackgroundColor3 = Color3.fromRGB(35, 37, 50)
-	miniAvatar.BorderSizePixel = 0
-	miniAvatar.Image = ""
-	miniAvatar.ScaleType = Enum.ScaleType.Fit
-	miniAvatar.Parent = row
-	Instance.new("UICorner", miniAvatar).CornerRadius = UDim.new(1, 0)
-
-	if entry and entry.userId then
-		task.spawn(function()
-			local thumb = getPlayerThumbnail(entry.userId)
-			if thumb and miniAvatar.Parent then
-				miniAvatar.Image = thumb
-			end
-		end)
-	end
-
-	-- Name
-	local nameLbl = Instance.new("TextLabel")
-	nameLbl.Size = UDim2.new(0.4, -68, 1, 0)
-	nameLbl.Position = UDim2.new(0, 66, 0, 0)
-	nameLbl.BackgroundTransparency = 1
-	nameLbl.Text = entry and entry.name or "---"
-	nameLbl.TextColor3 = isMe and Color3.fromRGB(100, 200, 255) or C.text
-	nameLbl.Font = Enum.Font.GothamMedium
-	nameLbl.TextSize = 12
-	nameLbl.TextXAlignment = Enum.TextXAlignment.Left
-	nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
-	nameLbl.Parent = row
-
-	-- Value
-	local valueLbl = Instance.new("TextLabel")
-	valueLbl.Size = UDim2.new(0.5, -10, 1, 0)
-	valueLbl.Position = UDim2.new(0.5, 0, 0, 0)
-	valueLbl.BackgroundTransparency = 1
-	valueLbl.Text = formatEntryValue(entry, isBattle, isPvp)
-	valueLbl.TextColor3 = C.accent
-	valueLbl.Font = Enum.Font.GothamMedium
-	valueLbl.TextSize = 12
-	valueLbl.TextXAlignment = Enum.TextXAlignment.Right
-	valueLbl.Parent = row
-
-	return row
-end
+local SMASH_SLOT_LAYOUT = {
+	left = { pos = UDim2.new(0, 2, 0.04, 0), size = UDim2.new(0.30, -4, 0.93, 0) },
+	center = { pos = UDim2.new(0.30, 0, 0, 0), size = UDim2.new(0.40, 0, 1, 0) },
+	right = { pos = UDim2.new(0.70, -2, 0.04, 0), size = UDim2.new(0.30, -4, 0.93, 0) },
+}
 
 -- Refresh leaderboard display
 local function refreshLeaderboard()
-	local savedScrollY = contentFrame.CanvasPosition.Y
-
 	-- Update tab button visuals
 	for key, btn in pairs(tabButtons) do
 		if key == currentTab then
@@ -446,62 +451,27 @@ local function refreshLeaderboard()
 
 	if not ok or not result or not result.entries then
 		myRankLabel.Text = "Your Rank: ---"
-		task.defer(function()
-			task.wait()
-			local maxScroll = math.max(0, contentFrame.CanvasSize.Y.Offset - contentFrame.AbsoluteWindowSize.Y)
-			contentFrame.CanvasPosition = Vector2.new(0, math.min(savedScrollY, maxScroll))
-		end)
 		return
 	end
 
 	local isBattle = (currentTab == "battle")
 	local isPvp = (currentTab == "pvp")
 
-	-- === TOP 3 PODIUM ===
+	-- === TOP 3 — Smash order: 2nd | 1st | 3rd ===
 	local podiumContainer = Instance.new("Frame")
 	podiumContainer.Name = "PodiumContainer"
-	podiumContainer.Size = UDim2.new(1, 0, 0, 158)
+	podiumContainer.Size = UDim2.new(1, 0, 1, 0)
 	podiumContainer.BackgroundTransparency = 1
-	podiumContainer.LayoutOrder = 1
+	podiumContainer.BorderSizePixel = 0
 	podiumContainer.Parent = contentFrame
 
-	for rank = 1, 3 do
-		local entry = result.entries[rank]
-		local card = createPodiumCard(rank, entry, isBattle, isPvp)
-		card.Position = UDim2.new((rank - 1) / 3, 3, 0, 0)
-		card.Parent = podiumContainer
-	end
-
-	-- === RUNNER-UPS SECTION (4th+) ===
-	if #result.entries > 3 then
-		-- Divider / section header
-		local runnerHeader = Instance.new("Frame")
-		runnerHeader.Name = "RunnerUpHeader"
-		runnerHeader.Size = UDim2.new(1, 0, 0, 24)
-		runnerHeader.BackgroundColor3 = Color3.fromRGB(30, 32, 48)
-		runnerHeader.BorderSizePixel = 0
-		runnerHeader.LayoutOrder = 2
-		runnerHeader.Parent = contentFrame
-		Instance.new("UICorner", runnerHeader).CornerRadius = UDim.new(0, 4)
-
-		local runnerTitle = Instance.new("TextLabel")
-		runnerTitle.Size = UDim2.new(1, -10, 1, 0)
-		runnerTitle.Position = UDim2.new(0, 10, 0, 0)
-		runnerTitle.BackgroundTransparency = 1
-		runnerTitle.Text = "RUNNER-UPS"
-		runnerTitle.TextColor3 = C.textSec
-		runnerTitle.Font = Enum.Font.GothamBold
-		runnerTitle.TextSize = 10
-		runnerTitle.TextXAlignment = Enum.TextXAlignment.Left
-		runnerTitle.Parent = runnerHeader
-
-		-- Runner-up rows
-		for i = 4, #result.entries do
-			local entry = result.entries[i]
-			local row = createRunnerUpRow(i, entry, isBattle, isPvp)
-			row.LayoutOrder = i
-			row.Parent = contentFrame
-		end
+	for _, spec in ipairs(SMASH_DISPLAY_ORDER) do
+		local entry = result.entries[spec.rank]
+		local slot = createSmashPortraitSlot(spec.rank, entry, isBattle, isPvp, spec.slot)
+		local lay = SMASH_SLOT_LAYOUT[spec.slot]
+		slot.Position = lay.pos
+		slot.Size = lay.size
+		slot.Parent = podiumContainer
 	end
 
 	-- Update own rank
@@ -516,13 +486,6 @@ local function refreshLeaderboard()
 	else
 		myRankLabel.Text = "Your Rank: ---"
 	end
-
-	-- Restore scroll position after layout updates
-	task.defer(function()
-		task.wait()
-		local maxScroll = math.max(0, contentFrame.CanvasSize.Y.Offset - contentFrame.AbsoluteWindowSize.Y)
-		contentFrame.CanvasPosition = Vector2.new(0, math.min(savedScrollY, maxScroll))
-	end)
 end
 
 -- Tab button clicks

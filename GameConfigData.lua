@@ -3,7 +3,7 @@
 	ReplicatedStorage/Modules/GameConfigData
 	Actual config data. Required lazily by GameConfig to avoid recursive require.
 ]]
--- Last updated: 2026-03-28 15:00
+-- Last updated: 2026-03-28 17:00
 -- lol
 
 local GameConfig = {}
@@ -153,6 +153,10 @@ GameConfig.GameplayMusic = {
     -- Use ~half the arena width if music only triggers at the edges (default 80).
     ArenaBattleMusicRadius = 80,
 
+    -- Sky names from BiomeSkyboxClient outer baseplates. While CurrentSkyName matches one of these,
+    -- that biome's music wins over ArenaBattleMusicRadius (so outer maps don't bleed arena BGM).
+    OuterBiomeSkies = { "DesertSky", "ElectricSky", "WaterSky" },
+
     -- Volume & pacing
     Volume        = 0.80,   -- target volume for the active track
     PlaybackSpeed = 1,
@@ -202,7 +206,17 @@ GameConfig.Cooking = {
 	PickupLifetimeSeconds = 180,
 	PickupCollectRange = 22,
 	CampfireProximity = 22,
-	CampfirePartName = "Campfire",
+	-- CookNPC: ReplicatedStorage template name; spawned near Broker/Curator/Siege Master hub (see CookNPC table).
+	CookNPC = {
+		TemplateName = "CookNPC",
+		InstanceName = "CookNPC",
+		-- World XZ offset from The Broker (studs). Curator/Siege use ±X; this uses +Z to sit with the hub group.
+		OffsetFromBrokerStuds = Vector3.new(0, 0, 22),
+		FallbackOffsetFromSpawnStuds = Vector3.new(0, 0, 22),
+		OffsetFromArenaCenterStuds = Vector3.new(0, 0, 8),
+		ExtraRotationDegrees = { pitch = 90, yaw = 0, roll = 0 },
+		PromptObjectText = "Campfire Chef",
+	},
 	MaxStackPerIngredientId = 999,
 	MaxTotalIngredientCount = 2500,
 	MinMixIngredients = 3,
@@ -757,7 +771,8 @@ GameConfig.ArenaTrader = {
 GameConfig.SiegeMasterEnabled = true
 GameConfig.SiegeMaster = {
 	OffsetFromArenaCenterStuds = Vector3.new(-22, 0, -8),
-	ExtraRotationDegrees = { pitch = 0, yaw = 145, roll = 0 },
+	-- Same pitch=90 pattern as Curator / Broker NPC mesh upright (model imports lying flat).
+	ExtraRotationDegrees = { pitch = 90, yaw = 0, roll = 0 },
 	PromptRange = 12,
 	PurchaseRange = 22, -- must be this close to buy siege-only items
 }

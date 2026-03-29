@@ -7,7 +7,8 @@
 -- starts music immediately, and waits for ALL of these before releasing:
 --   1. Character + Humanoid exist
 --   2. Server fires LoadingCriticalReady (base assigned, creatures placed)
---   3. Base plot + creature orbs are replicated to the client (visual check)
+--   3. Base plot + creature orbs replicated, and character is near your plot
+--      (server may teleport after spawn — do not release while still at default spawn)
 --   4. ContentProvider preloads nearby assets so nothing pops in
 --
 -- Only after all conditions are met does the screen fade out and the player
@@ -416,6 +417,23 @@ local function findMyPlot()
 	return nil
 end
 
+--- World position of PlotCenter (BasePart or Model with parts), same idea as server teleport target.
+local function getPlotCenterWorldPosition(plot)
+	local raw = plot:FindFirstChild("PlotCenter", true)
+	if not raw then return nil end
+	if raw:IsA("BasePart") then
+		return raw.Position
+	end
+	if raw:IsA("Model") then
+		if raw.PrimaryPart then
+			return raw.PrimaryPart.Position
+		end
+		local bp = raw:FindFirstChildWhichIsA("BasePart", true)
+		return bp and bp.Position or nil
+	end
+	return nil
+end
+
 --- Count base creature orbs on a plot (tagged BaseIncomeCreature / BaseDefenseCreature / BaseBattleCreature)
 --- @param plot Model
 --- @return number
@@ -472,6 +490,29 @@ if not quickSpawnDebug then
 				task.wait(0.3)
 			end
 			print("[LoadingGate] Base creatures visible: " .. countBaseCreatures(plot) .. " on " .. plot.Name)
+
+			-- Server teleports to plot after assign; replication can lag behind plot/creatures.
+			-- Keep the gate up until the character is actually near PlotCenter.
+			local centerPos = getPlotCenterWorldPosition(plot)
+			if centerPos then
+				statusLbl.Text = "Arriving at your base..."
+				local ARRIVE_WAIT_MAX = 20
+				local AT_BASE_RADIUS = 100 -- studs; teleport is ~5 above PlotCenter
+				local arriveStart = tick()
+				while (tick() - arriveStart) < ARRIVE_WAIT_MAX do
+					local char = player.Character
+					local root = char and char:FindFirstChild("HumanoidRootPart")
+					if root and (root.Position - centerPos).Magnitude <= AT_BASE_RADIUS then
+						break
+					end
+					task.wait(0.12)
+				end
+				local char = player.Character
+				local root = char and char:FindFirstChild("HumanoidRootPart")
+				if root and (root.Position - centerPos).Magnitude > AT_BASE_RADIUS then
+					print("[LoadingGate] Character not at plot after " .. ARRIVE_WAIT_MAX .. "s — releasing anyway (deadline may apply)")
+				end
+			end
 		else
 			print("[LoadingGate] Plot not found after " .. PLOT_WAIT_MAX .. "s — releasing anyway")
 		end
@@ -572,7 +613,8 @@ end
 local loadingDone = false
 
 -- Hard deadline: never hold the gate longer than this (prevents infinite hang)
-local MAX_GATE_SECONDS = quickSpawnDebug and 2 or (GameConfig.LoadingCriticalMaxWait or 18) + 12
+-- Extra headroom for plot/creature polling + "wait until at base" after server teleport replicates
+local MAX_GATE_SECONDS = quickSpawnDebug and 2 or (GameConfig.LoadingCriticalMaxWait or 18) + 12 + 25
 local releaseDeadline = tick() + MAX_GATE_SECONDS
 
 while tick() < releaseDeadline do

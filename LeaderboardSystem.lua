@@ -200,6 +200,7 @@ local function onGetLeaderboardData(player, category)
 			table.insert(result, {
 				rank = i,
 				name = e.name,
+				userId = e.userId,
 				value = e.value,
 				losses = e.losses or 0,
 			})
@@ -235,6 +236,7 @@ local function onGetLeaderboardData(player, category)
 		table.insert(result, {
 			rank = i,
 			name = e.name,
+			userId = e.userId,
 			value = e.value,
 			maxStreak = e.data.stats.arenaMaxStreak or 0,
 		})

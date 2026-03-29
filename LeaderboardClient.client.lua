@@ -1,6 +1,7 @@
 -- LeaderboardClient.lua - StarterPlayer.StarterPlayerScripts (LocalScript)
 -- Full-screen leaderboard panel. Toggle with L key or HUD button.
--- Tabs: Income, Victories, Sieglings. Shows top 10 + player's own rank.
+-- Tabs: Income, Victories, PvP, Sieglings.
+-- Shows top 3 with avatars + runner-ups (4th+) at the bottom.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -34,12 +35,15 @@ local C = {
 	streak = Color3.fromRGB(255, 140, 40),
 }
 
+local RANK_COLORS = { C.gold, C.silver, C.bronze }
+local RANK_LABELS = { "1ST", "2ND", "3RD" }
+
 -- Panel scales with viewport; on mobile allow smaller scale so it fits on screen
-local PANEL_DESIGN_W = 520
-local PANEL_DESIGN_H = 480
+local PANEL_DESIGN_W = 540
+local PANEL_DESIGN_H = 520
 local PANEL_SCALE_MIN = 0.32
 local PANEL_SCALE_MAX = 1
-local VIEWPORT_PADDING = 24 -- margin so panel stays inside safe area on mobile
+local VIEWPORT_PADDING = 24
 
 local function getPanelScale()
 	local camera = workspace.CurrentCamera
@@ -68,7 +72,6 @@ local function applyPanelScale(pnl)
 	local scale = getPanelScale()
 	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
 	pnl.Size = UDim2.new(0, w, 0, h)
-	-- Center horizontally; vertically center but clamp so panel stays fully on screen (fixes mobile "slightly below")
 	local centerX = vp.X * 0.5
 	local centerY = vp.Y * 0.5
 	local yMin = VIEWPORT_PADDING + h * 0.5
@@ -78,6 +81,21 @@ local function applyPanelScale(pnl)
 	MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
 end
 
+-- Thumbnail cache to avoid repeated async calls
+local thumbnailCache = {}
+
+local function getPlayerThumbnail(userId)
+	if thumbnailCache[userId] then return thumbnailCache[userId] end
+	local ok, content = pcall(function()
+		return Players:GetUserThumbnailAsync(userId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
+	end)
+	if ok and content then
+		thumbnailCache[userId] = content
+		return content
+	end
+	return nil
+end
+
 -- ScreenGui
 local sg = Instance.new("ScreenGui")
 sg.Name = "LeaderboardGUI"
@@ -85,7 +103,7 @@ sg.ResetOnSpawn = false
 sg.DisplayOrder = 45
 sg.Parent = playerGui
 
--- Main panel (size/position set on open via applyPanelScale)
+-- Main panel
 local panel = Instance.new("Frame")
 panel.Name = "LeaderboardPanel"
 panel.Size = UDim2.new(0, PANEL_DESIGN_W, 0, PANEL_DESIGN_H)
@@ -149,22 +167,7 @@ local currentTab = "income"
 local tabButtons = {}
 local contentFrame, myRankBar, myRankLabel
 
-local function applyResponsiveContentLayout()
-	local mobile = MobileWindowLayout.IsMobile()
-	tabBar.Size = mobile and UDim2.new(1, -12, 0, 36) or UDim2.new(1, -20, 0, 32)
-	tabBar.Position = mobile and UDim2.new(0, 6, 0, 48) or UDim2.new(0, 10, 0, 48)
-	contentFrame.Size = mobile and UDim2.new(1, -12, 1, -140) or UDim2.new(1, -20, 1, -130)
-	contentFrame.Position = mobile and UDim2.new(0, 6, 0, 92) or UDim2.new(0, 10, 0, 88)
-	myRankBar.Size = mobile and UDim2.new(1, -12, 0, 32) or UDim2.new(1, -20, 0, 28)
-	myRankBar.Position = mobile and UDim2.new(0, 6, 1, -40) or UDim2.new(0, 10, 1, -36)
-
-	for _, btn in pairs(tabButtons) do
-		btn.TextSize = mobile and 14 or 13
-	end
-	myRankLabel.TextSize = mobile and 13 or 12
-end
-
--- Content areavv
+-- Content area (ScrollingFrame for the whole content including podium + runners)
 contentFrame = Instance.new("ScrollingFrame")
 contentFrame.Size = UDim2.new(1, -20, 1, -130)
 contentFrame.Position = UDim2.new(0, 10, 0, 88)
@@ -179,13 +182,14 @@ Instance.new("UICorner", contentFrame).CornerRadius = UDim.new(0, 8)
 
 local listLayout = Instance.new("UIListLayout")
 listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-listLayout.Padding = UDim.new(0, 2)
+listLayout.Padding = UDim.new(0, 4)
 listLayout.Parent = contentFrame
 
 local listPadding = Instance.new("UIPadding")
-listPadding.PaddingTop = UDim.new(0, 4)
-listPadding.PaddingLeft = UDim.new(0, 4)
-listPadding.PaddingRight = UDim.new(0, 4)
+listPadding.PaddingTop = UDim.new(0, 6)
+listPadding.PaddingLeft = UDim.new(0, 6)
+listPadding.PaddingRight = UDim.new(0, 6)
+listPadding.PaddingBottom = UDim.new(0, 6)
 listPadding.Parent = contentFrame
 
 -- Player's own rank bar
@@ -208,7 +212,22 @@ myRankLabel.TextSize = 12
 myRankLabel.TextXAlignment = Enum.TextXAlignment.Left
 myRankLabel.Parent = myRankBar
 
--- Build tab buttons (scale-based so all tabs fit on small/mobile)
+local function applyResponsiveContentLayout()
+	local mobile = MobileWindowLayout.IsMobile()
+	tabBar.Size = mobile and UDim2.new(1, -12, 0, 36) or UDim2.new(1, -20, 0, 32)
+	tabBar.Position = mobile and UDim2.new(0, 6, 0, 48) or UDim2.new(0, 10, 0, 48)
+	contentFrame.Size = mobile and UDim2.new(1, -12, 1, -140) or UDim2.new(1, -20, 1, -130)
+	contentFrame.Position = mobile and UDim2.new(0, 6, 0, 92) or UDim2.new(0, 10, 0, 88)
+	myRankBar.Size = mobile and UDim2.new(1, -12, 0, 32) or UDim2.new(1, -20, 0, 28)
+	myRankBar.Position = mobile and UDim2.new(0, 6, 1, -40) or UDim2.new(0, 10, 1, -36)
+
+	for _, btn in pairs(tabButtons) do
+		btn.TextSize = mobile and 14 or 13
+	end
+	myRankLabel.TextSize = mobile and 13 or 12
+end
+
+-- Build tab buttons
 local tabGap = 4
 for i, tab in ipairs(tabs) do
 	local btn = Instance.new("TextButton")
@@ -222,50 +241,167 @@ for i, tab in ipairs(tabs) do
 	btn.BorderSizePixel = 0
 	btn.Parent = tabBar
 	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
-
 	tabButtons[tab.key] = btn
 end
 
--- Column header labels
-local headerLabels = {
-	income = { "Rank", "Player", "Total Income" },
-	battle = { "Rank", "Player", "Wins | Best Streak" },
-	pvp = { "Rank", "Player", "Wins | Losses" },
-	monsters = { "Rank", "Player", "Sieglings Owned" },
-}
+-- Format a stat value as display text
+local function formatEntryValue(entry, isBattle, isPvp)
+	if not entry then return "" end
+	if isPvp then
+		return tostring(entry.value) .. " W / " .. tostring(entry.losses or 0) .. " L"
+	elseif isBattle then
+		local streakText = ""
+		if entry.maxStreak and entry.maxStreak > 0 then
+			streakText = " | " .. entry.maxStreak .. " streak"
+		end
+		return tostring(entry.value) .. " wins" .. streakText
+	elseif currentTab == "income" then
+		return tostring(entry.value) .. " coins"
+	else
+		return tostring(entry.value) .. " owned"
+	end
+end
 
--- Create a row Frame for a leaderboard entry
-local function createRow(i, entry, isBattle, isPvp)
+-- Create a podium card for a top-3 player
+local function createPodiumCard(rank, entry, isBattle, isPvp)
+	local rankColor = RANK_COLORS[rank] or C.textSec
+	local isMe = entry and entry.name == player.Name
+
+	local card = Instance.new("Frame")
+	card.Name = "Podium_" .. rank
+	card.Size = UDim2.new(1 / 3, -6, 0, 150)
+	card.BackgroundColor3 = isMe and C.playerHL or C.card
+	card.BorderSizePixel = 0
+	Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
+
+	local cardStroke = Instance.new("UIStroke")
+	cardStroke.Color = rankColor
+	cardStroke.Thickness = rank == 1 and 2 or 1
+	cardStroke.Transparency = 0.4
+	cardStroke.Parent = card
+
+	-- Rank badge at top
+	local rankBadge = Instance.new("TextLabel")
+	rankBadge.Size = UDim2.new(1, 0, 0, 20)
+	rankBadge.Position = UDim2.new(0, 0, 0, 4)
+	rankBadge.BackgroundTransparency = 1
+	rankBadge.Text = RANK_LABELS[rank] or ("#" .. rank)
+	rankBadge.TextColor3 = rankColor
+	rankBadge.Font = Enum.Font.GothamBlack
+	rankBadge.TextSize = rank == 1 and 16 or 13
+	rankBadge.Parent = card
+
+	-- Avatar image
+	local avatarFrame = Instance.new("Frame")
+	avatarFrame.Size = UDim2.new(0, 60, 0, 60)
+	avatarFrame.Position = UDim2.new(0.5, -30, 0, 26)
+	avatarFrame.BackgroundColor3 = Color3.fromRGB(35, 37, 50)
+	avatarFrame.BorderSizePixel = 0
+	avatarFrame.Parent = card
+	Instance.new("UICorner", avatarFrame).CornerRadius = UDim.new(1, 0)
+
+	local avatarStroke = Instance.new("UIStroke")
+	avatarStroke.Color = rankColor
+	avatarStroke.Thickness = 2
+	avatarStroke.Parent = avatarFrame
+
+	local avatarImg = Instance.new("ImageLabel")
+	avatarImg.Size = UDim2.new(1, 0, 1, 0)
+	avatarImg.BackgroundTransparency = 1
+	avatarImg.Image = ""
+	avatarImg.ScaleType = Enum.ScaleType.Fit
+	avatarImg.Parent = avatarFrame
+	Instance.new("UICorner", avatarImg).CornerRadius = UDim.new(1, 0)
+
+	-- Load thumbnail async
+	if entry and entry.userId then
+		task.spawn(function()
+			local thumb = getPlayerThumbnail(entry.userId)
+			if thumb and avatarImg.Parent then
+				avatarImg.Image = thumb
+			end
+		end)
+	end
+
+	-- Player name
+	local nameLbl = Instance.new("TextLabel")
+	nameLbl.Size = UDim2.new(1, -8, 0, 16)
+	nameLbl.Position = UDim2.new(0, 4, 0, 90)
+	nameLbl.BackgroundTransparency = 1
+	nameLbl.Text = entry and entry.name or "---"
+	nameLbl.TextColor3 = isMe and Color3.fromRGB(100, 200, 255) or C.text
+	nameLbl.Font = Enum.Font.GothamBold
+	nameLbl.TextSize = 12
+	nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+	nameLbl.Parent = card
+
+	-- Stat value
+	local valueLbl = Instance.new("TextLabel")
+	valueLbl.Size = UDim2.new(1, -8, 0, 28)
+	valueLbl.Position = UDim2.new(0, 4, 0, 108)
+	valueLbl.BackgroundTransparency = 1
+	valueLbl.Text = formatEntryValue(entry, isBattle, isPvp)
+	valueLbl.TextColor3 = C.accent
+	valueLbl.Font = Enum.Font.GothamMedium
+	valueLbl.TextSize = 11
+	valueLbl.TextWrapped = true
+	valueLbl.Parent = card
+
+	return card
+end
+
+-- Create a compact row for runner-up entries (4th+)
+local function createRunnerUpRow(i, entry, isBattle, isPvp)
 	local isMe = entry and entry.name == player.Name
 	local row = Instance.new("Frame")
-	row.Name = "Row_" .. i
-	row.Size = UDim2.new(1, -8, 0, 32)
+	row.Name = "RunnerUp_" .. i
+	row.Size = UDim2.new(1, 0, 0, 30)
 	row.BackgroundColor3 = isMe and C.playerHL or (i % 2 == 0 and Color3.fromRGB(22, 24, 35) or Color3.fromRGB(18, 20, 30))
 	row.BorderSizePixel = 0
-	row.LayoutOrder = i
-	Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
+	Instance.new("UICorner", row).CornerRadius = UDim.new(0, 5)
 
 	-- Rank
-	local rankColor = i == 1 and C.gold or i == 2 and C.silver or i == 3 and C.bronze or C.textSec
 	local rankLbl = Instance.new("TextLabel")
-	rankLbl.Size = UDim2.new(0, 40, 1, 0)
+	rankLbl.Size = UDim2.new(0, 32, 1, 0)
+	rankLbl.Position = UDim2.new(0, 4, 0, 0)
 	rankLbl.BackgroundTransparency = 1
 	rankLbl.Text = "#" .. i
-	rankLbl.TextColor3 = rankColor
-	rankLbl.Font = Enum.Font.GothamBlack
-	rankLbl.TextSize = 16
+	rankLbl.TextColor3 = C.textSec
+	rankLbl.Font = Enum.Font.GothamBold
+	rankLbl.TextSize = 13
 	rankLbl.Parent = row
+
+	-- Small avatar
+	local miniAvatar = Instance.new("ImageLabel")
+	miniAvatar.Size = UDim2.new(0, 22, 0, 22)
+	miniAvatar.Position = UDim2.new(0, 38, 0.5, -11)
+	miniAvatar.BackgroundColor3 = Color3.fromRGB(35, 37, 50)
+	miniAvatar.BorderSizePixel = 0
+	miniAvatar.Image = ""
+	miniAvatar.ScaleType = Enum.ScaleType.Fit
+	miniAvatar.Parent = row
+	Instance.new("UICorner", miniAvatar).CornerRadius = UDim.new(1, 0)
+
+	if entry and entry.userId then
+		task.spawn(function()
+			local thumb = getPlayerThumbnail(entry.userId)
+			if thumb and miniAvatar.Parent then
+				miniAvatar.Image = thumb
+			end
+		end)
+	end
 
 	-- Name
 	local nameLbl = Instance.new("TextLabel")
-	nameLbl.Size = UDim2.new(0.45, -45, 1, 0)
-	nameLbl.Position = UDim2.new(0, 45, 0, 0)
+	nameLbl.Size = UDim2.new(0.4, -68, 1, 0)
+	nameLbl.Position = UDim2.new(0, 66, 0, 0)
 	nameLbl.BackgroundTransparency = 1
 	nameLbl.Text = entry and entry.name or "---"
 	nameLbl.TextColor3 = isMe and Color3.fromRGB(100, 200, 255) or C.text
 	nameLbl.Font = Enum.Font.GothamMedium
-	nameLbl.TextSize = 14
+	nameLbl.TextSize = 12
 	nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+	nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
 	nameLbl.Parent = row
 
 	-- Value
@@ -273,28 +409,12 @@ local function createRow(i, entry, isBattle, isPvp)
 	valueLbl.Size = UDim2.new(0.5, -10, 1, 0)
 	valueLbl.Position = UDim2.new(0.5, 0, 0, 0)
 	valueLbl.BackgroundTransparency = 1
+	valueLbl.Text = formatEntryValue(entry, isBattle, isPvp)
 	valueLbl.TextColor3 = C.accent
 	valueLbl.Font = Enum.Font.GothamMedium
-	valueLbl.TextSize = 13
+	valueLbl.TextSize = 12
 	valueLbl.TextXAlignment = Enum.TextXAlignment.Right
 	valueLbl.Parent = row
-
-	if not entry then
-		valueLbl.Text = ""
-	elseif isPvp then
-		local losses = entry.losses or 0
-		valueLbl.Text = tostring(entry.value) .. " W / " .. tostring(losses) .. " L"
-	elseif isBattle then
-		local streakText = ""
-		if entry.maxStreak and entry.maxStreak > 0 then
-			streakText = " | " .. entry.maxStreak .. " streak"
-		end
-		valueLbl.Text = tostring(entry.value) .. " wins" .. streakText
-	elseif currentTab == "income" then
-		valueLbl.Text = tostring(entry.value) .. " coins"
-	else
-		valueLbl.Text = tostring(entry.value) .. " owned"
-	end
 
 	return row
 end
@@ -302,6 +422,7 @@ end
 -- Refresh leaderboard display
 local function refreshLeaderboard()
 	local savedScrollY = contentFrame.CanvasPosition.Y
+
 	-- Update tab button visuals
 	for key, btn in pairs(tabButtons) do
 		if key == currentTab then
@@ -317,34 +438,6 @@ local function refreshLeaderboard()
 	for _, child in ipairs(contentFrame:GetChildren()) do
 		if child:IsA("Frame") then child:Destroy() end
 	end
-
-	-- Header row
-	local header = Instance.new("Frame")
-	header.Name = "Header"
-	header.Size = UDim2.new(1, -8, 0, 24)
-	header.BackgroundColor3 = Color3.fromRGB(30, 32, 48)
-	header.BorderSizePixel = 0
-	header.LayoutOrder = 0
-	header.Parent = contentFrame
-	Instance.new("UICorner", header).CornerRadius = UDim.new(0, 4)
-
-	local cols = headerLabels[currentTab] or { "Rank", "Player", "Value" }
-	local hRank = Instance.new("TextLabel")
-	hRank.Size = UDim2.new(0, 40, 1, 0); hRank.BackgroundTransparency = 1
-	hRank.Text = cols[1]; hRank.TextColor3 = C.textSec
-	hRank.Font = Enum.Font.GothamBold; hRank.TextSize = 10; hRank.Parent = header
-
-	local hName = Instance.new("TextLabel")
-	hName.Size = UDim2.new(0.45, -45, 1, 0); hName.Position = UDim2.new(0, 45, 0, 0)
-	hName.BackgroundTransparency = 1; hName.Text = cols[2]; hName.TextColor3 = C.textSec
-	hName.Font = Enum.Font.GothamBold; hName.TextSize = 10
-	hName.TextXAlignment = Enum.TextXAlignment.Left; hName.Parent = header
-
-	local hVal = Instance.new("TextLabel")
-	hVal.Size = UDim2.new(0.5, -10, 1, 0); hVal.Position = UDim2.new(0.5, 0, 0, 0)
-	hVal.BackgroundTransparency = 1; hVal.Text = cols[3]; hVal.TextColor3 = C.textSec
-	hVal.Font = Enum.Font.GothamBold; hVal.TextSize = 10
-	hVal.TextXAlignment = Enum.TextXAlignment.Right; hVal.Parent = header
 
 	-- Fetch data
 	local ok, result = pcall(function()
@@ -364,11 +457,51 @@ local function refreshLeaderboard()
 	local isBattle = (currentTab == "battle")
 	local isPvp = (currentTab == "pvp")
 
-	-- Create rows
-	for i = 1, 10 do
-		local entry = result.entries[i]
-		local row = createRow(i, entry, isBattle, isPvp)
-		row.Parent = contentFrame
+	-- === TOP 3 PODIUM ===
+	local podiumContainer = Instance.new("Frame")
+	podiumContainer.Name = "PodiumContainer"
+	podiumContainer.Size = UDim2.new(1, 0, 0, 158)
+	podiumContainer.BackgroundTransparency = 1
+	podiumContainer.LayoutOrder = 1
+	podiumContainer.Parent = contentFrame
+
+	for rank = 1, 3 do
+		local entry = result.entries[rank]
+		local card = createPodiumCard(rank, entry, isBattle, isPvp)
+		card.Position = UDim2.new((rank - 1) / 3, 3, 0, 0)
+		card.Parent = podiumContainer
+	end
+
+	-- === RUNNER-UPS SECTION (4th+) ===
+	if #result.entries > 3 then
+		-- Divider / section header
+		local runnerHeader = Instance.new("Frame")
+		runnerHeader.Name = "RunnerUpHeader"
+		runnerHeader.Size = UDim2.new(1, 0, 0, 24)
+		runnerHeader.BackgroundColor3 = Color3.fromRGB(30, 32, 48)
+		runnerHeader.BorderSizePixel = 0
+		runnerHeader.LayoutOrder = 2
+		runnerHeader.Parent = contentFrame
+		Instance.new("UICorner", runnerHeader).CornerRadius = UDim.new(0, 4)
+
+		local runnerTitle = Instance.new("TextLabel")
+		runnerTitle.Size = UDim2.new(1, -10, 1, 0)
+		runnerTitle.Position = UDim2.new(0, 10, 0, 0)
+		runnerTitle.BackgroundTransparency = 1
+		runnerTitle.Text = "RUNNER-UPS"
+		runnerTitle.TextColor3 = C.textSec
+		runnerTitle.Font = Enum.Font.GothamBold
+		runnerTitle.TextSize = 10
+		runnerTitle.TextXAlignment = Enum.TextXAlignment.Left
+		runnerTitle.Parent = runnerHeader
+
+		-- Runner-up rows
+		for i = 4, #result.entries do
+			local entry = result.entries[i]
+			local row = createRunnerUpRow(i, entry, isBattle, isPvp)
+			row.LayoutOrder = i
+			row.Parent = contentFrame
+		end
 	end
 
 	-- Update own rank
@@ -383,6 +516,7 @@ local function refreshLeaderboard()
 	else
 		myRankLabel.Text = "Your Rank: ---"
 	end
+
 	-- Restore scroll position after layout updates
 	task.defer(function()
 		task.wait()

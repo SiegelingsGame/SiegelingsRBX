@@ -464,7 +464,7 @@ GameConfig.HomeRecallGroundRadius    = 22  -- studs: impact circle radius
 GameConfig.CompanionAttackRange = 40
 GameConfig.CompanionAttackCD    = 2.0
 GameConfig.CompanionBaseDamage  = 1.1    -- multiplied by creature attack stat / 10
-GameConfig.CompanionFollowDist  = 6
+GameConfig.CompanionFollowDist  = 10
 GameConfig.CompanionFollowSpeed = 28   -- used as catch-up speed when companion is far; normal follow matches player WalkSpeed
 GameConfig.CompanionFollowCatchUpDist = 12  -- when distance to follow point exceeds this (studs), companion starts speeding up
 GameConfig.CompanionFollowSpeedSmooth  = 10  -- how fast applied speed lerps toward target (higher = snappier, lower = smoother); avoids choppy speed jumps

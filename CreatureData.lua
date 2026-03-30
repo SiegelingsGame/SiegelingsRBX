@@ -1388,12 +1388,13 @@ CreatureData.Creatures = {
 	},
 	-- Psychic Rare (3)
 	{
-		id = "psychic_siegling_r1", displayName = "Psychic Siegling R1", rarity = "Rare",
+		id = "mentarak", displayName = "Mentarak", rarity = "Rare",
 		element = "Psychic", class = "Mage", behavior = "lone",
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
 		description = "A mind-touched placeholder Siegling. Full Psychic roster coming soon.",
-		modelName = "mentaroo", primaryColor = Color3.fromRGB(210, 165, 255),
-		spawnPointType = "dungeon",
+		modelName = "mentarak", primaryColor = Color3.fromRGB(210, 165, 255),
+		spawnPointType = "dungeon",modelDisplaySize = 8,modelScaleMultiplier = 1.5,
+		evolvesFrom = "mentaroo",
 	},
 	-- Psychic Epic (2)
 	{

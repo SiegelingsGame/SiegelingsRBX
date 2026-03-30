@@ -59,8 +59,8 @@ local flyingInputConn = nil
 local animationConn = nil
 local shieldConn = nil -- AttributeChanged connection for shield updates
 
--- Hidden leg parts (restored on dismount)
-local hiddenParts = {}
+-- [BasePart] = original Transparency (restored on dismount; part keys survive until restored)
+local hiddenLegPartTransparency = {}
 local INVENTORY_GUI_NAME = "InventoryUI"
 local SUMMON_CARD_NAME = "FavoriteSummonCard"
 local BATTLE_MENU_NAME = "BattleMenuToggle"
@@ -177,29 +177,47 @@ local LEG_PARTS = {
 	"Left Leg", "Right Leg",
 }
 
+local function collectLegBaseParts(char)
+	local list = {}
+	for _, partName in ipairs(LEG_PARTS) do
+		local root = char:FindFirstChild(partName, true)
+		if root and root:IsA("BasePart") then
+			table.insert(list, root)
+			for _, d in ipairs(root:GetDescendants()) do
+				if d:IsA("BasePart") then
+					table.insert(list, d)
+				end
+			end
+		end
+	end
+	return list
+end
+
 local function hidePlayerLegs()
-	hiddenParts = {}
 	local char = player.Character
 	if not char then return end
-	for _, partName in ipairs(LEG_PARTS) do
-		local part = char:FindFirstChild(partName)
-		if part and part:IsA("BasePart") then
-			hiddenParts[partName] = part.Transparency
+	for _, part in ipairs(collectLegBaseParts(char)) do
+		if not hiddenLegPartTransparency[part] then
+			hiddenLegPartTransparency[part] = part.Transparency
 			part.Transparency = 1
 		end
 	end
 end
 
+-- Force default-visible legs (covers missed restores, new limbs streaming in, or stale state)
+local function ensureLegPartsVisible(char)
+	if not char then return end
+	for _, part in ipairs(collectLegBaseParts(char)) do
+		part.Transparency = 0
+	end
+end
+
 local function restorePlayerLegs()
 	local char = player.Character
-	if not char then hiddenParts = {}; return end
-	for partName, origTransparency in pairs(hiddenParts) do
-		local part = char:FindFirstChild(partName)
-		if part and part:IsA("BasePart") then
-			part.Transparency = origTransparency
-		end
+	hiddenLegPartTransparency = {}
+	if char then
+		ensureLegPartsVisible(char)
 	end
-	hiddenParts = {}
 end
 
 -- ══════════════════════════════════════════════════════════════════════════
@@ -468,8 +486,12 @@ local function onMountStarted(creatureId, mountType, speed, bonuses)
 	currentBonuses = bonuses or {}
 	currentCreatureId = creatureId
 
-	-- Hide player legs
+	-- Hide player legs (immediate + deferred: limbs/LC may stream in after mount)
 	hidePlayerLegs()
+	task.defer(hidePlayerLegs)
+	task.delay(0.15, function()
+		if isMounted then hidePlayerLegs() end
+	end)
 
 	-- Create HUD
 	createMountHud(creatureId, mountType, speed, bonuses)
@@ -486,7 +508,7 @@ local function onMountStarted(creatureId, mountType, speed, bonuses)
 end
 
 local function onMountEnded(errorMsg)
-	local hadVisualState = isMounted or next(hiddenParts) ~= nil or (mountHudGui and mountHudGui.Parent)
+	local hadVisualState = isMounted or next(hiddenLegPartTransparency) ~= nil or (mountHudGui and mountHudGui.Parent)
 	if not hadVisualState then return end
 
 	isMounted = false
@@ -533,12 +555,26 @@ local function init()
 		mountEnded.OnClientEvent:Connect(onMountEnded)
 	end
 
-	-- Handle character respawn: clear mounted state visually
-	player.CharacterAdded:Connect(function()
+	-- Character respawn: clear mount visuals; ensure new rig legs are visible
+	player.CharacterAdded:Connect(function(char)
 		if isMounted then
 			onMountEnded("respawn")
 		end
-		hiddenParts = {}
+		hiddenLegPartTransparency = {}
+		task.defer(function()
+			if player:GetAttribute("IsMounted") ~= true and char and char.Parent then
+				ensureLegPartsVisible(char)
+			end
+		end)
+	end)
+
+	-- If server clears IsMounted before/without MountEnded, still restore the rig
+	player:GetAttributeChangedSignal("IsMounted"):Connect(function()
+		if player:GetAttribute("IsMounted") == true then return end
+		if next(hiddenLegPartTransparency) == nil and not isMounted and not (mountHudGui and mountHudGui.Parent) then
+			return
+		end
+		onMountEnded("IsMounted cleared")
 	end)
 
 	print("[MountClient] Initialized")

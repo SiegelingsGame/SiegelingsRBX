@@ -276,6 +276,8 @@ local COMPANION_STAND_UP_ANGLES = {
 	applehead = {-90, 0, 0},
 	emberfin = {-90, 0, 0},
 	cozycub = {-90, 0, 0},
+	lumina = {-180, 0, 0},
+	squirtle = {-90, 0, 0},
 }
 
 local function needsFacingCorrection(model)
@@ -283,7 +285,7 @@ local function needsFacingCorrection(model)
 end
 
 -- Crawling: COMPANION_ROTATION_DEFAULT0.0 = base; CRAWL_UPRIGHT_CORRECTION. = -90° X to stand upright.cc
--- Ground stand-up: for non-flying, non-crawling companions – models that export horizonbtal/on-back need this to stand upright.d.a
+-- Ground stand-up: for non-flying, non-crawling companions – models that export horizonbtal/on-back need this to stand upright..
 local COMPANION_CRAWL_UPRIGHT_CORRECTION = CFrame.Angles(math.rad(-90), 0, 0)
 local COMPANION_GROUND_UPRIGHT = COMPANION_CRAWL_UPRIGHT_CORRECTION
 local function getCompanionRotationOffset(creatureId, isWalking, model)

@@ -1004,7 +1004,7 @@ CreatureData.Creatures = {
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
 		description = "A hulking beast covered in razor-sharp thorns. Charges at intruders.",
 		modelName = "sleaf", primaryColor = Color3.fromRGB(50, 140, 60),
-		modelDisplaySize = 4.0, modelScaleMultiplier = 2.0,
+		modelDisplaySize = 4.0, modelScaleMultiplier = 2.0,evolvesTo = "sleafwyrm",
 	},
 	{
 		id = "guerilla", displayName = "Guerilla", rarity = "Rare",
@@ -1037,14 +1037,16 @@ CreatureData.Creatures = {
 		mountable = true, mountOffset = {0, 3.5, -1.5}, mountScale = 2.2,
 	},
 	{
-		id = "sheenx", displayName = "Sheenx", rarity = "Epic",
-		element = "Earth", class = "Support", behavior = "gentle",
+		id = "sleafwyrm", displayName = "Sleafwyrm", rarity = "Epic",
+		element = "Earth", class = "Assassin", behavior = "lone",
 		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
 		description = "A living garden on legs. Flowers and herbs grow across its shell, providing potent healing to all nearby allies.",
-		modelName = "Sheenx", primaryColor = Color3.fromRGB(70, 180, 70),
+		modelName = "Sleafwyrm", primaryColor = Color3.fromRGB(70, 180, 70),
 		spawnPointType = "dungeon",
 		mountable = true, mountOffset = {0, 3.5, -1.5}, mountScale = 2.2,
-		modelDisplaySize = 10,modelScaleMultiplier = 2.0,
+		modelDisplaySize = 10,modelScaleMultiplier = 2.0,flying = true,
+		evolvesFrom = "sleaf",
+		evolvesTo = "dracosleaf",
 	},
 
 	-- Earth Legendary (1)s
@@ -1057,6 +1059,16 @@ CreatureData.Creatures = {
 		spawnPointType = "boss",modelDisplaySize = 10, modelScaleMultiplier = 2.0,
 		mountable = true, mountOffset = {0, 5, -2}, mountScale = 2.5,
 	},
+	{
+		id = "dracosleaf", displayName = "Dracosleaf", rarity = "Legendary",
+		element = "Earth", class = "Bruiser", behavior = "aggressive",
+		spawnWeight = 1, baseIncome = 50, captureTime = 3.5,
+		description = "Forged in the planet's core. An immovable gentle giant.",
+		modelName = "Dracosleaf", primaryColor = Color3.fromRGB(200, 160, 60),
+		spawnPointType = "dungeon",modelDisplaySize = 10, modelScaleMultiplier = 2.0,
+		mountable = true, mountOffset = {0, 5, -2}, mountScale = 2.5,
+		evolvesFrom = "sleafwrym", flying = true,
+	},
 
 	-- ============================
 	-- SHADOW CREATURES (5C, 4U, 3R, 2E, 1L)
@@ -1064,11 +1076,12 @@ CreatureData.Creatures = {
 
 	-- Shadow Common (5)
 	{
-		id = "gloomrat", displayName = "Gloomrat", rarity = "Common",
-		element = "Shadow", class = "Assassin", behavior = "pack",
+		id = "echo", displayName = "Echo", rarity = "Common",
+		element = "Shadow", class = "Assassin", behavior = "lone",
 		spawnWeight = 18, baseIncome = 1, captureTime = 0.5, packSize = {3, 5},
 		description = "Shadowy vermin that swarm in dark corners. Individually pathetic, but a pack of them can overwhelm the unprepared.",
-		modelName = "Gloomrat", primaryColor = Color3.fromRGB(80, 50, 100),
+		modelName = "Echo", primaryColor = Color3.fromRGB(80, 50, 100),
+		evolvesTo = "echowing",
 	},
 	{
 		id = "duskmoth", displayName = "Duskmoth", rarity = "Common",
@@ -1102,11 +1115,12 @@ CreatureData.Creatures = {
 
 	-- Shadow Uncommon (4)
 	{
-		id = "nightfang", displayName = "Nightfang", rarity = "Uncommon",
+		id = "echowing", displayName = "Echowing", rarity = "Uncommon",
 		element = "Shadow", class = "Assassin", behavior = "aggressive",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.1,
 		description = "A bat-like hunter that drops from cave ceilings with razor talons extended. Silent until the moment of impact.",
-		modelName = "Nightfang", primaryColor = Color3.fromRGB(60, 30, 90),
+		modelName = "Echowing", primaryColor = Color3.fromRGB(60, 30, 90),
+		evolvesFrom = "echo",evolvesTo = "echolustrious",
 	},
 	{
 		id = "hexweaver", displayName = "Hexweaver", rarity = "Uncommon",
@@ -1132,12 +1146,12 @@ CreatureData.Creatures = {
 
 	-- Shadow Rare (3)
 	{
-		id = "shadowlurk", displayName = "Shadowlurk", rarity = "Rare",
+		id = "echolustrious", displayName = "Echolustrious", rarity = "Rare",
 		element = "Shadow", class = "Assassin", behavior = "lone",
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
 		description = "Slips between shadows. You only see it when it wants you to.",
-		modelName = "Shadowlurk", primaryColor = Color3.fromRGB(60, 30, 100),
-		spawnPointType = "dungeon",
+		modelName = "Echolustrious", primaryColor = Color3.fromRGB(60, 30, 100),
+		spawnPointType = "dungeon",evolvesFrom = "echowing",
 	},
 	{
 		id = "phantomsteed", displayName = "Phantomsteed", rarity = "Rare",
@@ -1751,31 +1765,38 @@ CreatureData.Creatures = {
 		spawnPointType = "dungeon",
 		evolvesFrom = "poison_venomidge",
 	},
-	-- Undead stand-ins (evolve chain only for this element among stand-ins)
+	-- Undead stand-ins (evolve chain only for this element among stand-ins).
 	{
-		id = "undead_siegling_standin", displayName = "Undead Siegling", rarity = "Common",
+		id = "spookyweed", displayName = "Spooky Weed", rarity = "Common",
 		element = "Undead", class = "Bruiser", behavior = "lone",
 		spawnWeight = 18, baseIncome = 1, captureTime = 0.5,
 		description = "An undead placeholder Siegling. Full Undead roster coming soon.",
-		modelName = "Ragguette", primaryColor = Color3.fromRGB(140, 120, 160),
-		evolvesTo = "undead_gravewit",
+		modelName = "Spookyweed", primaryColor = Color3.fromRGB(140, 120, 160),
+		evolvesTo = "livingwood",
 	},
 	{
-		id = "undead_gravewit", displayName = "Undead Siegling (Gravewit)", rarity = "Uncommon",
+		id = "livingwood", displayName = "Living Wood", rarity = "Uncommon",
 		element = "Undead", class = "Mage", behavior = "lone",
 		spawnWeight = 10, baseIncome = 3, captureTime = 1.1,
 		description = "Uncommon step on the Undead stand-in evolve path.",
-		modelName = "Ragguette", primaryColor = Color3.fromRGB(135, 115, 155),
-		evolvesFrom = "undead_siegling_standin", evolvesTo = "undead_mausolem",
+		modelName = "livingwood", primaryColor = Color3.fromRGB(135, 115, 155),
+		evolvesFrom = "spookyweed",
 	},
 	{
-		id = "undead_mausolem", displayName = "Undead Siegling (Mausolem)", rarity = "Rare",
+		id = "golor", displayName = "Golor", rarity = "Rare",
 		element = "Undead", class = "Guardian", behavior = "lone",
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
 		description = "Rare capstone of the Undead stand-in line.",
-		modelName = "Ragguette", primaryColor = Color3.fromRGB(100, 85, 120),
+		modelName = "Golor", primaryColor = Color3.fromRGB(100, 85, 120),
 		spawnPointType = "dungeon",
-		evolvesFrom = "undead_gravewit",
+	},
+	{
+		id = "sheenx", displayName = "Sheenx", rarity = "Rare",
+		element = "Undead", class = "Guardian", behavior = "lone",
+		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
+		description = "Rare capstone of the Undead stand-in line.",
+		modelName = "Sheenx", primaryColor = Color3.fromRGB(100, 85, 120),
+		spawnPointType = "dungeon",
 	},
 }
 

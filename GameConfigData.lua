@@ -264,7 +264,7 @@ GameConfig.Cooking = {
 
 -- Spawning (SpawnPoints should stay full; common creatures prioritized)
 -- Reduced from 200 to 150 for performance (night bonus +100 still applies)
-GameConfig.MaxWorldCreatures   = 500
+GameConfig.MaxWorldCreatures   = 600
 GameConfig.SpawnIntervalMin    = 0.5   -- faster spawns so SpawnPoints stay full
 GameConfig.SpawnIntervalMax    = 1.5
 GameConfig.SpawnsPerCycle      = 4     -- spawn this many per cycle when under 50% capacity (else 1-2)

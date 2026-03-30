@@ -1883,9 +1883,11 @@ function PlayerDataManager.CraftingMixClear(player)
 		mix[i] = false
 	end
 	craftingMixByUserId[player.UserId] = mix
+	return PlayerDataManager.GetCraftingMix(player)
 end
 
 --- Place qty of ingredientId into a fixed slot (1..max). Replaces occupied slot; stacks if same id.
+--- On success returns true plus fresh mix snapshot for the client (avoids a follow-up GetCraftingMix desync).
 function PlayerDataManager.CraftingMixPlaceAt(player, slotIndex, ingredientId, qty)
 	ingredientId = tostring(ingredientId or "")
 	qty = math.floor(tonumber(qty) or 0)
@@ -1939,7 +1941,7 @@ function PlayerDataManager.CraftingMixPlaceAt(player, slotIndex, ingredientId, q
 	end
 
 	mix[slotIndex] = { id = ingredientId, qty = newQtyAtSlot }
-	return true
+	return true, PlayerDataManager.GetCraftingMix(player)
 end
 
 function PlayerDataManager.CraftingMixAdd(player, ingredientId, qty)
@@ -1978,7 +1980,7 @@ function PlayerDataManager.CraftingMixRemoveSlot(player, index)
 		return false
 	end
 	mix[index] = false
-	return true
+	return true, PlayerDataManager.GetCraftingMix(player)
 end
 
 function PlayerDataManager.CraftingMixTrimQty(player, index, newQty)
@@ -1999,7 +2001,7 @@ function PlayerDataManager.CraftingMixTrimQty(player, index, newQty)
 	end
 	if newQty <= 0 then
 		mix[index] = false
-		return true
+		return true, PlayerDataManager.GetCraftingMix(player)
 	end
 	local other = mixTotalQty(mix) - e.qty
 	if other + newQty > maxMix then
@@ -2011,7 +2013,7 @@ function PlayerDataManager.CraftingMixTrimQty(player, index, newQty)
 		return false, "Not enough in bank"
 	end
 	e.qty = newQty
-	return true
+	return true, PlayerDataManager.GetCraftingMix(player)
 end
 
 -- -- ACTIVE BUFFS --

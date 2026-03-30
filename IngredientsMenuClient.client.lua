@@ -116,7 +116,7 @@ local function syncMix()
 		return getCraftingMix:InvokeServer()
 	end)
 	if ok and type(data) == "table" then
-		mix = data
+		assignMixFromServer(data)
 	end
 end
 
@@ -128,6 +128,29 @@ end
 
 local function mixSlotEntryValid(e)
 	return type(e) == "table" and e.id and e.id ~= "" and (tonumber(e.qty) or 0) > 0
+end
+
+local function chefMaxSlots()
+	return math.min(tonumber(cookCfg.MaxMixIngredients) or CHEF_SLOT_COUNT, CHEF_SLOT_COUNT)
+end
+
+--- Dense 1..N mix array (handles sparse / string-key payloads from remotes).
+local function assignMixFromServer(data)
+	if type(data) ~= "table" then return end
+	local maxMix = chefMaxSlots()
+	local out = {}
+	for i = 1, maxMix do
+		local e = data[i]
+		if type(e) ~= "table" then
+			e = data[tostring(i)]
+		end
+		if mixSlotEntryValid(e) then
+			out[i] = { id = tostring(e.id), qty = math.floor(tonumber(e.qty) or 0) }
+		else
+			out[i] = { id = "", qty = 0 }
+		end
+	end
+	mix = out
 end
 
 local function mixTotal()
@@ -364,15 +387,20 @@ local function tryPlaceIngredientInSlot(si)
 		Notify.Toast("Cooking service unavailable", Color3.fromRGB(255, 100, 80), 2)
 		return
 	end
-	local callOk, ok, errMsg = pcall(function()
+	local callOk, ok, payload = pcall(function()
 		return craftingMixPlaceAt:InvokeServer(si, selectedId, 1)
 	end)
 	if not callOk then
 		Notify.Toast("Could not reach server", Color3.fromRGB(255, 100, 80), 2)
+		syncMix()
 	elseif not ok then
-		Notify.Toast(tostring(errMsg) or "Cannot add to slot", Color3.fromRGB(255, 100, 80), 2)
+		Notify.Toast(tostring(payload) or "Cannot add to slot", Color3.fromRGB(255, 100, 80), 2)
+		syncMix()
+	elseif type(payload) == "table" then
+		assignMixFromServer(payload)
+	else
+		syncMix()
 	end
-	syncMix()
 	rebuildMixList()
 	rebuildBankList()
 end
@@ -425,10 +453,14 @@ local function rebuildCraftingSlots()
 				if cookMode and selectedId and craftingMixPlaceAt then
 					tryPlaceIngredientInSlot(si)
 				else
-					pcall(function()
-						craftingMixRemoveSlot:InvokeServer(si)
+					local rOk, removed, mixData = pcall(function()
+						return craftingMixRemoveSlot:InvokeServer(si)
 					end)
-					syncMix()
+					if rOk and removed and type(mixData) == "table" then
+						assignMixFromServer(mixData)
+					else
+						syncMix()
+					end
 					rebuildMixList()
 					rebuildBankList()
 				end
@@ -503,10 +535,14 @@ local function rebuildMixList()
 		Instance.new("UICorner", rm).CornerRadius = UDim.new(0, 4)
 		local slotIndex = i
 		rm.MouseButton1Click:Connect(function()
-			pcall(function()
-				craftingMixRemoveSlot:InvokeServer(slotIndex)
+			local rOk, removed, mixData = pcall(function()
+				return craftingMixRemoveSlot:InvokeServer(slotIndex)
 			end)
-			syncMix()
+			if rOk and removed and type(mixData) == "table" then
+				assignMixFromServer(mixData)
+			else
+				syncMix()
+			end
 			rebuildMixList()
 			rebuildBankList()
 		end)
@@ -1033,15 +1069,20 @@ local function buildGui()
 			Notify.Toast("Select an ingredient", Color3.fromRGB(255, 180, 80), 2)
 			return
 		end
-		local callOk, addOk, errMsg = pcall(function()
+		local callOk, addOk, payload = pcall(function()
 			return craftingMixAdd:InvokeServer(selectedId, 1)
 		end)
 		if not callOk then
 			Notify.Toast("Could not reach server", Color3.fromRGB(255, 100, 80), 2)
+			syncMix()
 		elseif not addOk then
-			Notify.Toast(tostring(errMsg) or "Cannot add", Color3.fromRGB(255, 100, 80), 2)
+			Notify.Toast(tostring(payload) or "Cannot add", Color3.fromRGB(255, 100, 80), 2)
+			syncMix()
+		elseif type(payload) == "table" then
+			assignMixFromServer(payload)
+		else
+			syncMix()
 		end
-		syncMix()
 		rebuildMixList()
 		rebuildBankList()
 	end)
@@ -1055,13 +1096,19 @@ local function buildGui()
 		local room = maxMix - mixTotal()
 		local q = math.min(5, math.max(0, room))
 		if q <= 0 then return end
-		local callOk, addOk, errMsg = pcall(function()
+		local callOk, addOk, payload = pcall(function()
 			return craftingMixAdd:InvokeServer(selectedId, q)
 		end)
-		if callOk and not addOk then
-			Notify.Toast(tostring(errMsg) or "Cannot add", Color3.fromRGB(255, 100, 80), 2)
+		if not callOk then
+			syncMix()
+		elseif not addOk then
+			Notify.Toast(tostring(payload) or "Cannot add", Color3.fromRGB(255, 100, 80), 2)
+			syncMix()
+		elseif type(payload) == "table" then
+			assignMixFromServer(payload)
+		else
+			syncMix()
 		end
-		syncMix()
 		rebuildMixList()
 		rebuildBankList()
 	end)
@@ -1070,10 +1117,14 @@ local function buildGui()
 	clr.Position = UDim2.new(0.32, 12, 0, 0)
 	clr.Parent = btnRow
 	clr.MouseButton1Click:Connect(function()
-		pcall(function()
-			craftingMixClear:InvokeServer()
+		local cOk, mixData = pcall(function()
+			return craftingMixClear:InvokeServer()
 		end)
-		syncMix()
+		if cOk and type(mixData) == "table" then
+			assignMixFromServer(mixData)
+		else
+			syncMix()
+		end
 		rebuildMixList()
 		rebuildBankList()
 	end)

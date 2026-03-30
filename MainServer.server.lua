@@ -620,8 +620,7 @@ if craftingMixRemoveSlot then
 end
 if craftingMixClear then
 	craftingMixClear.OnServerInvoke = function(plr)
-		PlayerDataManager.CraftingMixClear(plr)
-		return true
+		return PlayerDataManager.CraftingMixClear(plr)
 	end
 end
 if craftingMixSetQty then

@@ -1,0 +1,28 @@
+{
+  "name": "Favorite and Base Flow",
+  "players": [
+    {
+      "name": "Alex",
+      "userId": 1,
+      "coins": 1600,
+      "playerLevel": 3,
+      "inventory": [
+        { "uid": "cacty-1", "id": "cacty", "level": 3, "variant": "Normal" },
+        { "uid": "breezee-1", "id": "breezee", "level": 2, "variant": "Normal" },
+        { "uid": "ceeponee-1", "id": "ceeponee", "level": 1, "variant": "Normal" }
+      ]
+    }
+  ],
+  "steps": [
+    { "action": "assign_base", "player": "Alex", "uid": "cacty-1", "slot": 1 },
+    { "action": "set_favorite", "player": "Alex", "uid": "cacty-1" },
+    { "action": "expect", "path": "players.Alex.favoriteUid", "equals": "cacty-1" },
+    { "action": "expect", "path": "players.Alex.baseSlots[1]", "equals": "" },
+    { "action": "assign_defense", "player": "Alex", "uid": "breezee-1", "slot": 1 },
+    { "action": "buy_floor", "player": "Alex", "floor": 2 },
+    { "action": "assign_battle", "player": "Alex", "uid": "ceeponee-1", "slot": 1 },
+    { "action": "expect", "path": "players.Alex.battleTeam.1", "equals": "ceeponee-1" },
+    { "action": "expect", "path": "players.Alex.ownedFloors", "contains": 2 },
+    { "action": "assert_invariants", "player": "Alex" }
+  ]
+}

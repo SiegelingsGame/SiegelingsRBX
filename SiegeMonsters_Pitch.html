@@ -1,0 +1,1439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Siege Monsters (Sieglings) — Team Pitch Deck</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+  :root {
+    --bg-primary: #0a0a1a;
+    --bg-secondary: #111128;
+    --bg-card: #16163a;
+    --bg-card-hover: #1e1e4a;
+    --accent-fire: #ff5020;
+    --accent-ice: #64c8ff;
+    --accent-wind: #96ffb4;
+    --accent-earth: #b48c50;
+    --accent-shadow: #7832b4;
+    --accent-lightning: #ffe63c;
+    --accent-gold: #ffb800;
+    --accent-purple: #b450ff;
+    --text-primary: #e8e8f0;
+    --text-secondary: #8888aa;
+    --text-muted: #555578;
+    --border-glow: rgba(180, 80, 255, 0.3);
+    --gradient-hero: linear-gradient(135deg, #0a0a1a 0%, #1a0a2e 30%, #0a1a2e 70%, #0a0a1a 100%);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     ANIMATED BACKGROUND
+     ═══════════════════════════════════════════════════════════ */
+  .bg-particles {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 0; overflow: hidden;
+  }
+  .bg-particles::before, .bg-particles::after {
+    content: ''; position: absolute; border-radius: 50%;
+    animation: float 20s ease-in-out infinite;
+  }
+  .bg-particles::before {
+    width: 600px; height: 600px; top: -200px; right: -200px;
+    background: radial-gradient(circle, rgba(180,80,255,0.08) 0%, transparent 70%);
+  }
+  .bg-particles::after {
+    width: 800px; height: 800px; bottom: -300px; left: -300px;
+    background: radial-gradient(circle, rgba(255,80,30,0.06) 0%, transparent 70%);
+    animation-delay: -10s;
+  }
+  @keyframes float {
+    0%, 100% { transform: translateY(0) scale(1); }
+    50% { transform: translateY(-40px) scale(1.05); }
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     NAVIGATION
+     ═══════════════════════════════════════════════════════════ */
+  nav {
+    position: fixed; top: 0; left: 0; width: 100%; z-index: 100;
+    background: rgba(10, 10, 26, 0.9); backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(180, 80, 255, 0.15);
+    padding: 0.8rem 2rem; display: flex; align-items: center; justify-content: space-between;
+  }
+  nav .logo {
+    font-family: 'Orbitron', sans-serif; font-size: 1.1rem; font-weight: 900;
+    background: linear-gradient(135deg, var(--accent-purple), var(--accent-fire));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    letter-spacing: 2px;
+  }
+  nav .nav-links { display: flex; gap: 1.5rem; }
+  nav .nav-links a {
+    color: var(--text-secondary); text-decoration: none; font-size: 0.85rem;
+    font-weight: 500; transition: color 0.3s; letter-spacing: 0.5px;
+  }
+  nav .nav-links a:hover { color: var(--accent-purple); }
+
+  /* ═══════════════════════════════════════════════════════════
+     HERO SECTION
+     ═══════════════════════════════════════════════════════════ */
+  .hero {
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    text-align: center; padding: 6rem 2rem 4rem;
+    background: var(--gradient-hero); position: relative; z-index: 1;
+  }
+  .hero-content { max-width: 900px; }
+  .hero .badge {
+    display: inline-block; padding: 0.4rem 1.2rem; border-radius: 50px;
+    background: rgba(180, 80, 255, 0.15); border: 1px solid rgba(180, 80, 255, 0.3);
+    color: var(--accent-purple); font-size: 0.8rem; font-weight: 600;
+    letter-spacing: 2px; text-transform: uppercase; margin-bottom: 1.5rem;
+  }
+  .hero h1 {
+    font-family: 'Orbitron', sans-serif; font-size: 4.5rem; font-weight: 900;
+    line-height: 1.1; margin-bottom: 0.5rem;
+    background: linear-gradient(135deg, #fff 0%, #c8c8ff 50%, var(--accent-purple) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .hero .subtitle {
+    font-family: 'Rajdhani', sans-serif; font-size: 1.6rem; font-weight: 500;
+    color: var(--text-secondary); margin-bottom: 2rem; letter-spacing: 1px;
+  }
+  .hero .tagline {
+    font-size: 1.1rem; color: var(--text-secondary); max-width: 650px;
+    margin: 0 auto 3rem; line-height: 1.8;
+  }
+  .hero .stats-row {
+    display: flex; gap: 3rem; justify-content: center; flex-wrap: wrap;
+  }
+  .hero .stat-item { text-align: center; }
+  .hero .stat-item .num {
+    font-family: 'Orbitron', sans-serif; font-size: 2.5rem; font-weight: 900;
+    color: var(--accent-gold);
+  }
+  .hero .stat-item .label {
+    font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase;
+    letter-spacing: 2px; margin-top: 0.2rem;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     SECTIONS
+     ═══════════════════════════════════════════════════════════ */
+  section {
+    position: relative; z-index: 1; padding: 5rem 2rem;
+    max-width: 1200px; margin: 0 auto;
+  }
+  .section-label {
+    font-family: 'Orbitron', sans-serif; font-size: 0.75rem; font-weight: 700;
+    color: var(--accent-purple); letter-spacing: 3px; text-transform: uppercase;
+    margin-bottom: 0.5rem;
+  }
+  .section-title {
+    font-family: 'Orbitron', sans-serif; font-size: 2.2rem; font-weight: 700;
+    margin-bottom: 0.8rem; color: #fff;
+  }
+  .section-desc {
+    color: var(--text-secondary); font-size: 1rem; max-width: 700px;
+    margin-bottom: 3rem; line-height: 1.7;
+  }
+  .divider {
+    width: 100%; height: 1px; margin: 0 auto;
+    background: linear-gradient(90deg, transparent, rgba(180,80,255,0.3), transparent);
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     FEATURE CARDS
+     ═══════════════════════════════════════════════════════════ */
+  .features-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1.5rem;
+  }
+  .feature-card {
+    background: var(--bg-card); border-radius: 16px; padding: 2rem;
+    border: 1px solid rgba(255,255,255,0.05);
+    transition: all 0.3s ease; position: relative; overflow: hidden;
+  }
+  .feature-card:hover {
+    transform: translateY(-4px); border-color: rgba(180,80,255,0.2);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3), 0 0 30px rgba(180,80,255,0.05);
+  }
+  .feature-card .icon {
+    font-size: 2rem; margin-bottom: 1rem; display: inline-block;
+  }
+  .feature-card h3 {
+    font-family: 'Rajdhani', sans-serif; font-size: 1.3rem; font-weight: 700;
+    margin-bottom: 0.5rem; color: #fff;
+  }
+  .feature-card p {
+    color: var(--text-secondary); font-size: 0.9rem; line-height: 1.6;
+  }
+  .feature-card .tag {
+    display: inline-block; margin-top: 1rem; padding: 0.2rem 0.8rem;
+    border-radius: 20px; font-size: 0.7rem; font-weight: 600;
+    letter-spacing: 1px; text-transform: uppercase;
+  }
+  .tag-live { background: rgba(80,255,120,0.15); color: #50ff78; }
+  .tag-beta { background: rgba(255,200,60,0.15); color: #ffc83c; }
+  .tag-planned { background: rgba(100,200,255,0.15); color: #64c8ff; }
+
+  /* ═══════════════════════════════════════════════════════════
+     ELEMENTS & CLASSES
+     ═══════════════════════════════════════════════════════════ */
+  .elements-row {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 1rem; margin-bottom: 3rem;
+  }
+  .element-card {
+    background: var(--bg-card); border-radius: 12px; padding: 1.5rem;
+    text-align: center; border: 1px solid rgba(255,255,255,0.05);
+    transition: all 0.3s;
+  }
+  .element-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+  }
+  .element-card .elem-icon { font-size: 2.5rem; margin-bottom: 0.5rem; }
+  .element-card .elem-name {
+    font-family: 'Rajdhani', sans-serif; font-size: 1.2rem; font-weight: 700;
+  }
+  .element-card .elem-count {
+    font-size: 0.8rem; color: var(--text-muted); margin-top: 0.2rem;
+  }
+
+  .classes-row {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 1rem;
+  }
+  .class-card {
+    background: var(--bg-card); border-radius: 12px; padding: 1.2rem 1.5rem;
+    display: flex; align-items: center; gap: 1rem;
+    border: 1px solid rgba(255,255,255,0.05); transition: all 0.3s;
+  }
+  .class-card:hover { transform: translateY(-2px); }
+  .class-card .class-icon { font-size: 1.8rem; }
+  .class-card .class-info h4 {
+    font-family: 'Rajdhani', sans-serif; font-size: 1.1rem; font-weight: 700;
+  }
+  .class-card .class-info p {
+    font-size: 0.75rem; color: var(--text-muted);
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     CREATURE TABLE
+     ═══════════════════════════════════════════════════════════ */
+  .creature-filters {
+    display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.5rem;
+  }
+  .filter-btn {
+    padding: 0.4rem 1rem; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1);
+    background: transparent; color: var(--text-secondary); cursor: pointer;
+    font-size: 0.8rem; font-weight: 500; transition: all 0.3s;
+    font-family: 'Inter', sans-serif;
+  }
+  .filter-btn:hover, .filter-btn.active {
+    background: rgba(180,80,255,0.2); border-color: var(--accent-purple);
+    color: #fff;
+  }
+  .creature-table-wrapper {
+    overflow-x: auto; border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.05);
+  }
+  .creature-table {
+    width: 100%; border-collapse: collapse; font-size: 0.85rem;
+  }
+  .creature-table thead {
+    background: rgba(180,80,255,0.1);
+  }
+  .creature-table th {
+    padding: 0.8rem 1rem; text-align: left; font-weight: 600;
+    color: var(--text-secondary); font-size: 0.75rem;
+    letter-spacing: 1px; text-transform: uppercase;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    white-space: nowrap;
+  }
+  .creature-table td {
+    padding: 0.6rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.03);
+    white-space: nowrap;
+  }
+  .creature-table tr { transition: background 0.2s; }
+  .creature-table tbody tr:hover { background: rgba(180,80,255,0.05); }
+  .rarity-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    margin-right: 6px; vertical-align: middle;
+  }
+  .rarity-common { background: #b4b4b4; }
+  .rarity-uncommon { background: #4bc84b; }
+  .rarity-rare { background: #3c82ff; }
+  .rarity-epic { background: #b450ff; }
+  .rarity-legendary { background: #ffb800; }
+
+  .elem-badge {
+    display: inline-block; padding: 0.15rem 0.5rem; border-radius: 10px;
+    font-size: 0.7rem; font-weight: 600;
+  }
+  .elem-fire { background: rgba(255,80,30,0.2); color: #ff5020; }
+  .elem-ice { background: rgba(100,200,255,0.2); color: #64c8ff; }
+  .elem-wind { background: rgba(150,255,180,0.2); color: #96ffb4; }
+  .elem-earth { background: rgba(180,140,80,0.2); color: #d4a850; }
+  .elem-shadow { background: rgba(120,50,180,0.2); color: #a864e0; }
+  .elem-lightning { background: rgba(255,230,60,0.2); color: #ffe63c; }
+
+  /* ═══════════════════════════════════════════════════════════
+     SYNERGY SECTION
+     ═══════════════════════════════════════════════════════════ */
+  .synergy-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 1.2rem;
+  }
+  .synergy-card {
+    background: var(--bg-card); border-radius: 12px; padding: 1.5rem;
+    border: 1px solid rgba(255,255,255,0.05);
+  }
+  .synergy-card h4 {
+    font-family: 'Rajdhani', sans-serif; font-size: 1.1rem; font-weight: 700;
+    margin-bottom: 0.8rem; display: flex; align-items: center; gap: 0.5rem;
+  }
+  .synergy-tier {
+    display: flex; align-items: center; gap: 0.8rem; padding: 0.5rem 0;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+  }
+  .synergy-tier:last-child { border-bottom: none; }
+  .synergy-count {
+    font-family: 'Orbitron', sans-serif; font-size: 0.9rem; font-weight: 700;
+    background: rgba(180,80,255,0.15); border-radius: 8px;
+    width: 28px; height: 28px; display: flex; align-items: center;
+    justify-content: center; color: var(--accent-purple); flex-shrink: 0;
+  }
+  .synergy-name {
+    font-weight: 600; color: #fff; font-size: 0.9rem;
+  }
+  .synergy-effect {
+    font-size: 0.78rem; color: var(--text-secondary);
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     RARITIES
+     ═══════════════════════════════════════════════════════════ */
+  .rarity-row {
+    display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 2rem;
+  }
+  .rarity-card {
+    flex: 1; min-width: 180px; border-radius: 12px; padding: 1.5rem;
+    text-align: center; border: 1px solid rgba(255,255,255,0.08);
+    transition: transform 0.3s;
+  }
+  .rarity-card:hover { transform: translateY(-3px); }
+  .rarity-card .rarity-name {
+    font-family: 'Rajdhani', sans-serif; font-size: 1.2rem; font-weight: 700;
+    margin-bottom: 0.3rem;
+  }
+  .rarity-card .rarity-weight {
+    font-size: 2rem; font-family: 'Orbitron', sans-serif; font-weight: 900;
+    margin-bottom: 0.2rem;
+  }
+  .rarity-card .rarity-detail {
+    font-size: 0.75rem; color: var(--text-muted);
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     PROGRESSION / ROADMAP
+     ═══════════════════════════════════════════════════════════ */
+  .roadmap-timeline { position: relative; padding-left: 2rem; }
+  .roadmap-timeline::before {
+    content: ''; position: absolute; left: 7px; top: 0; bottom: 0;
+    width: 2px; background: linear-gradient(180deg, var(--accent-purple), var(--accent-fire), var(--accent-gold));
+  }
+  .roadmap-item {
+    position: relative; margin-bottom: 2.5rem; padding-left: 1.5rem;
+  }
+  .roadmap-item::before {
+    content: ''; position: absolute; left: -2rem; top: 6px;
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 3px solid var(--accent-purple); background: var(--bg-primary);
+  }
+  .roadmap-item.done::before { background: var(--accent-purple); border-color: var(--accent-purple); }
+  .roadmap-item .rm-phase {
+    font-family: 'Orbitron', sans-serif; font-size: 0.7rem; font-weight: 700;
+    color: var(--accent-purple); letter-spacing: 2px; text-transform: uppercase;
+  }
+  .roadmap-item h4 {
+    font-family: 'Rajdhani', sans-serif; font-size: 1.3rem; font-weight: 700;
+    margin: 0.3rem 0;
+  }
+  .roadmap-item p { color: var(--text-secondary); font-size: 0.9rem; }
+  .roadmap-item ul {
+    margin-top: 0.5rem; padding-left: 1.2rem;
+    color: var(--text-secondary); font-size: 0.85rem;
+  }
+  .roadmap-item ul li { margin-bottom: 0.3rem; }
+
+  /* ═══════════════════════════════════════════════════════════
+     ECONOMY TABLE
+     ═══════════════════════════════════════════════════════════ */
+  .econ-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 1rem;
+  }
+  .econ-card {
+    background: var(--bg-card); border-radius: 12px; padding: 1.5rem;
+    border: 1px solid rgba(255,255,255,0.05);
+  }
+  .econ-card h4 {
+    font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 1rem;
+    color: var(--accent-gold); margin-bottom: 0.8rem;
+    display: flex; align-items: center; gap: 0.5rem;
+  }
+  .econ-card .econ-row {
+    display: flex; justify-content: space-between; padding: 0.3rem 0;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    font-size: 0.85rem;
+  }
+  .econ-card .econ-row:last-child { border-bottom: none; }
+  .econ-card .econ-val { color: var(--accent-gold); font-weight: 600; }
+
+  /* ═══════════════════════════════════════════════════════════
+     FOOTER
+     ═══════════════════════════════════════════════════════════ */
+  footer {
+    text-align: center; padding: 3rem 2rem;
+    color: var(--text-muted); font-size: 0.8rem;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    position: relative; z-index: 1;
+  }
+  footer .footer-logo {
+    font-family: 'Orbitron', sans-serif; font-size: 1rem; font-weight: 700;
+    color: var(--text-secondary); margin-bottom: 0.5rem;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     RESPONSIVE
+     ═══════════════════════════════════════════════════════════ */
+  @media (max-width: 768px) {
+    .hero h1 { font-size: 2.5rem; }
+    .hero .subtitle { font-size: 1.2rem; }
+    .hero .stats-row { gap: 1.5rem; }
+    .hero .stat-item .num { font-size: 1.8rem; }
+    nav .nav-links { display: none; }
+    section { padding: 3rem 1rem; }
+    .section-title { font-size: 1.6rem; }
+    .elements-row { grid-template-columns: repeat(3, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<div class="bg-particles"></div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     NAVIGATION
+     ═══════════════════════════════════════════════════════════ -->
+<nav>
+  <div class="logo">SIEGE MONSTERS</div>
+  <div class="nav-links">
+    <a href="#experience">Experience</a>
+    <a href="#features">Features</a>
+    <a href="#creatures">Creatures</a>
+    <a href="#elements">Elements</a>
+    <a href="#synergies">Synergies</a>
+    <a href="#economy">Economy</a>
+    <a href="#roadmap">Roadmap</a>
+  </div>
+</nav>
+
+<!-- ═══════════════════════════════════════════════════════════
+     HERO
+     ═══════════════════════════════════════════════════════════ -->
+<div class="hero">
+  <div class="hero-content">
+    <div class="badge">Roblox Experience &bull; In Development</div>
+    <h1>SIEGE MONSTERS</h1>
+    <div class="subtitle">Collect &bull; Build &bull; Battle &bull; Raid</div>
+    <p class="tagline">
+      A creature-collection RPG meets tower-defense meets king-of-the-hill PvP arena.
+      Capture wild monsters across elemental biomes, build and defend a multi-floor base,
+      assemble synergy-driven battle teams, and raid your rivals. Play from the North Pole hub
+      with a central arena, team zones, and live display screen.
+    </p>
+    <div class="stats-row">
+      <div class="stat-item">
+        <div class="num">90</div>
+        <div class="label">Creatures</div>
+      </div>
+      <div class="stat-item">
+        <div class="num">6</div>
+        <div class="label">Elements</div>
+      </div>
+      <div class="stat-item">
+        <div class="num">5</div>
+        <div class="label">Classes</div>
+      </div>
+      <div class="stat-item">
+        <div class="num">5</div>
+        <div class="label">Rarities</div>
+      </div>
+      <div class="stat-item">
+        <div class="num">36+</div>
+        <div class="label">Game Scripts</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     IN-GAME EXPERIENCE / HUB
+     ═══════════════════════════════════════════════════════════ -->
+<section id="experience">
+  <div class="section-label">Game World</div>
+  <div class="section-title">North Pole Hub &amp; Presentation Arena</div>
+  <p class="section-desc">
+    Players gather in a winter-themed hub built around a central presentation arena. The space supports
+    team activities, live displays, and spectator play in a festive North Pole setting.
+  </p>
+
+  <div class="features-grid">
+    <div class="feature-card">
+      <div class="icon">🖥️</div>
+      <h3>Central Display Screen</h3>
+      <p>A large overhead screen above the tiered stage shows dynamic content — trailers, stats, leaderboards,
+         or event info. Perfect for announcements, match results, and driving engagement during sessions.</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+    <div class="feature-card">
+      <div class="icon">🎯</div>
+      <h3>Team Zones (Red &amp; Blue)</h3>
+      <p>The stage is divided into distinct red and blue zones for team-based activities, spawn points,
+         or interactive areas. Supports King of the Hill, capture points, and organized PvP flows.</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+    <div class="feature-card">
+      <div class="icon">🏛️</div>
+      <h3>Spectator Buildings</h3>
+      <p>Two multi-level structures flank the arena with open observation decks and ground-level access.
+         White facades with green trim house doors and viewing areas for spectators and alternate activities.</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+    <div class="feature-card">
+      <div class="icon">❄️</div>
+      <h3>North Pole Winter Setting</h3>
+      <p>Snow-capped mountains, evergreens, a candy-cane North Pole sign, snowman, decorated Christmas tree,
+         and a whimsical winter palace complete the hub. Paved ground and clear blue sky keep the space
+         readable and inviting.</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     CORE GAMEPLAY LOOP
+     ═══════════════════════════════════════════════════════════ -->
+<section id="features">
+  <div class="section-label">Core Systems</div>
+  <div class="section-title">What Makes Siege Monsters Tick</div>
+  <p class="section-desc">
+    Every system feeds into the next — capture creatures to earn income, earn income to upgrade your base,
+    upgrade your base to build battle teams, and battle to earn glory and steal from rivals.
+  </p>
+
+  <div class="features-grid">
+
+    <div class="feature-card">
+      <div class="icon">🌍</div>
+      <h3>World Creature Spawning</h3>
+      <p>Wild creatures spawn across elemental biomes at SpawnPoints, DungeonPoints, and BossPoints.
+         Pack creatures travel in groups. Bosses are one-per-biome legendaries with 5-minute respawn timers.
+         Up to 150 creatures in the world (plus night bonus). Day/night cycle affects spawns and variants.</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+
+    <div class="feature-card">
+      <div class="icon">🎯</div>
+      <h3>Creature Capture</h3>
+      <p>Faint wild creatures first, then capture within 30 studs. Each capture costs coins by rarity (10 Common to 400 Legendary).
+         Captured creatures go to your inventory (max 50). Starter choice: Cacty, Breezee, Pylme, Sundile, or Ceeponee.</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+
+    <div class="feature-card">
+      <div class="icon">🏰</div>
+      <h3>Multi-Floor Base System</h3>
+      <p>Each player owns a plot with up to 3 floors. Floor 1 is free with 6 income + 6 defense slots.
+         Floor 2 unlocks at Player Level 2 (500 coins) and adds the Battle Arena team (9-slot grid, max 5 creatures).
+         Floor 3 at Level 5 (5,000 coins) for full slots and Combiner/Recycler.</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+
+    <div class="feature-card">
+      <div class="icon">💰</div>
+      <h3>Passive Income Economy</h3>
+      <p>Creatures placed on Income Points generate coins every 10 seconds based on their baseIncome stat.
+         Common creatures earn 1 coin/tick, Legendaries earn 50. Income also awards 2 Player XP per tick.
+         Stack your base for maximum earnings.</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+
+    <div class="feature-card">
+      <div class="icon">🛡️</div>
+      <h3>Defense Turret System</h3>
+      <p>Creatures on Defense Points act as automated turrets, attacking world creatures and enemy companions
+         within 40 studs every 2.5 seconds. Defense creatures protect your base during raids and AI invasions.
+         6 slots per floor.</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+
+    <div class="feature-card">
+      <div class="icon">🐾</div>
+      <h3>Companion System</h3>
+      <p>Set a favorite creature and it follows you as a companion with its own HP, attack AI, level-scaled stats,
+         and faint/respawn cycle (30s cooldown). Toggle attack/passive mode, manually target enemies.
+         Supports custom 3D mesh models.</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+
+    <div class="feature-card">
+      <div class="icon">⚔️</div>
+      <h3>Player Combat</h3>
+      <p>Ranged (25 studs, 0.8s cooldown, 4 damage) and Melee (10 studs, 8 stud AOE, 10 damage). Rebirth level adds +5% world damage per level.
+         All damage routes through CreatureAI. Creatures faint at 0 HP and become capturable.</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+
+    <div class="feature-card">
+      <div class="icon">👑</div>
+      <h3>King of the Hill Arena</h3>
+      <p>Automated PvP arena battles every 60 seconds. Teams of up to 5 creatures (9-slot grid) auto-battle
+         with speed-based turn order. Winners grow 5% per win (up to 300%). Synergy bonuses from matching
+         elements and classes stack for massive advantages.</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+
+    <div class="feature-card">
+      <div class="icon">🏴‍☠️</div>
+      <h3>Player Raiding</h3>
+      <p>Raid online players' bases to steal creatures. 30% base steal chance. Max 1 steal per raid. 120s cooldown; 60s protection for victims.
+         Steal mechanic: faint base creatures, carry them home within 30 studs of your plot to deliver.</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+
+    <div class="feature-card">
+      <div class="icon">🤖</div>
+      <h3>Creature AI Behaviors</h3>
+      <p>6 distinct behavior types: Aggressive (hunts players), Pack (group coordination with call range),
+         Gentle (peaceful unless provoked), Lone (territorial), Skittish (flees on approach),
+         and Stationary (base creatures). Pack members alert each other when attacked.</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+
+    <div class="feature-card">
+      <div class="icon">🔒</div>
+      <h3>Laser Door Shield</h3>
+      <p>Activate a protective dome shield over your base (50 stud radius). Lasts 50 seconds, blocks monsters
+         and raiders. Up to 10 friends can be whitelisted to pass through. Intruders take 20 damage
+         and are pushed out.</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+
+    <div class="feature-card">
+      <div class="icon">🥚</div>
+      <h3>Egg Hatching Shop</h3>
+      <p>Five egg tiers: Common (150 coins / 25 R$ — Common/Uncommon/Rare), Rare (800 / 75 R$ — Uncommon/Rare),
+         Mythic (3,500 / 199 R$ — Rare/Epic), Legendary (12,000 / 499 R$ — Rare/Epic/Legendary), God (50,000 / 999 R$ — Epic/Legendary).
+         Eggs hatch over time when placed on base.</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+
+    <div class="feature-card">
+      <div class="icon">⚡</div>
+      <h3>Buff Shop</h3>
+      <p>Temporary power-ups: Energy Shield (60s, 150 coins), Super Jump (45s, 100 coins),
+         Super Speed (60s, 120 coins), Invulnerability (15s, 5 gems), Invisibility (30s, 3 gems),
+         Swap Places (instant, 200 coins).</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+
+    <div class="feature-card">
+      <div class="icon">✨</div>
+      <h3>Cosmetic Shop</h3>
+      <p>Trails (Fire, Ice, Rainbow, Shadow), Auras (Flame, Electric, Divine), and
+         Name Colors (Gold, Red, Rainbow). Coins and Gems currencies.
+         Equip/unequip at any time.</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+
+    <div class="feature-card">
+      <div class="icon">📊</div>
+      <h3>Dual Leveling System</h3>
+      <p><strong>Creature Levels:</strong> Base form max 10, evolved 25, final form 50. Rank-based stat growth, +8% base per level. XP from captures, battles, defense kills.<br>
+         <strong>Player Levels:</strong> Max 50, gates floors and content. XP from captures (15), arena wins (50), income (2), raids (30), dungeon (20), boss (100).</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+
+    <div class="feature-card">
+      <div class="icon">🏠</div>
+      <h3>Base Exterior &amp; Color Shop</h3>
+      <p>Full themes: Haunted House, Retro Arcade (500 coins). Color themes for backwall, walls, and stairs (Red, Blue, Green, Yellow, Purple, Orange).
+         Base Color Shop tints walls, stairs, points, Combiner, Recycler (300 coins per color).</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+
+    <div class="feature-card">
+      <div class="icon">🔄</div>
+      <h3>Combiner &amp; Recycler</h3>
+      <p><strong>Combiner</strong> (Floor 3): Combine 3 same-creature same-variant into next tier (Normal→Silver→Gold→Legend).<br>
+         <strong>Recycler</strong>: Trade 3+ duplicate same creature for 1 egg one rarity tier higher. Place egg on base to hatch over time.</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+
+    <div class="feature-card">
+      <div class="icon">✋</div>
+      <h3>Base Interaction</h3>
+      <p>Walk up to base creatures: pick up, move, swap slots, or sell (within 12 studs). Place/swap on income and defense points from 18 studs.
+         Sell price: captureCost × level. Proximity prompts on Combiner/Recycler at base.</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+
+    <div class="feature-card">
+      <div class="icon">🌙</div>
+      <h3>Day / Night Cycle</h3>
+      <p>Configurable day/night (e.g. 180s per full cycle). At night: higher max world creatures, chance for Silver/Gold spawn variants, and world creatures with evolution lines can temporarily evolve.</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+
+    <div class="feature-card">
+      <div class="icon">⚡</div>
+      <h3>Focus Bar &amp; Special Attacks</h3>
+      <p>Arena/PvP: focus builds from attacks (25 per hit). At 100 focus, unleash element specials — Fire Burn (8% max HP/round), Earth damage reduction debuff, Wind focus drain (50). 2.5s special animation.</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+
+    <div class="feature-card">
+      <div class="icon">🔁</div>
+      <h3>Pilot Rebirth</h3>
+      <p>Prestige system: spend gold + creatures (by rarity) to rebirth. Resets progress but grants permanent bonuses: +2 passive gold/tick per level, +5% world damage per level, +15 max HP per level. Max rebirth level 10.</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+
+    <div class="feature-card">
+      <div class="icon">🏠</div>
+      <h3>Home Recall</h3>
+      <p>Channel 5 seconds (stay in radius) to teleport to your base. Interrupted by taking damage. Heaven-beam style visual. Optional quick return from the world.</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+
+    <div class="feature-card">
+      <div class="icon">🐲</div>
+      <h3>Custom 3D Creature Models</h3>
+      <p>Creatures use custom mesh models from ReplicatedStorage. Supported for world spawns, companion, and base. Flying, crawling, and placement-offset options per creature.</p>
+      <span class="tag tag-live">Live</span>
+    </div>
+
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     ELEMENTS & CLASSES
+     ═══════════════════════════════════════════════════════════ -->
+<section id="elements">
+  <div class="section-label">Creature System</div>
+  <div class="section-title">6 Elements &times; 5 Classes = 30 Unique Archetypes</div>
+  <p class="section-desc">
+    Every creature belongs to one element and one class. Match multiples of the same element or class
+    on your battle team to unlock powerful synergy bonuses.
+  </p>
+
+  <h3 style="font-family: 'Rajdhani', sans-serif; font-size: 1.2rem; color: var(--text-secondary); margin-bottom: 1rem;">Elements</h3>
+  <div class="elements-row">
+    <div class="element-card" style="border-color: rgba(255,80,30,0.2);">
+      <div class="elem-icon">🔥</div>
+      <div class="elem-name" style="color: var(--accent-fire);">Fire</div>
+      <div class="elem-count">15 Creatures</div>
+    </div>
+    <div class="element-card" style="border-color: rgba(100,200,255,0.2);">
+      <div class="elem-icon">❄️</div>
+      <div class="elem-name" style="color: var(--accent-ice);">Ice</div>
+      <div class="elem-count">15 Creatures</div>
+    </div>
+    <div class="element-card" style="border-color: rgba(150,255,180,0.2);">
+      <div class="elem-icon">🌪️</div>
+      <div class="elem-name" style="color: var(--accent-wind);">Wind</div>
+      <div class="elem-count">15 Creatures</div>
+    </div>
+    <div class="element-card" style="border-color: rgba(180,140,80,0.2);">
+      <div class="elem-icon">🪨</div>
+      <div class="elem-name" style="color: var(--accent-earth);">Earth</div>
+      <div class="elem-count">15 Creatures</div>
+    </div>
+    <div class="element-card" style="border-color: rgba(120,50,180,0.2);">
+      <div class="elem-icon">🌑</div>
+      <div class="elem-name" style="color: var(--accent-shadow);">Shadow</div>
+      <div class="elem-count">15 Creatures</div>
+    </div>
+    <div class="element-card" style="border-color: rgba(255,230,60,0.2);">
+      <div class="elem-icon">⚡</div>
+      <div class="elem-name" style="color: var(--accent-lightning);">Lightning</div>
+      <div class="elem-count">15 Creatures</div>
+    </div>
+  </div>
+
+  <h3 style="font-family: 'Rajdhani', sans-serif; font-size: 1.2rem; color: var(--text-secondary); margin-bottom: 1rem;">Classes</h3>
+  <div class="classes-row">
+    <div class="class-card" style="border-color: rgba(220,80,60,0.15);">
+      <div class="class-icon">💪</div>
+      <div class="class-info">
+        <h4 style="color: #dc503c;">Bruiser</h4>
+        <p>High ATK &amp; HP brawlers</p>
+      </div>
+    </div>
+    <div class="class-card" style="border-color: rgba(100,120,255,0.15);">
+      <div class="class-icon">🔮</div>
+      <div class="class-info">
+        <h4 style="color: #6478ff;">Mage</h4>
+        <p>High ATK glass cannons</p>
+      </div>
+    </div>
+    <div class="class-card" style="border-color: rgba(80,180,220,0.15);">
+      <div class="class-icon">🛡️</div>
+      <div class="class-info">
+        <h4 style="color: #50b4dc;">Guardian</h4>
+        <p>High DEF &amp; HP tanks</p>
+      </div>
+    </div>
+    <div class="class-card" style="border-color: rgba(200,60,200,0.15);">
+      <div class="class-icon">🗡️</div>
+      <div class="class-info">
+        <h4 style="color: #c83cc8;">Assassin</h4>
+        <p>High SPD &amp; ATK strikers</p>
+      </div>
+    </div>
+    <div class="class-card" style="border-color: rgba(100,220,120,0.15);">
+      <div class="class-icon">💚</div>
+      <div class="class-info">
+        <h4 style="color: #64dc78;">Support</h4>
+        <p>Healing &amp; team buffs</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     RARITIES
+     ═══════════════════════════════════════════════════════════ -->
+<section>
+  <div class="section-label">Rarity Tiers</div>
+  <div class="section-title">5 Rarity Tiers</div>
+  <p class="section-desc">
+    Each rarity tier has a spawn weight, capture cost, and visual color. Higher rarities have better stats
+    and higher income generation.
+  </p>
+
+  <div class="rarity-row">
+    <div class="rarity-card" style="background: linear-gradient(135deg, rgba(180,180,180,0.1), var(--bg-card));">
+      <div class="rarity-name" style="color: #b4b4b4;">Common</div>
+      <div class="rarity-weight" style="color: #b4b4b4;">50%</div>
+      <div class="rarity-detail">Capture: 10 coins &bull; Income: 1/tick</div>
+    </div>
+    <div class="rarity-card" style="background: linear-gradient(135deg, rgba(75,200,75,0.1), var(--bg-card));">
+      <div class="rarity-name" style="color: #4bc84b;">Uncommon</div>
+      <div class="rarity-weight" style="color: #4bc84b;">25%</div>
+      <div class="rarity-detail">Capture: 25 coins &bull; Income: 3/tick</div>
+    </div>
+    <div class="rarity-card" style="background: linear-gradient(135deg, rgba(60,130,255,0.1), var(--bg-card));">
+      <div class="rarity-name" style="color: #3c82ff;">Rare</div>
+      <div class="rarity-weight" style="color: #3c82ff;">15%</div>
+      <div class="rarity-detail">Capture: 60 coins &bull; Income: 8/tick</div>
+    </div>
+    <div class="rarity-card" style="background: linear-gradient(135deg, rgba(180,80,255,0.1), var(--bg-card));">
+      <div class="rarity-name" style="color: #b450ff;">Epic</div>
+      <div class="rarity-weight" style="color: #b450ff;">7%</div>
+      <div class="rarity-detail">Capture: 150 coins &bull; Income: 20/tick</div>
+    </div>
+    <div class="rarity-card" style="background: linear-gradient(135deg, rgba(255,184,0,0.1), var(--bg-card));">
+      <div class="rarity-name" style="color: #ffb800;">Legendary</div>
+      <div class="rarity-weight" style="color: #ffb800;">3%</div>
+      <div class="rarity-detail">Capture: 400 coins &bull; Income: 50/tick</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     FULL CREATURE ROSTER
+     ═══════════════════════════════════════════════════════════ -->
+<section id="creatures">
+  <div class="section-label">Bestiary</div>
+  <div class="section-title">Full Creature Roster — 90 Monsters</div>
+  <p class="section-desc">
+    15 creatures per element, balanced across 5 rarity tiers and 5 classes.
+    Each creature has unique stats, behavior patterns, and lore.
+  </p>
+
+  <div class="creature-filters">
+    <button class="filter-btn active" onclick="filterCreatures('all')">All (90)</button>
+    <button class="filter-btn" onclick="filterCreatures('Fire')">🔥 Fire</button>
+    <button class="filter-btn" onclick="filterCreatures('Ice')">❄️ Ice</button>
+    <button class="filter-btn" onclick="filterCreatures('Wind')">🌪️ Wind</button>
+    <button class="filter-btn" onclick="filterCreatures('Earth')">🪨 Earth</button>
+    <button class="filter-btn" onclick="filterCreatures('Shadow')">🌑 Shadow</button>
+    <button class="filter-btn" onclick="filterCreatures('Lightning')">⚡ Lightning</button>
+    <button class="filter-btn" onclick="filterCreatures('Common')" style="border-color: rgba(180,180,180,0.3);">Common</button>
+    <button class="filter-btn" onclick="filterCreatures('Uncommon')" style="border-color: rgba(75,200,75,0.3);">Uncommon</button>
+    <button class="filter-btn" onclick="filterCreatures('Rare')" style="border-color: rgba(60,130,255,0.3);">Rare</button>
+    <button class="filter-btn" onclick="filterCreatures('Epic')" style="border-color: rgba(180,80,255,0.3);">Epic</button>
+    <button class="filter-btn" onclick="filterCreatures('Legendary')" style="border-color: rgba(255,184,0,0.3);">Legendary</button>
+  </div>
+
+  <div class="creature-table-wrapper">
+    <table class="creature-table" id="creatureTable">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Name</th>
+          <th>Element</th>
+          <th>Class</th>
+          <th>Rarity</th>
+          <th>HP</th>
+          <th>ATK</th>
+          <th>DEF</th>
+          <th>SPD</th>
+          <th>Income</th>
+          <th>Behavior</th>
+        </tr>
+      </thead>
+      <tbody id="creatureBody">
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     SYNERGIES
+     ═══════════════════════════════════════════════════════════ -->
+<section id="synergies">
+  <div class="section-label">Battle Strategy</div>
+  <div class="section-title">Synergy System</div>
+  <p class="section-desc">
+    Place multiple creatures of the same element or class on your battle team to trigger synergy bonuses.
+    Stack 2 for a minor buff, 3 for a major buff. Mix and match for devastating combos.
+  </p>
+
+  <h3 style="font-family: 'Rajdhani', sans-serif; font-size: 1.2rem; color: var(--accent-purple); margin-bottom: 1rem;">Element Synergies</h3>
+  <div class="synergy-grid" style="margin-bottom: 2rem;">
+    <div class="synergy-card">
+      <h4>🔥 Fire</h4>
+      <div class="synergy-tier">
+        <div class="synergy-count">2</div>
+        <div><div class="synergy-name">Ember</div><div class="synergy-effect">Attack +10%</div></div>
+      </div>
+      <div class="synergy-tier">
+        <div class="synergy-count">3</div>
+        <div><div class="synergy-name">Inferno</div><div class="synergy-effect">Attack +25%</div></div>
+      </div>
+    </div>
+    <div class="synergy-card">
+      <h4>❄️ Ice</h4>
+      <div class="synergy-tier">
+        <div class="synergy-count">2</div>
+        <div><div class="synergy-name">Frost</div><div class="synergy-effect">Defense +10%</div></div>
+      </div>
+      <div class="synergy-tier">
+        <div class="synergy-count">3</div>
+        <div><div class="synergy-name">Blizzard</div><div class="synergy-effect">Defense +25%, Speed -10%</div></div>
+      </div>
+    </div>
+    <div class="synergy-card">
+      <h4>🌪️ Wind</h4>
+      <div class="synergy-tier">
+        <div class="synergy-count">2</div>
+        <div><div class="synergy-name">Breeze</div><div class="synergy-effect">Speed +15%</div></div>
+      </div>
+      <div class="synergy-tier">
+        <div class="synergy-count">3</div>
+        <div><div class="synergy-name">Tempest</div><div class="synergy-effect">Speed +30%, Attack +10%</div></div>
+      </div>
+    </div>
+    <div class="synergy-card">
+      <h4>🪨 Earth</h4>
+      <div class="synergy-tier">
+        <div class="synergy-count">2</div>
+        <div><div class="synergy-name">Roots</div><div class="synergy-effect">Health +10%</div></div>
+      </div>
+      <div class="synergy-tier">
+        <div class="synergy-count">3</div>
+        <div><div class="synergy-name">Tectonic</div><div class="synergy-effect">Health +25%, Defense +10%</div></div>
+      </div>
+    </div>
+    <div class="synergy-card">
+      <h4>🌑 Shadow</h4>
+      <div class="synergy-tier">
+        <div class="synergy-count">2</div>
+        <div><div class="synergy-name">Dusk</div><div class="synergy-effect">Attack +10%, Speed +5%</div></div>
+      </div>
+      <div class="synergy-tier">
+        <div class="synergy-count">3</div>
+        <div><div class="synergy-name">Eclipse</div><div class="synergy-effect">Attack +20%, Speed +15%</div></div>
+      </div>
+    </div>
+    <div class="synergy-card">
+      <h4>⚡ Lightning</h4>
+      <div class="synergy-tier">
+        <div class="synergy-count">2</div>
+        <div><div class="synergy-name">Spark</div><div class="synergy-effect">Speed +10%, Attack +5%</div></div>
+      </div>
+      <div class="synergy-tier">
+        <div class="synergy-count">3</div>
+        <div><div class="synergy-name">Thunder</div><div class="synergy-effect">Speed +20%, Attack +15%</div></div>
+      </div>
+    </div>
+  </div>
+
+  <h3 style="font-family: 'Rajdhani', sans-serif; font-size: 1.2rem; color: var(--accent-purple); margin-bottom: 1rem;">Class Synergies</h3>
+  <div class="synergy-grid">
+    <div class="synergy-card">
+      <h4>💪 Bruiser</h4>
+      <div class="synergy-tier">
+        <div class="synergy-count">2</div>
+        <div><div class="synergy-name">Fury</div><div class="synergy-effect">Attack +12%</div></div>
+      </div>
+      <div class="synergy-tier">
+        <div class="synergy-count">3</div>
+        <div><div class="synergy-name">Rampage</div><div class="synergy-effect">Attack +25%, Health +10%</div></div>
+      </div>
+    </div>
+    <div class="synergy-card">
+      <h4>🔮 Mage</h4>
+      <div class="synergy-tier">
+        <div class="synergy-count">2</div>
+        <div><div class="synergy-name">Focus</div><div class="synergy-effect">Attack +10%</div></div>
+      </div>
+      <div class="synergy-tier">
+        <div class="synergy-count">3</div>
+        <div><div class="synergy-name">Arcane</div><div class="synergy-effect">Attack +20%</div></div>
+      </div>
+    </div>
+    <div class="synergy-card">
+      <h4>🛡️ Guardian</h4>
+      <div class="synergy-tier">
+        <div class="synergy-count">2</div>
+        <div><div class="synergy-name">Shield</div><div class="synergy-effect">Defense +15%</div></div>
+      </div>
+      <div class="synergy-tier">
+        <div class="synergy-count">3</div>
+        <div><div class="synergy-name">Bastion</div><div class="synergy-effect">Defense +30%, Health +10%</div></div>
+      </div>
+    </div>
+    <div class="synergy-card">
+      <h4>🗡️ Assassin</h4>
+      <div class="synergy-tier">
+        <div class="synergy-count">2</div>
+        <div><div class="synergy-name">Edge</div><div class="synergy-effect">Speed +10%, Attack +5%</div></div>
+      </div>
+      <div class="synergy-tier">
+        <div class="synergy-count">3</div>
+        <div><div class="synergy-name">Lethal</div><div class="synergy-effect">Speed +20%, Attack +20%</div></div>
+      </div>
+    </div>
+    <div class="synergy-card">
+      <h4>💚 Support</h4>
+      <div class="synergy-tier">
+        <div class="synergy-count">2</div>
+        <div><div class="synergy-name">Mend</div><div class="synergy-effect">Health +10%</div></div>
+      </div>
+      <div class="synergy-tier">
+        <div class="synergy-count">3</div>
+        <div><div class="synergy-name">Harmony</div><div class="synergy-effect">Health +20%, Defense +10%</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     ECONOMY
+     ═══════════════════════════════════════════════════════════ -->
+<section id="economy">
+  <div class="section-label">Game Economy</div>
+  <div class="section-title">Economy & Progression</div>
+  <p class="section-desc">
+    Two currencies (Coins and Gems), floor-gated progression, and multiple income/spending sinks
+    keep players engaged at every stage.
+  </p>
+
+  <div class="econ-grid">
+    <div class="econ-card">
+      <h4>💰 Starting Economy</h4>
+      <div class="econ-row"><span>Starting Coins</span><span class="econ-val">1,000</span></div>
+      <div class="econ-row"><span>Income Tick</span><span class="econ-val">Every 10s</span></div>
+      <div class="econ-row"><span>Max Inventory</span><span class="econ-val">50 creatures</span></div>
+      <div class="econ-row"><span>Sell Price</span><span class="econ-val">captureCost &times; level</span></div>
+    </div>
+    <div class="econ-card">
+      <h4>🏗️ Floor Costs</h4>
+      <div class="econ-row"><span>Floor 1</span><span class="econ-val">Free</span></div>
+      <div class="econ-row"><span>Floor 2</span><span class="econ-val">500 coins (Lv.2)</span></div>
+      <div class="econ-row"><span>Floor 3</span><span class="econ-val">5,000 coins (Lv.5)</span></div>
+      <div class="econ-row"><span>Slots / Floor</span><span class="econ-val">6 income + 6 defense</span></div>
+    </div>
+    <div class="econ-card">
+      <h4>📈 Player XP Sources</h4>
+      <div class="econ-row"><span>Capture</span><span class="econ-val">+15 XP</span></div>
+      <div class="econ-row"><span>Arena Win</span><span class="econ-val">+50 XP</span></div>
+      <div class="econ-row"><span>Arena Kill</span><span class="econ-val">+10 XP</span></div>
+      <div class="econ-row"><span>Boss Kill</span><span class="econ-val">+100 XP</span></div>
+      <div class="econ-row"><span>Raid Win</span><span class="econ-val">+30 XP</span></div>
+      <div class="econ-row"><span>Dungeon Kill</span><span class="econ-val">+20 XP</span></div>
+      <div class="econ-row"><span>Income Tick</span><span class="econ-val">+2 XP</span></div>
+    </div>
+    <div class="econ-card">
+      <h4>🥚 Egg Shop (5 Tiers)</h4>
+      <div class="econ-row"><span>Common</span><span class="econ-val">150 coins / 25 R$</span></div>
+      <div class="econ-row"><span>Rare</span><span class="econ-val">800 / 75 R$</span></div>
+      <div class="econ-row"><span>Mythic</span><span class="econ-val">3,500 / 199 R$</span></div>
+      <div class="econ-row"><span>Legendary</span><span class="econ-val">12,000 / 499 R$</span></div>
+      <div class="econ-row"><span>God</span><span class="econ-val">50,000 / 999 R$</span></div>
+    </div>
+    <div class="econ-card">
+      <h4>⚔️ Arena Rewards</h4>
+      <div class="econ-row"><span>Win Streak Bonus</span><span class="econ-val">+5%/win (max 300%)</span></div>
+      <div class="econ-row"><span>XP Pool (win)</span><span class="econ-val">400 + 60 per streak</span></div>
+      <div class="econ-row"><span>Presence Buff</span><span class="econ-val">+10% stats on arena</span></div>
+      <div class="econ-row"><span>PvP Revive</span><span class="econ-val">25 coins / 2 gems</span></div>
+    </div>
+    <div class="econ-card">
+      <h4>📊 Creature Leveling</h4>
+      <div class="econ-row"><span>Base / Evolved / Final</span><span class="econ-val">10 / 25 / 50</span></div>
+      <div class="econ-row"><span>Base XP (Lv.2)</span><span class="econ-val">50</span></div>
+      <div class="econ-row"><span>XP Scaling</span><span class="econ-val">1.5x per level</span></div>
+      <div class="econ-row"><span>Stat Gain</span><span class="econ-val">Rank-based, ~8% base</span></div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     ROADMAP
+     ═══════════════════════════════════════════════════════════ -->
+<section id="roadmap">
+  <div class="section-label">Future Vision</div>
+  <div class="section-title">Development Roadmap</div>
+  <p class="section-desc">
+    Current live systems form the core loop. The next phases expand depth, progression, and monetization.
+  </p>
+
+  <div class="roadmap-timeline">
+
+    <div class="roadmap-item done">
+      <div class="rm-phase">Phase 1 — Foundation (Complete)</div>
+      <h4>Core Game Loop</h4>
+      <p>All fundamental systems live and working:</p>
+      <ul>
+        <li>90 creatures across 6 elements, 5 classes, 5 rarities; evolution chains &amp; variant combine (Normal→Silver→Gold→Legend)</li>
+        <li>World spawning (150 max + night bonus), SpawnPoints, DungeonPoints, BossPoints; day/night cycle with Silver/Gold spawn variants</li>
+        <li>Capture (faint-first, 30 studs), inventory (50), starter choice (Cacty, Breezee, Pylme, Sundile, Ceeponee)</li>
+        <li>Multi-floor base: Floor 1 free (6 income + 6 defense), Floor 2 at Lv.2/500 coins (battle team), Floor 3 at Lv.5/5,000 (Combiner/Recycler)</li>
+        <li>Base Exterior Shop (Haunted House, Retro Arcade, color themes), Base Color Shop; base interaction (pick up, move, swap, sell)</li>
+        <li>Combiner (3 same → next variant), Recycler (3 duplicates → egg one tier higher)</li>
+        <li>Companion system, steal-to-base mechanic; Focus bar &amp; element specials in arena/PvP</li>
+        <li>King of the Hill arena, PvP 1v1, player raiding (30% steal, 1/raid), laser door, AI raids</li>
+        <li>Egg shop (5 tiers: Common→God), buff shop, cosmetic shop</li>
+        <li>Creature levels (base 10 / evolved 25 / final 50), player level 50; Pilot Rebirth (10 levels, permanent bonuses)</li>
+        <li>Home Recall (5s channel), custom 3D creature models (flying, crawling, placement offsets)</li>
+      </ul>
+    </div>
+
+    <div class="roadmap-item">
+      <div class="rm-phase">Phase 2 — Arena Expansion</div>
+      <h4>King of the Hill Rewards Overhaul</h4>
+      <p>Deeper rewards and competitive structure:</p>
+      <ul>
+        <li><strong>Win Streak Rewards</strong> — Escalating coin/gem rewards based on consecutive wins</li>
+        <li><strong>Team Bounty System</strong> — Team value calculated from total creature worth; winners claim percentage of defeated team's bounty</li>
+        <li><strong>Leaderboard Seasons</strong> — Track cumulative bounty earned over time periods</li>
+        <li><strong>Arena Exclusive Drops</strong> — Rare creatures only available through arena wins at high streaks</li>
+      </ul>
+    </div>
+
+    <div class="roadmap-item">
+      <div class="rm-phase">Phase 3 — Base Expansion</div>
+      <h4>Base Design, Improvements & Upgrades</h4>
+      <p>Transform bases from functional to personal:</p>
+      <ul>
+        <li><strong>Tower Defense Structures</strong> — Buildable turret towers, walls, and traps placed on defense points</li>
+        <li><strong>2nd & 3rd Floor Visual Upgrades</strong> — Cosmetic themes and structural enhancements per floor</li>
+        <li><strong>Exterior Placements</strong> — Decorative and functional items outside the main base area</li>
+        <li><strong>Upgrade Paths</strong> — Invest coins/gems to level up base structures for increased defense stats</li>
+      </ul>
+    </div>
+
+    <div class="roadmap-item">
+      <div class="rm-phase">Phase 4 — Raid Overhaul</div>
+      <h4>Advanced Raiding System</h4>
+      <p>Full raid gameplay loop:</p>
+      <ul>
+        <li><strong>Steal Defender Monsters</strong> — Successfully defeating base defenses lets you steal defense creatures</li>
+        <li><strong>Full Base Raid</strong> — Break through all defenses to access income monsters as well</li>
+        <li><strong>Raid Replays</strong> — View replays of raids on your base while you were away</li>
+        <li><strong>Raid Leagues</strong> — Competitive raiding tiers with exclusive rewards</li>
+      </ul>
+    </div>
+
+    <div class="roadmap-item">
+      <div class="rm-phase">Phase 5 — World Expansion</div>
+      <h4>New Portal Zones & Map Design</h4>
+      <p>Expand the world with new biomes and creatures:</p>
+      <ul>
+        <li><strong>Portal Zones</strong> — New areas accessed through portals, each with unique elements and monsters</li>
+        <li><strong>PvE Spawn Areas</strong> — Dedicated zones for challenging PvE encounters with scaling difficulty</li>
+        <li><strong>Biome-Specific Events</strong> — Timed events unique to each portal zone</li>
+        <li><strong>New Elements</strong> — Expand beyond the current 6 elements with portal-exclusive types</li>
+        <li><strong>Map Design Overhaul</strong> — Richer environments, exploration rewards, hidden areas</li>
+      </ul>
+    </div>
+
+    <div class="roadmap-item">
+      <div class="rm-phase">Phase 6 — Evolution & Fusion</div>
+      <h4>Monster Evolution & Combining System</h4>
+      <p>Deep progression for creature collectors:</p>
+      <ul>
+        <li><strong>Evolution Chains</strong> — Creatures evolve into stronger forms at specific levels (e.g., Chillpuff → Frostag → Glaciemperor)</li>
+        <li><strong>Monster Combining</strong> — 3 like creatures combine into a Silver variant, 3 Silvers → Gold, 3 Golds → Legend</li>
+        <li><strong>Fusion Lab (Top Floor)</strong> — Dedicated base area for fusing creatures into higher-tier versions with boosted stats</li>
+        <li><strong>Corrupted Monsters</strong> — Any element creature can become "Corrupted" — dark variant with altered stats and unique abilities</li>
+      </ul>
+    </div>
+
+    <div class="roadmap-item">
+      <div class="rm-phase">Phase 7 — Monetization & Retention</div>
+      <h4>Shops, Passes & Daily Engagement</h4>
+      <p>Sustainable monetization and player retention:</p>
+      <ul>
+        <li><strong>Player Buff Shop (Expanded)</strong> — Shields, High Jumps, Super Speed, Invulnerability, Invisibility, Swap Places (already in GameConfig)</li>
+        <li><strong>Cosmetic Shop (Expanded)</strong> — More trails, auras, name effects, creature skins</li>
+        <li><strong>Dailies, Weeklies, Monthlies</strong> — Rotating challenge system with escalating rewards</li>
+        <li><strong>Battle Pass</strong> — Seasonal progression track with free and premium reward tiers</li>
+      </ul>
+    </div>
+
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TECH ARCHITECTURE
+     ═══════════════════════════════════════════════════════════ -->
+<section>
+  <div class="section-label">Under the Hood</div>
+  <div class="section-title">Technical Architecture</div>
+  <p class="section-desc">
+    36+ Lua scripts with clean module separation, authoritative server-side HP tracking,
+    and DataStore persistence.
+  </p>
+
+  <div class="features-grid">
+    <div class="feature-card">
+      <div class="icon">🧠</div>
+      <h3>Server Architecture</h3>
+      <p>Single entry point (MainServer.lua) initializes all modules in strict dependency order.
+         All game logic runs server-side. Clients only send input and receive state updates via RemoteEvents.</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">💾</div>
+      <h3>Data Persistence</h3>
+      <p>PlayerDataManager handles all DataStore operations. Tracks coins, gems, inventory (with unique UIDs),
+         slot assignments, battle teams, player level/XP, owned floors, friends, buffs, cosmetics, base exterior/color, rebirth level, and stats.</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">🔗</div>
+      <h3>Module Interactions</h3>
+      <p>CreatureAI is the authoritative HP system — all damage routes through it. BasePlacementSystem handles
+         visual state. FavoriteCreatureSystem manages companion AI. BattleTeamSystem computes synergies.</p>
+    </div>
+    <div class="feature-card">
+      <div class="icon">🎮</div>
+      <h3>Client Systems</h3>
+      <p>HUDButtonBar provides 8-button menu bar with keyboard shortcuts. PlayerCombatClient handles input.
+         PlayerProfileClient shows stats. All UI modular and event-driven.</p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     FOOTER
+     ═══════════════════════════════════════════════════════════ -->
+<footer>
+  <div class="footer-logo">SIEGE MONSTERS</div>
+  <p>Internal Team Pitch &bull; Roblox Experience &bull; In Active Development</p>
+  <p style="margin-top: 0.5rem; font-size: 0.7rem; color: var(--text-muted);">
+    90 creatures &bull; 6 elements &bull; 5 classes &bull; 5 rarities &bull; 36+ scripts &bull; ~550KB codebase
+  </p>
+</footer>
+
+<!-- ═══════════════════════════════════════════════════════════
+     CREATURE DATA + FILTERING SCRIPT
+     ═══════════════════════════════════════════════════════════ -->
+<script>
+const creatures = [
+  // ── FIRE ──
+  { n: 1,  name: "Firsky",        elem: "Fire",      cls: "Mage",     rarity: "Common",    hp: 45,  atk: 12, def: 6,  spd: 7,  inc: 1,  behavior: "Aggressive" },
+  { n: 2,  name: "Pylook",        elem: "Fire",      cls: "Assassin", rarity: "Common",    hp: 40,  atk: 11, def: 5,  spd: 11, inc: 1,  behavior: "Skittish" },
+  { n: 3,  name: "Sundile",       elem: "Fire",      cls: "Guardian", rarity: "Common",    hp: 75,  atk: 5,  def: 15, spd: 3,  inc: 1,  behavior: "Gentle" },
+  { n: 4,  name: "Draco",         elem: "Fire",      cls: "Bruiser",  rarity: "Common",    hp: 55,  atk: 10, def: 8,  spd: 6,  inc: 1,  behavior: "Pack" },
+  { n: 5,  name: "Smoldervine",   elem: "Fire",      cls: "Support",  rarity: "Common",    hp: 65,  atk: 6,  def: 10, spd: 4,  inc: 1,  behavior: "Gentle" },
+  { n: 6,  name: "Emberpup",      elem: "Fire",      cls: "Bruiser",  rarity: "Uncommon",  hp: 90,  atk: 18, def: 10, spd: 8,  inc: 3,  behavior: "Aggressive" },
+  { n: 7,  name: "Raydile",       elem: "Fire",      cls: "Guardian", rarity: "Uncommon",  hp: 110, atk: 10, def: 20, spd: 4,  inc: 3,  behavior: "Lone" },
+  { n: 8,  name: "Hotty",         elem: "Fire",      cls: "Support",  rarity: "Uncommon",  hp: 75,  atk: 12, def: 12, spd: 9,  inc: 3,  behavior: "Pack" },
+  { n: 9,  name: "Sootfang",      elem: "Fire",      cls: "Assassin", rarity: "Uncommon",  hp: 70,  atk: 16, def: 8,  spd: 13, inc: 3,  behavior: "Aggressive" },
+  { n: 10, name: "Dracoil",       elem: "Fire",      cls: "Assassin", rarity: "Rare",      hp: 100, atk: 28, def: 12, spd: 13, inc: 8,  behavior: "Lone" },
+  { n: 11, name: "Cinderstag",    elem: "Fire",      cls: "Support",  rarity: "Rare",      hp: 110, atk: 15, def: 20, spd: 14, inc: 8,  behavior: "Skittish" },
+  { n: 12, name: "Furnacejaw",    elem: "Fire",      cls: "Bruiser",  rarity: "Rare",      hp: 140, atk: 25, def: 18, spd: 7,  inc: 8,  behavior: "Aggressive" },
+  { n: 13, name: "Pyleer",        elem: "Fire",      cls: "Mage",     rarity: "Epic",      hp: 140, atk: 42, def: 15, spd: 10, inc: 20, behavior: "Lone" },
+  { n: 14, name: "Solgator",       elem: "Fire",      cls: "Guardian", rarity: "Epic",      hp: 220, atk: 20, def: 35, spd: 8,  inc: 20, behavior: "Gentle" },
+  { n: 15, name: "Pylord",        elem: "Fire",      cls: "Bruiser",  rarity: "Legendary", hp: 380, atk: 50, def: 40, spd: 10, inc: 50, behavior: "Lone" },
+  // ── ICE ──
+  { n: 16, name: "Fawny",         elem: "Ice",       cls: "Bruiser",  rarity: "Common",    hp: 55,  atk: 5,  def: 10, spd: 5,  inc: 1,  behavior: "Pack" },
+  { n: 17, name: "Frostfly",      elem: "Ice",       cls: "Mage",     rarity: "Common",    hp: 70,  atk: 6,  def: 16, spd: 3,  inc: 1,  behavior: "Gentle" },
+  { n: 18, name: "Ice-Wee",       elem: "Ice",       cls: "Assassin", rarity: "Common",    hp: 42,  atk: 10, def: 6,  spd: 11, inc: 1,  behavior: "Aggressive" },
+  { n: 19, name: "Ceeponee",      elem: "Ice",       cls: "Bruiser",  rarity: "Common",    hp: 55,  atk: 11, def: 8,  spd: 6,  inc: 1,  behavior: "Skittish" },
+  { n: 20, name: "Snowdrift",     elem: "Ice",       cls: "Mage",     rarity: "Common",    hp: 45,  atk: 10, def: 7,  spd: 8,  inc: 1,  behavior: "Pack" },
+  { n: 21, name: "Frosty",        elem: "Ice",       cls: "Mage",     rarity: "Uncommon",  hp: 70,  atk: 14, def: 14, spd: 6,  inc: 3,  behavior: "Lone" },
+  { n: 22, name: "Chilldoe",      elem: "Ice",       cls: "Bruiser",  rarity: "Uncommon",  hp: 85,  atk: 15, def: 12, spd: 9,  inc: 3,  behavior: "Aggressive" },
+  { n: 23, name: "Ice-Cue-Wee",   elem: "Ice",       cls: "Assassin", rarity: "Uncommon",  hp: 80,  atk: 8,  def: 15, spd: 12, inc: 3,  behavior: "Skittish" },
+  { n: 24, name: "Ceehorcee",     elem: "Ice",       cls: "Assassin", rarity: "Uncommon",  hp: 65,  atk: 17, def: 9,  spd: 14, inc: 3,  behavior: "Pack" },
+  { n: 25, name: "Glacius",       elem: "Ice",       cls: "Guardian", rarity: "Rare",      hp: 150, atk: 12, def: 30, spd: 4,  inc: 8,  behavior: "Gentle" },
+  { n: 26, name: "Lumina",        elem: "Ice",       cls: "Mage",     rarity: "Rare",      hp: 95,  atk: 26, def: 14, spd: 10, inc: 8,  behavior: "Pack" },
+  { n: 27, name: "Tundracrab",    elem: "Ice",       cls: "Bruiser",  rarity: "Rare",      hp: 130, atk: 22, def: 25, spd: 5,  inc: 8,  behavior: "Lone" },
+  { n: 28, name: "Frostag",       elem: "Ice",       cls: "Assassin", rarity: "Epic",      hp: 150, atk: 40, def: 18, spd: 14, inc: 20, behavior: "Lone" },
+  { n: 29, name: "Ceesteed",      elem: "Ice",       cls: "Guardian", rarity: "Epic",      hp: 210, atk: 22, def: 32, spd: 8,  inc: 20, behavior: "Gentle" },
+  { n: 30, name: "Glaciemperor",  elem: "Ice",       cls: "Mage",     rarity: "Legendary", hp: 320, atk: 52, def: 45, spd: 8,  inc: 50, behavior: "Lone" },
+  // ── WIND ──
+  { n: 31, name: "Ragguette",     elem: "Wind",      cls: "Support",  rarity: "Common",    hp: 40,  atk: 10, def: 5,  spd: 12, inc: 1,  behavior: "Skittish" },
+  { n: 32, name: "Blinky",        elem: "Wind",      cls: "Assassin", rarity: "Common",    hp: 60,  atk: 5,  def: 12, spd: 6,  inc: 1,  behavior: "Gentle" },
+  { n: 33, name: "Breezee",       elem: "Wind",      cls: "Assassin", rarity: "Common",    hp: 42,  atk: 9,  def: 6,  spd: 9,  inc: 1,  behavior: "Pack" },
+  { n: 34, name: "Zephyrpup",     elem: "Wind",      cls: "Bruiser",  rarity: "Common",    hp: 55,  atk: 10, def: 7,  spd: 8,  inc: 1,  behavior: "Aggressive" },
+  { n: 35, name: "Cloudhare",     elem: "Wind",      cls: "Guardian", rarity: "Common",    hp: 70,  atk: 6,  def: 14, spd: 10, inc: 1,  behavior: "Skittish" },
+  { n: 36, name: "Lofty",         elem: "Wind",      cls: "Assassin", rarity: "Uncommon",  hp: 65,  atk: 16, def: 8,  spd: 14, inc: 3,  behavior: "Lone" },
+  { n: 37, name: "Gagglestand",   elem: "Wind",      cls: "Support",  rarity: "Uncommon",  hp: 90,  atk: 9,  def: 18, spd: 7,  inc: 3,  behavior: "Gentle" },
+  { n: 38, name: "Cyclonix",      elem: "Wind",      cls: "Mage",     rarity: "Uncommon",  hp: 70,  atk: 15, def: 10, spd: 12, inc: 3,  behavior: "Aggressive" },
+  { n: 39, name: "Talonstrike",   elem: "Wind",      cls: "Bruiser",  rarity: "Uncommon",  hp: 85,  atk: 16, def: 14, spd: 10, inc: 3,  behavior: "Lone" },
+  { n: 40, name: "Hurricrane",    elem: "Wind",      cls: "Mage",     rarity: "Rare",      hp: 100, atk: 28, def: 12, spd: 13, inc: 8,  behavior: "Lone" },
+  { n: 41, name: "Sirocco",       elem: "Wind",      cls: "Assassin", rarity: "Rare",      hp: 90,  atk: 26, def: 14, spd: 15, inc: 8,  behavior: "Aggressive" },
+  { n: 42, name: "Mistwalker",     elem: "Wind",      cls: "Guardian", rarity: "Rare",      hp: 160, atk: 14, def: 28, spd: 6,  inc: 8,  behavior: "Gentle" },
+  { n: 43, name: "Skydon",        elem: "Wind",      cls: "Support",  rarity: "Epic",      hp: 160, atk: 18, def: 25, spd: 16, inc: 20, behavior: "Skittish" },
+  { n: 44, name: "Hurriclaw",     elem: "Wind",      cls: "Bruiser",  rarity: "Epic",      hp: 190, atk: 38, def: 22, spd: 14, inc: 20, behavior: "Aggressive" },
+  { n: 45, name: "Aerovane",      elem: "Wind",      cls: "Assassin", rarity: "Legendary", hp: 290, atk: 55, def: 35, spd: 14, inc: 50, behavior: "Lone" },
+  // ── EARTH ──
+  { n: 46, name: "Cacty",         elem: "Earth",     cls: "Bruiser",  rarity: "Common",    hp: 60,  atk: 8,  def: 12, spd: 4,  inc: 1,  behavior: "Pack" },
+  { n: 47, name: "Applehead",     elem: "Earth",     cls: "Guardian", rarity: "Common",    hp: 80,  atk: 6,  def: 18, spd: 2,  inc: 1,  behavior: "Gentle" },
+  { n: 48, name: "Papap",         elem: "Earth",     cls: "Support",  rarity: "Common",    hp: 65,  atk: 5,  def: 14, spd: 3,  inc: 1,  behavior: "Gentle" },
+  { n: 49, name: "Squire Bud",    elem: "Earth",     cls: "Assassin", rarity: "Common",    hp: 45,  atk: 10, def: 8,  spd: 10, inc: 1,  behavior: "Skittish" },
+  { n: 50, name: "Pylme",         elem: "Earth",     cls: "Mage",     rarity: "Common",    hp: 50,  atk: 9,  def: 10, spd: 5,  inc: 1,  behavior: "Pack" },
+  { n: 51, name: "Jacked'ty",     elem: "Earth",     cls: "Bruiser",  rarity: "Uncommon",  hp: 110, atk: 8,  def: 22, spd: 3,  inc: 3,  behavior: "Aggressive" },
+  { n: 52, name: "Mossy",         elem: "Earth",     cls: "Bruiser",  rarity: "Uncommon",  hp: 95,  atk: 16, def: 14, spd: 6,  inc: 3,  behavior: "Gentle" },
+  { n: 53, name: "Flora Knight",  elem: "Earth",     cls: "Mage",     rarity: "Uncommon",  hp: 75,  atk: 15, def: 12, spd: 8,  inc: 3,  behavior: "Lone" },
+  { n: 54, name: "Bonoblade",     elem: "Earth",     cls: "Assassin", rarity: "Uncommon",  hp: 70,  atk: 17, def: 10, spd: 11, inc: 3,  behavior: "Aggressive" },
+  { n: 55, name: "Generoot",      elem: "Earth",     cls: "Bruiser",  rarity: "Rare",      hp: 130, atk: 22, def: 25, spd: 5,  inc: 8,  behavior: "Lone" },
+  { n: 56, name: "Guerilla",      elem: "Earth",     cls: "Bruiser",  rarity: "Rare",      hp: 120, atk: 14, def: 22, spd: 12, inc: 8,  behavior: "Aggressive" },
+  { n: 57, name: "Golor",         elem: "Earth",     cls: "Guardian", rarity: "Rare",      hp: 155, atk: 16, def: 28, spd: 4,  inc: 8,  behavior: "Gentle" },
+  { n: 58, name: "CactyJackedty", elem: "Earth",     cls: "Bruiser",  rarity: "Epic",      hp: 200, atk: 40, def: 28, spd: 8,  inc: 20, behavior: "Aggressive" },
+  { n: 59, name: "Sheenx",        elem: "Earth",     cls: "Support",  rarity: "Epic",      hp: 200, atk: 18, def: 30, spd: 9,  inc: 20, behavior: "Gentle" },
+  { n: 60, name: "Titanforge",    elem: "Earth",     cls: "Guardian", rarity: "Legendary", hp: 400, atk: 30, def: 60, spd: 3,  inc: 50, behavior: "Gentle" },
+  // ── SHADOW ──
+  { n: 61, name: "Gloomrat",      elem: "Shadow",    cls: "Assassin", rarity: "Common",    hp: 40,  atk: 10, def: 5,  spd: 10, inc: 1,  behavior: "Pack" },
+  { n: 62, name: "Duskmoth",      elem: "Shadow",    cls: "Mage",     rarity: "Common",    hp: 42,  atk: 11, def: 5,  spd: 11, inc: 1,  behavior: "Skittish" },
+  { n: 63, name: "Shadeblob",     elem: "Shadow",    cls: "Guardian", rarity: "Common",    hp: 75,  atk: 5,  def: 16, spd: 3,  inc: 1,  behavior: "Gentle" },
+  { n: 64, name: "Murkling",      elem: "Shadow",    cls: "Bruiser",  rarity: "Common",    hp: 55,  atk: 12, def: 7,  spd: 7,  inc: 1,  behavior: "Aggressive" },
+  { n: 65, name: "Whisperling",   elem: "Shadow",    cls: "Support",  rarity: "Common",    hp: 60,  atk: 6,  def: 12, spd: 5,  inc: 1,  behavior: "Gentle" },
+  { n: 66, name: "Nightfang",     elem: "Shadow",    cls: "Assassin", rarity: "Uncommon",  hp: 65,  atk: 17, def: 8,  spd: 14, inc: 3,  behavior: "Aggressive" },
+  { n: 67, name: "Hexweaver",     elem: "Shadow",    cls: "Mage",     rarity: "Uncommon",  hp: 75,  atk: 16, def: 12, spd: 8,  inc: 3,  behavior: "Lone" },
+  { n: 68, name: "Grimshell",     elem: "Shadow",    cls: "Guardian", rarity: "Uncommon",  hp: 100, atk: 9,  def: 20, spd: 4,  inc: 3,  behavior: "Gentle" },
+  { n: 69, name: "Dreadpup",      elem: "Shadow",    cls: "Bruiser",  rarity: "Uncommon",  hp: 80,  atk: 15, def: 10, spd: 10, inc: 3,  behavior: "Pack" },
+  { n: 70, name: "Shadowlurk",    elem: "Shadow",    cls: "Assassin", rarity: "Rare",      hp: 85,  atk: 30, def: 10, spd: 15, inc: 8,  behavior: "Lone" },
+  { n: 71, name: "Phantomsteed",  elem: "Shadow",    cls: "Support",  rarity: "Rare",      hp: 110, atk: 16, def: 18, spd: 14, inc: 8,  behavior: "Skittish" },
+  { n: 72, name: "Abysscrawler",  elem: "Shadow",    cls: "Bruiser",  rarity: "Rare",      hp: 140, atk: 24, def: 22, spd: 6,  inc: 8,  behavior: "Aggressive" },
+  { n: 73, name: "Umbralwyrm",    elem: "Shadow",    cls: "Mage",     rarity: "Epic",      hp: 160, atk: 45, def: 20, spd: 12, inc: 20, behavior: "Lone" },
+  { n: 74, name: "Doomshield",    elem: "Shadow",    cls: "Guardian", rarity: "Epic",      hp: 210, atk: 20, def: 35, spd: 8,  inc: 20, behavior: "Gentle" },
+  { n: 75, name: "Voidmaw",       elem: "Shadow",    cls: "Mage",     rarity: "Legendary", hp: 300, atk: 50, def: 40, spd: 10, inc: 50, behavior: "Lone" },
+  // ── LIGHTNING ──
+  { n: 76, name: "Monkwatt",      elem: "Lightning", cls: "Mage",     rarity: "Common",    hp: 42,  atk: 11, def: 5,  spd: 11, inc: 1,  behavior: "Skittish" },
+  { n: 77, name: "Boltant",       elem: "Lightning", cls: "Bruiser",  rarity: "Common",    hp: 50,  atk: 9,  def: 8,  spd: 8,  inc: 1,  behavior: "Pack" },
+  { n: 78, name: "Voltpecker",    elem: "Lightning", cls: "Assassin", rarity: "Common",    hp: 40,  atk: 12, def: 5,  spd: 12, inc: 1,  behavior: "Aggressive" },
+  { n: 79, name: "Staticshell",   elem: "Lightning", cls: "Guardian", rarity: "Common",    hp: 70,  atk: 6,  def: 15, spd: 3,  inc: 1,  behavior: "Gentle" },
+  { n: 80, name: "Sparkpuff",     elem: "Lightning", cls: "Support",  rarity: "Common",    hp: 60,  atk: 5,  def: 11, spd: 6,  inc: 1,  behavior: "Gentle" },
+  { n: 81, name: "Sparkwisp",     elem: "Lightning", cls: "Support",  rarity: "Uncommon",  hp: 60,  atk: 10, def: 10, spd: 11, inc: 3,  behavior: "Pack" },
+  { n: 82, name: "Thundermole",   elem: "Lightning", cls: "Bruiser",  rarity: "Uncommon",  hp: 90,  atk: 16, def: 14, spd: 7,  inc: 3,  behavior: "Aggressive" },
+  { n: 83, name: "Arcfox",        elem: "Lightning", cls: "Assassin", rarity: "Uncommon",  hp: 65,  atk: 16, def: 9,  spd: 13, inc: 3,  behavior: "Lone" },
+  { n: 84, name: "Galvanite",     elem: "Lightning", cls: "Guardian", rarity: "Uncommon",  hp: 100, atk: 9,  def: 20, spd: 5,  inc: 3,  behavior: "Gentle" },
+  { n: 85, name: "Plasmaviper",   elem: "Lightning", cls: "Assassin", rarity: "Rare",      hp: 90,  atk: 28, def: 12, spd: 15, inc: 8,  behavior: "Aggressive" },
+  { n: 86, name: "Voltadon",      elem: "Lightning", cls: "Bruiser",  rarity: "Rare",      hp: 140, atk: 22, def: 24, spd: 6,  inc: 8,  behavior: "Lone" },
+  { n: 87, name: "Tempestweave",  elem: "Lightning", cls: "Mage",     rarity: "Rare",      hp: 100, atk: 26, def: 16, spd: 10, inc: 8,  behavior: "Lone" },
+  { n: 88, name: "Stormclaw",      elem: "Lightning", cls: "Bruiser",  rarity: "Epic",      hp: 180, atk: 35, def: 20, spd: 14, inc: 20, behavior: "Aggressive" },
+  { n: 89, name: "Ionwarden",     elem: "Lightning", cls: "Support",  rarity: "Epic",      hp: 180, atk: 22, def: 30, spd: 10, inc: 20, behavior: "Gentle" },
+  { n: 90, name: "Thunderlord",   elem: "Lightning", cls: "Mage",     rarity: "Legendary", hp: 340, atk: 55, def: 38, spd: 12, inc: 50, behavior: "Lone" },
+];
+
+const elemColors = {
+  Fire: "elem-fire", Ice: "elem-ice", Wind: "elem-wind",
+  Earth: "elem-earth", Shadow: "elem-shadow", Lightning: "elem-lightning"
+};
+const rarityColors = {
+  Common: "rarity-common", Uncommon: "rarity-uncommon", Rare: "rarity-rare",
+  Epic: "rarity-epic", Legendary: "rarity-legendary"
+};
+
+function renderCreatures(list) {
+  const body = document.getElementById("creatureBody");
+  body.innerHTML = list.map(c => `<tr data-elem="${c.elem}" data-rarity="${c.rarity}">
+    <td style="color:var(--text-muted)">${c.n}</td>
+    <td><strong>${c.name}</strong></td>
+    <td><span class="elem-badge ${elemColors[c.elem]}">${c.elem}</span></td>
+    <td>${c.cls}</td>
+    <td><span class="rarity-dot ${rarityColors[c.rarity]}"></span>${c.rarity}</td>
+    <td>${c.hp}</td>
+    <td style="color:#ff6644">${c.atk}</td>
+    <td style="color:#44aaff">${c.def}</td>
+    <td style="color:#44ff88">${c.spd}</td>
+    <td style="color:#ffcc44">${c.inc}</td>
+    <td style="color:var(--text-muted)">${c.behavior}</td>
+  </tr>`).join("");
+}
+
+function filterCreatures(filter) {
+  document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
+  event.target.classList.add("active");
+  if (filter === "all") { renderCreatures(creatures); return; }
+  const filtered = creatures.filter(c => c.elem === filter || c.rarity === filter);
+  renderCreatures(filtered);
+}
+
+// Initial render
+renderCreatures(creatures);
+</script>
+
+</body>
+</html>

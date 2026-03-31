@@ -1,0 +1,318 @@
+================================================================================
+                    THE siegling
+        A Guide for the Valorous — Compiled by the Four Houses
+================================================================================
+
+--------------------------------------------------------------------------------
+TABLE OF CONTENTS
+--------------------------------------------------------------------------------
+
+  I.    Quick Reference — Controls & Gameplay
+  II.   Foreword — Lord Theron Emberward (Fire)
+  III.  Chapter One: The Shield and the Card — Lady Elara Frostholm (Ice)
+  IV.   Chapter Two: Capturing Your First siegling — Lord Marcus Cinderthorn (Earth)
+  V.    Chapter Three: Your Base and Your Roles — Lord Kael Zephyran (Air)
+  VI.   Chapter Four: The Arena and Honor Duels — Lord Theron Emberward (Fire)
+  VII.  Chapter Five: Dungeons, Raids, and the Unvalorous — Lady Elara Frostholm (Ice)
+  VIII. Chapter Six: Evolving and Combining — Lord Marcus Cinderthorn (Earth)
+  IX.   Chapter Seven: The Path Ahead — Lord Kael Zephyran (Air)
+  X.    The Codex of Binding — World History (Maestro, Eleminions)
+  XI.   Glossary — Terms (siegling, Siege Knight, Siegelord, etc.)
+
+--------------------------------------------------------------------------------
+I. QUICK REFERENCE — CONTROLS & GAMEPLAY
+--------------------------------------------------------------------------------
+
+CONTROLS
+--------
+  [W][A][S][D]  — Move
+  [E]           — Target nearest siegling (for capture or combat)
+  [F]           — Ranged / Melee attack (when targeting)
+  [Q]           — Inventory (creatures, base layout, battle team)
+  [R]           — Egg Shop (buy and hatch eggs)
+  [G]           — Buff Shop (power-ups)
+  [C]           — Cosmetic Shop (trails, auras)
+  [V]           — Friends (base access list)
+  [X]           — Leaderboards
+  [P]           — Player Profile
+  [Z]           — Rebirth (reset for permanent bonuses)
+  [H]           — Home Recall (channel 5 seconds to return to base)
+  [B]           — Battle tab (in Inventory — assign creatures to arena/PvP)
+  [Y]           — Toggle favorite companion (in Inventory)
+
+HOW TO PLAY
+-----------
+  1. CAPTURE — Find sieglings in the world. Press [E] to target. Attack with
+     [F] (and your companion) until the creature faints. Click the fainted
+     creature to capture (costs gold; rarer = more cost).
+
+  2. COMPANION — Set one creature as your Favorite in Inventory. That siegling
+     follows you and fights by your side in the wilds.
+
+  3. BASE — You have a plot with slots. Assign creatures to:
+     • Income  — Earn coins over time
+     • Defense — Guard your base from raids
+     • Battle  — Fight in arena and PvP (unlock Floor 2)
+
+  4. ARENA — Team battles for fame and rewards. Unlock via base upgrade.
+
+  5. PVP — Challenge nearby players to 1v1 duels.
+
+  6. RAIDS — Attack other bases to steal creatures. Defend with your defense team.
+
+  7. COMBINE — Three of the same variant tier (Normal/Silver/Gold) combine into
+     the next tier. Use the Combiner at your base.
+
+================================================================================
+II. FOREWORD — Lord Theron Emberward, House Emberward (Fire)
+================================================================================
+
+You have taken the Rite of Thirteen. You hold your shield, you hold your first
+Capture Card. In the flame-lands of the frontier, we say: Through flame, we hold.
+
+This world turns on sieglings—the creatures bound to us by card and shield. As a
+Squire, you must learn to capture, to assign, to fight, and to defend. The four
+houses have gathered our teachings here. Read them. Use them. Then go into the
+wilds.
+
+================================================================================
+III. CHAPTER ONE: The Shield and the Card
+        Lady Elara Frostholm, House Frostholm (Ice)
+================================================================================
+
+Your SHIELD is more than armor. It is a wristguard with a slot for your siegling
+card. Place a card into the slot, and the creature bound to it is summoned to
+your side. Withdraw the card, and it returns to the vault.
+
+Every shield bears a SIGIL. Ours declares house and allegiance. Hedge knights
+carry personal sigils they may pass to their Squires. Orders share sigils
+between members. Great houses wear one sigil for all—a mark of loyalty.
+
+Guard your shield. Guard your cards. They are the proof of your bond.
+
+================================================================================
+IV. CHAPTER TWO: Capturing Your First siegling
+        Lord Marcus Cinderthorn, House Cinderthorn (Earth)
+================================================================================
+
+Capture is the heart of the path. You weaken a wild siegling in combat—your
+strikes and your COMPANION's attacks—until it faints. Then you use a Capture
+Card. Success costs gold; the rarer the creature, the higher the cost.
+
+TIP: Set one creature as your FAVORITE. That siegling becomes your companion and
+follows you into the wilds, fighting by your side. Choose well—your companion
+will be your first line of defense and offense.
+
+Do not force the bond. A siegling that refuses the card cannot be bound. Patience
+and respect matter more than strength.
+
+================================================================================
+V. CHAPTER THREE: Your Base and Your Roles
+        Lord Kael Zephyran, House Zephyran (Air)
+================================================================================
+
+Every Squire is granted a PLOT—your home in this land. On it you assign your
+sieglings to three roles:
+
+  • INCOME  — Your sieglings work the land. Coins flow over time.
+  • DEFENSE — Your sieglings stand guard. Raiders who attack your base must face
+              them. Build a strong defense.
+  • BATTLE TEAM — Your sieglings fight for you in the arena and in duels. Unlock
+                  Floor 2 to access the battle grid. You may field up to five
+                  sieglings in a 3×3 formation.
+
+Choose based on each creature's strengths. Fire for offense, Ice for control,
+Earth for endurance, Air for speed. Build a balanced team. Swift as the storm
+means knowing when to strike and when to hold.
+
+================================================================================
+VI. CHAPTER FOUR: The Arena and Honor Duels
+        Lord Theron Emberward, House Emberward (Fire)
+================================================================================
+
+The arena is where the Valorous prove themselves. Knights and Siegelords battle
+daily for fame, territory, and the people's amusement. You will enter that arena.
+You will lose and you will win. Both teach.
+
+Arena battles pit teams against each other. PvP duels let you challenge nearby
+knights. Your battle team fights; you command. Learn the focus bar, special
+attacks, and synergies. Fire burns, Earth slows, Wind drains focus, Ice freezes.
+
+Fight with honor. Win or lose, you represent your house and the Valorous way.
+
+================================================================================
+VII. CHAPTER FIVE: Dungeons, Raids, and the Unvalorous
+        Lady Elara Frostholm, House Frostholm (Ice)
+================================================================================
+
+Beyond the safe paths lie DUNGEONS—stronger sieglings, higher risk, greater
+reward. Rarer creatures lurk there. Face them when you are ready.
+
+Beware RAIDS. Other knights may assault your base to steal your sieglings.
+Defend with your defense team. And remember: not all who wield sieglings are
+Valorous. Some lay siege to these lands—raiders, warlords, outcasts. They take
+by force and fight without honor. Our duty is to stand against them.
+
+Cold steel, warm heart.
+
+================================================================================
+VIII. CHAPTER SIX: Evolving and Combining
+        Lord Marcus Cinderthorn, House Cinderthorn (Earth)
+================================================================================
+
+sieglings can grow stronger. EVOLUTION advances a creature to a higher form.
+COMBINING takes three of the same variant tier—Normal, Silver, Gold—and merges
+them into the next. Three Normals become one Silver. Three Silvers become one
+Gold. Three Golds become one Legend.
+
+House Cinderthorn holds the forges and the combiner. Use it. A stronger team
+means a stronger defense.
+
+Forge and defend.
+
+================================================================================
+IX. CHAPTER SEVEN: The Path Ahead
+        Lord Kael Zephyran, House Zephyran (Air)
+================================================================================
+
+You begin as a Squire. Prove yourself, and you may become a full Knight. Rise
+further, and you may be named Siegelord. And one day, if you are the finest of
+all—Everybody is Ser. Only one is Sire.
+
+Choose your starter. Claim your plot. Capture, assign, and battle. The four
+houses watch. The arena awaits. Go with honor.
+
+— The siegling, compiled by the Council of Houses
+
+================================================================================
+                    THE CODEX OF BINDING
+        A History of the sieglings and the Gift of Maestro
+================================================================================
+
+Transcribed from the Archives of the Council of Houses.
+
+--------------------------------------------------------------------------------
+I. THE AGE BEFORE CARDS
+--------------------------------------------------------------------------------
+
+In the earliest chronicles, before the wristguard and the Capture Card, the lands
+were wild. Humans fought the elements and the beasts of the frontier. Among
+those beasts were the sieglings—creatures of flame, frost, stone, and wind—who
+lived as rivals and predators.
+
+Yet whispers survived of beings unlike the rest. Beings that spoke in the mind.
+They wore a third eye, hidden between the brows, and through it they saw the
+thoughts of others. They understood human speech. They could translate the
+tongues of the sieglings. The chronicles name them Eleminions.
+
+--------------------------------------------------------------------------------
+II. THE ELEMINIONS AND THE THIRD EYE
+--------------------------------------------------------------------------------
+
+Each elemental region holds one Eleminion. Fire, Ice, Earth, Air. They live in
+secluded places. They are neither fully siegling nor fully human. Their third
+eye pierces illusion, reads intention, and opens a bridge between minds.
+
+Through this gift they understand both human and siegling. They translate
+meaning, emotion, and nuance. A knight may speak to his siegling only because
+an Eleminion first taught how such speech might work. The Four Houses guard
+their whereabouts. To meet one is rare; to refuse their counsel, foolish.
+
+--------------------------------------------------------------------------------
+III. MAESTRO AND THE FIRST CARDS
+--------------------------------------------------------------------------------
+
+The deepest mystery is Maestro. Whether siegling or Eleminion, no text is
+certain. Some claim he was the progenitor of the Eleminions—the first of their
+kind. Others say he was an Eleminion who ascended, or a siegling who transcended.
+
+What is recorded: Maestro appeared in a time of crisis. Humans and sieglings
+fought without end. Then Maestro emerged—from where, none could say—and offered
+the first Capture Cards. Not weapons, but instruments of covenant. A card could
+bind a siegling to a human only if the creature chose to accept. The bond was
+voluntary. Coercion broke it.
+
+He taught the crafting of the shield. The wristguard with its slot for the card.
+Place the card, and the creature answers. Withdraw it, and the creature returns.
+He gave the knowledge and then withdrew. He vanished. No grave, no shrine. Only
+the cards, the shields, and a legend: that Maestro might still watch over those
+who honor the bond.
+
+--------------------------------------------------------------------------------
+IV. THE VALOROUS AND THE UNVALOROUS
+--------------------------------------------------------------------------------
+
+Not all who hold cards are worthy. Raiders and warlords stole the craft. They
+learn to force bonds, to break the compact Maestro intended. They lay siege to
+peaceful lands. The chronicles call them the Unvalorous. The Valorous keep the
+pact: bond by consent, fight with honor, defend the realm. The conflict has
+never ended.
+
+================================================================================
+                              GLOSSARY
+================================================================================
+
+siegling (pl. sieglings)
+  Elemental creatures of Fire, Ice, Earth, Air (and faraway: Shadow, Lightning).
+  Bound to humans via Capture Card and shield. Have their own language.
+
+SIEGE KNIGHT
+  A knight who bonds sieglings and duels in the arena. Noble defenders of the
+  realm. Full rank after Squire.
+
+SQUIRE
+  Apprentice who serves under a Knight. Learns capture and combat. Earns
+  Knighthood after proving themselves. Begins at 13 with the Rite.
+
+SIEGELORD
+  Elite knights; legendary status. Lead realms, sit on councils, defend
+  frontiers. Best in the arenas.
+
+SIRE
+  The single highest-ranked knight. Head of the Council. Everybody is Ser;
+  only one is Sire.
+
+SER
+  Honorific for all knights. "Ser" before a name.
+
+SHIELD
+  Wristguard device with a slot for the siegling card. Placing the card
+  summons the creature. Bears a sigil (house, order, or hedge knight).
+
+CAPTURE CARD
+  Enchanted card that binds a siegling. Given by Maestro to humankind. Bond
+  requires the creature's consent.
+
+RITE OF THIRTEEN
+  Ceremony at age 13. Youth receives shield and first Capture Card, then sets
+  off to find and bond their first siegling.
+
+ELEMINION
+  Rare creatures with a third eye. Understand humans and sieglings. Act as
+  translators. One per elemental land. Can read minds and interpret language.
+
+MAESTRO
+  Mysterious figure who gave humans the first Capture Cards. Believed to be
+  Eleminion or progenitor of their kind. Vanished; may still watch over the
+  bonded.
+
+VALOROUS
+  Honorable Siege Knights who bond by consent, fight with honor, and defend
+  the realm.
+
+UNVALOROUS
+  Raiders, warlords, outcasts who force bonds and lay siege to peaceful lands.
+  Fight without honor.
+
+SIGIL
+  Mark on the shield declaring identity. Hedge knights: personal, passed to
+  Squire. Orders: shared. Great Houses: same for all members.
+
+FOUR HOUSES
+  Emberward (Fire), Frostholm (Ice), Cinderthorn (Earth), Zephyran (Air).
+  Govern this land. Each associated with an Eleminion.
+
+COUNCIL OF SIEGELORDS
+  Ruling body of the finest knights. The Sire sits at its head.
+
+================================================================================

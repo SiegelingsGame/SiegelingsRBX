@@ -1,0 +1,40 @@
+{
+  "name": "Creature Capture Flow",
+  "catalog": {
+    "cozycub": {
+      "id": "cozycub",
+      "displayName": "Cozycub",
+      "rarity": "Common",
+      "element": "Ice",
+      "class": "Mage",
+      "health": 45,
+      "attack": 10,
+      "defense": 7,
+      "speed": 8
+    }
+  },
+  "players": [
+    {
+      "name": "Alex",
+      "userId": 1,
+      "coins": 100,
+      "playerLevel": 1,
+      "playerXP": 90,
+      "favoriteUid": "breezee-1",
+      "inventory": [
+        { "uid": "breezee-1", "id": "breezee", "level": 1, "xp": 45, "variant": "Normal" }
+      ]
+    }
+  ],
+  "steps": [
+    { "action": "capture", "player": "Alex", "creatureId": "cozycub", "resultUid": "cozycub-1" },
+    { "action": "expect", "path": "lastResult.cost", "equals": 10 },
+    { "action": "expect", "path": "players.Alex.coins", "equals": 90 },
+    { "action": "expect", "path": "players.Alex.inventory", "count": 2 },
+    { "action": "expect_creature", "player": "Alex", "uid": "cozycub-1", "field": "id", "equals": "cozycub" },
+    { "action": "expect_creature", "player": "Alex", "uid": "breezee-1", "field": "level", "equals": 2 },
+    { "action": "expect", "path": "players.Alex.playerLevel", "equals": 2 },
+    { "action": "expect", "path": "players.Alex.playerXP", "equals": 5 },
+    { "action": "assert_invariants", "player": "Alex" }
+  ]
+}

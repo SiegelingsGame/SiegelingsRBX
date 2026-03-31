@@ -118,6 +118,8 @@ local brokerMenuVisible = false
 -- Set while Broker UI is open: recomputes inner layout for small mobile panels.
 local syncBrokerMobileContent = nil
 
+-- Owns the outer broker window sizing rules. If the menu needs to feel better
+-- on mobile, adjust this function first before changing individual card sizes.
 local function applyBrokerWindowLayout()
 	if not mainFrame then return end
 
@@ -427,6 +429,8 @@ end
 -- @param data table — { rarity, element, minLevel, description, dateKey,
 --                        qualifying, wantedCreatureId, brokerDialogue }
 -- ═══════════════════════════════════════════════════════════════════════════════
+-- The server already decides which creatures qualify for the contract. This
+-- client builder only renders that payload and tracks which entry is selected.
 local function showBrokerUI(data)
 	-- Close any existing UI
 	closeBrokerUI()
@@ -723,6 +727,8 @@ local function showBrokerUI(data)
 	end
 
 	local function updateActionButton()
+		-- The broker flow is intentionally two-step so players do not sacrifice a
+		-- creature on the first click. Server validation still happens later.
 		if actionState == "none" then
 			actionBtn.Text = "Select a Siegling"
 			actionBtn.BackgroundColor3 = C.grey
@@ -758,6 +764,8 @@ local function showBrokerUI(data)
 		local MAX_QUALIFYING_SHOWN = 5
 		for i, creature in ipairs(qualifying) do
 			if i > MAX_QUALIFYING_SHOWN then break end
+			-- These cards are safe to restyle without changing broker logic. The
+			-- actual sacrifice target is the owned-creature UID captured below.
 			local onDef = creature.onDefense == true
 			local onInc = creature.onIncome == true
 			local onBat = creature.onBattle == true
@@ -774,7 +782,6 @@ local function showBrokerUI(data)
 				cardBg = Color3.fromRGB(25, 24, 38)
 				wmText, wmColor = "BATTLE", C.battle
 			end
-
 			local card = Instance.new("TextButton")
 			card.Name = "Card_" .. (creature.uid or i)
 			card.Size = UDim2.new(1, -8, 0, 50)
@@ -896,6 +903,8 @@ local function showBrokerUI(data)
 
 				-- Select this one
 				selectedCard = card
+				-- `uid` identifies the exact owned creature instance to remove.
+				-- `id` is still stored so the preview can swap models correctly.
 				selectedUid = creature.uid
 				selectedCreatureId = creature.id
 				selectedOnDefense = onDef
@@ -942,8 +951,8 @@ local function showBrokerUI(data)
 					offerCreatureEvt:FireServer(uidToSacrifice)
 				end
 				-- The server will validate, remove creature, queue, and teleport.
-				-- We keep the overlay for the server's BadlandsRunStart event to handle.
-				-- Close the broker UI after a short delay (server will teleport us)
+				-- We leave the overlay running until the server answers so the player
+				-- cannot reopen the broker and change state mid-queue.
 				task.delay(2, function()
 					closeBrokerUI()
 				end)
@@ -1065,6 +1074,8 @@ end
 -- BadlandsContractData: Server sends contract info when player presses E on Broker
 contractDataEvt.OnClientEvent:Connect(function(data)
 	if not data then return end
+	-- Always rebuild from fresh server data so the daily contract text and the
+	-- qualifying inventory list stay authoritative.
 	showBrokerUI(data)
 end)
 

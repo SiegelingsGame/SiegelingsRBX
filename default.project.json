@@ -1,0 +1,320 @@
+{
+  "name": "Roblox Scripts",
+  "tree": {
+    "$className": "DataModel",
+
+    "ReplicatedStorage": {
+      "Modules": {
+        "$className": "Folder",
+        "AchievementsConfig": { "$path": "AchievementsConfig.lua" },
+        "CreatureAnimation": { "$path": "CreatureAnimation.lua" },
+        "CreatureData": { "$path": "CreatureData.lua" },
+        "CreatureModelLoader": { "$path": "CreatureModelLoader.lua" },
+        "GameConfig": { "$path": "GameConfig.lua" },
+        "GameConfigData": { "$path": "GameConfigData.lua" },
+        "BiomeZone": { "$path": "BiomeZone.lua" },
+        "IngredientData": { "$path": "IngredientData.lua" },
+        "NotificationManager": { "$path": "NotificationManager.lua" },
+        "LivingWorldData": { "$path": "LivingWorldData.lua" },
+        "CodexModelViewer": { "$path": "CodexModelViewer.lua" },
+        "MobileWindowLayout": { "$path": "MobileWindowLayout.lua" }
+      }
+    },
+
+    "ServerScriptService": {
+      "MainServer": {
+        "$path": "MainServer.server.lua"
+      },
+      "CaptureSystem": {
+        "$path": "CaptureSystem.lua"
+      },
+      "PlayerCombatSystem": {
+        "$path": "PlayerCombatSystem.lua"
+      },
+      "PlayerHealthSystem": {
+        "$path": "PlayerHealthSystem.lua"
+      },
+      "PlayerDataManager": {
+        "$path": "PlayerDataManager.lua"
+      },
+      "AchievementsSystem": {
+        "$path": "AchievementsSystem.lua"
+      },
+      "CreatureSpawner": {
+        "$path": "CreatureSpawner.lua"
+      },
+      "EvolutionCombineSystem": {
+        "$path": "EvolutionCombineSystem.lua"
+      },
+      "BaseIncomeSystem": {
+        "$path": "BaseIncomeSystem.lua"
+      },
+      "BasePlacementSystem": {
+        "$path": "BasePlacementSystem.lua"
+      },
+      "PvPBattleSystem": {
+        "$path": "PvPBattleSystem.lua"
+      },
+      "RaidSystem": {
+        "$path": "RaidSystem.lua"
+      },
+      "ArenaSystem": {
+        "$path": "ArenaSystem.lua"
+      },
+      "ArenaShieldSystem": {
+        "$path": "ArenaShieldSystem.lua"
+      },
+      "WaterGymSystem": {
+        "$path": "WaterGymSystem.lua"
+      },
+      "WaterGymBattleSystem": {
+        "$path": "WaterGymBattleSystem.lua"
+      },
+      "CaveGymSystem": {
+        "$path": "CaveGymSystem.lua"
+      },
+      "DesertGymSystem": {
+        "$path": "DesertGymSystem.lua"
+      },
+      "ElectricGymSystem": {
+        "$path": "ElectricGymSystem.lua"
+      },
+      "BattleTeamSystem": {
+        "$path": "BattleTeamSystem.lua"
+      },
+      "TradeSystem": {
+        "$path": "TradeSystem.lua"
+      },
+      "EggShopSystem": {
+        "$path": "EggShopSystem.lua"
+      },
+      "BuffShopSystem": {
+        "$path": "BuffShopSystem.lua"
+      },
+      "CombinerRecyclerSystem": {
+        "$path": "CombinerRecyclerSystem.lua"
+      },
+      "CosmeticSystem": {
+        "$path": "CosmeticSystem.lua"
+      },
+      "LaserDoorSystem": {
+        "$path": "LaserDoorSystem.lua"
+      },
+      "ZoneDoorSystem": {
+        "$path": "ZoneDoorSystem.lua"
+      },
+      "BaseExteriorSystem": {
+        "$path": "BaseExteriorSystem.lua"
+      },
+      "AIRaidSystem": {
+        "$path": "AIRaidSystem.lua"
+      },
+      "LeaderboardSystem": {
+        "$path": "LeaderboardSystem.lua"
+      },
+      "HauntedHouseBaseGenerator": {
+        "$path": "HauntedHouseBaseGenerator.lua"
+      },
+      "DungeonSpawner": {
+        "$path": "DungeonSpawner.lua"
+      },
+      "ElectricBiomeHazardSystem": {
+        "$path": "ElectricBiomeHazardSystem.lua"
+      },
+      "CreatureAI": {
+        "$path": "CreatureAI.lua"
+      },
+      "DayNightCycle": {
+        "$path": "DayNightCycle.lua"
+      },
+      "EvolutionEffects": {
+        "$path": "EvolutionEffects.lua"
+      },
+      "FavoriteCreatureSystem": {
+        "$path": "FavoriteCreatureSystem.lua"
+      },
+      "WorldCreatureHP": {
+        "$path": "WorldCreatureHP.lua"
+      },
+      "BaseBuildInstructions_HauntedHouse": {
+        "$path": "BaseBuildInstructions_HauntedHouse.lua"
+      },
+      "KnightBaseSystem": {
+        "$path": "KnightBaseSystem.lua"
+      },
+      "MountSystem": {
+        "$path": "MountSystem.lua"
+      },
+      "GymBattleSystem": {
+        "$path": "GymBattleSystem.lua"
+      },
+      "BadlandsSystem": {
+        "$path": "BadlandsSystem.lua"
+      },
+      "ArenaTraderSystem": {
+        "$path": "ArenaTraderSystem.lua"
+      },
+      "DecorSystem": {
+        "$path": "DecorSystem.lua"
+      },
+      "IngredientSpawnSystem": {
+        "$path": "IngredientSpawnSystem.lua"
+      },
+      "SiegeMasterSystem": {
+        "$path": "SiegeMasterSystem.lua"
+      }
+    },
+
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "PlayerCombatClient": {
+          "$path": "PlayerCombatClient.client.lua"
+        },
+        "DamageNumberClient": {
+          "$path": "DamageNumberClient.client.lua"
+        },
+        "CaptureClient": {
+          "$path": "CaptureClient.client.lua"
+        },
+        "HUDButtonBar": {
+          "$path": "HUDButtonBar.client.lua"
+        },
+        "HUDClient": {
+          "$path": "HUDClient.client.lua"
+        },
+        "CodexClient": {
+          "$path": "CodexClient.client.lua"
+        },
+        "RebirthUIClient": {
+          "$path": "RebirthUIClient.client.lua"
+        },
+        "PvPBattleClient": {
+          "$path": "PvPBattleClient.client.lua"
+        },
+        "BaseInteractionClient": {
+          "$path": "BaseInteractionClient.client.lua"
+        },
+        "LeaderboardClient": {
+          "$path": "LeaderboardClient.client.lua"
+        },
+        "PlayerProfileClient": {
+          "$path": "PlayerProfileClient.client.lua"
+        },
+        "FriendsListClient": {
+          "$path": "FriendsListClient.client.lua"
+        },
+        "EggShopClient": {
+          "$path": "EggShopClient.client.lua"
+        },
+        "CosmeticShopClient": {
+          "$path": "CosmeticShopClient.client.lua"
+        },
+        "BuffShopClient": {
+          "$path": "BuffShopClient.client.lua"
+        },
+        "ShopHubClient": {
+          "$path": "ShopHubClient.client.lua"
+        },
+        "CreatureAnimationClient": {
+          "$path": "CreatureAnimationClient.client.lua"
+        },
+        "CombinerRecyclerClient": {
+          "$path": "CombinerRecyclerClient.client.lua"
+        },
+        "ArenaRewardUI": {
+          "$path": "ArenaRewardUI.client.lua"
+        },
+        "LaunchScreen": {
+          "$path": "LaunchScreen.client.lua"
+        },
+        "LoadingGate": {
+          "$path": "LoadingGate.client.lua"
+        },
+        "SprintClient": {
+          "$path": "SprintClient.client.lua"
+        },
+        "GameplayMusic": {
+          "$path": "GameplayMusic.client.lua"
+        },
+        "LivingWorldChatClient": {
+          "$path": "LivingWorldChatClient.client.lua"
+        },
+        "InventoryUIManager": {
+          "$path": "InventoryUIManager.client.lua"
+        },
+        "BossBackboardClient": {
+          "$path": "BossBackboardClient.client.lua"
+        },
+        "BiomeSkyboxClient": {
+          "$path": "BiomeSkyboxClient.client.lua"
+        },
+        "BaseSummaryClient": {
+          "$path": "BaseSummaryClient.client.lua"
+        },
+        "ArenaBattleSummaryClient": {
+          "$path": "ArenaBattleSummaryClient.client.lua"
+        },
+        "UnderwaterBreathClient": {
+          "$path": "UnderwaterBreathClient.client.lua"
+        },
+        "KnightBaseClient": {
+          "$path": "KnightBaseClient.client.lua"
+        },
+        "MountClient": {
+          "$path": "MountClient.client.lua"
+        },
+        "DecorClient": {
+          "$path": "DecorClient.client.lua"
+        },
+        "GymJumbotronClient": {
+          "$path": "GymJumbotronClient.client.lua"
+        },
+        "BadlandsBrokerClient": {
+          "$path": "BadlandsBrokerClient.client.lua"
+        },
+        "ArenaTraderClient": {
+          "$path": "ArenaTraderClient.client.lua"
+        },
+        "BadlandsClient": {
+          "$path": "BadlandsClient.client.lua"
+        },
+        "IngredientsMenuClient": {
+          "$path": "IngredientsMenuClient.client.lua"
+        }
+      }
+    },
+
+    "Workspace": {
+      "$properties": {
+        "FilteringEnabled": true
+      },
+      "Baseplate": {
+        "$className": "Part",
+        "$properties": {
+          "Anchored": true,
+          "Color": [0.38823, 0.37254, 0.38823],
+          "Locked": true,
+          "Position": [0, -10, 0],
+          "Size": [512, 20, 512]
+        }
+      }
+    },
+
+    "Lighting": {
+      "$properties": {
+        "Ambient": [0, 0, 0],
+        "Brightness": 2,
+        "GlobalShadows": true,
+        "Outlines": false,
+        "Technology": "Voxel"
+      }
+    },
+
+    "SoundService": {
+      "$properties": {
+        "RespectFilteringEnabled": true
+      }
+    }
+  }
+}
+

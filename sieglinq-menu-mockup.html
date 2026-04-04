@@ -1,0 +1,530 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SieglinQ Menu UI Mockup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@400;500;600;700;800&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
+  <style>
+    :root {
+      --bg-1: #0f1723;
+      --panel: rgba(18, 28, 44, 0.9);
+      --panel-soft: rgba(30, 43, 63, 0.78);
+      --line: rgba(131, 155, 192, 0.3);
+      --text: #eaf1ff;
+      --muted: #8ca0bf;
+      --accent: #ff7b3f;
+      --accent-2: #f8bf52;
+      --good: #4ce08f;
+      --warn: #ffd158;
+      --danger: #ff6d6d;
+      --shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: "Exo 2", "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 15% 10%, rgba(255, 123, 63, 0.18), transparent 38%),
+        radial-gradient(circle at 88% 85%, rgba(67, 145, 255, 0.18), transparent 34%),
+        linear-gradient(145deg, #060912 0%, #0d1625 45%, #0a111d 100%);
+      padding: 24px;
+    }
+    .mockup {
+      width: min(1360px, 100%);
+      min-height: 780px;
+      border-radius: 26px;
+      border: 1px solid rgba(164, 182, 214, 0.32);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 14%),
+        linear-gradient(130deg, rgba(255, 123, 63, 0.08), transparent 25%),
+        linear-gradient(320deg, rgba(68, 141, 255, 0.1), transparent 25%),
+        var(--bg-1);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 220px minmax(420px, 1fr) 390px;
+      position: relative;
+      isolation: isolate;
+    }
+    .mockup::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255,255,255,0.025) 1px, transparent 1px);
+      background-size: 32px 32px;
+      pointer-events: none;
+      z-index: -1;
+      opacity: 0.4;
+    }
+    .rail {
+      border-right: 1px solid var(--line);
+      padding: 24px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      background: linear-gradient(180deg, rgba(7, 12, 23, 0.8), rgba(11, 18, 30, 0.72));
+    }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .crest {
+      width: 38px; height: 38px; border-radius: 12px;
+      background: conic-gradient(from 220deg, #ff7b3f, #ffd158, #5ca9ff, #ff7b3f);
+      box-shadow: 0 0 20px rgba(255, 123, 63, 0.45);
+    }
+    .brand h1 { margin: 0; font-size: 17px; letter-spacing: 0.6px; font-weight: 700; }
+    .brand small { display: block; color: var(--muted); font-size: 11px; margin-top: 1px; letter-spacing: 0.35px; }
+    .tabs { display: grid; gap: 8px; }
+    .tab {
+      border: 1px solid rgba(146, 166, 198, 0.24);
+      border-radius: 12px;
+      padding: 11px 12px;
+      color: #bdd0ef;
+      background: rgba(30, 41, 59, 0.45);
+      font-weight: 600;
+      font-size: 13px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .tab.active {
+      color: #fff;
+      background: linear-gradient(110deg, rgba(255, 123, 63, 0.3), rgba(248, 191, 82, 0.14));
+      border-color: rgba(255, 166, 122, 0.8);
+      box-shadow: inset 0 0 0 1px rgba(255, 205, 177, 0.4), 0 0 20px rgba(255, 123, 63, 0.3);
+    }
+    .rail-stats {
+      margin-top: auto;
+      border-radius: 14px;
+      border: 1px solid rgba(143, 168, 206, 0.25);
+      background: rgba(17, 25, 38, 0.74);
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+      font-size: 12px;
+    }
+    .row { display: flex; justify-content: space-between; color: #dce7fb; }
+    .row span { color: var(--muted); }
+    .main {
+      padding: 18px 20px 20px;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 14px;
+    }
+    .header {
+      display: grid;
+      grid-template-columns: minmax(200px, 1fr) auto auto;
+      gap: 12px;
+      align-items: center;
+    }
+    .title h2 { margin: 0; font-size: 24px; line-height: 1.1; letter-spacing: 0.3px; }
+    .title p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+    .token {
+      min-width: 126px;
+      border-radius: 14px;
+      border: 1px solid rgba(138, 168, 206, 0.28);
+      background: var(--panel-soft);
+      padding: 9px 12px;
+      text-align: center;
+    }
+    .token strong {
+      font-family: "Rajdhani", "Segoe UI", sans-serif;
+      font-size: 22px;
+      line-height: 1;
+      display: block;
+    }
+    .token small { font-size: 11px; letter-spacing: 0.4px; color: var(--muted); text-transform: uppercase; }
+    .topbar {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto;
+      gap: 10px;
+    }
+    .search {
+      border-radius: 12px;
+      border: 1px solid rgba(146, 171, 204, 0.3);
+      background: rgba(16, 25, 38, 0.8);
+      color: #dbe8ff;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      font-size: 13px;
+    }
+    .chips { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .chip {
+      border-radius: 999px;
+      border: 1px solid rgba(144, 170, 204, 0.28);
+      background: rgba(33, 46, 66, 0.65);
+      color: #c8d8f3;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.45px;
+      padding: 6px 10px;
+      text-transform: uppercase;
+    }
+    .chip.active {
+      border-color: rgba(248, 191, 82, 0.8);
+      color: #fff3d7;
+      background: rgba(248, 191, 82, 0.16);
+    }
+    .cards {
+      border-radius: 16px;
+      border: 1px solid rgba(136, 162, 198, 0.26);
+      background: rgba(17, 26, 41, 0.76);
+      padding: 10px;
+      overflow: auto;
+      display: grid;
+      gap: 8px;
+      align-content: start;
+    }
+    .card {
+      border-radius: 12px;
+      border: 1px solid rgba(148, 171, 204, 0.25);
+      background: linear-gradient(130deg, rgba(28, 39, 57, 0.94), rgba(20, 30, 46, 0.94));
+      display: grid;
+      grid-template-columns: 56px minmax(140px, 1fr) auto;
+      gap: 10px;
+      padding: 10px;
+      align-items: center;
+    }
+    .card.active {
+      border-color: rgba(255, 169, 118, 0.95);
+      box-shadow: inset 0 0 0 1px rgba(255, 191, 151, 0.44), 0 0 18px rgba(255, 123, 63, 0.28);
+    }
+    .portrait {
+      width: 56px;
+      height: 56px;
+      border-radius: 12px;
+      background: radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.42), transparent 40%), linear-gradient(140deg, rgba(255, 123, 63, 0.8), rgba(95, 152, 255, 0.75));
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      box-shadow: inset 0 -6px 12px rgba(0, 0, 0, 0.3);
+    }
+    .name { margin: 0; font-weight: 700; font-size: 14px; line-height: 1.05; }
+    .meta {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 11px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .badge {
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-size: 10px;
+      letter-spacing: 0.45px;
+      text-transform: uppercase;
+      font-weight: 700;
+      border: 1px solid transparent;
+    }
+    .b-common { background: rgba(164, 174, 192, 0.16); color: #c7d2e7; border-color: rgba(172, 184, 206, 0.4); }
+    .b-rare { background: rgba(88, 162, 255, 0.16); color: #b9daff; border-color: rgba(106, 171, 255, 0.44); }
+    .b-epic { background: rgba(185, 124, 255, 0.16); color: #dfc2ff; border-color: rgba(185, 124, 255, 0.44); }
+    .b-legend { background: rgba(255, 209, 91, 0.16); color: #ffe8a0; border-color: rgba(255, 211, 96, 0.5); }
+    .stats { display: grid; gap: 5px; min-width: 95px; }
+    .bar {
+      height: 7px;
+      border-radius: 999px;
+      background: rgba(11, 16, 28, 0.85);
+      overflow: hidden;
+      border: 1px solid rgba(119, 144, 181, 0.3);
+    }
+    .fill { height: 100%; border-radius: inherit; }
+    .right {
+      border-left: 1px solid var(--line);
+      padding: 18px 16px;
+      display: grid;
+      grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+      gap: 12px;
+      background: linear-gradient(180deg, rgba(10, 16, 29, 0.85), rgba(15, 24, 39, 0.78));
+    }
+    .hero {
+      border-radius: 16px;
+      border: 1px solid rgba(154, 176, 207, 0.35);
+      background: radial-gradient(circle at 68% 20%, rgba(255, 164, 117, 0.24), transparent 52%), radial-gradient(circle at 25% 70%, rgba(94, 164, 255, 0.18), transparent 48%), rgba(20, 31, 48, 0.86);
+      padding: 14px;
+      display: grid;
+      gap: 8px;
+    }
+    .hero h3 { margin: 0; font-size: 18px; letter-spacing: 0.3px; }
+    .hero p { margin: 0; color: #cad7ee; font-size: 12px; line-height: 1.4; }
+    .tag-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .tiny {
+      border-radius: 7px;
+      border: 1px solid rgba(146, 170, 205, 0.3);
+      background: rgba(26, 38, 56, 0.74);
+      color: #cedcf3;
+      font-size: 11px;
+      padding: 4px 7px;
+      font-weight: 600;
+    }
+    .grid {
+      border-radius: 14px;
+      border: 1px solid rgba(143, 168, 202, 0.3);
+      background: var(--panel);
+      padding: 12px;
+      display: grid;
+      gap: 7px;
+    }
+    .grid h4 { margin: 0 0 3px; font-size: 12px; letter-spacing: 0.6px; text-transform: uppercase; color: #d5e2f8; }
+    .slotline { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+    .slot {
+      border-radius: 8px;
+      border: 1px solid rgba(145, 170, 205, 0.3);
+      background: rgba(31, 42, 58, 0.78);
+      height: 30px;
+      display: grid;
+      place-items: center;
+      font-size: 11px;
+      color: #bed1ef;
+    }
+    .slot.hot {
+      border-color: rgba(255, 182, 111, 0.8);
+      background: rgba(255, 141, 70, 0.18);
+      color: #ffe6cf;
+    }
+    .timeline {
+      border-radius: 14px;
+      border: 1px solid rgba(143, 168, 202, 0.3);
+      background: var(--panel);
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+      overflow: auto;
+    }
+    .event {
+      display: grid;
+      grid-template-columns: 44px minmax(0, 1fr);
+      gap: 8px;
+      align-items: start;
+      font-size: 12px;
+    }
+    .event time {
+      color: var(--muted);
+      font-family: "Rajdhani", sans-serif;
+      font-size: 16px;
+      line-height: 1;
+      padding-top: 1px;
+    }
+    .actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .btn {
+      border: 1px solid rgba(147, 172, 206, 0.32);
+      background: rgba(32, 44, 63, 0.8);
+      color: #deebff;
+      border-radius: 12px;
+      height: 40px;
+      font-weight: 700;
+      letter-spacing: 0.35px;
+      font-size: 12px;
+      text-transform: uppercase;
+      display: grid;
+      place-items: center;
+    }
+    .btn.primary {
+      border-color: rgba(255, 174, 121, 0.85);
+      background: linear-gradient(115deg, rgba(255, 123, 63, 0.45), rgba(248, 191, 82, 0.3));
+      color: #fff7ec;
+    }
+    .btn.warn {
+      border-color: rgba(255, 209, 91, 0.75);
+      background: rgba(255, 209, 91, 0.16);
+      color: #ffefc0;
+    }
+    .btn.danger {
+      border-color: rgba(255, 120, 120, 0.75);
+      background: rgba(255, 109, 109, 0.16);
+      color: #ffd0d0;
+    }
+    @media (max-width: 1220px) {
+      .mockup { grid-template-columns: 88px minmax(320px, 1fr) 330px; }
+      .brand h1, .brand small, .tab { display: none; }
+      .rail { align-items: center; padding-inline: 10px; }
+      .rail-stats { display: none; }
+    }
+    @media (max-width: 920px) {
+      body { padding: 10px; }
+      .mockup { min-height: 0; grid-template-columns: 1fr; }
+      .rail { border-right: 0; border-bottom: 1px solid var(--line); flex-direction: row; justify-content: space-between; }
+      .tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); width: min(520px, 100%); }
+      .tab { display: block; text-align: center; font-size: 10px; padding: 9px 4px; }
+      .main { order: 2; }
+      .right { order: 3; border-left: 0; border-top: 1px solid var(--line); }
+      .header, .topbar { grid-template-columns: 1fr; }
+      .chips { justify-content: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <div class="mockup" role="img" aria-label="Improved SieglinQ menu UI mockup with inventory list, detail panel, and action controls.">
+    <aside class="rail">
+      <div class="brand">
+        <div class="crest" aria-hidden="true"></div>
+        <div>
+          <h1>SieglinQ</h1>
+          <small>Command Nexus</small>
+        </div>
+      </div>
+      <div class="tabs">
+        <div class="tab active">Inventory</div>
+        <div class="tab">Battle Team</div>
+        <div class="tab">Raids</div>
+        <div class="tab">Codex</div>
+        <div class="tab">Craft</div>
+      </div>
+      <div class="rail-stats">
+        <div class="row"><span>Team Power</span><strong>12,480</strong></div>
+        <div class="row"><span>Defense HP</span><strong>4,920</strong></div>
+        <div class="row"><span>Income / Min</span><strong style="color: var(--good);">+960</strong></div>
+      </div>
+    </aside>
+
+    <section class="main">
+      <header class="header">
+        <div class="title">
+          <h2>Creature Command Menu</h2>
+          <p>Quick assign, compare stats, and switch favorite companion with one tap.</p>
+        </div>
+        <div class="token">
+          <small>Coins</small>
+          <strong>18,740</strong>
+        </div>
+        <div class="token">
+          <small>Player Level</small>
+          <strong>34</strong>
+        </div>
+      </header>
+
+      <div class="topbar">
+        <div class="search">Search creature, rarity, or element...</div>
+        <div class="chips">
+          <div class="chip active">All</div>
+          <div class="chip">Fire</div>
+          <div class="chip">Water</div>
+          <div class="chip">Rare+</div>
+          <div class="chip">Favorites</div>
+        </div>
+      </div>
+
+      <div class="cards">
+        <article class="card active">
+          <div class="portrait"></div>
+          <div>
+            <h3 class="name">Pylord</h3>
+            <div class="meta">
+              <span class="badge b-legend">Legendary</span>
+              <span>Fire</span>
+              <span>Bruiser</span>
+              <span>Lv 50</span>
+            </div>
+          </div>
+          <div class="stats">
+            <div class="bar"><div class="fill" style="width: 98%; background: linear-gradient(90deg, #f95f5f, #ff8e64);"></div></div>
+            <div class="bar"><div class="fill" style="width: 90%; background: linear-gradient(90deg, #4eb8ff, #5d8dff);"></div></div>
+            <div class="bar"><div class="fill" style="width: 74%; background: linear-gradient(90deg, #65e5a5, #4ac58b);"></div></div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="portrait" style="background: radial-gradient(circle at 30% 25%, rgba(255,255,255,.4), transparent 40%), linear-gradient(150deg, rgba(126,106,255,.8), rgba(89,193,255,.75));"></div>
+          <div>
+            <h3 class="name">Frostag</h3>
+            <div class="meta">
+              <span class="badge b-epic">Epic</span>
+              <span>Ice</span>
+              <span>Guardian</span>
+              <span>Lv 42</span>
+            </div>
+          </div>
+          <div class="stats">
+            <div class="bar"><div class="fill" style="width: 79%; background: linear-gradient(90deg, #f95f5f, #ff8e64);"></div></div>
+            <div class="bar"><div class="fill" style="width: 87%; background: linear-gradient(90deg, #4eb8ff, #5d8dff);"></div></div>
+            <div class="bar"><div class="fill" style="width: 64%; background: linear-gradient(90deg, #65e5a5, #4ac58b);"></div></div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="portrait" style="background: radial-gradient(circle at 32% 26%, rgba(255,255,255,.4), transparent 40%), linear-gradient(140deg, rgba(94,164,255,.85), rgba(76,224,143,.7));"></div>
+          <div>
+            <h3 class="name">Abyssalking</h3>
+            <div class="meta">
+              <span class="badge b-legend">Legendary</span>
+              <span>Water</span>
+              <span>Mage</span>
+              <span>Lv 50</span>
+            </div>
+          </div>
+          <div class="stats">
+            <div class="bar"><div class="fill" style="width: 93%; background: linear-gradient(90deg, #f95f5f, #ff8e64);"></div></div>
+            <div class="bar"><div class="fill" style="width: 82%; background: linear-gradient(90deg, #4eb8ff, #5d8dff);"></div></div>
+            <div class="bar"><div class="fill" style="width: 70%; background: linear-gradient(90deg, #65e5a5, #4ac58b);"></div></div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="portrait" style="background: radial-gradient(circle at 35% 24%, rgba(255,255,255,.4), transparent 40%), linear-gradient(140deg, rgba(255,188,96,.85), rgba(255,121,86,.72));"></div>
+          <div>
+            <h3 class="name">Cinderstag</h3>
+            <div class="meta">
+              <span class="badge b-rare">Rare</span>
+              <span>Fire</span>
+              <span>Support</span>
+              <span>Lv 30</span>
+            </div>
+          </div>
+          <div class="stats">
+            <div class="bar"><div class="fill" style="width: 69%; background: linear-gradient(90deg, #f95f5f, #ff8e64);"></div></div>
+            <div class="bar"><div class="fill" style="width: 62%; background: linear-gradient(90deg, #4eb8ff, #5d8dff);"></div></div>
+            <div class="bar"><div class="fill" style="width: 58%; background: linear-gradient(90deg, #65e5a5, #4ac58b);"></div></div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <aside class="right">
+      <section class="hero">
+        <h3>Pylord Active Favorite</h3>
+        <p>A dragon forged from a dying star. Reworked detail panel prioritizes battle readiness, base assignment state, and quick actions.</p>
+        <div class="tag-row">
+          <span class="tiny">ATK 50</span>
+          <span class="tiny">DEF 40</span>
+          <span class="tiny">SPD 10</span>
+          <span class="tiny">Variant Legend</span>
+        </div>
+      </section>
+
+      <section class="grid">
+        <h4>Base Assignment</h4>
+        <div class="slotline">
+          <div class="slot hot">$1</div><div class="slot">$2</div><div class="slot">$3</div><div class="slot">$4</div><div class="slot">$5</div><div class="slot">$6</div>
+        </div>
+        <div class="slotline">
+          <div class="slot">D1</div><div class="slot hot">D2</div><div class="slot">D3</div><div class="slot">D4</div><div class="slot">D5</div><div class="slot">D6</div>
+        </div>
+      </section>
+
+      <section class="timeline">
+        <h4 style="margin:0; font-size:12px; letter-spacing:0.6px; text-transform:uppercase;">Combat Activity</h4>
+        <div class="event"><time>02:14</time><div><strong style="color:var(--good)">Arena Win</strong><br><span style="color:var(--muted)">+50 XP and +10 streak bonus</span></div></div>
+        <div class="event"><time>01:56</time><div><strong style="color:var(--warn)">Raid Alert</strong><br><span style="color:var(--muted)">Defense slot D2 repelled invader</span></div></div>
+        <div class="event"><time>01:31</time><div><strong style="color:var(--accent-2)">Capture</strong><br><span style="color:var(--muted)">Rare Cinderstag added to inventory</span></div></div>
+      </section>
+
+      <section class="actions">
+        <div class="btn primary">Set Favorite</div>
+        <div class="btn warn">Assign Defense</div>
+        <div class="btn">Add Income</div>
+        <div class="btn">Evolve</div>
+        <div class="btn">Battle Team</div>
+        <div class="btn danger">Sell</div>
+      </section>
+    </aside>
+  </div>
+</body>
+</html>

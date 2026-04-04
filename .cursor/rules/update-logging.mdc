@@ -1,0 +1,20 @@
+---
+description: Update log and per-file timestamp when editing scripts (UPDATES.md + Last updated comment)
+globs: "**/*.lua"
+alwaysApply: false
+---
+
+# Update logging (codebase integrity)
+
+When you edit any script in this project:
+
+1. **UPDATES.md** (repo root):
+   - Set the **first line** to current date/time: `# Update log / Memory — Last updated: YYYY-MM-DD HH:MM`
+   - **Append** a new entry under the log with date/time, file(s) changed, and a short (1–2 line) description.
+
+2. **Each modified Lua file**:
+   - Add or update a single comment line after the existing header (before `local`/requires):  
+     `-- Last updated: YYYY-MM-DD HH:MM`  
+   - Use the same date/time as in UPDATES.md for that change.
+
+Treat UPDATES.md as the single source of truth for "what changed when"; the per-file line is a quick reference. Before committing: refresh UPDATES.md top timestamp and entry; refresh per-file `Last updated` in changed scripts.

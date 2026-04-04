@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(wc:*)",
+      "Bash(python3 -c \"\nimport os\n\nfiles_to_fix = {\n    ''FavoriteCreatureSystem.lua'': [\n        \\(''\"\"\\\\u2694\\\\ufe0f ATTACK MODE\"\"'', ''\"\"ATTACK MODE\"\"''\\),\n        \\(''\"\"\\\\U0001f6e1\\\\ufe0f PASSIVE MODE\"\"'', ''\"\"PASSIVE MODE\"\"''\\),\n        \\(''\"\" \\\\u27a1 \"\"'', ''\"\" > \"\"''\\),\n    ],\n    ''DungeonSpawner.lua'': [\n        \\(''\"\"\\\\u2728 LEGENDARY DUNGEON \\\\u2728\"\"'', ''\"\"LEGENDARY DUNGEON\"\"''\\),\n    ],\n}\n\n# Let''s just check what the actual bytes look like in FavoriteCreatureSystem.lua line 349\nwith open\\(''FavoriteCreatureSystem.lua'', ''rb''\\) as f:\n    lines = f.readlines\\(\\)\n    for i in [348, 349, 350, 353]:\n        if i < len\\(lines\\):\n            print\\(f''Line {i+1}: {lines[i]!r}''\\)\n\")",
+      "Bash(python:*)",
+      "Bash(cd \"A:\\\\New folder\\\\OneDrive\\\\Documents\\\\Roblox Scripts\"\" && find . -type f -name \"*.lua \")",
+      "Bash(dir:*)",
+      "Bash(grep:*)",
+      "WebFetch(domain:www.tungralore.com)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(git add .gitignore *.lua *.html *.txt *.toml *.json *.rbxm \"Roblox Scripts.rbxl\" *.md src/ website/ .claude/launch.json)",
+      "Bash(find '/a/New folder/OneDrive/Documents/Roblox Scripts' -type f -name *.html)"
+    ]
+  }
+}

@@ -12,6 +12,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+local CaptureCostUtil = require(ReplicatedStorage.Modules.CaptureCostUtil)
 
 local PlayerDataManager
 local CreatureSpawner
@@ -133,7 +134,8 @@ function CaptureSystem.TryCapture(player, creatureModel)
 	local cost = 0
 	if not isBadlandsCapture then
 		cost = CreatureData.GetCaptureCost(creatureId)
-		-- Lucky buff: 25% capture cost reduction
+		local decorBonus = PlayerDataManager.GetDecorStatueBonusMap and PlayerDataManager.GetDecorStatueBonusMap(player) or {}
+		cost = CaptureCostUtil.ApplyDecorStatueDiscount(cost, creatureId, decorBonus)
 		if PlayerDataManager.HasBuff and PlayerDataManager.HasBuff(player, "lucky") then
 			cost = math.floor(cost * 0.75)
 		end
@@ -146,6 +148,10 @@ function CaptureSystem.TryCapture(player, creatureModel)
 	captureCooldowns[player.UserId] = tick()
 
 	local holdTime = GameConfig.CaptureAnimationTime or GameConfig.CaptureHoldTime or 2.5
+	if not isBadlandsCapture and PlayerDataManager.GetDecorStatueBonusMap then
+		local decorBonus = PlayerDataManager.GetDecorStatueBonusMap(player)
+		holdTime = CaptureCostUtil.ApplyDecorStatueHoldMultiplier(holdTime, creatureId, decorBonus)
+	end
 	local events = ReplicatedStorage:FindFirstChild("Events")
 	local captureSessionId = HttpService:GenerateGUID(false)
 

@@ -359,7 +359,26 @@ GameConfig.ArenaSummaryShowDistance    = 30   -- studs; summary fades in at/afte
 GameConfig.ArenaSummaryMaxDistance     = 900  -- studs; summary hides beyond this distance
 GameConfig.ArenaHealthBarShowDistance  = 10   -- studs; arena fighter HP bars only visible within this distance
 
--- WaterGym (OceanBiome): touch ArenaBase for [E] Summon Gym; requires battle team; pay entry fee; fight 5 high-level Water/Ice/Fire
+-- Client: full-screen / mobile menus (MobileWindowLayout — inventory hub, shops, codex, profile, etc.)
+-- UIMenuSpawnOffsetYPx: added to menu Y after coin bar / hub layout (positive = menus open lower on screen).
+-- UIMenuWindowHeightScale: multiplies computed menu height (1 = default; 0.9 = shorter, 1.1 = taller).
+-- UIMenuDesktopPanelScaleMultiplier: multiplies centered desktop/tablet panel scale (Inventory main window when not using mobile bounds).
+GameConfig.UIMenuSpawnOffsetYPx = -100
+GameConfig.UIMenuWindowHeightScale = 1.5
+GameConfig.UIMenuDesktopPanelScaleMultiplier = 1
+
+-- Mobile menus: stretch panel bounds to the device safe area (GuiService insets only, plus optional edge padding).
+-- When true, menus use the full width/height between safe top and bottom instead of aligning to the HUD coin strip.
+-- Height still stops above the bottom HUD hub bar when MobileMenuReserveBottomHubGap is true so hub buttons stay visible.
+GameConfig.MobileMenuFillDeviceSafeArea = true
+GameConfig.MobileMenuEdgeInsetPx = 0
+GameConfig.MobileMenuUseHUDCoinBarTop = false
+GameConfig.MobileMenuReserveBottomHubGap = true
+-- When filling the safe area, ignore UIMenuSpawnOffsetYPx / UIMenuWindowHeightScale so the rectangle stays maximal.
+GameConfig.MobileMenuIgnoreLegacyMenuHeightTweaksWhenFilling = true
+
+-- WaterGym (OceanBiome): touch ArenaBase for [E] Summon Gym; requires battle team; pay entry fee; fight 5 high-level Water/Ice/Fire.
+
 GameConfig.WaterGymEntryFee       = 500   -- coins to challenge the gym leader
 GameConfig.WaterGymCreatureLevel  = 25    -- level of gym leader's squdad (high level)
 GameConfig.WaterGymPromptRange    = 30    -- studs; ProximityPrompt on ArenaBase
@@ -708,8 +727,9 @@ GameConfig.BaseColorItems = {
 	{id = "base_orange", name = "Orange", color = Color3.fromRGB(230, 140, 50),  coinCost = 300, gemCost = 0},
 }
 
--- Floor 4 Decor System — creature statue placement costs (gold sink, scales by rarity)
-GameConfig.DecorPointsPerFloor4  = 6       -- customization points on Floor 4
+-- Base decor / furnishing — creature statue placement costs (gold sink, scales by rarity)
+GameConfig.DecorPointsPerFloor4  = 6       -- legacy hint; see DecorMaxSlotIndexPerFloor
+GameConfig.DecorMaxSlotIndexPerFloor = 12 -- max DecorPoint index per floor (server validates)
 GameConfig.DecorCostByRarity = {
 	Common    = 500,
 	Uncommon  = 1000,
@@ -717,6 +737,9 @@ GameConfig.DecorCostByRarity = {
 	Epic      = 5000,
 	Legendary = 10000,
 }
+-- Open-world capture: statue of species X on base reduces cost to capture X (non-Badlands)
+GameConfig.DecorStatueCaptureCostMultiplier = 0.85 -- applied before Lucky buff
+GameConfig.DecorStatueCaptureHoldMultiplier   = 1  -- 1 = off; e.g. 0.9 = shorter channel
 
 -- Gym Battle System — Floor 4 personal arena (visitors battle owner's battle team)
 GameConfig.GymBattleTickSpeed    = 1.2    -- seconds between combat ticks (matches arena)0

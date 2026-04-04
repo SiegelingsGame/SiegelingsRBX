@@ -105,26 +105,6 @@ local function getPanelScale()
 	return math.clamp(scale, PANEL_SCALE_MIN, PANEL_SCALE_MAX)
 end
 
-local function applyPanelScale(pnl)
-	if MobileWindowLayout.IsMobile() then
-		MobileWindowLayout.ApplyWindow(pnl, {
-			leftInset = 14,
-			rightInset = 14,
-			topInset = 10,
-			bottomInset = 14,
-			bottomMobileExtra = 20,
-		})
-		pnl.Draggable = true
-		return
-	end
-
-	local scale = getPanelScale()
-	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
-	pnl.Size = UDim2.new(0, w, 0, h)
-	pnl.Position = UDim2.new(0.5, -w/2, 0.5, -h/2)
-	MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
-end
-
 -- Simple full-screen FX when a buff activates
 local sg
 local function playBuffActivatedFX(buffId)
@@ -223,6 +203,20 @@ end
 sg = Instance.new("ScreenGui")
 sg.Name = "BuffShopGUI"; sg.ResetOnSpawn = false; sg.DisplayOrder = 30; sg.Parent = playerGui
 
+local function applyPanelScale(pnl)
+	MobileWindowLayout.SyncNpcMenuScreenGui(sg, PANEL_DESIGN_W, PANEL_DESIGN_H)
+	if MobileWindowLayout.NpcMenuUsesFullscreenBounds(PANEL_DESIGN_W, PANEL_DESIGN_H) then
+		MobileWindowLayout.ApplyWindow(pnl, MobileWindowLayout.GetNpcFullscreenBoundsConfig(PANEL_DESIGN_W, PANEL_DESIGN_H))
+		return
+	end
+
+	local scale = getPanelScale()
+	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
+	pnl.Size = UDim2.new(0, w, 0, h)
+	pnl.Position = UDim2.new(0.5, -w / 2, 0.5, -h / 2)
+	MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
+end
+
 -- Main panel (size/position set on open via applyPanelScale)
 local panel = Instance.new("Frame")
 panel.Name = "BuffPanel"
@@ -263,6 +257,7 @@ closeBtn.Font = Enum.Font.GothamBold; closeBtn.TextSize = 14; closeBtn.Parent = 
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
 closeBtn.MouseButton1Click:Connect(function()
 	panel.Visible = false
+	sg.IgnoreGuiInset = false
 	MobileWindowLayout.NotifyMenuClosed()
 end)
 
@@ -275,7 +270,7 @@ scroll.ScrollBarThickness = 4; scroll.ScrollBarImageColor3 = C.muted
 scroll.Parent = panel
 
 local function applyResponsiveContentLayout()
-	local mobile = MobileWindowLayout.IsMobile()
+	local mobile = MobileWindowLayout.NpcMenuUsesFullscreenBounds(PANEL_DESIGN_W, PANEL_DESIGN_H)
 	titleLbl.TextSize = mobile and 22 or 18
 	currLbl.TextSize = mobile and 14 or 12
 	closeBtn.Size = mobile and UDim2.new(0, 38, 0, 38) or UDim2.new(0, 32, 0, 32)
@@ -677,6 +672,8 @@ MobileWindowLayout.BindViewportUpdate(function()
 	if panel.Visible then
 		applyPanelScale(panel)
 		applyResponsiveContentLayout()
+	else
+		sg.IgnoreGuiInset = false
 	end
 	positionTopBuffBadgeRow()
 end)

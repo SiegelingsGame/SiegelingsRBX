@@ -354,6 +354,10 @@ local function getPanelScale()
 	local camera = workspace.CurrentCamera
 	local vp = (camera and camera.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
 	local scale = math.min(vp.X / PANEL_DESIGN_W, vp.Y / PANEL_DESIGN_H)
+	local mult = tonumber(GameConfig.UIMenuDesktopPanelScaleMultiplier) or 1
+	if mult > 0 then
+		scale = scale * mult
+	end
 	return math.clamp(scale, PANEL_SCALE_MIN, PANEL_SCALE_MAX)
 end
 
@@ -361,6 +365,36 @@ local function isMobileLayout()
 	local camera = workspace.CurrentCamera
 	local vp = (camera and camera.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
 	return MobileWindowLayout.IsMobile() or vp.X < MOBILE_BREAKPOINT or vp.Y < 500
+end
+
+-- Portrait phone: battle tab uses reference layout (banner, formation title, grid + list, bottom actions, available list).
+local function isMobilePortrait()
+	if not isMobileLayout() then
+		return false
+	end
+	local camera = workspace.CurrentCamera
+	local vp = (camera and camera.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
+	return vp.Y >= vp.X
+end
+
+-- Sieglings panel: use GetBounds whenever the inner UI is mobile-style OR the viewport is
+-- smaller than the fixed desktop design. Otherwise the desktop branch vertically centers a
+-- 1040×640-clamped panel and leaves large empty bands (especially landscape phones).
+local function inventoryUsesFullscreenBounds()
+	local camera = workspace.CurrentCamera
+	local vp = (camera and camera.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
+	if isMobileLayout() then
+		return true
+	end
+	return vp.X < PANEL_DESIGN_W or vp.Y < PANEL_DESIGN_H
+end
+
+local function syncInventoryScreenGuiInset()
+	if inventoryUsesFullscreenBounds() then
+		sg.IgnoreGuiInset = true
+	else
+		sg.IgnoreGuiInset = false
+	end
 end
 
 -- B toggle button: shield-shaped, "Battle" / "Menu" on two lines. Under smaller HUD (~76px).
@@ -1849,6 +1883,7 @@ refreshBattle = function()
 
 	-- Mobile: monster selection is a true sub-menu (modal outside main panel); desktop: sidebar
 	local mobile = isMobileLayout()
+	local battlePortrait = mobile and isMobilePortrait()
 	local SIDEBAR_WIDTH = mobile and 0 or 190
 	local battleLayout = Instance.new("Frame")
 	battleLayout.Size = UDim2.new(1, 0, 0, 0)
@@ -2124,8 +2159,14 @@ refreshBattle = function()
 		return tostring(s or ""):gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;")
 	end
 
+	local statusStripH = 28
+	if battlePortrait then
+		statusStripH = not battleTeamEnabled and 44 or 32
+	end
+	local battleHeaderH = battlePortrait and (statusStripH + 34) or 62
+
 	local battleHeader = Instance.new("Frame")
-	battleHeader.Size = UDim2.new(1, 0, 0, 62)
+	battleHeader.Size = UDim2.new(1, 0, 0, battleHeaderH)
 	battleHeader.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
 	battleHeader.BackgroundTransparency = 0
 	battleHeader.BorderSizePixel = 0
@@ -2134,10 +2175,18 @@ refreshBattle = function()
 	Instance.new("UICorner", battleHeader).CornerRadius = UDim.new(0, 8)
 
 	local statusStrip = Instance.new("Frame")
-	statusStrip.Size = UDim2.new(1, -8, 0, 28)
+	statusStrip.Size = UDim2.new(1, -8, 0, statusStripH)
 	statusStrip.Position = UDim2.new(0, 4, 0, 4)
-	statusStrip.BackgroundColor3 = battleTeamEnabled and Color3.fromRGB(18, 20, 30) or Color3.fromRGB(80, 40, 40)
-	statusStrip.BackgroundTransparency = battleTeamEnabled and 0 or 0.3
+	if not battleTeamEnabled and battlePortrait then
+		statusStrip.BackgroundColor3 = Color3.fromRGB(78, 22, 30)
+		statusStrip.BackgroundTransparency = 0.08
+	elseif not battleTeamEnabled then
+		statusStrip.BackgroundColor3 = Color3.fromRGB(80, 40, 40)
+		statusStrip.BackgroundTransparency = 0.3
+	else
+		statusStrip.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
+		statusStrip.BackgroundTransparency = 0
+	end
 	statusStrip.BorderSizePixel = 0
 	statusStrip.Parent = battleHeader
 	Instance.new("UICorner", statusStrip).CornerRadius = UDim.new(0, 8)
@@ -2161,7 +2210,13 @@ refreshBattle = function()
 		statusLbl.RichText = false
 		statusLbl.TextColor3 = C.text
 		statusLbl.Text = "Battle Team INACTIVE - Press ACTIVE below to rejoin arena queue."
+		if battlePortrait then
+			statusLbl.TextXAlignment = Enum.TextXAlignment.Center
+			statusLbl.TextWrapped = true
+			statusLbl.TextYAlignment = Enum.TextYAlignment.Center
+		end
 	else
+		statusLbl.TextWrapped = false
 		local function updateActiveStatusLine()
 			local timers = nil
 			if Evt.getBattleTimers then
@@ -2209,6 +2264,9 @@ refreshBattle = function()
 			end
 
 			statusLbl.TextColor3 = C.text
+			statusLbl.TextXAlignment = Enum.TextXAlignment.Left
+			statusLbl.TextWrapped = false
+			statusLbl.TextYAlignment = Enum.TextYAlignment.Center
 			statusLbl.Text = table.concat({ kingPart, arenaPart, gymPart }, "   <font color='#4A5368'>|</font>   ")
 		end
 
@@ -2221,75 +2279,95 @@ refreshBattle = function()
 		end)
 	end
 
-	-- Formation controls are in the same header card as status.
+	-- Formation controls: portrait mobile = title in header + large buttons below grid; else header row.
 	local gridLabelRow = Instance.new("Frame")
 	gridLabelRow.Size = UDim2.new(1, -8, 0, 24)
-	gridLabelRow.Position = UDim2.new(0, 4, 0, 34)
+	gridLabelRow.Position = UDim2.new(0, 4, 0, battlePortrait and (8 + statusStripH) or 34)
 	gridLabelRow.BackgroundTransparency = 1
 	gridLabelRow.Parent = battleHeader
 
-	local gridLabel = Instance.new("TextLabel")
-	-- Shrink when Set Battle Team button is shown (leaves room for both buttons)
 	local hasSetBtn = (#available > 0 and not pendingBattleUid and canPlaceMore)
-	gridLabel.Size = UDim2.new(1, hasSetBtn and -240 or -120, 1, 0)
+	local gridLabel = Instance.new("TextLabel")
+	gridLabel.Size = UDim2.new(1, battlePortrait and -12 or (hasSetBtn and -240 or -120), 1, 0)
 	gridLabel.Position = UDim2.new(0, 0, 0, 0)
 	gridLabel.BackgroundTransparency = 1
 	gridLabel.Text = "YOUR BATTLE FORMATION (" .. #battleTeam .. "/" .. battleCreatureCap .. ")"
 	gridLabel.TextColor3 = C.battle; gridLabel.Font = Enum.Font.GothamBold
-	gridLabel.TextSize = 11; gridLabel.TextXAlignment = Enum.TextXAlignment.Left
+	gridLabel.TextSize = battlePortrait and 12 or 11
+	gridLabel.TextXAlignment = Enum.TextXAlignment.Left
 	gridLabel.TextTruncate = Enum.TextTruncate.AtEnd
 	gridLabel.Parent = gridLabelRow
 
-	-- Set Battle Team button: to the left of Active/Inactive (mobile: opens modal; desktop: also opens modal)
-	local setBattleTeamBtn = nil
-	if #available > 0 and not pendingBattleUid and canPlaceMore then
-		setBattleTeamBtn = Instance.new("TextButton")
-		setBattleTeamBtn.Size = UDim2.new(0, 105, 0, 24)
-		setBattleTeamBtn.Position = UDim2.new(1, -229, 0, 2)  -- left of Active/Inactive
-		setBattleTeamBtn.BackgroundColor3 = C.battle
-		setBattleTeamBtn.Text = "Set Battle Team"
-		setBattleTeamBtn.TextColor3 = Color3.new(1,1,1)
-		setBattleTeamBtn.Font = Enum.Font.GothamBold; setBattleTeamBtn.TextSize = 9
-		setBattleTeamBtn.BorderSizePixel = 0; setBattleTeamBtn.Parent = gridLabelRow
-		Instance.new("UICorner", setBattleTeamBtn).CornerRadius = UDim.new(0, 6)
-		setBattleTeamBtn.MouseButton1Click:Connect(function() openMonsterSelectionModal() end)
+	local function wireTeamToggleButton(btn)
+		btn.MouseButton1Click:Connect(function()
+			if not Evt.toggleBattleTeam then return end
+			local newState = not battleTeamEnabled
+			btn.Text = newState and "ACTIVE" or "INACTIVE"
+			btn.BackgroundColor3 = newState and C.battle or C.divider
+			btn.TextColor3 = newState and Color3.new(1, 1, 1) or C.textSec
+			local ok = pcall(function()
+				return Evt.toggleBattleTeam:InvokeServer()
+			end)
+			if ok then
+				refreshBattle()
+			else
+				btn.Text = battleTeamEnabled and "ACTIVE" or "INACTIVE"
+				btn.BackgroundColor3 = battleTeamEnabled and C.battle or C.divider
+				btn.TextColor3 = battleTeamEnabled and Color3.new(1, 1, 1) or C.textSec
+			end
+		end)
 	end
 
-	local toggleBtn = Instance.new("TextButton")
-	toggleBtn.Size = UDim2.new(0, 110, 0, 24); toggleBtn.Position = UDim2.new(1, -114, 0, 2)
-	toggleBtn.BackgroundColor3 = battleTeamEnabled and C.battle or C.divider
-	toggleBtn.Text = battleTeamEnabled and "ACTIVE" or "INACTIVE"
-	toggleBtn.TextColor3 = battleTeamEnabled and Color3.new(1,1,1) or C.textSec
-	toggleBtn.Font = Enum.Font.GothamBold; toggleBtn.TextSize = 10
-	toggleBtn.BorderSizePixel = 0; toggleBtn.Parent = gridLabelRow
-	Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(0, 6)
-	toggleBtn.MouseButton1Click:Connect(function()
-		if not Evt.toggleBattleTeam then return end
-		-- Optimistic update: flip button immediately
-		local newState = not battleTeamEnabled
-		toggleBtn.Text = newState and "ACTIVE" or "INACTIVE"
-		toggleBtn.BackgroundColor3 = newState and C.battle or C.divider
-		toggleBtn.TextColor3 = newState and Color3.new(1,1,1) or C.textSec
-		local ok = pcall(function() return Evt.toggleBattleTeam:InvokeServer() end)
-		if ok then
-			-- Refresh so the inactive banner text goes away (or appears) and UI matches server
-			refreshBattle()
-		else
-			-- Revert button if server call failed
-			toggleBtn.Text = battleTeamEnabled and "ACTIVE" or "INACTIVE"
-			toggleBtn.BackgroundColor3 = battleTeamEnabled and C.battle or C.divider
-			toggleBtn.TextColor3 = battleTeamEnabled and Color3.new(1,1,1) or C.textSec
+	if not battlePortrait then
+		if hasSetBtn then
+			local setBattleTeamBtn = Instance.new("TextButton")
+			setBattleTeamBtn.Size = UDim2.new(0, 105, 0, 24)
+			setBattleTeamBtn.Position = UDim2.new(1, -229, 0, 2)
+			setBattleTeamBtn.BackgroundColor3 = C.battle
+			setBattleTeamBtn.Text = "Set Battle Team"
+			setBattleTeamBtn.TextColor3 = Color3.new(1, 1, 1)
+			setBattleTeamBtn.Font = Enum.Font.GothamBold
+			setBattleTeamBtn.TextSize = 9
+			setBattleTeamBtn.BorderSizePixel = 0
+			setBattleTeamBtn.Parent = gridLabelRow
+			Instance.new("UICorner", setBattleTeamBtn).CornerRadius = UDim.new(0, 6)
+			setBattleTeamBtn.MouseButton1Click:Connect(function()
+				openMonsterSelectionModal()
+			end)
 		end
-	end)
 
-	-- GRID + STATS PANEL
-	-- Mobile now uses side-by-side layout so the stats panel fills the empty
-	-- space next to the 3x3 map instead of sitting below it.
+		local teamStateBtn = Instance.new("TextButton")
+		teamStateBtn.Size = UDim2.new(0, 110, 0, 24)
+		teamStateBtn.Position = UDim2.new(1, -114, 0, 2)
+		teamStateBtn.BackgroundColor3 = battleTeamEnabled and C.battle or C.divider
+		teamStateBtn.Text = battleTeamEnabled and "ACTIVE" or "INACTIVE"
+		teamStateBtn.TextColor3 = battleTeamEnabled and Color3.new(1, 1, 1) or C.textSec
+		teamStateBtn.Font = Enum.Font.GothamBold
+		teamStateBtn.TextSize = 10
+		teamStateBtn.BorderSizePixel = 0
+		teamStateBtn.Parent = gridLabelRow
+		Instance.new("UICorner", teamStateBtn).CornerRadius = UDim.new(0, 6)
+		wireTeamToggleButton(teamStateBtn)
+	end
+
+	-- GRID + STATS PANEL (portrait mobile: tighter grid + stats column; bottom action row after)
+	local synergyOrder = battlePortrait and 3 or 2
+	local bonusBaseOrder = battlePortrait and 4 or 3
+
+	local slotSize = battlePortrait and 46 or 50
+	local gridGap = battlePortrait and 5 or 8
+	local gridOriginX = battlePortrait and 10 or 12
+	local gridOriginY = battlePortrait and 10 or 8
+	local gridStride = slotSize + gridGap
+	local gridW = gridOriginX + 3 * slotSize + 2 * gridGap
+
 	local mapFrame = Instance.new("Frame")
-	local mapH = mobile and 205 or 195
+	local mapH = battlePortrait and 228 or (mobile and 205 or 195)
 	mapFrame.Size = UDim2.new(1, 0, 0, mapH)
 	mapFrame.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
-	mapFrame.BorderSizePixel = 0; mapFrame.LayoutOrder = 1; mapFrame.Parent = leftCol
+	mapFrame.BorderSizePixel = 0
+	mapFrame.LayoutOrder = 1
+	mapFrame.Parent = leftCol
 	Instance.new("UICorner", mapFrame).CornerRadius = UDim.new(0, 10)
 
 	-- 3x3 grid
@@ -2297,11 +2375,12 @@ refreshBattle = function()
 		for col = 0, 2 do
 			local idx = row * 3 + col + 1
 			local slotIdx = idx  -- capture for closure (avoid Lua loop variable capture bug)
-			local px = col * 58 + 12
-			local py = row * 58 + 8
+			local px = col * gridStride + gridOriginX
+			local py = row * gridStride + gridOriginY
 
 			local slot = Instance.new("TextButton")
-			slot.Size = UDim2.new(0, 50, 0, 50); slot.Position = UDim2.new(0, px, 0, py)
+			slot.Size = UDim2.new(0, slotSize, 0, slotSize)
+			slot.Position = UDim2.new(0, px, 0, py)
 			slot.BackgroundColor3 = Color3.fromRGB(25, 27, 38); slot.BorderSizePixel = 0
 			slot.Text = ""; slot.AutoButtonColor = true; slot.Parent = mapFrame
 			Instance.new("UICorner", slot).CornerRadius = UDim.new(0, 8)
@@ -2322,11 +2401,13 @@ refreshBattle = function()
 			local ce = gridData[idx]
 			if ce then
 				local rc = RARITY[ce.rarity] or C.textMut
+				local ringSize = math.clamp(slotSize - 6, 34, 44)
+				local ringOff = ringSize / 2
 				-- Circular ring + masked viewport so creature stays inside circumference.
 				local viewerRing = Instance.new("Frame")
 				viewerRing.Name = "ViewerRing"
-				viewerRing.Size = UDim2.new(0, 44, 0, 44)
-				viewerRing.Position = UDim2.new(0.5, -22, 0, 2)
+				viewerRing.Size = UDim2.new(0, ringSize, 0, ringSize)
+				viewerRing.Position = UDim2.new(0.5, -ringOff, 0, 2)
 				viewerRing.BackgroundColor3 = Color3.fromRGB(16, 18, 24)
 				viewerRing.BorderSizePixel = 0
 				viewerRing.ZIndex = 3
@@ -2421,16 +2502,20 @@ refreshBattle = function()
 		end
 	end
 
-	-- Stats panel: desktop + mobile both sit to the right of the 3x3 grid.
+	-- Stats panel: to the right of the 3x3 grid (width from measured grid)
 	local statsBox = Instance.new("Frame")
-	if mobile then
+	if battlePortrait then
+		statsBox.Size = UDim2.new(1, -(gridW + 10), 1, -12)
+		statsBox.Position = UDim2.new(0, gridW + 4, 0, 6)
+	elseif mobile then
 		statsBox.Size = UDim2.new(1, -208, 0, 185)
 		statsBox.Position = UDim2.new(0, 200, 0, 5)
 	else
 		statsBox.Size = UDim2.new(0, 330, 0, 185)
 		statsBox.Position = UDim2.new(0, 200, 0, 5)
 	end
-	statsBox.BackgroundColor3 = Color3.fromRGB(22, 24, 35); statsBox.BorderSizePixel = 0
+	statsBox.BackgroundColor3 = Color3.fromRGB(22, 24, 35)
+	statsBox.BorderSizePixel = 0
 	statsBox.Parent = mapFrame
 	Instance.new("UICorner", statsBox).CornerRadius = UDim.new(0, 8)
 
@@ -2508,7 +2593,45 @@ refreshBattle = function()
 			and "No battle team!\nTap 'Set Battle Team' or an empty slot."
 			or "No battle team!\nTap 'Set Battle Team', an empty slot,\nor Place on creatures at right."
 		emptyLbl.TextColor3 = C.textMut; emptyLbl.Font = Enum.Font.GothamMedium
-		emptyLbl.TextSize = 10; emptyLbl.TextWrapped = true; emptyLbl.Parent = statsBox
+		emptyLbl.TextSize = 10; 		emptyLbl.TextWrapped = true; emptyLbl.Parent = statsBox
+	end
+
+	-- Portrait: large "Set Battle Team" + ACTIVE/INACTIVE row (reference layout)
+	if battlePortrait then
+		local actionRow = Instance.new("Frame")
+		actionRow.Name = "BattlePortraitActions"
+		actionRow.Size = UDim2.new(1, 0, 0, 52)
+		actionRow.BackgroundTransparency = 1
+		actionRow.LayoutOrder = 2
+		actionRow.Parent = leftCol
+		if hasSetBtn then
+			local sb = Instance.new("TextButton")
+			sb.Size = UDim2.new(0.5, -10, 0, 42)
+			sb.Position = UDim2.new(0, 5, 0, 5)
+			sb.BackgroundColor3 = C.battle
+			sb.Text = "Set Battle Team"
+			sb.TextColor3 = Color3.new(1, 1, 1)
+			sb.Font = Enum.Font.GothamBold
+			sb.TextSize = 12
+			sb.BorderSizePixel = 0
+			sb.Parent = actionRow
+			Instance.new("UICorner", sb).CornerRadius = UDim.new(0, 10)
+			sb.MouseButton1Click:Connect(function()
+				openMonsterSelectionModal()
+			end)
+		end
+		local portraitTeamBtn = Instance.new("TextButton")
+		portraitTeamBtn.Size = UDim2.new(hasSetBtn and 0.5 or 1, -10, 0, 42)
+		portraitTeamBtn.Position = UDim2.new(hasSetBtn and 0.5 or 0, hasSetBtn and 5 or 5, 0, 5)
+		portraitTeamBtn.BackgroundColor3 = battleTeamEnabled and C.battle or C.divider
+		portraitTeamBtn.Text = battleTeamEnabled and "ACTIVE" or "INACTIVE"
+		portraitTeamBtn.TextColor3 = battleTeamEnabled and Color3.new(1, 1, 1) or C.textSec
+		portraitTeamBtn.Font = Enum.Font.GothamBold
+		portraitTeamBtn.TextSize = 12
+		portraitTeamBtn.BorderSizePixel = 0
+		portraitTeamBtn.Parent = actionRow
+		Instance.new("UICorner", portraitTeamBtn).CornerRadius = UDim.new(0, 10)
+		wireTeamToggleButton(portraitTeamBtn)
 	end
 
 	-- AFFINITY / SYNERGY DISPLAY (moved below team view)
@@ -2516,7 +2639,7 @@ refreshBattle = function()
 	synergyFrame.Size = UDim2.new(1, 0, 0, 42)
 	synergyFrame.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
 	synergyFrame.BorderSizePixel = 0
-	synergyFrame.LayoutOrder = 2
+	synergyFrame.LayoutOrder = synergyOrder
 	synergyFrame.Parent = leftCol
 	Instance.new("UICorner", synergyFrame).CornerRadius = UDim.new(0, 8)
 	if mobile then
@@ -2562,7 +2685,7 @@ refreshBattle = function()
 		bonusFrame.Size = UDim2.new(1, 0, 0, 24 + bonusRows * 16)
 		bonusFrame.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
 		bonusFrame.BorderSizePixel = 0
-		bonusFrame.LayoutOrder = 3
+		bonusFrame.LayoutOrder = bonusBaseOrder
 		bonusFrame.Parent = leftCol
 		Instance.new("UICorner", bonusFrame).CornerRadius = UDim.new(0, 8)
 
@@ -2618,6 +2741,136 @@ refreshBattle = function()
 				bonusText
 			)
 			row.Parent = bonusFrame
+		end
+	end
+
+	-- Portrait mobile: AVAILABLE list in main scroll (reference: horizontal cards + action on right)
+	if battlePortrait and #available > 0 and not pendingBattleUid then
+		local availSection = Instance.new("Frame")
+		availSection.Name = "BattlePortraitAvailable"
+		availSection.Size = UDim2.new(1, 0, 0, 0)
+		availSection.AutomaticSize = Enum.AutomaticSize.Y
+		availSection.BackgroundTransparency = 1
+		availSection.LayoutOrder = 5
+		availSection.Parent = leftCol
+
+		local availSecLayout = Instance.new("UIListLayout")
+		availSecLayout.SortOrder = Enum.SortOrder.LayoutOrder
+		availSecLayout.Padding = UDim.new(0, 6)
+		availSecLayout.Parent = availSection
+
+		local availHead = Instance.new("TextLabel")
+		availHead.Size = UDim2.new(1, -8, 0, 20)
+		availHead.BackgroundTransparency = 1
+		availHead.Text = "AVAILABLE (" .. #available .. ")"
+		availHead.TextColor3 = C.textSec
+		availHead.Font = Enum.Font.GothamBold
+		availHead.TextSize = 11
+		availHead.TextXAlignment = Enum.TextXAlignment.Left
+		availHead.LayoutOrder = 0
+		availHead.Parent = availSection
+
+		local availList = Instance.new("Frame")
+		availList.Size = UDim2.new(1, 0, 0, 0)
+		availList.AutomaticSize = Enum.AutomaticSize.Y
+		availList.BackgroundTransparency = 1
+		availList.LayoutOrder = 1
+		availList.Parent = availSection
+
+		local availListLayout = Instance.new("UIListLayout")
+		availListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+		availListLayout.Padding = UDim.new(0, 6)
+		availListLayout.Parent = availList
+
+		for i, av in ipairs(available) do
+			local cr = av.cr
+			local elemClr = ELEMENT_COLOR[cr.element] or C.textMut
+
+			local row = Instance.new("Frame")
+			row.Size = UDim2.new(1, 0, 0, 56)
+			row.BackgroundColor3 = C.card
+			row.BorderSizePixel = 0
+			row.LayoutOrder = i
+			row.Parent = availList
+			Instance.new("UICorner", row).CornerRadius = UDim.new(0, 10)
+
+			local mo2 = Instance.new("Frame")
+			mo2.Size = UDim2.new(0, 36, 0, 36)
+			mo2.Position = UDim2.new(0, 10, 0.5, -18)
+			mo2.BackgroundColor3 = cr.primaryColor
+			mo2.BorderSizePixel = 0
+			mo2.Parent = row
+			Instance.new("UICorner", mo2).CornerRadius = UDim.new(1, 0)
+
+			local nm2 = Instance.new("TextLabel")
+			nm2.Size = UDim2.new(1, -120, 0, 14)
+			nm2.Position = UDim2.new(0, 54, 0, 8)
+			nm2.BackgroundTransparency = 1
+			nm2.Text = cr.displayName
+			nm2.TextColor3 = C.text
+			nm2.Font = Enum.Font.GothamBold
+			nm2.TextSize = 12
+			nm2.TextTruncate = Enum.TextTruncate.AtEnd
+			nm2.TextXAlignment = Enum.TextXAlignment.Left
+			nm2.Parent = row
+
+			local affLbl = Instance.new("TextLabel")
+			affLbl.Size = UDim2.new(1, -120, 0, 12)
+			affLbl.Position = UDim2.new(0, 54, 0, 24)
+			affLbl.BackgroundTransparency = 1
+			affLbl.Text = (cr.element or "?") .. " " .. (cr.class or "?") .. " · " .. cr.rarity
+			affLbl.TextColor3 = elemClr
+			affLbl.Font = Enum.Font.GothamMedium
+			affLbl.TextSize = 9
+			affLbl.TextTruncate = Enum.TextTruncate.AtEnd
+			affLbl.TextXAlignment = Enum.TextXAlignment.Left
+			affLbl.Parent = row
+
+			local st2 = Instance.new("TextLabel")
+			st2.Size = UDim2.new(1, -120, 0, 12)
+			st2.Position = UDim2.new(0, 54, 0, 40)
+			st2.BackgroundTransparency = 1
+			st2.Text = cr.health .. "/" .. cr.attack .. "/" .. cr.defense .. "/" .. cr.speed
+			st2.TextColor3 = C.textSec
+			st2.Font = Enum.Font.GothamMedium
+			st2.TextSize = 9
+			st2.TextXAlignment = Enum.TextXAlignment.Left
+			st2.Parent = row
+
+			if GameConfig.ENABLE_CODEX_UI then
+				local codexRowBtn = Instance.new("TextButton")
+				codexRowBtn.Size = UDim2.new(1, -100, 1, 0)
+				codexRowBtn.BackgroundTransparency = 1
+				codexRowBtn.Text = ""
+				codexRowBtn.ZIndex = 2
+				codexRowBtn.Parent = row
+				local openCodexEvt = playerGui:FindFirstChild("OpenCodex")
+				if openCodexEvt and openCodexEvt:IsA("BindableEvent") then
+					codexRowBtn.MouseButton1Click:Connect(function()
+						openCodexEvt:Fire(av.id)
+					end)
+				end
+			end
+
+			if canPlaceMore then
+				local addBtn = Instance.new("TextButton")
+				addBtn.Size = UDim2.new(0, 72, 0, 32)
+				addBtn.Position = UDim2.new(1, -82, 0.5, -16)
+				addBtn.BackgroundColor3 = Color3.fromRGB(55, 58, 72)
+				addBtn.Text = "Add"
+				addBtn.TextColor3 = C.textSec
+				addBtn.Font = Enum.Font.GothamBold
+				addBtn.TextSize = 11
+				addBtn.BorderSizePixel = 0
+				addBtn.Parent = row
+				Instance.new("UICorner", addBtn).CornerRadius = UDim.new(1, 0)
+				addBtn.MouseButton1Click:Connect(function()
+					if canPlaceMore then
+						pendingBattleUid = av.uid
+						refreshBattle()
+					end
+				end)
+			end
 		end
 	end
 
@@ -3773,16 +4026,22 @@ local function syncVisibleStateFromGui()
 end
 
 local function getPanelOpenRect()
-	if MobileWindowLayout.IsMobile() then
-		local bounds = MobileWindowLayout.GetBounds({
-			leftInset = 14,
-			rightInset = 14,
-			topInset = 10,
-			bottomInset = 14,
-			bottomMobileExtra = 20,
-			-- Mobile UI: lift panel slightly (was sitting low on phones).
-			shiftYScale = -0.10,
-		})
+	if inventoryUsesFullscreenBounds() then
+		local camera = workspace.CurrentCamera
+		local vp = (camera and camera.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
+		local compactViewport = vp.X < PANEL_DESIGN_W or vp.Y < PANEL_DESIGN_H
+		local boundsConfig = {
+			-- Reclaim status-bar / home-indicator vertical padding and space above the bottom hub.
+			extendViewportVertically = true,
+			reserveBottomHubGap = false,
+			bottomMobileExtra = 0,
+			topInset = 0,
+			bottomInset = 0,
+		}
+		if compactViewport and not isMobileLayout() then
+			boundsConfig.useMaximalSafeRect = true
+		end
+		local bounds = MobileWindowLayout.GetBounds(boundsConfig)
 		return math.floor(bounds.left), math.floor(bounds.top), math.floor(bounds.width), math.floor(bounds.height), true
 	end
 
@@ -3794,12 +4053,13 @@ local function getPanelOpenRect()
 end
 
 local function applyMainFrameLayout()
+	syncInventoryScreenGuiInset()
 	local x, y, w, h, mobile = getPanelOpenRect()
 	main.AnchorPoint = Vector2.new(0, 0)
 	main.Position = UDim2.fromOffset(x, y)
 	main.Size = UDim2.fromOffset(w, h)
 	if mobile then
-		main.Draggable = true
+		main.Draggable = false
 	else
 		MobileWindowLayout.RestoreDesktopWindow(main, { draggable = true })
 	end
@@ -3809,12 +4069,13 @@ local function openUI(defaultTab)
 	if not syncVisibleStateFromGui() then return end
 	defaultTab = defaultTab or "inventory"
 	updateTabVisibility()
+	syncInventoryScreenGuiInset()
 	local x, y, w, h, mobile = getPanelOpenRect()
 	main.AnchorPoint = Vector2.new(0, 0)
 	main.Position = UDim2.fromOffset(x, y)
 	main.Size = UDim2.fromOffset(w, 10)
 	if mobile then
-		main.Draggable = true
+		main.Draggable = false
 	else
 		MobileWindowLayout.RestoreDesktopWindow(main, { draggable = true })
 	end
@@ -3973,6 +4234,8 @@ MobileWindowLayout.BindViewportUpdate(function()
 		if activeTab == "inventory" then
 			refreshSelectedInventoryDetails()
 		end
+	else
+		syncInventoryScreenGuiInset()
 	end
 end)
 
@@ -4117,4 +4380,5 @@ end
 
 -- No auto-refresh loop: inventory only refreshes on tab/button press or when
 -- CaptureSuccess/RaidEnd adds a monster. Avoids scroll reset on mobile.
+task.defer(syncInventoryScreenGuiInset)
 print("[InventoryUI] Script fully loaded — all handlers registered")

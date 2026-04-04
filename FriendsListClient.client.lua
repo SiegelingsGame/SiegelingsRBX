@@ -555,17 +555,12 @@ local TRADE_DESIGN_W = 560
 local TRADE_DESIGN_H = 400
 
 local function applyTradeLayout()
-	if MobileWindowLayout.IsMobile() then
-		-- FIX: Increased bottomMobileExtra from 20 → 50 to account for iPhone
-		-- home indicator (34px) and Roblox bottom UI. The accept/cancel buttons
-		-- at Position=(1,-40) were being pushed off the visible screen edge.
-		MobileWindowLayout.ApplyWindow(tradeUI, {
-			leftInset = 10,
-			rightInset = 10,
-			topInset = 10,
-			bottomInset = 10,
-			bottomMobileExtra = 50,
-		})
+	MobileWindowLayout.SyncNpcMenuScreenGui(sg, TRADE_DESIGN_W, TRADE_DESIGN_H)
+	if MobileWindowLayout.NpcMenuUsesFullscreenBounds(TRADE_DESIGN_W, TRADE_DESIGN_H) then
+		MobileWindowLayout.ApplyWindow(
+			tradeUI,
+			MobileWindowLayout.GetNpcFullscreenBoundsConfig(TRADE_DESIGN_W, TRADE_DESIGN_H, { mobileDraggable = true })
+		)
 		tradeUI.Draggable = true
 		-- Slightly reduce text sizes and shrink inventory strip on mobile for better fit
 		tradeTitle.TextSize = 13
@@ -579,6 +574,7 @@ local function applyTradeLayout()
 		theirOfferFrame.Position = UDim2.new(0.5, 2, 0, 116)
 		theirOfferFrame.Size = UDim2.new(0.5, -14, 1, -162)
 	else
+		sg.IgnoreGuiInset = false
 		-- Desktop: restore original fixed-size layout
 		tradeUI.AnchorPoint = Vector2.new(0, 0)
 		tradeUI.Size = UDim2.new(0, TRADE_DESIGN_W, 0, TRADE_DESIGN_H)
@@ -606,6 +602,11 @@ local function setTradeVisible(v)
 		tradeIdActive = nil
 		myOffered = {}
 		lastState = nil
+		if panel.Visible then
+			MobileWindowLayout.SyncNpcMenuScreenGui(sg, PANEL_DESIGN_W, PANEL_DESIGN_H)
+		else
+			sg.IgnoreGuiInset = false
+		end
 	end
 end
 
@@ -744,7 +745,7 @@ if tradeInvite then
 		-- FIX: Use AnchorPoint for centering instead of manual pixel offset,
 		-- and cap width to 90% on mobile so it fits small screens.
 		local prompt = Instance.new("Frame")
-		local isMobile = MobileWindowLayout.IsMobile()
+		local isMobile = MobileWindowLayout.NpcMenuUsesFullscreenBounds(340, 380)
 		prompt.Size = isMobile and UDim2.new(0.9, 0, 0, 120) or UDim2.new(0, 320, 0, 120)
 		prompt.AnchorPoint = Vector2.new(0.5, 0.5)
 		prompt.Position = UDim2.new(0.5, 0, 0.5, 0)
@@ -818,7 +819,7 @@ if pvpChallengeInvite then
 		Notify.Toast(fromName .. " wants to battle you!", Color3.fromRGB(255, 130, 80), 4, nil, "pvp")
 		-- FIX: Use AnchorPoint for centering; cap width to 90% on mobile
 		local prompt = Instance.new("Frame")
-		local isMobilePvP = MobileWindowLayout.IsMobile()
+		local isMobilePvP = MobileWindowLayout.NpcMenuUsesFullscreenBounds(340, 380)
 		prompt.Size = isMobilePvP and UDim2.new(0.9, 0, 0, 120) or UDim2.new(0, 320, 0, 120)
 		prompt.AnchorPoint = Vector2.new(0.5, 0.5)
 		prompt.Position = UDim2.new(0.5, 0, 0.5, 0)
@@ -918,14 +919,12 @@ local function getPanelScale()
 end
 
 local function applyPanelScale(pnl)
-	if MobileWindowLayout.IsMobile() then
-		MobileWindowLayout.ApplyWindow(pnl, {
-			leftInset = 14,
-			rightInset = 14,
-			topInset = 10,
-			bottomInset = 14,
-			bottomMobileExtra = 20,
-		})
+	MobileWindowLayout.SyncNpcMenuScreenGui(sg, PANEL_DESIGN_W, PANEL_DESIGN_H)
+	if MobileWindowLayout.NpcMenuUsesFullscreenBounds(PANEL_DESIGN_W, PANEL_DESIGN_H) then
+		MobileWindowLayout.ApplyWindow(
+			pnl,
+			MobileWindowLayout.GetNpcFullscreenBoundsConfig(PANEL_DESIGN_W, PANEL_DESIGN_H, { mobileDraggable = true })
+		)
 		pnl.Draggable = true
 		return
 	end
@@ -934,6 +933,7 @@ local function applyPanelScale(pnl)
 	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
 	pnl.Size = UDim2.new(0, w, 0, h)
 	pnl.Position = UDim2.new(0.5, -w/2, 0.5, -h/2)
+	sg.IgnoreGuiInset = false
 	MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
 end
 
@@ -961,6 +961,11 @@ closeBtn.Font = Enum.Font.GothamBold; closeBtn.TextSize = 12; closeBtn.Parent = 
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
 closeBtn.MouseButton1Click:Connect(function()
 	panel.Visible = false
+	if tradeUI.Visible then
+		MobileWindowLayout.SyncNpcMenuScreenGui(sg, TRADE_DESIGN_W, TRADE_DESIGN_H)
+	else
+		sg.IgnoreGuiInset = false
+	end
 	MobileWindowLayout.NotifyMenuClosed()
 end)
 
@@ -1006,7 +1011,7 @@ local friendLayout = Instance.new("UIListLayout")
 friendLayout.Padding = UDim.new(0, 2); friendLayout.Parent = friendScroll
 
 local function applyResponsiveContentLayout()
-	local mobile = MobileWindowLayout.IsMobile()
+	local mobile = MobileWindowLayout.NpcMenuUsesFullscreenBounds(PANEL_DESIGN_W, PANEL_DESIGN_H)
 	addFrame.Size = mobile and UDim2.new(1, -16, 0, 132) or UDim2.new(1, -20, 0, 34)
 	addFrame.Position = mobile and UDim2.new(0, 8, 0, 62) or UDim2.new(0, 10, 0, 62)
 	onlineScroll.Size = mobile and UDim2.new(1, 0, 1, 0) or UDim2.new(1, 0, 0, 90)
@@ -1140,6 +1145,11 @@ local function onHUDToggle(menuName)
 		if panel.Visible then
 			MobileWindowLayout.NotifyMenuOpened()
 		else
+			if tradeUI.Visible then
+				MobileWindowLayout.SyncNpcMenuScreenGui(sg, TRADE_DESIGN_W, TRADE_DESIGN_H)
+			else
+				sg.IgnoreGuiInset = false
+			end
 			MobileWindowLayout.NotifyMenuClosed()
 		end
 		if panel.Visible then refreshFriendsList(); refreshOnlinePlayers() end
@@ -1151,13 +1161,13 @@ playerGui.ChildAdded:Connect(function(child)
 end)
 
 MobileWindowLayout.BindViewportUpdate(function()
-	if panel.Visible then
-		applyPanelScale(panel)
-		applyResponsiveContentLayout()
-	end
-	-- Re-layout trade window on viewport/orientation change so it stays within safe area
 	if tradeUI.Visible then
 		applyTradeLayout()
+	elseif panel.Visible then
+		applyPanelScale(panel)
+		applyResponsiveContentLayout()
+	else
+		sg.IgnoreGuiInset = false
 	end
 end)
 

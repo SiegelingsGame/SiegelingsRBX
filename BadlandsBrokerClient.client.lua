@@ -118,18 +118,23 @@ local brokerMenuVisible = false
 -- Set while Broker UI is open: recomputes inner layout for small mobile panels.
 local syncBrokerMobileContent = nil
 
+local BROKER_DESIGN_W = 520
+local BROKER_DESIGN_H = 480
+
 local function applyBrokerWindowLayout()
 	if not mainFrame then return end
 
-	if MobileWindowLayout.IsMobile() then
-		MobileWindowLayout.ApplyWindow(mainFrame, {
-			leftInset = 14,
-			rightInset = 14,
-			topInset = 10,
-			bottomInset = 14,
-			bottomMobileExtra = 20,
-			mobileDraggable = true,
-		})
+	if screenGui then
+		MobileWindowLayout.SyncNpcMenuScreenGui(screenGui, BROKER_DESIGN_W, BROKER_DESIGN_H)
+	end
+
+	if MobileWindowLayout.NpcMenuUsesFullscreenBounds(BROKER_DESIGN_W, BROKER_DESIGN_H) then
+		MobileWindowLayout.ApplyWindow(
+			mainFrame,
+			MobileWindowLayout.GetNpcFullscreenBoundsConfig(BROKER_DESIGN_W, BROKER_DESIGN_H, {
+				mobileDraggable = true,
+			})
+		)
 		mainFrame.AnchorPoint = Vector2.new(0, 0)
 		-- Inner content uses fixed pixel stacks; reflow after outer bounds are known.
 		if syncBrokerMobileContent then
@@ -142,7 +147,10 @@ local function applyBrokerWindowLayout()
 		return
 	end
 
-	mainFrame.Size = UDim2.new(0, 520, 0, 480)
+	if screenGui then
+		screenGui.IgnoreGuiInset = false
+	end
+	mainFrame.Size = UDim2.new(0, BROKER_DESIGN_W, 0, BROKER_DESIGN_H)
 	mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
 	mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 	MobileWindowLayout.RestoreDesktopWindow(mainFrame, { draggable = true })
@@ -958,7 +966,7 @@ local function showBrokerUI(data)
 	-- shrink 3D viewport ~20%, let the creature list fill remaining height.
 	syncBrokerMobileContent = function()
 		if not mainFrame or not mainFrame.Parent then return end
-		if not MobileWindowLayout.IsMobile() then return end
+		if not MobileWindowLayout.NpcMenuUsesFullscreenBounds(BROKER_DESIGN_W, BROKER_DESIGN_H) then return end
 
 		local totalH = mainFrame.AbsoluteSize.Y
 		local totalW = mainFrame.AbsoluteSize.X
@@ -1042,7 +1050,7 @@ local function showBrokerUI(data)
 	brokerMenuVisible = true
 
 	-- ── Entrance animation: slide+fade desktop, fade mobile ──
-	if MobileWindowLayout.IsMobile() then
+	if MobileWindowLayout.NpcMenuUsesFullscreenBounds(BROKER_DESIGN_W, BROKER_DESIGN_H) then
 		mainFrame.BackgroundTransparency = 1
 		TweenService:Create(mainFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 			BackgroundTransparency = 0.05,

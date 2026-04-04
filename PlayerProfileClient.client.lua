@@ -115,6 +115,41 @@ local PANEL_SCALE_MIN  = 0.55
 local PANEL_SCALE_MAX  = 1
 local TAB_BAR_HEIGHT   = 36
 local HEADER_HEIGHT    = 48
+local MOBILE_BREAKPOINT = 620
+
+local function isMobileLayout()
+	local cam = workspace.CurrentCamera
+	local vp = (cam and cam.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
+	return MobileWindowLayout.IsMobile() or vp.X < MOBILE_BREAKPOINT or vp.Y < 500
+end
+
+-- Match InventoryUI: full safe-area rect, vertical bleed, no hub gap (same GetBounds flags).
+local function profileUsesFullscreenBounds()
+	local cam = workspace.CurrentCamera
+	local vp = (cam and cam.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
+	if isMobileLayout() then
+		return true
+	end
+	return vp.X < PANEL_DESIGN_W or vp.Y < PANEL_DESIGN_H
+end
+
+local function profileGetBoundsConfig()
+	local cam = workspace.CurrentCamera
+	local vp = (cam and cam.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
+	local compactViewport = vp.X < PANEL_DESIGN_W or vp.Y < PANEL_DESIGN_H
+	local boundsConfig = {
+		extendViewportVertically = true,
+		reserveBottomHubGap = false,
+		bottomMobileExtra = 0,
+		topInset = 0,
+		bottomInset = 0,
+		mobileDraggable = false,
+	}
+	if compactViewport and not isMobileLayout() then
+		boundsConfig.useMaximalSafeRect = true
+	end
+	return boundsConfig
+end
 
 local function getPanelScale()
 	local cam = workspace.CurrentCamera
@@ -124,11 +159,8 @@ local function getPanelScale()
 end
 
 local function getScaledDims()
-	if MobileWindowLayout.IsMobile() then
-		local bounds = MobileWindowLayout.GetBounds({
-			leftInset = 14, rightInset = 14, topInset = 10,
-			bottomInset = 14, bottomMobileExtra = 20,
-		})
+	if profileUsesFullscreenBounds() then
+		local bounds = MobileWindowLayout.GetBounds(profileGetBoundsConfig())
 		local w = math.floor(bounds.width)
 		local h = math.floor(bounds.height)
 		local sb = math.floor(math.clamp(w * 0.34, 140, 220))
@@ -148,6 +180,14 @@ sg.ResetOnSpawn = false
 sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 sg.DisplayOrder = 16
 sg.Parent = playerGui
+
+local function syncProfileScreenGuiInset()
+	if profileUsesFullscreenBounds() then
+		sg.IgnoreGuiInset = true
+	else
+		sg.IgnoreGuiInset = false
+	end
+end
 
 local main = Instance.new("Frame")
 main.Size = UDim2.new(0, PANEL_DESIGN_W, 0, PANEL_DESIGN_H)
@@ -619,7 +659,7 @@ function refreshProfile()
 	for _, ch in ipairs(sidebarContent:GetChildren()) do
 		if not ch:IsA("UIListLayout") then ch:Destroy() end
 	end
-	sidebarTitle.Text = MobileWindowLayout.IsMobile() and "DETAILS" or "BASE FLOORS"
+	sidebarTitle.Text = isMobileLayout() and "DETAILS" or "BASE FLOORS"
 
 	if not getProfile then return end
 	local ok, data = pcall(function() return getProfile:InvokeServer() end)
@@ -631,7 +671,7 @@ function refreshProfile()
 	local lvl = data.playerLevel or 1
 	local xp = data.playerXP or 0
 	local xpNeeded = data.xpNeeded or 100
-	local isMobile = MobileWindowLayout.IsMobile()
+	local isMobile = isMobileLayout()
 
 	-- Name + level + XP (goes in sidebar on mobile)
 	local barParent = isMobile and sidebarContent or leftCol
@@ -1321,7 +1361,7 @@ function refreshAchievements()
 	end
 	achievementCardById = {}
 
-	local isMobile = MobileWindowLayout.IsMobile()
+	local isMobile = isMobileLayout()
 	local w = achievementsTab.AbsoluteSize.X
 	if w <= 0 then w = 720 end
 	local cols = isMobile and 1 or 2
@@ -2234,7 +2274,7 @@ function refreshAchievements()
 	end
 
 	local tierGap = 10
-	local tierCellHeight = MobileWindowLayout.IsMobile() and 146 or 138
+	local tierCellHeight = isMobileLayout() and 146 or 138
 	local innerGridWidth = availableWidth - 28
 	local tierCellWidth = math.max(118, math.floor((innerGridWidth - (tierGap * (tierColumns - 1))) / tierColumns))
 
@@ -2663,14 +2703,11 @@ end
 isVis = false
 
 local function applyMobileScale()
+	syncProfileScreenGuiInset()
 	local w, h, sbWidth = getScaledDims()
-	local mobile = MobileWindowLayout.IsMobile()
-	if mobile then
-		MobileWindowLayout.ApplyWindow(main, {
-			leftInset = 14, rightInset = 14, topInset = 10,
-			bottomInset = 14, bottomMobileExtra = 20,
-		})
-		main.Draggable = true
+	if profileUsesFullscreenBounds() then
+		MobileWindowLayout.ApplyWindow(main, profileGetBoundsConfig())
+		main.Draggable = false
 		profileBody.FillDirection = Enum.FillDirection.Horizontal
 		profileBody.Padding = UDim.new(0, 10)
 		leftCol.Size = UDim2.new(1, -sbWidth - 10, 1, -8)
@@ -2768,7 +2805,11 @@ playerGui.ChildAdded:Connect(function(child)
 end)
 
 MobileWindowLayout.BindViewportUpdate(function()
-	if isVis then applyMobileScale() end
+	if isVis then
+		applyMobileScale()
+	else
+		syncProfileScreenGuiInset()
+	end
 end)
 
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -2801,4 +2842,5 @@ end)
 -- Initialize default tab state (Profile active, others hidden)
 switchTab("Profile")
 
+task.defer(syncProfileScreenGuiInset)
 print("[PlayerProfileClient] Loaded — tabbed Profile/Sigils/Rebirth menu (press P)")

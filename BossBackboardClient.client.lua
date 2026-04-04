@@ -335,13 +335,7 @@ local function toggle()
 	if main.Visible then
 		MobileWindowLayout.NotifyMenuOpened()
 		if MobileWindowLayout.IsMobile() then
-			MobileWindowLayout.ApplyWindow(main, {
-				leftInset = 14,
-				rightInset = 14,
-				topInset = 10,
-				bottomInset = 14,
-				bottomMobileExtra = 20,
-			})
+			MobileWindowLayout.ApplyWindow(main, {})
 			main.Draggable = true
 			content.Size = UDim2.new(1, -20, 1, -64)
 			content.Position = UDim2.new(0, 10, 0, 56)
@@ -395,13 +389,7 @@ end)
 MobileWindowLayout.BindViewportUpdate(function()
 	if main.Visible then
 		if MobileWindowLayout.IsMobile() then
-			MobileWindowLayout.ApplyWindow(main, {
-				leftInset = 14,
-				rightInset = 14,
-				topInset = 10,
-				bottomInset = 14,
-				bottomMobileExtra = 20,
-			})
+			MobileWindowLayout.ApplyWindow(main, {})
 			main.Draggable = true
 			content.Size = UDim2.new(1, -20, 1, -64)
 			content.Position = UDim2.new(0, 10, 0, 56)

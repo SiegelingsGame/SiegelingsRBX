@@ -72,7 +72,7 @@ local function getDefaultData()
 		playerLevel  = 1,
 		playerXP     = 0,
 		ownedFloors  = {1},  -- array of floor numbers owned; starts with Floor 1
-		decorSlots   = {},   -- { [slotIndex] = { creatureId = "firsky" } } Floor 4 creature statues
+		decorSlots   = {},   -- { ["floor_slot"] = { kind="statue"|"furniture", creatureId?, furnitureId? } }
 		eggs         = {},   -- { { uid, creatureId, level, rarity, hatchMinutes, createdAt }, ... }; place on base/defense to hatch
 		rebirthLevel = 0,    -- pilot rebirth level (0 = never rebirthed); bonuses apply to passive gold, damage, health
 		-- Zone doors / sigils: 4 boss sieglings (Ocean, Desert, Electric, Cave); 4 sigils open one door; gym win grants key for another
@@ -1657,6 +1657,7 @@ function PlayerDataManager.OnPlayerJoin(player)
 			data.battleTeam = normalizeBattleTeam(data.battleTeam)
 		end
 		data.ingredientBank = normalizeIngredientBank(data.ingredientBank)
+		PlayerDataManager.NormalizeDecorSlotsIfNeeded(data)
 		-- Clear removed themes (OceanBreeze, InvisibleBase) so plots return to visible
 		if data.exterior then
 			if data.exterior.owned then
@@ -2256,57 +2257,127 @@ function PlayerDataManager.GetMaxSlots(player, slotType)
 	return #floors * perFloor
 end
 
--- -- DECOR SYSTEM (Floor 4 creature statues) --
+-- -- DECOR / FURNISH (multi-floor DecorPoints) --
 
---- Place a creature statue on a DecorPoint slot.
---- Deducts gold based on creature rarity from GameConfig.DecorCostByRarity.
---- @param player  Player
---- @param slotIndex number  Which DecorPoint (1-6)
---- @param creatureId string  Creature ID from CreatureData (e.g. "firsky")
+local function parseDecorSlotKey(slotKey)
+	if type(slotKey) ~= "string" then return nil, nil end
+	local floorStr, idxStr = slotKey:match("^(%d+)_(%d+)$")
+	if not floorStr then return nil, nil end
+	return tonumber(floorStr), tonumber(idxStr)
+end
+
+--- Migrate legacy numeric keys to "4_n" and normalize slot payloads.
+function PlayerDataManager.NormalizeDecorSlotsIfNeeded(d)
+	if not d then return end
+	if type(d.decorSlots) ~= "table" then
+		d.decorSlots = {}
+		return
+	end
+	local newSlots = {}
+	for k, v in pairs(d.decorSlots) do
+		if type(v) ~= "table" then continue end
+		local keyStr = tostring(k)
+		local outKey = keyStr
+		if type(k) == "number" or keyStr:match("^%d+$") then
+			outKey = "4_" .. keyStr
+		end
+		if v.kind == "furniture" and v.furnitureId then
+			newSlots[outKey] = { kind = "furniture", furnitureId = v.furnitureId }
+		elseif v.creatureId then
+			newSlots[outKey] = { kind = "statue", creatureId = v.creatureId }
+		end
+	end
+	d.decorSlots = newSlots
+end
+
+function PlayerDataManager.GetDecorStatueBonusMap(player)
+	local d = playerCache[player.UserId]
+	if not d then return {} end
+	PlayerDataManager.NormalizeDecorSlotsIfNeeded(d)
+	local map = {}
+	for _, slot in pairs(d.decorSlots or {}) do
+		if slot.kind == "statue" and slot.creatureId then
+			map[slot.creatureId] = true
+		end
+	end
+	return map
+end
+
 --- @return boolean success, string message
-function PlayerDataManager.PlaceDecor(player, slotIndex, creatureId)
+function PlayerDataManager.PlaceFurnish(player, slotKey, kind, id)
 	local d = playerCache[player.UserId]
 	if not d then return false, "No data" end
-	if not PlayerDataManager.OwnsFloor(player, 4) then return false, "Floor 4 required" end
+	PlayerDataManager.NormalizeDecorSlotsIfNeeded(d)
 
-	local maxSlots = GameConfig.DecorPointsPerFloor4 or 6
-	if type(slotIndex) ~= "number" or slotIndex < 1 or slotIndex > maxSlots then
-		return false, "Invalid slot"
+	local floorNum, slotIdx = parseDecorSlotKey(slotKey)
+	if not floorNum or not slotIdx then return false, "Invalid slot" end
+	if not PlayerDataManager.OwnsFloor(player, floorNum) then return false, "Floor " .. floorNum .. " required" end
+
+	local maxIdx = GameConfig.DecorMaxSlotIndexPerFloor or GameConfig.DecorPointsPerFloor4 or 12
+	if slotIdx < 1 or slotIdx > maxIdx then return false, "Invalid slot index" end
+
+	local cost = 0
+	local entry = nil
+
+	if kind == "statue" then
+		if type(id) ~= "string" then return false, "Invalid creature" end
+		local CreatureData = require(game.ReplicatedStorage.Modules.CreatureData)
+		local info = CreatureData.GetById(id)
+		if not info then return false, "Unknown creature" end
+		local costTable = GameConfig.DecorCostByRarity or {}
+		cost = costTable[info.rarity] or 1000
+	elseif kind == "furniture" then
+		if type(id) ~= "string" then return false, "Invalid item" end
+		local FurnitureCatalog = require(game.ReplicatedStorage.Modules.FurnitureCatalog)
+		entry = FurnitureCatalog.GetById(id)
+		if not entry then return false, "Unknown furniture" end
+		cost = entry.coinCost or 0
+		local modelsFolder = game.ReplicatedStorage:FindFirstChild("FurnitureModels")
+		local template = modelsFolder and modelsFolder:FindFirstChild(entry.modelName)
+		if not template then return false, "Furniture model missing" end
+	else
+		return false, "Invalid kind"
 	end
 
-	-- Look up creature rarity for cost
-	local CreatureData = require(game.ReplicatedStorage.Modules.CreatureData)
-	local info = CreatureData.GetById(creatureId)
-	if not info then return false, "Unknown creature" end
-
-	local costTable = GameConfig.DecorCostByRarity or {}
-	local cost = costTable[info.rarity] or 1000
 	if d.coins < cost then return false, "Need " .. cost .. " coins" end
 
 	d.coins = d.coins - cost
-	if not d.decorSlots then d.decorSlots = {} end
-	d.decorSlots[slotIndex] = { creatureId = creatureId }
-	return true, "Statue placed!"
+	d.decorSlots[slotKey] = kind == "statue" and { kind = "statue", creatureId = id }
+		or { kind = "furniture", furnitureId = id }
+
+	return true, "Placed!"
 end
 
---- Remove a creature statue from a DecorPoint slot. No refund.
---- @param player  Player
---- @param slotIndex number  Which DecorPoint (1-6)
---- @return boolean success, string message
-function PlayerDataManager.RemoveDecor(player, slotIndex)
+function PlayerDataManager.RemoveFurnish(player, slotKey)
 	local d = playerCache[player.UserId]
 	if not d then return false, "No data" end
-	if not d.decorSlots or not d.decorSlots[slotIndex] then return false, "Slot empty" end
-	d.decorSlots[slotIndex] = nil
-	return true, "Statue removed"
+	PlayerDataManager.NormalizeDecorSlotsIfNeeded(d)
+	if type(slotKey) ~= "string" or not d.decorSlots or not d.decorSlots[slotKey] then
+		return false, "Slot empty"
+	end
+	d.decorSlots[slotKey] = nil
+	return true, "Removed"
 end
 
---- Get all decor slots for a player.
---- @param player Player
---- @return table  { [slotIndex] = { creatureId = "..." }, ... }
+--- Legacy: numeric slot = Floor 4 slot index.
+function PlayerDataManager.PlaceDecor(player, slotIndex, creatureId)
+	if type(slotIndex) == "number" then
+		return PlayerDataManager.PlaceFurnish(player, "4_" .. tostring(math.floor(slotIndex)), "statue", creatureId)
+	end
+	return false, "Invalid slot"
+end
+
+function PlayerDataManager.RemoveDecor(player, slotIndex)
+	if type(slotIndex) == "number" then
+		return PlayerDataManager.RemoveFurnish(player, "4_" .. tostring(math.floor(slotIndex)))
+	end
+	return false, "Invalid slot"
+end
+
 function PlayerDataManager.GetDecorSlots(player)
 	local d = playerCache[player.UserId]
 	if not d then return {} end
+	PlayerDataManager.NormalizeDecorSlotsIfNeeded(d)
 	return d.decorSlots or {}
 end
 

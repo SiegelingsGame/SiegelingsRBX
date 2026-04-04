@@ -69,34 +69,47 @@ local PANEL_DESIGN_W = 640
 local PANEL_DESIGN_H = 620
 local PANEL_SCALE_MIN = 0.5
 local PANEL_SCALE_MAX = 1
-local MOBILE_WIDTH_THRESHOLD = 600 -- below this, use viewport-relative sizing so window is "wider" on mobile
+local MOBILE_BREAKPOINT = 620
+
+local function isMobileLayout()
+	local camera = workspace.CurrentCamera
+	local vp = (camera and camera.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
+	return MobileWindowLayout.IsMobile() or vp.X < MOBILE_BREAKPOINT or vp.Y < 500
+end
+
+-- Match InventoryUI / profile: full bleed GetBounds (vertical extend, no hub gap).
+local function codexUsesFullscreenBounds()
+	local camera = workspace.CurrentCamera
+	local vp = (camera and camera.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
+	if isMobileLayout() then
+		return true
+	end
+	return vp.X < PANEL_DESIGN_W or vp.Y < PANEL_DESIGN_H
+end
+
+local function codexGetBoundsConfig()
+	local camera = workspace.CurrentCamera
+	local vp = (camera and camera.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
+	local compactViewport = vp.X < PANEL_DESIGN_W or vp.Y < PANEL_DESIGN_H
+	local boundsConfig = {
+		extendViewportVertically = true,
+		reserveBottomHubGap = false,
+		bottomMobileExtra = 0,
+		topInset = 0,
+		bottomInset = 0,
+		mobileDraggable = false,
+	}
+	if compactViewport and not isMobileLayout() then
+		boundsConfig.useMaximalSafeRect = true
+	end
+	return boundsConfig
+end
 
 local function getPanelScale()
 	local camera = workspace.CurrentCamera
 	local vp = (camera and camera.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
 	local scale = math.min(vp.X / PANEL_DESIGN_W, vp.Y / PANEL_DESIGN_H)
 	return math.clamp(scale, PANEL_SCALE_MIN, PANEL_SCALE_MAX)
-end
-
-local function applyPanelScale(pnl)
-	if MobileWindowLayout.IsMobile() then
-		MobileWindowLayout.ApplyWindow(pnl, {
-			leftInset = 14,
-			rightInset = 14,
-			topInset = 10,
-			bottomInset = 14,
-			bottomMobileExtra = 20,
-		})
-		pnl.Draggable = true
-		return
-	end
-
-	pnl.AnchorPoint = Vector2.new(0, 0)
-	local scale = getPanelScale()
-	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
-	pnl.Size = UDim2.new(0, w, 0, h)
-	pnl.Position = UDim2.new(0.5, -w/2, 0.5, -h/2)
-	MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
 end
 
 -- Ordered creature list for next/prev
@@ -114,6 +127,30 @@ sg.Name = "CodexGUI"
 sg.ResetOnSpawn = false
 sg.DisplayOrder = 50
 sg.Parent = playerGui
+
+local function syncCodexScreenGuiInset()
+	if codexUsesFullscreenBounds() then
+		sg.IgnoreGuiInset = true
+	else
+		sg.IgnoreGuiInset = false
+	end
+end
+
+local function applyPanelScale(pnl)
+	syncCodexScreenGuiInset()
+	if codexUsesFullscreenBounds() then
+		MobileWindowLayout.ApplyWindow(pnl, codexGetBoundsConfig())
+		pnl.Draggable = false
+		return
+	end
+
+	pnl.AnchorPoint = Vector2.new(0, 0)
+	local scale = getPanelScale()
+	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
+	pnl.Size = UDim2.new(0, w, 0, h)
+	pnl.Position = UDim2.new(0.5, -w / 2, 0.5, -h / 2)
+	MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
+end
 
 -- Main panel
 local panel = Instance.new("Frame")
@@ -1449,6 +1486,8 @@ end)
 MobileWindowLayout.BindViewportUpdate(function()
 	if panel.Visible then
 		applyPanelScale(panel)
+	else
+		syncCodexScreenGuiInset()
 	end
 end)
 
@@ -1456,4 +1495,5 @@ end)
 -- Codex panel will only open via `OpenCodex(...)` (creature click / HUD toggle),
 -- so it won't interrupt players right after spawn.
 
+task.defer(syncCodexScreenGuiInset)
 print("[CodexClient] Loaded — OpenCodex(creatureId) or OpenCodex(\"guide\") when ENABLE_CODEX_UI is true")

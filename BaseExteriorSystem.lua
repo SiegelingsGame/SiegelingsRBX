@@ -398,9 +398,27 @@ local function isStairPart(name)
 	return name and name:lower():find("stair")
 end
 
+--- Gym / arena leaderboard screen parts (LeaderboardBattle, LeaderboardIncome, …) and anything parented under them.
+--- Never recolor with base color or exterior theme — keeps screen/UI appearance stable.
+local function isLeaderboardCosmeticPart(part)
+	if not part or not part:IsA("BasePart") then return false end
+	local lower = string.lower(part.Name)
+	if #lower >= 11 and lower:sub(1, 11) == "leaderboard" then return true end
+	local p = part.Parent
+	while p do
+		if p:IsA("BasePart") then
+			local pl = string.lower(p.Name)
+			if #pl >= 11 and pl:sub(1, 11) == "leaderboard" then return true end
+		end
+		p = p.Parent
+	end
+	return false
+end
+
 --- Parts that should never use exterior / base-color cosmetics (keep asset colors).
 local function shouldSkipCosmeticRecolor(part)
 	if not part or not part:IsA("BasePart") then return false end
+	if isLeaderboardCosmeticPart(part) then return true end
 	local n = part.Name
 	local nl = string.lower(n)
 	if nl:find("teleport") or nl:find("teleporter") then return true end
@@ -440,13 +458,15 @@ local function createShellPart(name, size, cframe, parent, color, material)
 end
 
 --- Check if part should get base color (walls, stairs, floors, points — not glass, teleporters, combiner, recycler).
+--- Floor decks: e.g. Folder "Floor2" → Part "Floor2" (same as theme isFloorPart; case-insensitive "floor" match).
 local function shouldApplyBaseColor(part)
 	if isGlassPart(part) then return false end
 	if shouldSkipCosmeticRecolor(part) then return false end
 	local n = part.Name
-	if n:find("Wall") then return true end
-	if n:find("Stair") then return true end
-	if n:find("Floor") then return true end
+	local nl = string.lower(n)
+	if nl:find("wall", 1, true) then return true end
+	if nl:find("stair", 1, true) then return true end
+	if nl:find("floor", 1, true) then return true end
 	if n:match("^DefensePoint") then return true end
 	if n:match("^IncomePoint") then return true end
 	if n:match("^BattlePoint") then return true end

@@ -69,6 +69,9 @@ local viewers = {}
 local busy = false
 local currentPayload
 
+local TRADER_DESIGN_W = 560
+local TRADER_DESIGN_H = 520
+
 local function destroyViewers()
 	for _, v in ipairs(viewers) do
 		if v and v.Destroy then
@@ -113,22 +116,22 @@ local function formatTimeLeft(endsAt)
 end
 
 local function applyLayout()
-	if not mainFrame then
+	if not mainFrame or not screenGui then
 		return
 	end
-	if MobileWindowLayout.IsMobile() then
-		MobileWindowLayout.ApplyWindow(mainFrame, {
-			leftInset = 12,
-			rightInset = 12,
-			topInset = 8,
-			bottomInset = 14,
-			bottomMobileExtra = 18,
-			mobileDraggable = true,
-		})
+	MobileWindowLayout.SyncNpcMenuScreenGui(screenGui, TRADER_DESIGN_W, TRADER_DESIGN_H)
+	if MobileWindowLayout.NpcMenuUsesFullscreenBounds(TRADER_DESIGN_W, TRADER_DESIGN_H) then
+		MobileWindowLayout.ApplyWindow(
+			mainFrame,
+			MobileWindowLayout.GetNpcFullscreenBoundsConfig(TRADER_DESIGN_W, TRADER_DESIGN_H, {
+				mobileDraggable = true,
+			})
+		)
 		mainFrame.AnchorPoint = Vector2.new(0, 0)
 		return
 	end
-	mainFrame.Size = UDim2.new(0, 560, 0, 520)
+	screenGui.IgnoreGuiInset = false
+	mainFrame.Size = UDim2.new(0, TRADER_DESIGN_W, 0, TRADER_DESIGN_H)
 	mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
 	mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 	MobileWindowLayout.RestoreDesktopWindow(mainFrame, { draggable = true })

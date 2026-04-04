@@ -67,7 +67,7 @@
 		stationary - base system only (not for world spawns)
 
 	Rarity Distribution Per Element: 5C, 4U, 3R, 2E, 1L = 15 each
-	Total Creatures: 90 (15 x 6 elements)
+	Total Creatures: 110 across 12 elements (see tools/validate_creature_data.py for roster checks)
 
 	MODEL ROTATION:
 		modelRotationY = degrees (default nil/0) — Rotate model around vertical axis from its base orientation.
@@ -478,8 +478,8 @@ CreatureData.Synergies = {
 }
 
 -- --------------------------------------
--- CREATURE DEFINITIONS (90 total)
--- 15 per element: 5 Common, 4 Uncommon, 3 Rare, 2 Epic, 1 Legendary
+-- CREATURE DEFINITIONS (110 entries; target 15 per element when roster complete)
+-- Target per element: 5 Common, 4 Uncommon, 3 Rare, 2 Epic, 1 Legendary
 -- Base stats: filled after this table via AllocateBaseStats (RarityStatBudget + class + element + id).
 -- --------------------------------------
 
@@ -563,7 +563,7 @@ CreatureData.Creatures = {
 		spawnWeight = 8, baseIncome = 3, captureTime = 1.2,
 		description = "A predator that hides in smoke clouds, striking with superheated fangs before vanishing again.",
 		modelName = "Emberfin", primaryColor = Color3.fromRGB(80, 50, 40),
-		evolvesTo = "Cindergil",flying = true, 
+		evolvesTo = "cindergil",flying = true, 
 	},
 
 	-- Fire Rare (3)
@@ -629,7 +629,7 @@ CreatureData.Creatures = {
 
 	-- ============================
 	-- ICE CREATURES (5C, 4U, 3R, 2E, 1L)
-	-- ============================123
+	-- ============================
 
 	-- Ice Common (5)
 	{
@@ -661,7 +661,7 @@ CreatureData.Creatures = {
 		spawnWeight = 17, baseIncome = 1, captureTime = 0.5,
 		description = "Ceeponee float through the winter winds and are known to be a bit shy",
 		modelName = "Falcool", primaryColor = Color3.fromRGB(130, 190, 255), 
-		evolvesTo = "peatbeak"
+		evolvesTo = "falcoat"
 	},
 	{
 		id = "cozycub", displayName = "Cozycub", rarity = "Common",
@@ -702,7 +702,7 @@ CreatureData.Creatures = {
 		element = "Ice", class = "Assassin", behavior = "lone",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.1,
 		description = "A well dressed predator that blends into ice fields. By the time you see it, its fangs are already at your throat.",
-		modelName = "Falcoat", primaryColor = Color3.fromRGB(100, 170, 230),evolvesTo ="Peatbeak", evolvesFrom = "falcool",
+		modelName = "Falcoat", primaryColor = Color3.fromRGB(100, 170, 230),evolvesTo = "peatbeak", evolvesFrom = "falcool",
 		modelDisplaySize = 5.0,modelScaleMultiplier = 1.5,
 	},
 
@@ -961,7 +961,7 @@ CreatureData.Creatures = {
 		evolvesFrom = "pylme",evolvesTo = "guerilla",modelDisplaySize = 5.0,modelScaleMultiplier = 1.5
 	},
 
-	-- Earth Rare (3)sddf
+	-- Earth Rare (3)
 	{
 		id = "generoot", displayName = "Generoot", rarity = "Rare",
 		element = "Earth", class = "Bruiser", behavior = "lone",
@@ -976,7 +976,7 @@ CreatureData.Creatures = {
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
 		description = "A regal stag with antlers of living crystal that resonate with healing frequencies. Fiercely shy and nearly impossible to corner.",
 		modelName = "Guerilla", primaryColor = Color3.fromRGB(180, 200, 160),
-		modelDisplaySize = 8.0,modelScaleMultiplier = 2.0,
+		modelDisplaySize = 8.0,modelScaleMultiplier = 2.0,evolvesFrom = "bonoblade",
 		spawnPointType = "dungeon",
 	},
 	{
@@ -992,7 +992,7 @@ CreatureData.Creatures = {
 		evolvesTo = "dracosleaf",
 	},
 
-	-- Earth Epic (2)rfr
+	-- Earth Epic (2)
 	{
 		id = "cactyjackedty", displayName = "CactyJackedty", rarity = "Epic",
 		element = "Earth", class = "Bruiser", behavior = "aggressive",
@@ -1012,10 +1012,10 @@ CreatureData.Creatures = {
 		modelName = "Dracosleaf", primaryColor = Color3.fromRGB(200, 160, 60),
 		spawnPointType = "dungeon",modelDisplaySize = 10, modelScaleMultiplier = 2.0,
 		mountable = true, mountOffset = {0, 5, -2}, mountScale = 2.5,
-		evolvesFrom = "sleafwrym", flying = true,
+		evolvesFrom = "sleafwyrm", flying = true,
 	},
 
-	-- Earth Legendary (1)s
+	-- Earth Legendary (1)
 	{
 		id = "gymstone", displayName = "Gymstone", rarity = "Legendary",
 		element = "Earth", class = "Guardian", behavior = "gentle",
@@ -1126,7 +1126,7 @@ CreatureData.Creatures = {
 		modelDisplaySize = 5.0,modelScaleMultiplier = 1.5
 	},
 	{
-		id = "Joltram", displayName = "Joltram", rarity = "Uncommon",
+		id = "joltram", displayName = "Joltram", rarity = "Uncommon",
 		element = "Lightning", class = "Bruiser", behavior = "aggressive",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.0,
 		description = "A burrowing creature that erupts from the ground in a shower of electric sparks. It headbutts targets with a charged skull.",
@@ -1152,11 +1152,11 @@ CreatureData.Creatures = {
 		modelName = "Newton", primaryColor = Color3.fromRGB(200, 180, 60),modelDisplaySize = 12,modelScaleMultiplier = 1.5,evolvesFrom = "newt",
 	},
 	{
-		id = "bleetsrike", displayName = "Bleetsrike", rarity = "Rare",
+		id = "bleetstrike", displayName = "Bleetstrike", rarity = "Rare",
 		element = "Lightning", class = "Bruiser", behavior = "lone",
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
 		description = "A floating jellyfish-like creature that drifts through mountain peaks, weaving devastating chain-lightning between its tendrils.",
-		modelName = "Bleetsrike", primaryColor = Color3.fromRGB(140, 100, 255),
+		modelName = "Bleetstrike", primaryColor = Color3.fromRGB(140, 100, 255),
 		spawnPointType = "dungeon",evolvesFrom="joltram",modemodelDisplaySize = 12,modelScaleMultiplier = 1.5,
 	},
 
@@ -1266,7 +1266,7 @@ CreatureData.Creatures = {
 		mountable = true,
 	},
 	{
-		id = "Shellnaut", displayName = "Shellnaut", rarity = "Rare",
+		id = "shellnaut", displayName = "Shellnaut", rarity = "Rare",
 		element = "Water", class = "Guardian", behavior = "lone",
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
 		description = "A massive crab-like guardian. Rises with the tide to shield allies behind walls of water.",
@@ -1296,7 +1296,7 @@ CreatureData.Creatures = {
 	},
 	{
 		id = "ceesteed", displayName = "Ceesteed", rarity = "Epic",
-		element = "Ice", class = "Guardian", behavior = "gentle",
+		element = "Water", class = "Guardian", behavior = "gentle",
 		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
 		description = "A massive yeti-like creature of compacted snow. It ignores most threats, but when provoked, nothing stops it.",
 		modelName = "Ceesteed", primaryColor = Color3.fromRGB(180, 210, 240),
@@ -1552,6 +1552,106 @@ end
 CreatureData._byId = {}
 for _, creature in ipairs(CreatureData.Creatures) do
 	CreatureData._byId[creature.id] = creature
+end
+
+-- Load-time validation: broken evolution links error; rarity ladder mismatches warn (roster still filling).
+do
+	local EVO_PLACEHOLDER = {
+		["coming soon"] = true,
+	}
+	local RARITY_TARGET = {
+		Common = 5,
+		Uncommon = 4,
+		Rare = 3,
+		Epic = 2,
+		Legendary = 1,
+	}
+
+	local function trimEvoId(s)
+		if type(s) ~= "string" then
+			return nil
+		end
+		local t = string.gsub(s, "^%s*(.-)%s*$", "%1")
+		if t == "" then
+			return nil
+		end
+		return t
+	end
+
+	for _, c in ipairs(CreatureData.Creatures) do
+		if c.evolvesTo then
+			local toId = trimEvoId(c.evolvesTo)
+			if toId and not CreatureData._byId[toId] then
+				local low = string.lower(toId)
+				if not EVO_PLACEHOLDER[low] then
+					error(
+						("[CreatureData] %s has invalid evolvesTo %q (not a creature id)"):format(
+							tostring(c.id),
+							toId
+						)
+					)
+				end
+			end
+		end
+		if c.evolvesFrom then
+			local fromId = trimEvoId(c.evolvesFrom)
+			if fromId and not CreatureData._byId[fromId] then
+				error(
+					("[CreatureData] %s has invalid evolvesFrom %q (not a creature id)"):format(
+						tostring(c.id),
+						fromId
+					)
+				)
+			end
+		end
+	end
+
+	local byEl = {}
+	for element in pairs(CreatureData.Elements) do
+		byEl[element] = {
+			Common = 0,
+			Uncommon = 0,
+			Rare = 0,
+			Epic = 0,
+			Legendary = 0,
+		}
+	end
+	for _, c in ipairs(CreatureData.Creatures) do
+		local el = c.element
+		local r = c.rarity
+		if type(el) == "string" and byEl[el] then
+			if type(r) == "string" and byEl[el][r] ~= nil then
+				byEl[el][r] = byEl[el][r] + 1
+			else
+				warn(("[CreatureData] %s has unknown rarity %q"):format(tostring(c.id), tostring(r)))
+			end
+		elseif type(el) == "string" then
+			warn(("[CreatureData] %s has unknown element %q"):format(tostring(c.id), el))
+		end
+	end
+	for element, counts in pairs(byEl) do
+		local total = 0
+		for _, n in pairs(counts) do
+			total = total + n
+		end
+		if total == 0 then
+			warn("[CreatureData] No creatures registered for element: " .. element)
+		else
+			for rarity, want in pairs(RARITY_TARGET) do
+				local have = counts[rarity]
+				if have ~= want then
+					warn(
+						("[CreatureData] %s %s: have %d, target %d (5C/4U/3R/2E/1L ladder)"):format(
+							element,
+							rarity,
+							have,
+							want
+						)
+					)
+				end
+			end
+		end
+	end
 end
 
 -- Get a creature definition by its unique id

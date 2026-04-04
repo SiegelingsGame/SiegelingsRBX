@@ -27,6 +27,7 @@ end
 
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+local CaptureCostUtil = require(ReplicatedStorage.Modules.CaptureCostUtil)
 local Notify = require(ReplicatedStorage.Modules.NotificationManager)
 local CreatureModelLoader = require(ReplicatedStorage.Modules.CreatureModelLoader)
 local DEBUG_CAPTURE_LOGS = false
@@ -40,6 +41,21 @@ local captureSuccess = eventsFolder:WaitForChild("CaptureSuccess", 8)
 local captureCancel = eventsFolder:WaitForChild("CaptureCancel", 8)
 local captureFail = eventsFolder:WaitForChild("CaptureFail", 8)
 local captureOutOfRange = eventsFolder:WaitForChild("CaptureOutOfRange", 8)
+
+local decorBonusMap = {}
+local decorBonusEvt = eventsFolder:WaitForChild("DecorStatueBonusSetUpdate", 30)
+if decorBonusEvt then
+	decorBonusEvt.OnClientEvent:Connect(function(list)
+		decorBonusMap = {}
+		if type(list) == "table" then
+			for _, id in ipairs(list) do
+				if type(id) == "string" then
+					decorBonusMap[id] = true
+				end
+			end
+		end
+	end)
+end
 local setCompanionTarget = eventsFolder:WaitForChild("SetCompanionTarget", 8)
 local clearCompanionTarget = eventsFolder:WaitForChild("ClearCompanionTarget", 8)
 local companionFainted = eventsFolder:FindFirstChild("CompanionFainted")
@@ -406,8 +422,13 @@ task.spawn(function()
 						tipAction.Text = "Friendly | [E] Manage"
 						tipAction.TextColor3 = Color3.fromRGB(100, 220, 120)
 					elseif isFainted then
-						local cost = CreatureData.GetCaptureCost(cid)
-						tipAction.Text = "FAINTED - Click to capture (" .. cost .. " gold)"
+						local baseCost = CreatureData.GetCaptureCost(cid)
+						local cost = CaptureCostUtil.ApplyDecorStatueDiscount(baseCost, cid, decorBonusMap)
+						local tip = "FAINTED - Click to capture (" .. cost .. " gold)"
+						if cost < baseCost then
+							tip = tip .. "  [statue bonus]"
+						end
+						tipAction.Text = tip
 						tipAction.TextColor3 = Color3.fromRGB(255, 200, 0)
 					else
 						tipAction.Text = "[E] to target | Must faint to capture"

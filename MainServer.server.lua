@@ -2129,13 +2129,12 @@ buyFloor.OnServerInvoke = function(plr, floorNum)
 			LaserDoorSystem.CreateForPlot(pm, plr)
 		end
 
-		-- Floor 4: set up gym arena prompt and decor points
+		if DecorSystem and DecorSystem.PlaceAllDecor then
+			pcall(function() DecorSystem.PlaceAllDecor(plr) end)
+		end
 		if floorNum == 4 and pm then
 			if GymBattleSystem and GymBattleSystem.SetupPlot then
 				pcall(function() GymBattleSystem.SetupPlot(pm) end)
-			end
-			if DecorSystem and DecorSystem.PlaceAllDecor then
-				pcall(function() DecorSystem.PlaceAllDecor(plr) end)
 			end
 		end
 

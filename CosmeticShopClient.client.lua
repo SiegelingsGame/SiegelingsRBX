@@ -26,9 +26,9 @@ local equipBaseColor = Events:FindFirstChild("EquipBaseColor") or Events:WaitFor
 local getInventory = Events:WaitForChild("GetInventory", 8)
 local coinsUpdate = Events:FindFirstChild("CoinsUpdate") or Events:WaitForChild("CoinsUpdate", 3)
 
--- -- COLORS --
+-- -- COLORS --.
 local C = {
-	bg = Color3.fromRGB(14, 16, 24),
+	bg = Color3.fromRGB(26, 26, 36),
 	card = Color3.fromRGB(22, 26, 38),
 	cardOwned = Color3.fromRGB(18, 35, 25),
 	coin = Color3.fromRGB(255, 200, 50),
@@ -38,6 +38,12 @@ local C = {
 	red = Color3.fromRGB(255, 70, 60),
 	muted = Color3.fromRGB(120, 125, 140),
 	white = Color3.new(1, 1, 1),
+	-- Portrait mobile (Monster Siege–style accents)
+	accentOrange = Color3.fromRGB(255, 130, 45),
+	tabInactive = Color3.fromRGB(35, 38, 48),
+	statusBar = Color3.fromRGB(22, 24, 32),
+	closeMuted = Color3.fromRGB(58, 60, 72),
+	equippedRingPortrait = Color3.fromRGB(255, 210, 72),
 }
 
 -- Panel scales with viewport (same pattern as other shops)
@@ -46,30 +52,44 @@ local PANEL_DESIGN_H = 480
 local PANEL_SCALE_MIN = 0.52
 local PANEL_SCALE_MAX = 1
 
-local function getPanelScale()
+local function getViewportSize()
 	local camera = workspace.CurrentCamera
-	local vp = (camera and camera.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
+	return (camera and camera.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
+end
+
+local function isMobilePortrait()
+	if not MobileWindowLayout.NpcMenuUsesFullscreenBounds(PANEL_DESIGN_W, PANEL_DESIGN_H) then
+		return false
+	end
+	local vp = getViewportSize()
+	return vp.Y >= vp.X
+end
+
+local function getPanelScale()
+	local vp = getViewportSize()
 	local scale = math.min(vp.X / PANEL_DESIGN_W, vp.Y / PANEL_DESIGN_H)
 	return math.clamp(scale, PANEL_SCALE_MIN, PANEL_SCALE_MAX)
 end
 
 local function applyPanelScale(pnl)
-	if MobileWindowLayout.IsMobile() then
-		MobileWindowLayout.ApplyWindow(pnl, {
-			leftInset = 14,
-			rightInset = 14,
-			topInset = 10,
-			bottomInset = 14,
-			bottomMobileExtra = 20,
-		})
-		pnl.Draggable = true
+	MobileWindowLayout.SyncNpcMenuScreenGui(sg, PANEL_DESIGN_W, PANEL_DESIGN_H)
+	if MobileWindowLayout.NpcMenuUsesFullscreenBounds(PANEL_DESIGN_W, PANEL_DESIGN_H) then
+		local portrait = isMobilePortrait()
+		MobileWindowLayout.ApplyWindow(
+			pnl,
+			MobileWindowLayout.GetNpcFullscreenBoundsConfig(PANEL_DESIGN_W, PANEL_DESIGN_H, {
+				mobileDraggable = not portrait,
+			})
+		)
+		pnl.Draggable = not portrait
 		return
 	end
 
+	sg.IgnoreGuiInset = false
 	local scale = getPanelScale()
 	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
 	pnl.Size = UDim2.new(0, w, 0, h)
-	pnl.Position = UDim2.new(0.5, -w/2, 0.5, -h/2)
+	pnl.Position = UDim2.new(0.5, -w / 2, 0.5, -h / 2)
 	MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
 end
 
@@ -81,10 +101,13 @@ sg.Name = "CosmeticShopGUI"; sg.ResetOnSpawn = false; sg.DisplayOrder = 31; sg.P
 local panel = Instance.new("Frame")
 panel.Size = UDim2.new(0, PANEL_DESIGN_W, 0, PANEL_DESIGN_H)
 panel.Position = UDim2.new(0.5, -PANEL_DESIGN_W/2, 0.5, -PANEL_DESIGN_H/2)
-panel.BackgroundColor3 = C.bg; panel.BackgroundTransparency = 0.05
+panel.BackgroundColor3 = C.bg; panel.BackgroundTransparency = 0.02
 panel.BorderSizePixel = 0; panel.Visible = false; panel.Active = true; panel.Draggable = true; panel.Parent = sg
-Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 14)
-Instance.new("UIStroke", panel).Color = Color3.fromRGB(80, 60, 120)
+local panelCorner = Instance.new("UICorner", panel)
+panelCorner.CornerRadius = UDim.new(0, 14)
+local panelStroke = Instance.new("UIStroke", panel)
+panelStroke.Color = Color3.fromRGB(80, 60, 120)
+panelStroke.Thickness = 1
 
 -- Title
 local titleBar = Instance.new("Frame")
@@ -98,6 +121,16 @@ titleLbl.BackgroundTransparency = 1; titleLbl.Text = "DRIP SHOP"
 titleLbl.TextColor3 = C.gem; titleLbl.Font = Enum.Font.GothamBlack; titleLbl.TextSize = 18
 titleLbl.TextXAlignment = Enum.TextXAlignment.Left; titleLbl.Parent = titleBar
 
+-- Second row on portrait mobile: coins / gems (reference-style status strip)
+local statusBar = Instance.new("Frame")
+statusBar.Name = "StatusBar"
+statusBar.Size = UDim2.new(1, 0, 0, 34)
+statusBar.Position = UDim2.new(0, 0, 0, 42)
+statusBar.BackgroundColor3 = C.statusBar
+statusBar.BorderSizePixel = 0
+statusBar.Visible = false
+statusBar.Parent = panel
+
 local currLbl = Instance.new("TextLabel")
 currLbl.Name = "CurrLbl"
 currLbl.Size = UDim2.new(0.45, -48, 1, 0); currLbl.Position = UDim2.new(0.55, 0, 0, 0)
@@ -108,7 +141,15 @@ currLbl.TextXAlignment = Enum.TextXAlignment.Right; currLbl.Parent = titleBar
 local playerCoins = 0
 local playerGems = 0
 local function updateCurrencyLabel()
-	currLbl.Text = "Coins: " .. tostring(playerCoins or 0) .. "  |  Gems: " .. tostring(playerGems or 0)
+	if currLbl.RichText then
+		currLbl.Text = string.format(
+			'<font color="#ff822d">Coins:</font> <font color="#b8bcc8">%s</font>    <font color="#ff822d">Gems:</font> <font color="#b8bcc8">%s</font>',
+			tostring(playerCoins or 0),
+			tostring(playerGems or 0)
+		)
+	else
+		currLbl.Text = "Coins: " .. tostring(playerCoins or 0) .. "  |  Gems: " .. tostring(playerGems or 0)
+	end
 end
 
 local closeBtn = Instance.new("TextButton")
@@ -116,9 +157,11 @@ closeBtn.Size = UDim2.new(0, 32, 0, 32); closeBtn.Position = UDim2.new(1, -40, 0
 closeBtn.BackgroundColor3 = C.red; closeBtn.BackgroundTransparency = 0.5
 closeBtn.Text = "X"; closeBtn.TextColor3 = C.white
 closeBtn.Font = Enum.Font.GothamBold; closeBtn.TextSize = 14; closeBtn.Parent = titleBar
-Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
+local closeCorner = Instance.new("UICorner", closeBtn)
+closeCorner.CornerRadius = UDim.new(0, 6)
 closeBtn.MouseButton1Click:Connect(function()
 	panel.Visible = false
+	sg.IgnoreGuiInset = false
 	MobileWindowLayout.NotifyMenuClosed()
 end)
 
@@ -129,10 +172,37 @@ if coinsUpdate then
 	end)
 end
 
--- Tab buttons
+-- Tab buttons (desktop: even row on tabFrame; portrait mobile: horizontal scroll in tabScroll)
 local tabFrame = Instance.new("Frame")
 tabFrame.Size = UDim2.new(1, -20, 0, 30); tabFrame.Position = UDim2.new(0, 10, 0, 48)
-tabFrame.BackgroundTransparency = 1; tabFrame.Parent = panel
+tabFrame.BackgroundTransparency = 1; tabFrame.ClipsDescendants = false; tabFrame.Parent = panel
+
+local tabScroll = Instance.new("ScrollingFrame")
+tabScroll.Name = "TabScroll"
+tabScroll.Size = UDim2.new(1, 0, 1, 0)
+tabScroll.Position = UDim2.new(0, 0, 0, 0)
+tabScroll.BackgroundTransparency = 1
+tabScroll.BorderSizePixel = 0
+tabScroll.ScrollBarThickness = 0
+tabScroll.ScrollingDirection = Enum.ScrollingDirection.X
+tabScroll.AutomaticCanvasSize = Enum.AutomaticSize.X
+tabScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+tabScroll.Visible = false
+tabScroll.Parent = tabFrame
+
+local tabList = Instance.new("Frame")
+tabList.Name = "TabList"
+tabList.BackgroundTransparency = 1
+tabList.Size = UDim2.new(0, 0, 1, 0)
+tabList.AutomaticSize = Enum.AutomaticSize.X
+tabList.Parent = tabScroll
+
+local tabListLayout = Instance.new("UIListLayout")
+tabListLayout.FillDirection = Enum.FillDirection.Horizontal
+tabListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+tabListLayout.Padding = UDim.new(0, 6)
+tabListLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+tabListLayout.Parent = tabList
 
 local tabs = {"trail", "aura", "nameColor", "exterior", "baseColor"}
 local tabLabels = {trail = "Trails", aura = "Auras", nameColor = "Names", exterior = "Base", baseColor = "Colors"}
@@ -141,12 +211,63 @@ local tabButtons = {}
 
 for i, tab in ipairs(tabs) do
 	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(1/#tabs, -4, 1, 0); btn.Position = UDim2.new((i-1)/#tabs, 2, 0, 0)
-	btn.BackgroundColor3 = C.card; btn.BorderSizePixel = 0
-	btn.Text = tabLabels[tab]; btn.TextColor3 = C.muted
-	btn.Font = Enum.Font.GothamBold; btn.TextSize = 11; btn.Parent = tabFrame
-	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+	btn.Name = "Tab_" .. tab
+	btn.LayoutOrder = i
+	btn.Size = UDim2.new(1 / #tabs, -4, 1, 0)
+	btn.Position = UDim2.new((i - 1) / #tabs, 2, 0, 0)
+	btn.BackgroundColor3 = C.tabInactive
+	btn.BorderSizePixel = 0
+	btn.Text = tabLabels[tab]
+	btn.TextColor3 = C.muted
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 11
+	btn.Parent = tabFrame
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+	local tabPad = Instance.new("UIPadding", btn)
+	tabPad.PaddingLeft = UDim.new(0, 8)
+	tabPad.PaddingRight = UDim.new(0, 8)
 	tabButtons[tab] = btn
+end
+
+local function styleActiveTab()
+	for t, b in pairs(tabButtons) do
+		local on = (t == activeTab)
+		b.BackgroundColor3 = on and C.accentOrange or C.tabInactive
+		b.TextColor3 = on and C.white or C.muted
+	end
+end
+
+local function syncTabBarLayout()
+	local portrait = isMobilePortrait()
+	tabScroll.Visible = portrait
+	if portrait then
+		for _, tab in ipairs(tabs) do
+			local btn = tabButtons[tab]
+			btn.Parent = tabList
+			btn.Position = UDim2.new(0, 0, 0, 0)
+			btn.Size = UDim2.new(0, 0, 0, 28)
+			btn.AutomaticSize = Enum.AutomaticSize.X
+		end
+		tabScroll.AutomaticCanvasSize = Enum.AutomaticSize.X
+		tabList.AutomaticSize = Enum.AutomaticSize.X
+		tabList.Size = UDim2.new(0, 0, 1, 0)
+	else
+		for _, tab in ipairs(tabs) do
+			local btn = tabButtons[tab]
+			btn.Parent = tabFrame
+			btn.AutomaticSize = Enum.AutomaticSize.None
+		end
+		local n = #tabs
+		for i, tab in ipairs(tabs) do
+			local btn = tabButtons[tab]
+			btn.Position = UDim2.new((i - 1) / n, 2, 0, 0)
+			btn.Size = UDim2.new(1 / n, -4, 1, 0)
+		end
+		tabScroll.AutomaticCanvasSize = Enum.AutomaticSize.None
+		tabScroll.CanvasSize = UDim2.new(1, 0, 0, 0)
+		tabList.AutomaticSize = Enum.AutomaticSize.None
+		tabList.Size = UDim2.new(1, 0, 1, 0)
+	end
 end
 
 -- Scroll
@@ -160,19 +281,99 @@ local layout = Instance.new("UIListLayout")
 layout.Padding = UDim.new(0, 6); layout.Parent = scroll
 
 local function applyResponsiveContentLayout()
-	local mobile = MobileWindowLayout.IsMobile()
-	titleLbl.TextSize = mobile and 22 or 18
-	currLbl.TextSize = mobile and 14 or 12
-	closeBtn.Size = mobile and UDim2.new(0, 38, 0, 38) or UDim2.new(0, 32, 0, 32)
-	closeBtn.Position = mobile and UDim2.new(1, -46, 0, 4) or UDim2.new(1, -40, 0, 5)
-	closeBtn.TextSize = mobile and 16 or 14
-	tabFrame.Size = mobile and UDim2.new(1, -12, 0, 34) or UDim2.new(1, -20, 0, 30)
-	tabFrame.Position = mobile and UDim2.new(0, 6, 0, 48) or UDim2.new(0, 10, 0, 48)
-	scroll.Size = mobile and UDim2.new(1, -12, 1, -94) or UDim2.new(1, -20, 1, -90)
-	scroll.Position = mobile and UDim2.new(0, 6, 0, 86) or UDim2.new(0, 10, 0, 84)
-	for _, btn in pairs(tabButtons) do
-		btn.TextSize = mobile and 12 or 11
+	local portrait = isMobilePortrait()
+	local mobile = MobileWindowLayout.NpcMenuUsesFullscreenBounds(PANEL_DESIGN_W, PANEL_DESIGN_H)
+
+	syncTabBarLayout()
+
+	if portrait then
+		titleBar.Size = UDim2.new(1, 0, 0, 44)
+		statusBar.Position = UDim2.new(0, 0, 0, 44)
+		statusBar.Visible = true
+		currLbl.Parent = statusBar
+		currLbl.Size = UDim2.new(1, -24, 1, 0)
+		currLbl.Position = UDim2.new(0, 12, 0, 0)
+		currLbl.TextXAlignment = Enum.TextXAlignment.Left
+		currLbl.TextSize = 14
+		currLbl.RichText = true
+		titleLbl.Size = UDim2.new(1, -58, 1, 0)
+		titleLbl.TextColor3 = C.accentOrange
+		titleLbl.TextSize = 20
+		closeBtn.Size = UDim2.new(0, 36, 0, 36)
+		closeBtn.Position = UDim2.new(1, -44, 0, 4)
+		closeBtn.TextSize = 15
+		closeBtn.BackgroundTransparency = 0
+		closeBtn.BackgroundColor3 = C.closeMuted
+		closeCorner.CornerRadius = UDim.new(1, 0)
+		panelStroke.Color = Color3.fromRGB(45, 48, 62)
+		panelCorner.CornerRadius = UDim.new(0, 12)
+		tabFrame.Size = UDim2.new(1, -16, 0, 38)
+		tabFrame.Position = UDim2.new(0, 8, 0, 44 + 34 + 6)
+		local bodyTop = 44 + 34 + 6 + 38 + 8
+		scroll.Size = UDim2.new(1, -16, 1, -bodyTop)
+		scroll.Position = UDim2.new(0, 8, 0, bodyTop)
+		for _, btn in pairs(tabButtons) do
+			btn.TextSize = 12
+		end
+	elseif mobile then
+		titleBar.Size = UDim2.new(1, 0, 0, 42)
+		statusBar.Visible = false
+		currLbl.Parent = titleBar
+		currLbl.Size = UDim2.new(0.45, -48, 1, 0)
+		currLbl.Position = UDim2.new(0.55, 0, 0, 0)
+		currLbl.TextXAlignment = Enum.TextXAlignment.Right
+		currLbl.TextSize = 14
+		currLbl.RichText = false
+		titleLbl.Size = UDim2.new(0.6, 0, 1, 0)
+		titleLbl.TextColor3 = C.gem
+		titleLbl.TextSize = 22
+		closeBtn.Size = UDim2.new(0, 38, 0, 38)
+		closeBtn.Position = UDim2.new(1, -46, 0, 4)
+		closeBtn.TextSize = 16
+		closeBtn.BackgroundTransparency = 0.5
+		closeBtn.BackgroundColor3 = C.red
+		closeCorner.CornerRadius = UDim.new(0, 6)
+		panelStroke.Color = Color3.fromRGB(80, 60, 120)
+		panelCorner.CornerRadius = UDim.new(0, 14)
+		tabFrame.Size = UDim2.new(1, -12, 0, 34)
+		tabFrame.Position = UDim2.new(0, 6, 0, 48)
+		scroll.Size = UDim2.new(1, -12, 1, -94)
+		scroll.Position = UDim2.new(0, 6, 0, 86)
+		for _, btn in pairs(tabButtons) do
+			btn.TextSize = 12
+		end
+	else
+		titleBar.Size = UDim2.new(1, 0, 0, 42)
+		statusBar.Visible = false
+		currLbl.Parent = titleBar
+		currLbl.Size = UDim2.new(0.45, -48, 1, 0)
+		currLbl.Position = UDim2.new(0.55, 0, 0, 0)
+		currLbl.TextXAlignment = Enum.TextXAlignment.Right
+		currLbl.TextSize = 12
+		currLbl.RichText = false
+		titleLbl.Size = UDim2.new(0.6, 0, 1, 0)
+		titleLbl.TextColor3 = C.gem
+		titleLbl.TextSize = 18
+		closeBtn.Size = UDim2.new(0, 32, 0, 32)
+		closeBtn.Position = UDim2.new(1, -40, 0, 5)
+		closeBtn.TextSize = 14
+		closeBtn.BackgroundTransparency = 0.5
+		closeBtn.BackgroundColor3 = C.red
+		closeCorner.CornerRadius = UDim.new(0, 6)
+		panelStroke.Color = Color3.fromRGB(80, 60, 120)
+		panelCorner.CornerRadius = UDim.new(0, 14)
+		tabFrame.Size = UDim2.new(1, -20, 0, 30)
+		tabFrame.Position = UDim2.new(0, 10, 0, 48)
+		scroll.Size = UDim2.new(1, -20, 1, -90)
+		scroll.Position = UDim2.new(0, 10, 0, 84)
+		for _, btn in pairs(tabButtons) do
+			btn.TextSize = 11
+		end
 	end
+
+	layout.Padding = UDim.new(0, portrait and 8 or 6)
+	updateCurrencyLabel()
+	styleActiveTab()
 end
 
 -- -- REFRESH --
@@ -220,7 +421,13 @@ local function buildItems()
 			Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
 			if equipped then
 				local eqStroke = Instance.new("UIStroke", card)
-				eqStroke.Color = C.equipped; eqStroke.Thickness = 1.5
+				if isMobilePortrait() then
+					eqStroke.Color = C.equippedRingPortrait
+					eqStroke.Thickness = 2
+				else
+					eqStroke.Color = C.equipped
+					eqStroke.Thickness = 1.5
+				end
 			end
 
 			-- Color swatch for color-only themes (exterior_red, etc.)
@@ -329,7 +536,13 @@ local function buildItems()
 			Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
 			if equipped then
 				local eqStroke = Instance.new("UIStroke", card)
-				eqStroke.Color = C.equipped; eqStroke.Thickness = 1.5
+				if isMobilePortrait() then
+					eqStroke.Color = C.equippedRingPortrait
+					eqStroke.Thickness = 2
+				else
+					eqStroke.Color = C.equipped
+					eqStroke.Thickness = 1.5
+				end
 			end
 
 			-- Color swatch
@@ -432,7 +645,13 @@ local function buildItems()
 
 			if equipped then
 				local eqStroke = Instance.new("UIStroke", card)
-				eqStroke.Color = C.equipped; eqStroke.Thickness = 1.5
+				if isMobilePortrait() then
+					eqStroke.Color = C.equippedRingPortrait
+					eqStroke.Thickness = 2
+				else
+					eqStroke.Color = C.equipped
+					eqStroke.Thickness = 1.5
+				end
 			end
 
 			local name = Instance.new("TextLabel")
@@ -518,10 +737,7 @@ end
 for tab, btn in pairs(tabButtons) do
 	btn.MouseButton1Click:Connect(function()
 		activeTab = tab
-		for t, b in pairs(tabButtons) do
-			b.BackgroundColor3 = t == tab and Color3.fromRGB(40, 45, 65) or C.card
-			b.TextColor3 = t == tab and C.white or C.muted
-		end
+		styleActiveTab()
 		buildItems()
 	end)
 end
@@ -559,6 +775,8 @@ MobileWindowLayout.BindViewportUpdate(function()
 		applyPanelScale(panel)
 		applyResponsiveContentLayout()
 		buildItems()
+	else
+		sg.IgnoreGuiInset = false
 	end
 end)
 

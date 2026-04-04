@@ -26,9 +26,12 @@ ui.DisplayOrder = 41
 ui.IgnoreGuiInset = false
 ui.Parent = playerGui
 
+local SHOP_HUB_DESIGN_W = 420
+local SHOP_HUB_DESIGN_H = 240
+
 local panel = Instance.new("Frame")
 panel.Name = "Panel"
-panel.Size = UDim2.new(0, 420, 0, 240)
+panel.Size = UDim2.new(0, SHOP_HUB_DESIGN_W, 0, SHOP_HUB_DESIGN_H)
 panel.AnchorPoint = Vector2.new(0.5, 0.5)
 panel.Position = UDim2.new(0.5, 0, 0.5, 0)
 panel.BackgroundColor3 = Color3.fromRGB(20, 24, 38)
@@ -91,17 +94,13 @@ buttonHolder.Parent = panel
 list.Parent = buttonHolder
 
 local function applyPanelScale(frame)
-	if MobileWindowLayout.IsMobile() then
-		MobileWindowLayout.ApplyWindow(frame, {
-			leftInset = 14,
-			rightInset = 14,
-			topInset = 10,
-			bottomInset = 14,
-			bottomMobileExtra = 20,
-		})
+	MobileWindowLayout.SyncNpcMenuScreenGui(ui, SHOP_HUB_DESIGN_W, SHOP_HUB_DESIGN_H)
+	if MobileWindowLayout.NpcMenuUsesFullscreenBounds(SHOP_HUB_DESIGN_W, SHOP_HUB_DESIGN_H) then
+		MobileWindowLayout.ApplyWindow(frame, MobileWindowLayout.GetNpcFullscreenBoundsConfig(SHOP_HUB_DESIGN_W, SHOP_HUB_DESIGN_H))
 		return
 	end
 
+	ui.IgnoreGuiInset = false
 	local uiScale = frame:FindFirstChild("OpenScale")
 	if not uiScale then
 		uiScale = Instance.new("UIScale")
@@ -110,10 +109,13 @@ local function applyPanelScale(frame)
 	end
 	uiScale.Scale = 0.92
 	TweenService:Create(uiScale, TweenInfo.new(0.16, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	frame.AnchorPoint = Vector2.new(0.5, 0.5)
+	frame.Position = UDim2.new(0.5, 0, 0.5, 0)
+	frame.Size = UDim2.new(0, SHOP_HUB_DESIGN_W, 0, SHOP_HUB_DESIGN_H)
 end
 
 local function applyResponsiveContentLayout()
-	local mobile = MobileWindowLayout.IsMobile()
+	local mobile = MobileWindowLayout.NpcMenuUsesFullscreenBounds(SHOP_HUB_DESIGN_W, SHOP_HUB_DESIGN_H)
 	title.TextSize = mobile and 24 or 20
 	subtitle.TextSize = mobile and 14 or 12
 	closeBtn.Size = mobile and UDim2.new(0, 38, 0, 38) or UDim2.new(0, 28, 0, 28)
@@ -161,6 +163,7 @@ local cosmeticBtn = makeOptionButton("Drip Shop", Color3.fromRGB(215, 150, 255))
 
 local function openSubShop(menuName)
 	panel.Visible = false
+	ui.IgnoreGuiInset = false
 	MobileWindowLayout.NotifyMenuClosed()
 	getHUDToggle():Fire(menuName)
 end
@@ -179,6 +182,7 @@ end)
 
 closeBtn.MouseButton1Click:Connect(function()
 	panel.Visible = false
+	ui.IgnoreGuiInset = false
 	MobileWindowLayout.NotifyMenuClosed()
 end)
 
@@ -196,6 +200,7 @@ local function onHUDToggle(menuName)
 		end
 	elseif menuName == "EggShopGUI" or menuName == "BuffShopGUI" or menuName == "CosmeticShopGUI" then
 		panel.Visible = false
+		ui.IgnoreGuiInset = false
 	end
 end
 
@@ -210,6 +215,8 @@ MobileWindowLayout.BindViewportUpdate(function()
 	if panel.Visible then
 		applyPanelScale(panel)
 		applyResponsiveContentLayout()
+	else
+		ui.IgnoreGuiInset = false
 	end
 end)
 

@@ -127,6 +127,7 @@ local BAR_BUTTON_TEXT_PADDING_PX = 16  -- horizontal padding inside each button 
 	toolbar.Size = UDim2.new(0, 0, BAR_HEIGHT_SCALE * barScale * BUTTON_HEIGHT_MULTIPLIER * mobileHeightMult, 0)
 	toolbar.AutomaticSize = Enum.AutomaticSize.X
 	toolbar.Position = UDim2.new(0.5, 0, 1, isMobile and -MOBILE_BAR_LIFT_PX or 0)
+	toolbar:SetAttribute("BottomLiftPx", isMobile and MOBILE_BAR_LIFT_PX or 0)
 	toolbar.BackgroundColor3 = TOOLBAR_BG
 	toolbar.BackgroundTransparency = 1  -- no background bar (was distracting)
 	toolbar.BorderSizePixel = 0

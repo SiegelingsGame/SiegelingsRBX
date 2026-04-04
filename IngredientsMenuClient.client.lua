@@ -39,6 +39,10 @@ if not getIngredientBank or not collectIngredient then return end
 local cookCfg = GameConfig.Cooking or {}
 if cookCfg.Enabled == false then return end
 
+-- Nominal desktop sizes (cook mode is largest; used for fullscreen / compact detection)
+local ING_DESIGN_W = 720
+local ING_DESIGN_H = 540
+
 local C = {
 	bg = Color3.fromRGB(18, 22, 28),
 	card = Color3.fromRGB(26, 32, 42),
@@ -551,28 +555,29 @@ end
 
 local function applyIngredientsMenuLayout()
 	if not mainFrame then return end
-	if MobileWindowLayout.IsMobile() then
-		local bounds = MobileWindowLayout.GetBounds({
-			leftInset = 12,
-			rightInset = 12,
-			topInset = 10,
-			bottomInset = 14,
-			bottomMobileExtra = 18,
-		})
-		local maxW = cookMode and 740 or 520
-		local maxH = cookMode and 560 or 420
-		local width = math.min(maxW, math.floor(bounds.width))
-		local height = math.min(maxH, math.floor(bounds.height))
-		mainFrame.Size = UDim2.fromOffset(width, height)
+	if gui then
+		if gui.Enabled then
+			MobileWindowLayout.SyncNpcMenuScreenGui(gui, ING_DESIGN_W, ING_DESIGN_H)
+		else
+			gui.IgnoreGuiInset = false
+		end
+	end
+	if MobileWindowLayout.NpcMenuUsesFullscreenBounds(ING_DESIGN_W, ING_DESIGN_H) then
+		local bounds = MobileWindowLayout.GetBounds(MobileWindowLayout.GetNpcFullscreenBoundsConfig(ING_DESIGN_W, ING_DESIGN_H))
+		mainFrame.AnchorPoint = Vector2.new(0, 0)
+		mainFrame.Position = UDim2.fromOffset(math.floor(bounds.left), math.floor(bounds.top))
+		mainFrame.Size = UDim2.fromOffset(math.floor(bounds.width), math.floor(bounds.height))
+		mainFrame.Draggable = false
 	else
 		if cookMode then
 			mainFrame.Size = UDim2.fromOffset(720, 540)
 		else
 			mainFrame.Size = UDim2.fromOffset(520, 420)
 		end
+		mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+		mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+		mainFrame.Draggable = true
 	end
-	mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-	mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
 end
 
 local function setVisible(v)
@@ -581,6 +586,9 @@ local function setVisible(v)
 	end
 	if not v then
 		closeRecipeFrame()
+		if gui then
+			gui.IgnoreGuiInset = false
+		end
 	end
 	if v then
 		if mainFrame then

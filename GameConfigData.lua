@@ -76,6 +76,10 @@ GameConfig.PlayerXP_RaidWin       = 30     -- XP for successful raid
 GameConfig.PlayerXP_DungeonKill   = 20     -- XP for killing a dungeon creature
 GameConfig.PlayerXP_BossKill      = 100    -- XP for killing a boss creature
 
+-- Achievement tier rewards (chain tier I–V; single-step achievements use tier 1)
+GameConfig.AchievementGemsByTier = { 5, 12, 24, 45, 80 }
+GameConfig.AchievementXPByTier = { 35, 75, 140, 230, 350 }
+
 -- Base Floors
 GameConfig.Floor2Cost             = 500   -- coins to buy Floor 2
 GameConfig.Floor2LevelReq         = 5      -- player level required
@@ -410,22 +414,108 @@ GameConfig.ElectricGymWinReward     = 5000
 GameConfig.ElectricGymWinXP         = 200
 GameConfig.ElectricGymCooldown      = 120
 
--- Zone doors (Ocean, Desert, Electric, Cave): 4 sigils from boss defeats open one door; gym win grants key for another
+-- Zone doors (Ocean, Desert, Electric, Cave): spend 4 inner boss Legendaries at the door to pass; gym keys / sigils still supported in data.
 GameConfig.ZoneDoorZoneIds        = { "Ocean", "Desert", "Electric", "Cave" }
 GameConfig.ZoneDoorBiomeFolders   = { Ocean = "OceanBiome", Desert = "DesertBiome", Electric = "ElectricBiome", Cave = "CaveBiome" }
--- Ocean allows alias AquaticBiome; Desert may use VolcanicBiome until DesertBiome exists
-GameConfig.ZoneDoorBiomeAliases   = { Ocean = { "AquaticBiome", "WaterBiome" } }
+-- First match under workspace.Biomes wins. Include common alternates so gates work if the folder isn't the canonical name.
+GameConfig.ZoneDoorBiomeAliases   = {
+	Ocean = { "AquaticBiome", "WaterBiome" },
+	Desert = {},
+	Electric = { "PeaksBiome", "ElectriBiome" },
+	Cave = { "Cave", "CryptBiome", "CavernBiome", "CaveBiome_" },
+}
+-- Instance names for the interactable (wide openings: use an invisible part named ZoneDoorTrigger spanning the mouth).
+GameConfig.ZoneDoorPartNames      = { "ZoneDoor", "ZoneDoorTrigger", "GateTrigger", "BiomeGate" }
+-- Studs; increase if the prompt feels too hard to trigger at a wide cave mouth.
+GameConfig.ZoneDoorPromptRange    = 28
+-- Extra screen-space offset for the prompt UI (pixels). Use if the anchor is still slightly high/low.
+GameConfig.ZoneDoorPromptUIOffset = Vector2.new(0, 12)
+-- Zone door modal (ZoneDoorBoardClient): leave empty for a minimal, gameplay-first UI (sigil tutorial lives in Profile / Codex).
+GameConfig.ZoneDoorModalSigilsHint = ""
+GameConfig.ZoneDoorModalGateLines = {}
+GameConfig.ZoneDoorProgressionBlurb = ""
+-- Per-gate flavor: inviting + challenging; Knight base rental + Gym; tagline = short world billboard.
+-- Dual-element lines should match CreatureData.OuterBiomePrimarySecondary (primary + secondary per biome folder)..
+GameConfig.ZoneDoorZonePitch = {
+	Ocean = {
+		tagline = "Swimming · underwater exploration",
+		intro = "Sapphire shallows and pressure-dark trenches — the Ocean exterior tempts knights who want more than dry land.",
+		features = "Swim across open water, slip beneath the surface for hidden routes, and chase glimmers in the blue. Currents, breath, and depth are the run — and the wipe timer. The League routes most threats along the surf line and the trench highways (Water), but the reef-haunts and bilge-veins cough up something meaner: Poison lines that punish greedy swaps. Draft for pressure on both lanes or get outscaled.",
+		knightBase = "", -- modal uses tagline only; keep for optional future tooltips
+		gym = "Ocean Gym: earn your stripes against the League's tide-callers — a proper baptism before you claim the coast.",
+		closing = "Come for the swim; stay for what the tide won't show on the map.",
+	},
+	Desert = {
+		tagline = "Sandstorms · hidden secrets",
+		intro = "Heat-shimmer horizons and buried roads — the Desert exterior dares you to read the dunes.",
+		features = "Ride the gusts, weather sandstorms that hide and reveal paths, and comb the wastes for secrets tucked under red stone. Nothing here is given; everything feels earned. Out here the roster meta forks hard: Psychic picks stalk the sun-bleached caravan routes (reads, stalls, mind games), while Undead heat haunts the bone-wind hollows where HP trades get ugly fast. Respect both drafts or the dunes eat your opener.",
+		knightBase = "",
+		gym = "Desert Gym: step into the arena where mirage meets muscle — prove your roster can stand when the sand won't stay still.",
+		closing = "Treasure likes to bury itself. Bring a team worth digging for.",
+	},
+	Electric = {
+		tagline = "Electro hazards · downtown streets",
+		intro = "Neon cities and live wires — the City exterior hums with voltage and ambition.",
+		features = "Navigate Electro Ball hazards threading the downtown blocks, chase rooftop sightlines, and treat every crossing like a duel with the skyline. Bright, loud, and unforgiving if you stop paying attention. The city’s frontline is pure Lightning tempo — burst windows, frame-perfect trades — while the halo alleys and prism strips favor Light builds that punish blind aggression. Learn the map’s two rhythms or you feed the skyline.",
+		knightBase = "",
+		gym = "City Gym: the circuit-breaker bout — fast trades, bright bursts, and the League's test for whoever wants to own the night.",
+		closing = "The city doesn't sleep; neither should your strategy.",
+	},
+	Cave = {
+		tagline = "Dark caves · deep exploration",
+		intro = "Echoing halls and throat-tight tunnels — the Cave exterior rewards lantern courage and map memory.",
+		features = "Pick through dark passages, pry open side chambers, and trust your ears as much as your eyes. What glitters down here often has teeth. The deep throat is Shadow country — ambush tempo, vanish pressure — but listen for the forge-song: Metal Siegelings claim the iron galleries and chokepoints where one bad resist check ends the run. Bring answers for glass cannons and for plate, or don’t dive.",
+		knightBase = "",
+		gym = "Cave Gym: descend into the League trial where shadow types and tight arenas punish sloppy picks.",
+		closing = "Not every echo answers back. Go find which ones do.",
+	},
+}
+-- Header gradient (top, bottom) per exterior zone — thematic flare
+GameConfig.ZoneDoorGateAccent = {
+	Ocean = { top = Color3.fromRGB(55, 145, 255), bottom = Color3.fromRGB(18, 55, 120) },
+	Desert = { top = Color3.fromRGB(255, 150, 70), bottom = Color3.fromRGB(140, 55, 25) },
+	Electric = { top = Color3.fromRGB(255, 230, 90), bottom = Color3.fromRGB(90, 70, 180) },
+	Cave = { top = Color3.fromRGB(160, 120, 255), bottom = Color3.fromRGB(40, 25, 70) },
+}
+-- Zone door UI: client-only small world tag (BaseSummary-style) + ScreenGui modal on ProximityPrompt (see ZoneDoorBoardClient)
+GameConfig.ZoneDoorInfoBoard = {
+	ZoneTitles = { Ocean = "Ocean", Desert = "Desert", Electric = "City", Cave = "Cave" },
+	Lines = {}, -- superseded by ZoneDoorModalSigilsHint + ZoneDoorModalGateLines on client
+}
+GameConfig.ZoneDoorTag = {
+	Enabled = true,
+	WidthPx = 500,
+	HeightPx = 100,
+	-- Large / rotated doors: local StudsOffset Y is NOT always world-up/down. Default anchors tag to
+	-- the part's bottom in world space, then raises by HeightAboveDoorBottomStuds (player-height-ish)..
+	UseBottomWorldAnchor = true,
+	HeightAboveDoorBottomStuds = 15,
+	-- If UseBottomWorldAnchor = false: offset from part center; set StudsOffsetWorldSpace = true for pure world Y1
+	StudsOffsetWorldSpace = false,
+	StudsOffset = Vector3.new(0, -20, 0),
+	MaxDistance = 160,
+	TitleTemplate = "%s — Zone gate",
+	Subtitle = "Interact to open gate",
+}
+-- Gym names shown on zone-door boards (match *GymSystem / WaterGymBattleSystem configs).
+GameConfig.ZoneDoorGymNames = {
+	Ocean = "Ocean Gym",
+	Desert = "Desert Gym",
+	Electric = "City Gym",
+	Cave = "Cave Gym",
+}
 -- Element whose boss grants each zone's sigil (CreatureData.GetBossCreatureId(element))
 GameConfig.ZoneDoorElementByZone  = { Ocean = "Water", Desert = "Fire", Electric = "Lightning", Cave = "Shadow" }
 
 -- Sigil backboard UI: two sections
--- 1) Elemental Bosses (Fire, Ice, Wind, Earth) — defeat in world to earn corresponding SiegeKnight Sigil
+-- 1) Elemental inner bosses (Fire, Ice, Wind, Earth) — defeat legendary in inner zone → SiegeSquire sigil stored under that element name in player data
 GameConfig.ElementalBossElements   = { "Fire", "Ice", "Wind", "Earth" }
--- Which zone sigil is earned when this elemental boss is defeated (zone id used in player data)
-GameConfig.ElementalBossToZoneId   = { Fire = "Desert", Ice = "Cave", Wind = "Ocean", Earth = "Electric" }
--- 2) SiegeKnight Sigils (display names; order matches ZoneDoorZoneIds for door-unlock UI)
+-- 2) SiegeKnight Sigils (display names; order matches ZoneDoorZoneIds) — earned by winning that zone's Gym, stored as zone id (Ocean, Desert, Electric, Cave)
 GameConfig.SiegeKnightSigilLabels  = { "Desert", "Cave", "Ocean", "Cyber" }
 GameConfig.SiegeKnightSigilZoneIds = { "Desert", "Cave", "Ocean", "Electric" }  -- backend zone ids (Electric = Cyber)
+-- SiegeLord: stored in player.sigils under this id (Profile Sigils tab + achievements). Earned on first successful Badlands extraction.
+GameConfig.SiegeLordSigilZoneId   = "Badlands"
+GameConfig.SiegeLordSigilSubtext    = "Successful extraction"
 
 -- PvP (player vs player) 1v1 battle
 GameConfig.PvPInteractionRange   = 30   -- studs; must be this close to challenge (server checks HumanoidRoot distance)
@@ -556,6 +646,8 @@ GameConfig.CreatureBobSpeed    = 2
 
 -- Player Health
 GameConfig.PlayerMaxHealth           = 100   -- starting/max HP hhffd
+-- Pilot defense (world): incoming damage is reduced similar to arena (dmg - defense/3, min 1)
+GameConfig.PlayerBaseDefense         = 9
 GameConfig.PlayerHealthOutOfCombatDelay = 5   -- seconds without any health decrease before regen runs (includes drowning etc.)
 GameConfig.PlayerHealthRegenPerSecond  = 100  -- HP/sec only after the delay above; no regen while health is still dropping
 
@@ -618,7 +710,7 @@ GameConfig.RebirthLevels = {
 -- Codex UI (creature detail panel when clicking creature icon/name)
 GameConfig.ENABLE_CODEX_UI      = true  -- set false to disable Codex and creature-click-to-open behavior
 GameConfig.ENABLE_CODEX_3D_VIEWER = true -- set false to use placeholder only (no ViewportFrame model viewer)
-GameConfig.ENABLE_BASE_LAYOUT_OVERVIEW = true -- Raid tab: show Income/Defense slot tracks + defense HP (set false to hide)
+GameConfig.ENABLE_BASE_LAYOUT_OVERVIEW = false -- legacy flag; base slot grid was removed from inventory (Bag tab now)
 
 -- Targeting (E key)
 GameConfig.TargetScanRange      = 50    -- max range to scan for targetable creatures

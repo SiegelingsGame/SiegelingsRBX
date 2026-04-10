@@ -9,6 +9,7 @@ local HttpService = game:GetService("HttpService")
 local GameConfig = require(game.ReplicatedStorage.Modules.GameConfig)
 local CreatureData = require(game.ReplicatedStorage.Modules.CreatureData)
 local IngredientData = require(game.ReplicatedStorage.Modules.IngredientData)
+local PlayerWorldStats = require(game.ReplicatedStorage.Modules:WaitForChild("PlayerWorldStats"))
 
 local PlayerDataManager = {}
 
@@ -75,8 +76,8 @@ local function getDefaultData()
 		decorSlots   = {},   -- { ["floor_slot"] = { kind="statue"|"furniture", creatureId?, furnitureId? } }
 		eggs         = {},   -- { { uid, creatureId, level, rarity, hatchMinutes, createdAt }, ... }; place on base/defense to hatch
 		rebirthLevel = 0,    -- pilot rebirth level (0 = never rebirthed); bonuses apply to passive gold, damage, health
-		-- Zone doors / sigils: 4 boss sieglings (Ocean, Desert, Electric, Cave); 4 sigils open one door; gym win grants key for another
-		sigils             = {},  -- { Ocean = true, Desert = true, ... } when that boss is defeated
+		-- Zone doors / sigils: inner legendaries + gym wins store SiegeKnight entries by zone id (Ocean, Desert, Electric, Cave); four unlock one Biome Pass
+		sigils             = {},  -- { Ocean = true, Desert = true, ... }
 		firstZoneDoorOpened = nil, -- zoneId opened with "4 sigils" choice, or nil
 		zoneKeysFromGyms   = {},  -- { Ocean = true, ... } key earned by winning that zone's gym
 		doorsUnlocked      = {},  -- { Ocean = true, ... } which ZoneDoors are open
@@ -431,6 +432,78 @@ end
 function PlayerDataManager.IsDoorUnlocked(player, zoneId)
 	local d = playerCache[player.UserId]
 	return d and d.doorsUnlocked and (d.doorsUnlocked[zoneId] == true or d.doorsUnlocked[zoneId] == "true")
+end
+
+-- Spend exactly one of each inner-zone boss Legendary (Fire/Ice/Wind/Earth) to open this exterior gate for this player.
+function PlayerDataManager.SpendFourBossLegendariesOpenDoor(player, zoneId, uids)
+	if not player or not player.Parent then return false, "Invalid player" end
+	if type(zoneId) ~= "string" or zoneId == "" then return false, "Invalid zone" end
+	local validZone = false
+	for _, zid in ipairs(ZONE_IDS) do
+		if zid == zoneId then
+			validZone = true
+			break
+		end
+	end
+	if not validZone then return false, "Invalid zone" end
+	if PlayerDataManager.IsDoorUnlocked(player, zoneId) then
+		return false, "This gate is already open for you"
+	end
+	if type(uids) ~= "table" or #uids ~= 4 then
+		return false, "Select exactly four creatures"
+	end
+	local seen = {}
+	for _, u in ipairs(uids) do
+		if type(u) ~= "string" or u == "" then return false, "Invalid creature" end
+		if seen[u] then return false, "Duplicate creature in selection" end
+		seen[u] = true
+	end
+
+	local elements = GameConfig.ElementalBossElements or { "Fire", "Ice", "Wind", "Earth" }
+	local requiredIds = {}
+	for _, el in ipairs(elements) do
+		local bid = CreatureData.GetBossCreatureId(el, false)
+		if not bid then return false, "Boss creature data missing" end
+		table.insert(requiredIds, bid)
+	end
+	table.sort(requiredIds)
+
+	local d = playerCache[player.UserId]
+	if not d or not d.inventory then return false, "No data" end
+
+	local collected = {}
+	for _, uid in ipairs(uids) do
+		local entry = nil
+		for _, e in ipairs(d.inventory) do
+			if e and tostring(e.uid) == tostring(uid) then
+				entry = e
+				break
+			end
+		end
+		if not entry then return false, "Creature not in inventory" end
+		table.insert(collected, entry.id)
+	end
+	table.sort(collected)
+
+	if #requiredIds ~= #collected then return false, "Wrong creatures" end
+	for i = 1, #requiredIds do
+		if collected[i] ~= requiredIds[i] then
+			return false, "Place one of each inner Legendary boss (Fire, Ice, Wind, Earth)"
+		end
+	end
+
+	for _, uid in ipairs(uids) do
+		PlayerDataManager.RemoveCreature(player, uid)
+	end
+
+	if not d.doorsUnlocked then d.doorsUnlocked = {} end
+	d.doorsUnlocked[zoneId] = true
+	if d.firstZoneDoorOpened == nil or d.firstZoneDoorOpened == "" then
+		d.firstZoneDoorOpened = zoneId
+	end
+	PlayerDataManager.NotifyAchievement("OnDoorUnlocked", player, zoneId, "legendaries")
+	PlayerDataManager.SavePlayer(player)
+	return true
 end
 
 function PlayerDataManager.AddCreature(player, creatureId, level, xp, variant, existingUid, context)
@@ -1525,6 +1598,11 @@ function PlayerDataManager.DoRebirth(player)
 	end
 	-- If we kept the favorite, it's still in inventory and still favoriteUid; it's just no longer on base/battle. Optionally re-add to inventory if it was removed from slots only (it wasn't removed — we only removed others). So inventory now = at most [favorite]. Good.
 	d.rebirthLevel = (d.rebirthLevel or 0) + 1
+	task.defer(function()
+		if player.Parent then
+			PlayerDataManager.ApplyWorldStatsToCharacter(player)
+		end
+	end)
 	return true
 end
 
@@ -1668,6 +1746,28 @@ function PlayerDataManager.OnPlayerJoin(player)
 				data.exterior.equipped = nil
 			end
 		end
+		-- Sigils: Squire keys = element names; Knight keys = zone ids. Legacy: inner legendaries wrongly stored a zone id (see oldInnerBossZoneByElement).
+		do
+			local zoneIds = GameConfig.ZoneDoorZoneIds or { "Ocean", "Desert", "Electric", "Cave" }
+			local oldInnerBossZoneByElement = { Fire = "Desert", Ice = "Cave", Wind = "Ocean", Earth = "Electric" }
+			if not data.sigils then data.sigils = {} end
+			if data.zoneKeysFromGyms then
+				for _, zid in ipairs(zoneIds) do
+					local v = data.zoneKeysFromGyms[zid]
+					if v == true or v == "true" then
+						data.sigils[zid] = true
+					end
+				end
+			end
+			for element, zid in pairs(oldInnerBossZoneByElement) do
+				local hasKey = data.zoneKeysFromGyms and (data.zoneKeysFromGyms[zid] == true or data.zoneKeysFromGyms[zid] == "true")
+				local hasZoneSigil = data.sigils[zid] == true or data.sigils[zid] == "true"
+				if hasZoneSigil and not hasKey then
+					data.sigils[element] = true
+					data.sigils[zid] = nil
+				end
+			end
+		end
 		playerCache[player.UserId] = data
 	else
 		playerCache[player.UserId] = getDefaultData()
@@ -1694,6 +1794,9 @@ function PlayerDataManager.OnPlayerJoin(player)
 				ingEvt:FireClient(player, snap)
 			end
 		end
+	end)
+	task.defer(function()
+		PlayerDataManager.ApplyWorldStatsToCharacter(player)
 	end)
 end
 
@@ -2176,8 +2279,59 @@ function PlayerDataManager.AddPlayerXP(player, amount)
 	end
 	if leveled then
 		PlayerDataManager.NotifyAchievement("OnPlayerLevelChanged", player, d.playerLevel)
+		task.defer(function()
+			if player.Parent then
+				PlayerDataManager.ApplyWorldStatsToCharacter(player)
+			end
+		end)
 	end
 	return d.playerLevel, leveled
+end
+
+-- Sync pilot combat attributes (level scaling + rebirth). Safe when data not loaded.
+function PlayerDataManager.SyncPlayerWorldStats(player)
+	if not player then
+		return nil
+	end
+	local d = playerCache[player.UserId]
+	if not d then
+		return nil
+	end
+	local lvl = d.playerLevel or 1
+	local bonuses = PlayerDataManager.GetRebirthBonuses(player)
+	local s = PlayerWorldStats.ComputeForPlayer(lvl, bonuses)
+	player:SetAttribute("WorldStat_LevelMult", s.levelMult)
+	player:SetAttribute("WorldStat_Attack", s.attack)
+	player:SetAttribute("WorldStat_Defense", s.defense)
+	player:SetAttribute("WorldStat_MaxHealth", s.maxHealth)
+	player:SetAttribute("WorldStat_WalkSpeed", s.walkSpeed)
+	player:SetAttribute("WorldStat_SprintSpeed", s.sprintSpeed)
+	return s
+end
+
+--- Apply synced max health to the humanoid (includes Badlands flat Health boost when active).
+function PlayerDataManager.ApplyWorldStatsToCharacter(player, humanoidOpt)
+	PlayerDataManager.SyncPlayerWorldStats(player)
+	local hum = humanoidOpt or (player.Character and player.Character:FindFirstChildOfClass("Humanoid"))
+	if not hum then
+		return
+	end
+	local baseMax = player:GetAttribute("WorldStat_MaxHealth")
+	if type(baseMax) ~= "number" or baseMax < 1 then
+		return
+	end
+	local blHP = 0
+	if player:GetAttribute("InBadlands") == true then
+		local bh = player:GetAttribute("BadlandsStat_Health")
+		if type(bh) == "number" and bh > 0 then
+			blHP = bh
+		end
+	end
+	local maxHP = math.max(1, math.floor(baseMax + blHP))
+	local prevMax = hum.MaxHealth
+	local ratio = prevMax > 0 and (hum.Health / prevMax) or 1
+	hum.MaxHealth = maxHP
+	hum.Health = math.min(maxHP, math.max(1, math.floor(ratio * maxHP + 0.5)))
 end
 
 -- Get player level info: level, currentXP, xpNeededForNext

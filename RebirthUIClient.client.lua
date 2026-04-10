@@ -2,8 +2,8 @@
 -- Pilot Rebirth UI: requirements, what you lose/keep, double verification.
 --
 -- FIX #34: DISABLED — Rebirth content has been merged into the tabbed PlayerProfileClient.
--- This file is kept as reference. The early return prevents any UI creation or event listeners.
-return
+-- This file is kept as reference. Wrapped return: bare `return` cannot be followed by more code in a chunk.
+do return end
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")

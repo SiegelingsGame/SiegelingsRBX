@@ -388,7 +388,7 @@ function CodexModelViewer:SetCreature(creatureId)
 		clone.Parent = self._world or self._viewport
 		local _, modelSize = centerModelAtOrigin(clone)
 		-- Match income/favorite orientation: apply same stand-up + yaw as base placement,
-		-- then +90° Y (180° from prior setting) so Sieglings face the viewport camera.
+		-- then +90° Y (180° from prior setting) so Siegelings face the viewport camera.
 		local cd = getCreatureData()
 		if cd and cd.GetModelRotationOffset and clone:IsA("Model") then
 			local rotOffset = cd.GetModelRotationOffset(creatureId, "companion", false) or CFrame.identity

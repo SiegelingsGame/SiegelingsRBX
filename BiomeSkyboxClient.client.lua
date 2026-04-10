@@ -63,7 +63,7 @@ local WAIT_TIMEOUT = 15
 --- Maximum XZ distance (studs) from hub center that inner-wedge detection applies...
 --- Beyond this radius the player is in an outer biome zone, not an inner wedge.
 --- Set this to roughly the distance from hub center to the nearest outer baseplate edge.
-local INNER_WEDGE_MAX_RADIUS = 900
+local INNER_WEDGE_MAX_RADIUS = 1000
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- ZONE DEFINITIONS
@@ -225,7 +225,7 @@ if #hubParts > 0 then
 	hubCenter = hubParts[1].Position
 end
 
---- Precomputed angle (radians) for each road, measured from hubCenter.
+--- Precomputed angle (radians) for each road, measured from hubCenter..
 --- @type {[string]: number}
 local roadAngles = {}
 for name, part in pairs(roadParts) do

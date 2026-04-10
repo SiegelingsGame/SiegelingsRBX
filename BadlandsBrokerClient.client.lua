@@ -547,7 +547,7 @@ local function showBrokerUI(data)
 	end
 
 	local demandRich = string.format(
-		'Bring me a <b><font color="%s">%s</font></b> <font color="%s">%s</font> Siegling, at least <font color="%s"><b>LEVEL %d</b></font>, and I will send you to the <font color="%s"><b>BADLANDS</b></font>.',
+		'Bring me a <b><font color="%s">%s</font></b> <font color="%s">%s</font> Siegeling, at least <font color="%s"><b>LEVEL %d</b></font>, and I will send you to the <font color="%s"><b>BADLANDS</b></font>.',
 		colorHex(rarityColor), rarityStr:upper(),
 		colorHex(elemColor), elementStr:upper(),
 		colorHex(lvlColor), minLvl,
@@ -640,13 +640,13 @@ local function showBrokerUI(data)
 	rightCol.BackgroundTransparency = 1
 	rightCol.Parent = mainFrame
 
-	-- ── "Your Sieglings" header ──
+	-- ── "Your Siegelings" header ──
 	local listHeader = Instance.new("TextLabel")
 	listHeader.Name = "ListHeader"
 	listHeader.Size = UDim2.new(1, 0, 0, 24)
 	listHeader.Position = UDim2.new(0, 0, 0, 0)
 	listHeader.BackgroundTransparency = 1
-	listHeader.Text = "Your Qualifying Sieglings"
+	listHeader.Text = "Your Qualifying Siegelings"
 	listHeader.TextColor3 = C.white
 	listHeader.Font = Enum.Font.GothamBold
 	listHeader.TextSize = 14
@@ -683,7 +683,7 @@ local function showBrokerUI(data)
 	-- ── Action button (Place / Accept) ──
 	local actionBtn = makeButton(
 		rightCol,
-		"Select a Siegling",
+		"Select a Siegeling",
 		C.grey,
 		UDim2.new(1, 0, 0, 40),
 		UDim2.new(0, 0, 1, -44)
@@ -732,7 +732,7 @@ local function showBrokerUI(data)
 
 	local function updateActionButton()
 		if actionState == "none" then
-			actionBtn.Text = "Select a Siegling"
+			actionBtn.Text = "Select a Siegeling"
 			actionBtn.BackgroundColor3 = C.grey
 			actionBtn.BackgroundTransparency = 0.4
 		elseif actionState == "place" then
@@ -752,8 +752,8 @@ local function showBrokerUI(data)
 		noCreatures.Size = UDim2.new(1, -8, 0, 80)
 		noCreatures.BackgroundTransparency = 1
 		noCreatures.RichText = true
-		noCreatures.Text = "You have no Sieglings that match today's contract.\n\nThe Broker demands:\n"
-			.. string.format('Bring me a <b><font color="%s">%s</font></b> <font color="%s">%s</font> Siegling, at least <font color="%s"><b>Level %d</b></font>',
+		noCreatures.Text = "You have no Siegelings that match today's contract.\n\nThe Broker demands:\n"
+			.. string.format('Bring me a <b><font color="%s">%s</font></b> <font color="%s">%s</font> Siegeling, at least <font color="%s"><b>Level %d</b></font>',
 				colorHex(rarityColor), rarityStr:upper(),
 				colorHex(elemColor), elementStr:upper(),
 				colorHex(lvlColor), minLvl)

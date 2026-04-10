@@ -30,7 +30,7 @@ local GOLD_GLOW_TRANSPARENCY = 0.85
 -- Button definitions (module-level so InputBegan can reference after restore)
 local buttonDefs = {
 	{ label = "[K] Codex",      key = "K", menuName = "CodexGuide",     color = Color3.fromRGB(180, 140, 255), desc = "Guide, Lore, creatures" },
-	{ label = "[Q] SieglinQ",   key = "Q", menuName = "InventoryUI",    color = Color3.fromRGB(60, 160, 255), desc = "Manage creatures" },
+	{ label = "[Q] SiegelinQ",   key = "Q", menuName = "InventoryUI",    color = Color3.fromRGB(60, 160, 255), desc = "Manage creatures" },
 	-- FIX #34: Sigils & Rebirth moved into Profile tabs (removed standalone buttons)
 	{ label = "[G] Shop",       key = "G", menuName = "ShopHubGUI",     color = Color3.fromRGB(120, 220, 170), desc = "Eggs, swag, and cosmetics" },
 	{ label = "[V] Friends",    key = "V", menuName = "FriendsListGUI", color = Color3.fromRGB(255, 130, 80), desc = "Base access list" },

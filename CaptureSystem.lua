@@ -238,18 +238,21 @@ function CaptureSystem.TryCapture(player, creatureModel)
 
 	data.stats.totalCaptured = (data.stats.totalCaptured or 0) + 1
 
-	-- If this was an elemental boss (Fire, Ice, Wind, Earth), grant the corresponding SiegeKnight Sigil (zone)
+	-- Inner-zone elemental legendaries: grant SiegeKnight sigil for the matching exterior zone (see ElementalBossToZoneId).
 	do
 		local elementalElements = GameConfig.ElementalBossElements or { "Fire", "Ice", "Wind", "Earth" }
-		local elementalToZone = GameConfig.ElementalBossToZoneId or { Fire = "Desert", Ice = "Cave", Wind = "Ocean", Earth = "Electric" }
+		local elemToZone = GameConfig.ElementalBossToZoneId or {}
 		for _, element in ipairs(elementalElements) do
 			local bossId = CreatureData.GetBossCreatureId and CreatureData.GetBossCreatureId(element, false)
 			if bossId and creatureId == bossId then
-				local zoneId = elementalToZone[element]
+				local zoneId = elemToZone[element]
 				if zoneId then
+					local had = PlayerDataManager.HasSigil(player, zoneId)
 					PlayerDataManager.AddSigil(player, zoneId)
 					local sigilEvt = events and events:FindFirstChild("SigilEarned")
-					if sigilEvt then sigilEvt:FireClient(player, zoneId) end
+					if sigilEvt and not had then
+						sigilEvt:FireClient(player, zoneId)
+					end
 				end
 				break
 			end

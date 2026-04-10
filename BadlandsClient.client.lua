@@ -18,6 +18,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
+local GuiService = game:GetService("GuiService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -124,7 +125,9 @@ local BADGE_GAP = 8
 local BADGE_SLOT = 2
 local BADGE_DISPLAY_ORDER = 52
 local BAG_FALLBACK_X = 12
-local BAG_FALLBACK_Y = 76
+-- Matches InventoryUI left cluster design Y when that ScreenGui uses inset-relative coords.
+local BAG_FALLBACK_SAFE_Y = 76
+local BAG_GAP_FROM_FAV = 8
 
 local function disconnectTickerLayoutSignals()
 	for _, conn in ipairs(tickerLayoutConns) do
@@ -140,6 +143,24 @@ local function getTickerBar()
 		return tickerBar
 	end
 	return nil
+end
+
+--- Bottom edge (absolute pixels) of top-left HUD strip (coins + summary row) from HUD ScreenGui.
+local function getCoinHudBottomAbsolute()
+	local hudRoot = playerGui:FindFirstChild("HUD")
+	if not hudRoot then
+		return 0
+	end
+	local bottom = 0
+	for _, child in ipairs(hudRoot:GetChildren()) do
+		if child:IsA("GuiObject") and child.Visible then
+			local y = child.AbsolutePosition.Y + child.AbsoluteSize.Y
+			if y > bottom then
+				bottom = y
+			end
+		end
+	end
+	return bottom
 end
 
 local function getHudTopY()
@@ -158,17 +179,33 @@ local function layoutHudElements()
 		timerFrame.Position = UDim2.new(0.5, 0, 0, yTop)
 	end
 
-	-- BadBag: align vertically with FavoriteSummonCard when visible; fallback to BattleMenu anchor.
-	local bagAlignedY = BAG_FALLBACK_Y
+	-- BadBag: same row as FavoriteSummonCard, immediately to its left (replaces Battle Menu).
+	-- BadlandsHUD uses IgnoreGuiInset=true; HUD + SiegelinQ cluster use inset-relative Y, so fallback
+	-- must add GetGuiInset().Y or the button sits under the physical top and covers the coin/summary bars.
+	local insetTop = GuiService:GetGuiInset().Y
+	local bagH = (bagButton and bagButton.AbsoluteSize.Y > 0) and bagButton.AbsoluteSize.Y or 54
+	local bagW = (bagButton and bagButton.AbsoluteSize.X > 0) and bagButton.AbsoluteSize.X or 46
+	local bagAlignedY = math.floor(BAG_FALLBACK_SAFE_Y + insetTop)
+	local bagX = BAG_FALLBACK_X
+
 	local favCard = playerGui:FindFirstChild("FavoriteSummonCard", true)
 	if favCard and favCard:IsA("GuiObject") and favCard.Visible then
 		local favPos = favCard.AbsolutePosition
 		local favSize = favCard.AbsoluteSize
-		local bagH = (bagButton and bagButton.AbsoluteSize.Y > 0) and bagButton.AbsoluteSize.Y or 54
-		bagAlignedY = math.floor(favPos.Y + ((favSize.Y - bagH) * 0.5))
+		if favSize.X > 0 and favSize.Y > 0 then
+			bagAlignedY = math.floor(favPos.Y + ((favSize.Y - bagH) * 0.5))
+			bagX = math.floor(favPos.X - bagW - BAG_GAP_FROM_FAV)
+		end
 	end
+
+	local hudBottom = getCoinHudBottomAbsolute()
+	if hudBottom > 0 then
+		bagAlignedY = math.max(bagAlignedY, math.floor(hudBottom + 6))
+	end
+
 	if bagButton and bagButton.Parent then
-		bagButton.Position = UDim2.new(0, BAG_FALLBACK_X, 0, bagAlignedY)
+		bagX = math.max(8, bagX)
+		bagButton.Position = UDim2.new(0, bagX, 0, bagAlignedY)
 	end
 
 	if bagPanel and bagPanel.Parent then
@@ -370,8 +407,8 @@ end
 local refreshBagUI
 local toggleBagPanel
 
--- Opens Sieglinq (Inventory UI) on the BadBag tab — same path as [Q] / HUD SieglinQ in Badlands.
-local function openSieglinqBadBagFromHud()
+-- Opens SiegelinQ (Inventory UI) on the BadBag tab — same path as [Q] / HUD SiegelinQ in Badlands.
+local function openSiegelinQBadBagFromHud()
 	bagPanelOpen = false
 	if bagPanel and bagPanel.Parent then
 		bagPanel.Visible = false
@@ -459,7 +496,7 @@ local function createBagButton()
 	bagButton = Instance.new("TextButton")
 	bagButton.Name = "BadBagButton"
 	bagButton.Size = UDim2.new(0, 46, 0, 54)
-	bagButton.Position = UDim2.new(0, BAG_FALLBACK_X, 0, BAG_FALLBACK_Y)
+	bagButton.Position = UDim2.new(0, BAG_FALLBACK_X, 0, BAG_FALLBACK_SAFE_Y + GuiService:GetGuiInset().Y)
 	bagButton.AnchorPoint = Vector2.new(0, 0)
 	bagButton.BackgroundColor3 = C.accent
 	bagButton.BackgroundTransparency = 0.15
@@ -478,7 +515,7 @@ local function createBagButton()
 	stroke.Transparency = 0.5
 
 	bagButton.MouseButton1Click:Connect(function()
-		openSieglinqBadBagFromHud()
+		openSiegelinQBadBagFromHud()
 	end)
 
 	updateBagButtonText()

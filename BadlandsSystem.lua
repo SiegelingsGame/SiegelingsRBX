@@ -785,6 +785,17 @@ local function captureCreatureToBag(player, creatureModel)
 	}
 end
 
+local function refreshPilotWorldStats(player)
+	if not player or not player.Parent then
+		return
+	end
+	if PlayerDataManager and PlayerDataManager.ApplyWorldStatsToCharacter then
+		pcall(function()
+			PlayerDataManager.ApplyWorldStatsToCharacter(player)
+		end)
+	end
+end
+
 local function sacrificeCreatureFromBag(player, slotIndex, statChoice)
 	if not activeRun then
 		return false, "No active Badlands run."
@@ -826,6 +837,8 @@ local function sacrificeCreatureFromBag(player, slotIndex, statChoice)
 	local key = "BadlandsStat_" .. statChoice
 	local current = player:GetAttribute(key) or 0
 	player:SetAttribute(key, current + SACRIFICE_STAT_BOOST)
+
+	refreshPilotWorldStats(player)
 
 	pushBagUpdate(player, ps.bag, "sacrifice")
 
@@ -935,10 +948,24 @@ local function exitBadlandsMode(player, savedCFrame)
 		pcall(function() PlayerDataManager.SetFavorite(player, savedFavUid) end)
 	end
 
-	-- Re-summon companion
+	-- Re-summon companion (if the character is dead, e.g. Badlands elimination, wait for respawn)
 	if FavoriteCreatureSystem and FavoriteCreatureSystem.SpawnCompanion then
-		pcall(function() FavoriteCreatureSystem.SpawnCompanion(player) end)
+		local function trySpawnCompanion()
+			if not (player and player.Parent) then return end
+			pcall(function() FavoriteCreatureSystem.SpawnCompanion(player) end)
+		end
+		local char = player.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if hum and hum.Health > 0 then
+			trySpawnCompanion()
+		elseif player.Parent then
+			player.CharacterAdded:Once(function()
+				task.defer(trySpawnCompanion)
+			end)
+		end
 	end
+
+	refreshPilotWorldStats(player)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -1058,8 +1085,17 @@ local function eliminatePlayer(userId, reason)
 
 	ps.alive = false
 
-	-- TODO (Phase 2): Drop loot bag at death location with bag contents
-	-- For now, bag contents are simply lost
+	-- Snapshot bag for results UI, then clear server bag (loss — same as design: lose everything)
+	local bagSnapshot = {}
+	local cap = (ps.bag and ps.bag.capacity) or BAG_SLOTS
+	for i = 1, cap do
+		local c = ps.bag.slots[i]
+		if c then bagSnapshot[i] = c end
+	end
+	ps.bag = createEmptyBag()
+	if ps.player and ps.player.Parent then
+		pushBagUpdate(ps.player, ps.bag, "eliminated")
+	end
 
 	-- Fire elimination event to the player
 	fireClient("BadlandsEliminated", ps.player, {
@@ -1067,15 +1103,13 @@ local function eliminatePlayer(userId, reason)
 		kills = ps.kills,
 		captures = ps.captures,
 		powerLevel = ps.runPower.level,
-		bagContents = ps.bag.slots,
+		bagContents = bagSnapshot,
 	})
 
-	-- Teleport player out of The Badlands
-	task.delay(3, function()
-		if ps.player and ps.player.Parent then
-			exitBadlandsMode(ps.player, ps.savedCFrame)
-		end
-	end)
+	-- Clear InBadlands and restore base Siegeling flow immediately (UI keys off the attribute)
+	if ps.player and ps.player.Parent then
+		exitBadlandsMode(ps.player, ps.savedCFrame)
+	end
 
 	-- Announce kill feed to remaining players
 	fireAllRunClients("BadlandsPlayerKill", {
@@ -1104,6 +1138,27 @@ local function eliminatePlayer(userId, reason)
 
 	print("[Badlands] " .. (ps.player and ps.player.Name or "?") .. " eliminated ("
 		.. reason .. ") — " .. aliveCount .. " players remaining")
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- Character death while InBadlands: run full elimination (was only wired on disconnect)
+-- ═══════════════════════════════════════════════════════════════════════════════
+local function hookBadlandsCharacterDeath(player)
+	local function onCharacter(character)
+		local humanoid = character:WaitForChild("Humanoid", 20)
+		if not humanoid or not humanoid:IsA("Humanoid") then return end
+		humanoid.Died:Connect(function()
+			if not activeRun then return end
+			if player:GetAttribute("InBadlands") ~= true then return end
+			local ps = activeRun.players[player.UserId]
+			if not ps or not ps.alive then return end
+			eliminatePlayer(player.UserId, "killed")
+		end)
+	end
+	player.CharacterAdded:Connect(onCharacter)
+	if player.Character then
+		task.defer(onCharacter, player.Character)
+	end
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -1213,6 +1268,18 @@ local function extractPlayer(userId)
 		end
 	end
 
+	-- SiegeLord sigil: first successful extraction grants the Badlands SiegeLord entry (Profile Sigils tab)
+	local siegeLordZone = GameConfig.SiegeLordSigilZoneId or "Badlands"
+	if PlayerDataManager and PlayerDataManager.HasSigil and PlayerDataManager.AddSigil then
+		if not PlayerDataManager.HasSigil(ps.player, siegeLordZone) then
+			PlayerDataManager.AddSigil(ps.player, siegeLordZone)
+			local sigilEvt = eventsFolder and eventsFolder:FindFirstChild("SigilEarned")
+			if sigilEvt then
+				sigilEvt:FireClient(ps.player, siegeLordZone)
+			end
+		end
+	end
+
 	-- Fire extraction success
 	fireClient("BadlandsExtracted", ps.player, {
 		creatures = transferred,
@@ -1278,6 +1345,8 @@ local function startRun(playerList)
 				player:SetAttribute("BadlandsStat_MovementSpeed", rp.statBoosts.MovementSpeed)
 				print("[Badlands] Bonus buffs applied to " .. player.Name .. " (+" .. BONUS_BUFF_AMOUNT .. " all stats)")
 			end
+
+			refreshPilotWorldStats(player)
 
 			activeRun.players[player.UserId] = {
 				player = player,
@@ -1371,6 +1440,8 @@ local function startRun(playerList)
 			player:SetAttribute("BadlandsStat_MovementSpeed", rp.statBoosts.MovementSpeed)
 			print("[Badlands] Bonus buffs applied to " .. player.Name .. " (+" .. BONUS_BUFF_AMOUNT .. " all stats)")
 		end
+
+		refreshPilotWorldStats(player)
 
 		activeRun.players[player.UserId] = {
 			player = player,
@@ -1682,7 +1753,7 @@ local function generateDailyContract()
 			minLevel        = 1,
 			seed            = 0,
 			dateKey         = dateKey,
-			description     = "Bring me a COMMON EARTH Siegling, at least LEVEL 1.",
+			description     = "Bring me a COMMON EARTH Siegeling, at least LEVEL 1.",
 			bonusCreatureId   = "cacty",
 			bonusCreatureName = "Cacty",
 		}
@@ -1743,7 +1814,7 @@ local function generateDailyContract()
 	end
 
 	local description = string.format(
-		"Bring me a %s %s Siegling, at least LEVEL %d.",
+		"Bring me a %s %s Siegeling, at least LEVEL %d.",
 		rarity:upper(), element:upper(), minLevel
 	)
 
@@ -2581,7 +2652,7 @@ function BadlandsSystem.Init(playerDataMgr, favCreatureSys, mountSys, creatureAI
 				local matches, reason = creatureMatchesContract(entry, contract)
 				if not matches then
 					fireClient("BadlandsQueueReject", player,
-						"That Siegling doesn't satisfy the contract: " .. (reason or "unknown"))
+						"That Siegeling doesn't satisfy the contract: " .. (reason or "unknown"))
 					return
 				end
 
@@ -2665,6 +2736,12 @@ function BadlandsSystem.Init(playerDataMgr, favCreatureSys, mountSys, creatureAI
 			end)
 		end
 	end
+
+	-- Death in The Badlands must clear run state / UI (same as elimination flow)
+	for _, plr in ipairs(Players:GetPlayers()) do
+		hookBadlandsCharacterDeath(plr)
+	end
+	Players.PlayerAdded:Connect(hookBadlandsCharacterDeath)
 
 	-- Clean up queue when players leave the game
 	Players.PlayerRemoving:Connect(function(player)

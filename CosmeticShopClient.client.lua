@@ -38,7 +38,7 @@ local C = {
 	red = Color3.fromRGB(255, 70, 60),
 	muted = Color3.fromRGB(120, 125, 140),
 	white = Color3.new(1, 1, 1),
-	-- Portrait mobile (Monster Siege–style accents)
+	-- Portrait mobile (SiegelinQ-style accents)
 	accentOrange = Color3.fromRGB(255, 130, 45),
 	tabInactive = Color3.fromRGB(35, 38, 48),
 	statusBar = Color3.fromRGB(22, 24, 32),

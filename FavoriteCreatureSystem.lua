@@ -278,6 +278,9 @@ local COMPANION_STAND_UP_ANGLES = {
 	cozycub = {-90, 0, 0},
 	lumina = {-180, 0, 0},
 	squirtle = {-90, 0, 0},
+	gymstone = {-180, 0, 0},
+	glaciemperor = {0,0,0},
+	pylord = {-180,0,0},
 }
 
 local function needsFacingCorrection(model)

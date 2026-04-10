@@ -104,6 +104,9 @@ local timeSinceLastScan = 0
 
 --- One-time debug flag: print distance info on first successful scan
 local hasLoggedFirstScan = false
+--- One-shot logs for early exits (hasLoggedFirstScan is only set after a full plot pass)
+local loggedNilRootOnce = false
+local loggedMissingBasePlotsOnce = false
 
 -- FIX #33: Badge toggle state — summary hidden by default, badge toggles it
 local badge = {
@@ -634,8 +637,11 @@ RunService.Heartbeat:Connect(function(dt)
 
 	local root = getRoot()
 	if not root then
-		if not hasLoggedFirstScan then
-			print("[BaseSummary] LOOP: root is nil — character not loaded yet")
+		if not loggedNilRootOnce then
+			loggedNilRootOnce = true
+			warn("[BaseSummary] No HumanoidRootPart yet (character not spawned or still loading). "
+				.. "Distance scans paused. If this never resolves, check server spawn, "
+				.. "StarterPlayer, and Output for errors — LoadingGate can still release after a 30s character wait timeout.")
 		end
 		return
 	end
@@ -645,8 +651,9 @@ RunService.Heartbeat:Connect(function(dt)
 	local basePlots = workspace:FindFirstChild("BasePlots")
 		or workspace:FindFirstChild("Plots")
 	if not basePlots then
-		if not hasLoggedFirstScan then
-			print("[BaseSummary] LOOP: BasePlots folder not found")
+		if not loggedMissingBasePlotsOnce then
+			loggedMissingBasePlotsOnce = true
+			warn("[BaseSummary] workspace.BasePlots / Plots not found — summary UI idle until folder exists")
 		end
 		updateBaseBadgeVisibility(false)
 		return

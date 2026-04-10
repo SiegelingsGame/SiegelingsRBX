@@ -5,7 +5,7 @@ THE BADLANDS — Full Gameplay Design & Implementation Plan
 Version: 1.0
 Date: 2026-03-20
 Status: Production Design — Ready for Implementation
-Game: Siege Monsters (Sieglings)
+Game: Siege Monsters (Siegelings)
 
 One-line pitch:
 "The Badlands is a roguelike PvPvE arena where players enter with nothing,
@@ -37,7 +37,7 @@ TABLE OF CONTENTS
 ═══════════════════════════════════════════════════════════════════════════════════
 
 The Badlands is a daily-rotating, instanced PvPvE roguelike mode. It is the
-endgame proving ground for Sieglings — a lawless arena where skill, timing,
+endgame proving ground for Siegelings — a lawless arena where skill, timing,
 greed management, and survival instinct determine who walks out with loot.
 
 KEY PILLARS:
@@ -49,7 +49,7 @@ KEY PILLARS:
 
 PLAYER CAPACITY: 8 players per instance
 RUN DURATION: 12 minutes (soft timer) + 3-minute extraction countdown (hard)
-ENTRY: Daily Contract NPC — sacrifice a qualifying Siegling to enter
+ENTRY: Daily Contract NPC — sacrifice a qualifying Siegeling to enter
 
 ═══════════════════════════════════════════════════════════════════════════════════
 2. FULL GAMEPLAY LOOP
@@ -58,7 +58,7 @@ ENTRY: Daily Contract NPC — sacrifice a qualifying Siegling to enter
 PHASE 1: CONTRACT (Pre-Run)
 ────────────────────────────
   1. Player visits the Badlands Contract NPC in the Arena Hub
-  2. NPC shows today's entry requirement (e.g., "Offer a Lv5+ Rare Fire Siegling")
+  2. NPC shows today's entry requirement (e.g., "Offer a Lv5+ Rare Fire Siegeling")
   3. Player selects a qualifying creature from inventory
   4. Creature is CONSUMED (permanently sacrificed)
   5. Player enters the Badlands matchmaking queue
@@ -71,7 +71,7 @@ PHASE 2: DROP-IN (0:00 – 0:30)
   3. Each player starts with:
      • Empty Badlands Bag (10 slots)
      • Badlands Power Level 1
-     • No active Siegling (naked — can't fight until first capture)
+     • No active Siegeling (naked — can't fight until first capture)
      • 30-second spawn shield (PvP immunity, shown as fading blue aura)
   4. Wild Tier 1 creatures roam near spawn points — easy first captures
 
@@ -127,20 +127,20 @@ CONTRACT TEMPLATES:
   │ Template           │ Example                                           │
   ├──────────────────────────────────────────────────────────────────────────┤
   │ Species + Level    │ "Offer a Sundile at Lv3 or higher"                │
-  │ Rarity + Element   │ "Offer any Rare Ice Siegling"                     │
-  │ Rarity + Level     │ "Offer any Epic Siegling at Lv10+"                │
-  │ Element only       │ "Offer any Fire Siegling"                         │
+  │ Rarity + Element   │ "Offer any Rare Ice Siegeling"                     │
+  │ Rarity + Level     │ "Offer any Epic Siegeling at Lv10+"                │
+  │ Element only       │ "Offer any Fire Siegeling"                         │
   │ Specific creature  │ "Offer a Pyleer"                                  │
   │ Variant required   │ "Offer any Silver or Gold variant"                │
   │ Class + Rarity     │ "Offer a Rare+ Guardian"                         │
-  │ Wildcard (easy day)│ "Offer any Siegling Lv5+"                         │
+  │ Wildcard (easy day)│ "Offer any Siegeling Lv5+"                         │
   └──────────────────────────────────────────────────────────────────────────┘
 
 CONTRACT DATA STRUCTURE:
   {
     contractId = "2026-03-20",         -- date string, rotates daily
     templateType = "rarity_element",   -- template key
-    displayText = "Offer any Rare Ice Siegling",
+    displayText = "Offer any Rare Ice Siegeling",
     requirements = {
       rarity = "Rare",                 -- nil = any
       element = "Ice",                 -- nil = any
@@ -259,7 +259,7 @@ FIRST CAPTURE RULE:
 
 BAG FULL BEHAVIOR:
   When all 10 slots are occupied and player captures a new creature:
-  1. UI prompt: "Bag Full — Replace a Siegling?"
+  1. UI prompt: "Bag Full — Replace a Siegeling?"
   2. Shows all 10 slots with creature info (name, rarity, level)
   3. Player taps a slot to REPLACE it (old creature released/destroyed)
   4. Or taps "Cancel" to abandon the new capture

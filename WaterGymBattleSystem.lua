@@ -694,10 +694,21 @@ local function runBattle()
 		if PlayerDataManager.AddPlayerXP then
 			pcall(function() PlayerDataManager.AddPlayerXP(currentKing, winXP) end)
 		end
-		-- Zone door: grant zone key so player can unlock another zone from Sigils UI
+		-- Zone door: gym pass (key) + SiegeKnight sigil for this outer biome
 		local zoneKey = (currentGymConfig and currentGymConfig.zoneKey) or "Ocean"
 		if PlayerDataManager.AddZoneKeyFromGym then
 			PlayerDataManager.AddZoneKeyFromGym(currentKing, zoneKey)
+		end
+		if PlayerDataManager.AddSigil then
+			local hadSigil = PlayerDataManager.HasSigil(currentKing, zoneKey)
+			PlayerDataManager.AddSigil(currentKing, zoneKey)
+			if not hadSigil then
+				local eventsFolder = ReplicatedStorage:FindFirstChild("Events")
+				local sigilEvt = eventsFolder and eventsFolder:FindFirstChild("SigilEarned")
+				if sigilEvt then
+					sigilEvt:FireClient(currentKing, zoneKey)
+				end
+			end
 		end
 	end
 

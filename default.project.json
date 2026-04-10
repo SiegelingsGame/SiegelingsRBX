@@ -19,7 +19,8 @@
         "CodexModelViewer": { "$path": "CodexModelViewer.lua" },
         "MobileWindowLayout": { "$path": "MobileWindowLayout.lua" },
         "CaptureCostUtil": { "$path": "CaptureCostUtil.lua" },
-        "FurnitureCatalog": { "$path": "FurnitureCatalog.lua" }
+        "FurnitureCatalog": { "$path": "FurnitureCatalog.lua" },
+        "PlayerWorldStats": { "$path": "PlayerWorldStats.lua" }
       },
       "FurnitureModels": {
         "$className": "Folder",
@@ -214,6 +215,9 @@
         },
         "PlayerProfileClient": {
           "$path": "PlayerProfileClient.client.lua"
+        },
+        "ZoneDoorBoardClient": {
+          "$path": "ZoneDoorBoardClient.client.lua"
         },
         "FriendsListClient": {
           "$path": "FriendsListClient.client.lua"

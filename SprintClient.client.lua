@@ -21,6 +21,25 @@ local BASE_SPEED = (function()
 	return GameConfig.PlayerWalkSpeed or 16
 end)()
 local SPRINT_SPEED = GameConfig.PlayerSprintSpeed or 26
+
+local function pilotLevelMult()
+	local lm = player:GetAttribute("WorldStat_LevelMult")
+	if type(lm) == "number" and lm > 0 then
+		return lm
+	end
+	return 1
+end
+
+local function badlandsMoveBonus()
+	if player:GetAttribute("InBadlands") ~= true then
+		return 0
+	end
+	local b = player:GetAttribute("BadlandsStat_MovementSpeed")
+	if type(b) == "number" and b > 0 then
+		return b
+	end
+	return 0
+end
 local MOBILE_SPRINT_TOGGLE = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
 -- State:
@@ -76,7 +95,9 @@ local function applySprintToCharacter()
 		local sprintMult = GameConfig.MountSprintMultiplier or 1.4
 		desired = isSprintActive() and math.floor(mountBaseSpeed * sprintMult) or mountBaseSpeed
 	else
-		desired = isSprintActive() and SPRINT_SPEED or BASE_SPEED
+		local lm = pilotLevelMult()
+		local bl = badlandsMoveBonus()
+		desired = isSprintActive() and math.floor(SPRINT_SPEED * lm + bl) or math.floor(BASE_SPEED * lm + bl)
 	end
 	if hum.WalkSpeed ~= desired then
 		hum.WalkSpeed = desired
@@ -123,6 +144,10 @@ if player.Character then
 	onCharacterAdded(player.Character)
 end
 player.CharacterAdded:Connect(onCharacterAdded)
+
+for _, attr in ipairs({ "WorldStat_LevelMult", "BadlandsStat_MovementSpeed", "InBadlands" }) do
+	player:GetAttributeChangedSignal(attr):Connect(applySprintToCharacter)
+end
 
 -- Mount state listener: MountClient fires MountStateChanged(isMounted, baseSpeed)
 task.defer(function()

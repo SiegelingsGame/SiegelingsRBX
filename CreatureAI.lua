@@ -12,6 +12,7 @@ local CreatureData = require(game.ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(game.ReplicatedStorage.Modules.GameConfig)
 local CreatureModelLoader = require(game.ReplicatedStorage.Modules.CreatureModelLoader)
 local CreatureAnimation = require(game.ReplicatedStorage.Modules.CreatureAnimation)
+local PlayerWorldStats = require(game.ReplicatedStorage.Modules:WaitForChild("PlayerWorldStats"))
 
 local CreatureAI = {}
 
@@ -1365,7 +1366,8 @@ local function updateCreature(model, state, dt)
 						if player then
 							local hum = target:FindFirstChild("Humanoid")
 							if hum and hum.Health > 0 then
-								hum:TakeDamage(damage)
+								local applied = PlayerWorldStats.ApplyDefenseFromPlayer(player, damage)
+								hum:TakeDamage(applied)
 							end
 						end
 					end

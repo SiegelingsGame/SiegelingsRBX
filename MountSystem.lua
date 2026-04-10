@@ -111,26 +111,36 @@ end
 -- ══════════════════════════════════════════════════════════════════════════
 
 -- @param creatureId: string creature id
+-- @param player Player|nil — when set, mount speed scales with pilot level (WorldStat_LevelMult)
 -- @return number: base mount speed in studs/sec (before sprint multiplier)
-function MountSystem.ComputeMountSpeed(creatureId)
+function MountSystem.ComputeMountSpeed(creatureId, player)
 	local info = CreatureData.GetById(creatureId)
-	if not info then return GameConfig.PlayerWalkSpeed or 16 end
+	local lm = 1
+	if player then
+		local x = player:GetAttribute("WorldStat_LevelMult")
+		if type(x) == "number" and x > 0 then
+			lm = x
+		end
+	end
+	if not info then
+		return math.floor((GameConfig.PlayerWalkSpeed or 16) * lm)
+	end
 
 	local mountType = CreatureData.GetMountType(creatureId)
 	if mountType == "Flying" then
-		return GameConfig.MountFlySpeed or 40
+		return math.floor((GameConfig.MountFlySpeed or 40) * lm)
 	end
 	if mountType == "Swimming" then
-		return GameConfig.MountSwimSpeed or 30
+		return math.floor((GameConfig.MountSwimSpeed or 30) * lm)
 	end
 
 	-- Ground formula: base + (creatureSpeed/10) * multiplier + flat bonus
-	local baseSpeed = GameConfig.PlayerWalkSpeed or 16
+	local baseSpeed = (GameConfig.PlayerWalkSpeed or 16) * lm
 	local creatureSpeed = info.speed or 5
 	local multiplier = GameConfig.MountSpeedMultiplier or 20
 	local bonus = CreatureData.GetMountSpeedBonus(creatureId)
 	local total = baseSpeed + (creatureSpeed / 10) * multiplier + bonus
-	local cap = GameConfig.MountMaxSpeed or 60
+	local cap = (GameConfig.MountMaxSpeed or 60) * lm
 	return math.min(total, cap)
 end
 
@@ -329,7 +339,7 @@ function MountSystem.Mount(player)
 	weld.Parent = root
 
 	-- ── Compute speed ──
-	local mountSpeed = MountSystem.ComputeMountSpeed(creatureId)
+	local mountSpeed = MountSystem.ComputeMountSpeed(creatureId, player)
 	local mountType = CreatureData.GetMountType(creatureId)
 
 	-- ── Set player attributes for elemental bonuses ──
@@ -467,7 +477,8 @@ function MountSystem.Dismount(player, forced)
 	if char then
 		local hum = char:FindFirstChild("Humanoid")
 		if hum then
-			hum.WalkSpeed = GameConfig.PlayerWalkSpeed or 16
+			local scaled = player:GetAttribute("WorldStat_WalkSpeed")
+			hum.WalkSpeed = (type(scaled) == "number" and scaled > 0) and scaled or (GameConfig.PlayerWalkSpeed or 16)
 			if mount.originalHipHeight ~= nil then
 				hum.HipHeight = mount.originalHipHeight
 			end

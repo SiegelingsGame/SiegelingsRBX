@@ -3,8 +3,8 @@
 -- Toggle with [R] key or "Sigils" HUD button.
 --
 -- FIX #34: DISABLED — Sigils content has been merged into the tabbed PlayerProfileClient.
--- This file is kept as reference. The early return prevents any UI creation or event listeners.
-return
+-- This file is kept as reference. Wrapped return: bare `return` cannot be followed by more code in a chunk.
+do return end
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -26,7 +26,6 @@ local sigilEarned = Events:FindFirstChild("SigilEarned")
 
 -- Section 1: Elemental bosses (Fire, Ice, Wind, Earth) — defeat in world to earn corresponding SiegeKnight Sigil
 local ELEMENTAL_ELEMENTS = GameConfig.ElementalBossElements or { "Fire", "Ice", "Wind", "Earth" }
-local ELEMENTAL_TO_ZONE = GameConfig.ElementalBossToZoneId or { Fire = "Desert", Ice = "Cave", Wind = "Ocean", Earth = "Electric" }
 -- Section 2: SiegeKnight Sigils (display labels; backend zone ids for data lookup)
 local SIEGE_LABELS = GameConfig.SiegeKnightSigilLabels or { "Desert", "Cave", "Ocean", "Cyber" }
 local SIEGE_ZONE_IDS = GameConfig.SiegeKnightSigilZoneIds or { "Desert", "Cave", "Ocean", "Electric" }
@@ -275,8 +274,7 @@ local function refreshBackboard()
 	-- Section 1: SiegeSquire Sigils (elemental bosses: Fire, Ice, Wind, Earth)
 	order = addSectionTitle(content, order, "SiegeSquire Sigils")
 	for i, element in ipairs(ELEMENTAL_ELEMENTS) do
-		local zoneId = ELEMENTAL_TO_ZONE and ELEMENTAL_TO_ZONE[element]
-		local defeated = zoneId and hasSigil(zoneId)
+		local defeated = hasSigil(element)
 		addRow(
 			content, order,
 			element,

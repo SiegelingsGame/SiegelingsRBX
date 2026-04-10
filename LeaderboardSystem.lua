@@ -44,7 +44,7 @@ local BOARD_DEFS = {
 	},
 	{
 		partName = "LeaderboardMonsters",
-		title = "TOP SIEGLING COLLECTORS",
+		title = "TOP SIEGELING COLLECTORS",
 		titleColor = Color3.fromRGB(200, 120, 255),
 		getStat = function(data) return #data.inventory end,
 		formatValue = function(v) return tostring(v) .. " owned" end,

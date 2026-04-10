@@ -1,6 +1,6 @@
 -- LeaderboardClient.lua - StarterPlayer.StarterPlayerScripts (LocalScript)
 -- Full-screen leaderboard panel. Toggle with L key or HUD button.
--- Tabs: Income, Victories, PvP, Sieglings.
+-- Tabs: Income, Victories, PvP, Siegelings.
 -- Top 3 only: Smash-style tilted portrait frames (2nd | 1st | 3rd).
 
 local Players = game:GetService("Players")
@@ -171,7 +171,7 @@ local tabs = {
 	{ key = "income",   label = "Income" },
 	{ key = "battle",   label = "Victories" },
 	{ key = "pvp",      label = "PvP" },
-	{ key = "monsters", label = "Sieglings" },
+	{ key = "monsters", label = "Siegelings" },
 }
 
 local currentTab = "income"

@@ -69,7 +69,7 @@ local TICKER_SILENCE_TEXT = "...Silence..."
 local tickerSilenceArmed = true
 local tickerSilenceTaskToken = 0
 
--- Gold Tracking Sieglings color scheme
+-- Gold Tracking Siegelings color scheme
 local TICKER_BG = Color3.fromRGB(18, 22, 32)
 local TICKER_STROKE = Color3.fromRGB(220, 180, 60)
 local TICKER_TEXT = Color3.fromRGB(255, 215, 90)        -- Arena / default gold

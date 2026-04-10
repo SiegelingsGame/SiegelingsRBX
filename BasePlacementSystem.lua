@@ -48,6 +48,7 @@ local Workspace = game:GetService("Workspace")
 local CreatureData = require(game.ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(game.ReplicatedStorage.Modules.GameConfig)
 local CreatureModelLoader = require(game.ReplicatedStorage.Modules.CreatureModelLoader)
+local PlayerWorldStats = require(game.ReplicatedStorage.Modules:WaitForChild("PlayerWorldStats"))
 
 -- Set true to log placement/slot resolution for troubleshooting
 local PLACEMENT_DEBUG = false
@@ -1919,7 +1920,9 @@ local function runDefenseTurretLoop()
 						elseif bestTarget:IsA("Model") and bestTarget:FindFirstChild("Humanoid") then
 							local hum = bestTarget:FindFirstChild("Humanoid")
 							if hum and hum.Health > 0 then
-								hum:TakeDamage(finalDmg)
+								local p = Players:GetPlayerFromCharacter(bestTarget)
+								local applied = p and PlayerWorldStats.ApplyDefenseFromPlayer(p, finalDmg) or finalDmg
+								hum:TakeDamage(applied)
 							end
 						end
 					end

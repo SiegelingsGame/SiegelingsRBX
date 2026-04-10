@@ -23,7 +23,8 @@ if _G.LivingWorldChatClient == nil then
 	_G.LivingWorldChatClient = {}
 end
 _G.LivingWorldChatClient.InjectSystemAlert = function() end
-return
+-- Wrapped return: bare `return` cannot be followed by more code in a chunk (kept for reference below).
+do return end
 
 -- Config: timing
 local CONVERSATION_INTERVAL_MIN = 55   -- seconds between starting each conversation

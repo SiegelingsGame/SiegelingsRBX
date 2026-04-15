@@ -76,6 +76,10 @@ GameConfig.PlayerXP_RaidWin       = 30     -- XP for successful raid
 GameConfig.PlayerXP_DungeonKill   = 20     -- XP for killing a dungeon creature
 GameConfig.PlayerXP_BossKill      = 100    -- XP for killing a boss creature
 
+-- Achievement tier rewards (chain tier I–V; single-step achievements use tier 1)
+GameConfig.AchievementGemsByTier = { 5, 12, 24, 45, 80 }
+GameConfig.AchievementXPByTier = { 35, 75, 140, 230, 350 }
+
 -- Base Floors
 GameConfig.Floor2Cost             = 500   -- coins to buy Floor 2
 GameConfig.Floor2LevelReq         = 5      -- player level required
@@ -136,26 +140,17 @@ GameConfig.GameplayMusic = {
         DesertSky   = "Sieglings_DesertBiome",
         ElectricSky = "Sieglings_ElectricBiome",
         WaterSky    = "Sieglings_OceanBiome",
+        CaveSky     = "Sieglings_CaveBiome", -- fourth outer baseplate (Terrain.CaveBaseplate); same priority as other outer biomes
         -- ForestSky = "Sieglings_ForestBiome",  -- uncomment when track is added
-    },
-
-    -- Cave biome: positional override (not skybox-based).
-    -- Plays when the player is above CaveBaseplate within CaveVerticalRange studs.
-    -- Path: workspace.Terrain.CaveBaseplate
-    CaveBiome = {
-        TrackName      = "Sieglings_CaveBiome",
-        BaseplateParent = "Terrain",
-        BaseplateName   = "CaveBaseplate",
-        VerticalRange   = 700,  -- studs above the baseplate top surface
     },
 
     -- Main arena (workspace.Arena → BlueTeam/RedTeam BattlePoint*, optional ArenaCenter): battle theme within this radius (studs)
     -- Use ~half the arena width if music only triggers at the edges (default 80).
-    ArenaBattleMusicRadius = 80,
+    ArenaBattleMusicRadius = 50,
 
     -- Sky names from BiomeSkyboxClient outer baseplates. While CurrentSkyName matches one of these,
     -- that biome's music wins over ArenaBattleMusicRadius (so outer maps don't bleed arena BGM).
-    OuterBiomeSkies = { "DesertSky", "ElectricSky", "WaterSky" },
+    OuterBiomeSkies = { "DesertSky", "ElectricSky", "WaterSky", "CaveSky" },
 
     -- Volume & pacing
     Volume        = 0.80,   -- target volume for the active track
@@ -181,6 +176,7 @@ GameConfig.BiomeZone = {
 		{ path = { "Terrain", "DesertBaseplate" }, sky = "DesertSky" },
 		{ path = { "Terrain", "ElectricBaseplate" }, sky = "ElectricSky" },
 		{ path = { "Terrain", "OceanBaseplate" }, sky = "WaterSky" },
+		{ path = { "Terrain", "CaveBaseplate" }, sky = "CaveSky" },
 	},
 	HubParts = {
 		{ "HubArea", "HubGround" },
@@ -191,10 +187,6 @@ GameConfig.BiomeZone = {
 		{ from = "CaveRoad", to = "WetRoad", sky = "FireSky" },
 		{ from = "WetRoad", to = "DesertRoad", sky = "IceSky" },
 		{ from = "DesertRoad", to = "ElectricRoad", sky = "WindSky" },
-	},
-	Cave = {
-		BaseplatePath = { "Terrain", "CaveBaseplate" },
-		VerticalRange = 700,
 	},
 }
 
@@ -210,12 +202,16 @@ GameConfig.Cooking = {
 	CookNPC = {
 		TemplateName = "CookNPC",
 		InstanceName = "CookNPC",
-		-- World XZ offset from The Broker (studs). Curator/Siege use ±X; this uses +Z to sit with the hub group.
+		-- World XZ offset from The Broker (studs). Curator/Siege use ±X; this uses +Z to sit with the hub group..
 		OffsetFromBrokerStuds = Vector3.new(0, 0, 22),
 		FallbackOffsetFromSpawnStuds = Vector3.new(0, 0, 22),
 		OffsetFromArenaCenterStuds = Vector3.new(0, 0, 8),
+		-- Studs added above the downward raycast hit when placing the model (hub ground snap).
+		GroundOffsetStuds = 4.5,
 		ExtraRotationDegrees = { pitch = 90, yaw = 0, roll = 0 },
 		PromptObjectText = "Campfire Chef",
+		-- Shown on BillboardGui above the NPC (matches other hub NPCs like The Broker).
+		OverheadSubtitle = "Cooking & recipes",
 	},
 	MaxStackPerIngredientId = 999,
 	MaxTotalIngredientCount = 2500,
@@ -264,7 +260,7 @@ GameConfig.Cooking = {
 
 -- Spawning (SpawnPoints should stay full; common creatures prioritized)
 -- Reduced from 200 to 150 for performance (night bonus +100 still applies)
-GameConfig.MaxWorldCreatures   = 600
+GameConfig.MaxWorldCreatures   = 1000
 GameConfig.SpawnIntervalMin    = 0.5   -- faster spawns so SpawnPoints stay full
 GameConfig.SpawnIntervalMax    = 1.5
 GameConfig.SpawnsPerCycle      = 4     -- spawn this many per cycle when under 50% capacity (else 1-2)
@@ -343,7 +339,7 @@ GameConfig.DungeonSpawnRadius   = 250  -- distance from center to spawn dungeons
 GameConfig.ArenaPresenceBuff    = 0.10 -- +10% stats when owner stands on arena
 
 -- Arena / Battle
-GameConfig.ArenaRoundInterval  = 60
+GameConfig.ArenaRoundInterval  = 120
 GameConfig.MaxBattleTeamSize   = 9      -- total grid slots (3x3 layout)
 GameConfig.MaxBattleTeamCreatures = 5   -- max creatures allowed on team (enforced by AssignToBattle)
 GameConfig.MinBattleTeamSize   = 1
@@ -359,25 +355,44 @@ GameConfig.ArenaSummaryShowDistance    = 30   -- studs; summary fades in at/afte
 GameConfig.ArenaSummaryMaxDistance     = 900  -- studs; summary hides beyond this distance
 GameConfig.ArenaHealthBarShowDistance  = 10   -- studs; arena fighter HP bars only visible within this distance
 
--- WaterGym (OceanBiome): touch ArenaBase for [E] Summon Gym; requires battle team; pay entry fee; fight 5 high-level Water/Ice/Fire
+-- Client: full-screen / mobile menus (MobileWindowLayout — inventory hub, shops, codex, profile, etc.)
+-- UIMenuSpawnOffsetYPx: added to menu Y after coin bar / hub layout (positive = menus open lower on screen).
+-- UIMenuWindowHeightScale: multiplies computed menu height (1 = default; 0.9 = shorter, 1.1 = taller).
+-- UIMenuDesktopPanelScaleMultiplier: multiplies centered desktop/tablet panel scale (Inventory main window when not using mobile bounds).
+GameConfig.UIMenuSpawnOffsetYPx = -100
+GameConfig.UIMenuWindowHeightScale = 1.5
+GameConfig.UIMenuDesktopPanelScaleMultiplier = 1
+
+-- Mobile menus: stretch panel bounds to the device safe area (GuiService insets only, plus optional edge padding).
+-- When true, menus use the full width/height between safe top and bottom instead of aligning to the HUD coin strip.
+-- Height still stops above the bottom HUD hub bar when MobileMenuReserveBottomHubGap is true so hub buttons stay visible.
+GameConfig.MobileMenuFillDeviceSafeArea = true
+GameConfig.MobileMenuEdgeInsetPx = 0
+GameConfig.MobileMenuUseHUDCoinBarTop = false
+GameConfig.MobileMenuReserveBottomHubGap = true
+-- When filling the safe area, ignore UIMenuSpawnOffsetYPx / UIMenuWindowHeightScale so the rectangle stays maximal.
+GameConfig.MobileMenuIgnoreLegacyMenuHeightTweaksWhenFilling = true
+
+-- WaterGym (OceanBiome): touch ArenaBase for [E] Summon Gym; requires battle team; pay entry fee; fight 5 high-level Water/Ice/Fire.
+
 GameConfig.WaterGymEntryFee       = 500   -- coins to challenge the gym leader
-GameConfig.WaterGymCreatureLevel  = 25    -- level of gym leader's squdad (high level)
+GameConfig.WaterGymCreatureLevel  = 20    -- level of gym leader's squdad (high level)
 GameConfig.WaterGymPromptRange    = 30    -- studs; ProximityPrompt on ArenaBase
 GameConfig.WaterGymWinReward      = 5000   -- coins if player wins
 GameConfig.WaterGymWinXP          = 75200    -- player XP on gym win
-GameConfig.WaterGymCooldown       = 120   -- seconds; per-player cooldown between gym challenges
+GameConfig.WaterGymCooldown       = 120   -- seconds; per-player cooldown between gym challengess.
 
 -- CaveGym (CaveBiome): Shadow (+ Earth) element squad
 GameConfig.CaveGymEntryFee       = 500
-GameConfig.CaveGymCreatureLevel   = 25
+GameConfig.CaveGymCreatureLevel   = 20
 GameConfig.CaveGymPromptRange    = 30
 GameConfig.CaveGymWinReward      = 5000
 GameConfig.CaveGymWinXP           = 200
 GameConfig.CaveGymCooldown        = 120
 
--- DesertGym (DesertBiome): Fire + Earth element squad
+-- DesertGym (DesertBiome): Fire + Earth element squad.
 GameConfig.DesertGymEntryFee      = 500
-GameConfig.DesertGymCreatureLevel = 25
+GameConfig.DesertGymCreatureLevel = 20
 GameConfig.DesertGymPromptRange   = 30
 GameConfig.DesertGymWinReward     = 5000
 GameConfig.DesertGymWinXP         = 200
@@ -385,28 +400,119 @@ GameConfig.DesertGymCooldown      = 120
 
 -- ElectricGym (ElectricBiome): Lightning element squad
 GameConfig.ElectricGymEntryFee       = 500
-GameConfig.ElectricGymCreatureLevel = 25
+GameConfig.ElectricGymCreatureLevel = 20
 GameConfig.ElectricGymPromptRange   = 30
 GameConfig.ElectricGymWinReward     = 5000
 GameConfig.ElectricGymWinXP         = 200
 GameConfig.ElectricGymCooldown      = 120
 
--- Zone doors (Ocean, Desert, Electric, Cave): 4 sigils from boss defeats open one door; gym win grants key for another
+-- Zone doors (Ocean, Desert, Electric, Cave): spend 4 inner boss Legendaries at the door to pass; gym keys / sigils still supported in data.
+-- When true: no prompts / unlock UI / remotes; gate parts are made non-collidable so biomes stay walk-through.
+GameConfig.ZoneDoorsDisabled      = false
 GameConfig.ZoneDoorZoneIds        = { "Ocean", "Desert", "Electric", "Cave" }
 GameConfig.ZoneDoorBiomeFolders   = { Ocean = "OceanBiome", Desert = "DesertBiome", Electric = "ElectricBiome", Cave = "CaveBiome" }
--- Ocean allows alias AquaticBiome; Desert may use VolcanicBiome until DesertBiome exists
-GameConfig.ZoneDoorBiomeAliases   = { Ocean = { "AquaticBiome", "WaterBiome" } }
+-- First match under workspace.Biomes wins. Include common alternates so gates work if the folder isn't the canonical name.
+GameConfig.ZoneDoorBiomeAliases   = {
+	Ocean = { "AquaticBiome", "WaterBiome" },
+	Desert = {},
+	Electric = { "PeaksBiome", "ElectriBiome" },
+	Cave = { "Cave", "CryptBiome", "CavernBiome", "CaveBiome_" },
+}
+-- Instance names for the interactable (wide openings: use an invisible part named ZoneDoorTrigger spanning the mouth).
+GameConfig.ZoneDoorPartNames      = { "ZoneDoor", "ZoneDoorTrigger", "GateTrigger", "BiomeGate" }
+-- Studs; increase if the prompt feels too hard to trigger at a wide cave mouth.
+GameConfig.ZoneDoorPromptRange    = 28
+-- Extra screen-space offset for the prompt UI (pixels). Use if the anchor is still slightly high/low.
+GameConfig.ZoneDoorPromptUIOffset = Vector2.new(0, 12)
+-- Client: each frame, move the prompt anchor to the door surface point closest to the local player (best for wide colliders).
+GameConfig.ZoneDoorPromptTrackClosestToPlayer = true
+-- Zone door modal (ZoneDoorBoardClient): leave empty for a minimal, gameplay-first UI (sigil tutorial lives in Profile / Codex).s
+GameConfig.ZoneDoorModalSigilsHint = ""
+GameConfig.ZoneDoorModalGateLines = {}
+GameConfig.ZoneDoorProgressionBlurb = ""
+-- After the first exterior gate is open, other gates use an Arena Pass from the Gym in the furthest-open zone (see ZoneDoorZoneIds order)..
+GameConfig.ZoneDoorArenaPassFlavor = "Further exterior gates need an Arena Pass from your latest unlocked biome — win at that zone's Gym to earn one. Passes are spent when you open the next gate."
+-- Per-gate copy for zone-door modal (tagline + features + gym). Keep features to plain zone mechanics.
+GameConfig.ZoneDoorZonePitch = {
+	Ocean = {
+		tagline = "Swimming · underwater exploration",
+		intro = "Ocean exterior: open water and underwater routes.",
+		features = "Swim on the surface and dive underwater. Manage breath, follow currents, and use depth to reach hidden paths and pickups.",
+		knightBase = "",
+		gym = "Ocean Gym — defeat the Gym Leader to earn a Biome Pass toward other exterior zones.",
+		closing = "",
+	},
+	Desert = {
+		tagline = "Sandstorms · hidden secrets",
+		intro = "Desert exterior: open dunes and landmarks.",
+		features = "Cross open sand, push through sandstorms that change visibility and paths, and explore ruins and points of interest for loot.",
+		knightBase = "",
+		gym = "Desert Gym — win here for a Biome Pass and to unlock progress toward other gates.",
+		closing = "",
+	},
+	Electric = {
+		tagline = "Electro hazards · downtown streets",
+		intro = "City exterior: streets, hazards, and vertical space.",
+		features = "Move through city blocks, avoid electro hazards, and use streets and rooftops to navigate fights and objectives.",
+		knightBase = "",
+		gym = "City Gym — clear it for a Biome Pass and the League's urban trial.",
+		closing = "",
+	},
+	Cave = {
+		tagline = "Dark caves · deep exploration",
+		intro = "Cave exterior: branching tunnels and dark passages.",
+		features = "Explore winding tunnels and side chambers with limited light. Learn the layout, watch for ambushes, and push deeper for rewards.",
+		knightBase = "",
+		gym = "Cave Gym — beat the leader in tight arenas to earn your Biome Pass.",
+		closing = "",
+	},
+}
+-- Header gradient (top, bottom) per exterior zone — thematic flared.
+GameConfig.ZoneDoorGateAccent = {
+	Ocean = { top = Color3.fromRGB(55, 145, 255), bottom = Color3.fromRGB(18, 55, 120) },
+	Desert = { top = Color3.fromRGB(255, 150, 70), bottom = Color3.fromRGB(140, 55, 25) },
+	Electric = { top = Color3.fromRGB(255, 230, 90), bottom = Color3.fromRGB(90, 70, 180) },
+	Cave = { top = Color3.fromRGB(160, 120, 255), bottom = Color3.fromRGB(40, 25, 70) },
+}
+-- Zone door UI: client-only small world tag (BaseSummary-style) + ScreenGui modal on ProximityPrompt (see ZoneDoorBoardClient)
+GameConfig.ZoneDoorInfoBoard = {
+	ZoneTitles = { Ocean = "Ocean", Desert = "Desert", Electric = "City", Cave = "Cave" },
+	Lines = {}, -- superseded by ZoneDoorModalSigilsHint + ZoneDoorModalGateLines on client
+}
+GameConfig.ZoneDoorTag = {
+	Enabled = true,
+	WidthPx = 500,
+	HeightPx = 100,
+	-- Large / rotated doors: local StudsOffset Y is NOT always world-up/down. Default anchors tag to
+	-- the part's bottom in world space, then raises by HeightAboveDoorBottomStuds (player-height-ish)..
+	UseBottomWorldAnchor = true,
+	HeightAboveDoorBottomStuds = 15,
+	-- If UseBottomWorldAnchor = false: offset from part center; set StudsOffsetWorldSpace = true for pure world Y1
+	StudsOffsetWorldSpace = false,
+	StudsOffset = Vector3.new(0, -20, 0),
+	MaxDistance = 160,
+	TitleTemplate = "%s — Zone gate",
+	Subtitle = "Interact to open gate",
+}
+-- Gym names shown on zone-door boards (match *GymSystem / WaterGymBattleSystem configs).
+GameConfig.ZoneDoorGymNames = {
+	Ocean = "Water Gym",
+	Desert = "Desert Gym",
+	Electric = "City Gym",
+	Cave = "Cave Gym",
+}
 -- Element whose boss grants each zone's sigil (CreatureData.GetBossCreatureId(element))
 GameConfig.ZoneDoorElementByZone  = { Ocean = "Water", Desert = "Fire", Electric = "Lightning", Cave = "Shadow" }
 
 -- Sigil backboard UI: two sections
--- 1) Elemental Bosses (Fire, Ice, Wind, Earth) — defeat in world to earn corresponding SiegeKnight Sigil
+-- 1) Elemental inner bosses (Fire, Ice, Wind, Earth) — defeat legendary in inner zone → SiegeSquire sigil stored under that element name in player data
 GameConfig.ElementalBossElements   = { "Fire", "Ice", "Wind", "Earth" }
--- Which zone sigil is earned when this elemental boss is defeated (zone id used in player data)
-GameConfig.ElementalBossToZoneId   = { Fire = "Desert", Ice = "Cave", Wind = "Ocean", Earth = "Electric" }
--- 2) SiegeKnight Sigils (display names; order matches ZoneDoorZoneIds for door-unlock UI)
+-- 2) SiegeKnight Sigils (display names; order matches ZoneDoorZoneIds) — earned by winning that zone's Gym, stored as zone id (Ocean, Desert, Electric, Cave)
 GameConfig.SiegeKnightSigilLabels  = { "Desert", "Cave", "Ocean", "Cyber" }
 GameConfig.SiegeKnightSigilZoneIds = { "Desert", "Cave", "Ocean", "Electric" }  -- backend zone ids (Electric = Cyber)
+-- SiegeLord: stored in player.sigils under this id (Profile Sigils tab + achievements). Earned on first successful Badlands extraction.
+GameConfig.SiegeLordSigilZoneId   = "Badlands"
+GameConfig.SiegeLordSigilSubtext    = "Successful extraction"
 
 -- PvP (player vs player) 1v1 battle
 GameConfig.PvPInteractionRange   = 30   -- studs; must be this close to challenge (server checks HumanoidRoot distance)
@@ -446,7 +552,7 @@ GameConfig.AI_PlayerDamage     = 5      -- damage creatures deal to player compa
 GameConfig.AI_CreatureDamage   = 8      -- damage creatures deal to other creatures
 GameConfig.AI_CreatureProjectileSpeed = 80  -- projectile studs/sec when creatures attack
 
--- Stealing (player E-interact, carry to base; creature walks back to owner if carrier dies)
+-- Stealing (player E-interact, carry to base; creature walks back to owner if carrier dies).
 GameConfig.StealCarrySpeed      = 0.5     -- movement speed multiplier while carrying
 GameConfig.StealHomeRadius      = 30      -- how close to your plot center to "deliver"
 GameConfig.StealInteractRange   = 12     -- range for E to interact and pick up fainted base creature
@@ -537,6 +643,8 @@ GameConfig.CreatureBobSpeed    = 2
 
 -- Player Health
 GameConfig.PlayerMaxHealth           = 100   -- starting/max HP hhffd
+-- Pilot defense (world): incoming damage is reduced similar to arena (dmg - defense/3, min 1)
+GameConfig.PlayerBaseDefense         = 9
 GameConfig.PlayerHealthOutOfCombatDelay = 5   -- seconds without any health decrease before regen runs (includes drowning etc.)
 GameConfig.PlayerHealthRegenPerSecond  = 100  -- HP/sec only after the delay above; no regen while health is still dropping
 
@@ -599,7 +707,7 @@ GameConfig.RebirthLevels = {
 -- Codex UI (creature detail panel when clicking creature icon/name)
 GameConfig.ENABLE_CODEX_UI      = true  -- set false to disable Codex and creature-click-to-open behavior
 GameConfig.ENABLE_CODEX_3D_VIEWER = true -- set false to use placeholder only (no ViewportFrame model viewer)
-GameConfig.ENABLE_BASE_LAYOUT_OVERVIEW = true -- Raid tab: show Income/Defense slot tracks + defense HP (set false to hide)
+GameConfig.ENABLE_BASE_LAYOUT_OVERVIEW = false -- legacy flag; base slot grid was removed from inventory (Bag tab now)
 
 -- Targeting (E key)
 GameConfig.TargetScanRange      = 50    -- max range to scan for targetable creatures
@@ -708,8 +816,9 @@ GameConfig.BaseColorItems = {
 	{id = "base_orange", name = "Orange", color = Color3.fromRGB(230, 140, 50),  coinCost = 300, gemCost = 0},
 }
 
--- Floor 4 Decor System — creature statue placement costs (gold sink, scales by rarity)
-GameConfig.DecorPointsPerFloor4  = 6       -- customization points on Floor 4
+-- Base decor / furnishing — creature statue placement costs (gold sink, scales by rarity)
+GameConfig.DecorPointsPerFloor4  = 6       -- legacy hint; see DecorMaxSlotIndexPerFloor
+GameConfig.DecorMaxSlotIndexPerFloor = 12 -- max DecorPoint index per floor (server validates)
 GameConfig.DecorCostByRarity = {
 	Common    = 500,
 	Uncommon  = 1000,
@@ -717,6 +826,9 @@ GameConfig.DecorCostByRarity = {
 	Epic      = 5000,
 	Legendary = 10000,
 }
+-- Open-world capture: statue of species X on base reduces cost to capture X (non-Badlands)
+GameConfig.DecorStatueCaptureCostMultiplier = 0.85 -- applied before Lucky buff
+GameConfig.DecorStatueCaptureHoldMultiplier   = 1  -- 1 = off; e.g. 0.9 = shorter channel
 
 -- Gym Battle System — Floor 4 personal arena (visitors battle owner's battle team)
 GameConfig.GymBattleTickSpeed    = 1.2    -- seconds between combat ticks (matches arena)0
@@ -744,6 +856,8 @@ GameConfig.BadlandsSpawnShieldDuration  = 30    -- seconds of PvP immunity on en
 -- Broker NPC (Arena Hub): optional extra rotation (degrees) applied after spawn placement.
 -- Use if the mesh still appears flipped after fixing PrimaryPart in Studio (e.g. pitch = -90).
 GameConfig.BrokerNPCExtraRotationDegrees = { pitch = 90, yaw = 0, roll = 0 }
+-- Studs added above downward raycast ground Y before PivotTo (0 = pivot at hit surface).
+GameConfig.BrokerNPCGroundOffsetStuds = 0
 
 -- Arena Hub: Curator Trader — sells six rotating Siegelings (2 Common, 1 Uncommon, 1 Rare, 1 Epic, 1 Legendary).
 -- Priced above egg tiers; each slot can be bought with coins or diamonds (gems).
@@ -752,6 +866,8 @@ GameConfig.ArenaTrader = {
 	StockRefreshSeconds = 6 * 3600, -- full rotation (seconds)
 	-- Horizontal offset from The Broker (studs); Y is resolved with a downward raycast.
 	OffsetFromBrokerStuds = Vector3.new(-26, 0, 0),
+	-- Studs added above the raycast hit when placing TraderNPC (matches Cook / Siege Master tuning).
+	GroundOffsetStuds = 2.5,
 	-- If BrokerNPC is missing, place using HubArea.SpawnLocation + this offset instead.
 	FallbackOffsetFromSpawnStuds = Vector3.new(-26, 0, 16),
 	-- Optional extra rotation for TraderNPC after placement (degrees).
@@ -771,10 +887,12 @@ GameConfig.ArenaTrader = {
 GameConfig.SiegeMasterEnabled = true
 GameConfig.SiegeMaster = {
 	OffsetFromArenaCenterStuds = Vector3.new(-22, 0, -8),
+	-- Studs added above the raycast hit when placing SiegeMasterNPC.
+	GroundOffsetStuds = 4.2,
 	-- Same pitch=90 pattern as Curator / Broker NPC mesh upright (model imports lying flat).
 	ExtraRotationDegrees = { pitch = 90, yaw = 0, roll = 0 },
 	PromptRange = 12,
-	PurchaseRange = 22, -- must be this close to buy siege-only items
+	PurchaseRange = 22, -- must be this close to buy siege-only items.
 }
 
 -- Badlands: Bag

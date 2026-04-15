@@ -47,36 +47,40 @@ coinIncomeLbl.TextColor3 = Color3.fromRGB(50, 220, 120)
 coinIncomeLbl.Font = Enum.Font.GothamMedium; coinIncomeLbl.TextSize = 12
 coinIncomeLbl.TextXAlignment = Enum.TextXAlignment.Left; coinIncomeLbl.Parent = coinFrame
 
+-- One label; frame shrink-wraps text width + padding (updates when numbers change)
+local INV_STATS_PAD_H = 12
+local INV_STATS_PAD_V = 4
+
 local invFrame = Instance.new("Frame")
-invFrame.Size = UDim2.new(0, 250, 0, 24)
+invFrame.Name = "InvStatsBar"
+invFrame.AutomaticSize = Enum.AutomaticSize.XY
+invFrame.Size = UDim2.fromOffset(0, 0)
 invFrame.Position = UDim2.new(0, 12, 0, 44)
 invFrame.BackgroundColor3 = Color3.fromRGB(20, 22, 35)
 invFrame.BackgroundTransparency = 0.25
-invFrame.BorderSizePixel = 0; invFrame.Parent = screenGui
+invFrame.BorderSizePixel = 0
+invFrame.Parent = screenGui
 Instance.new("UICorner", invFrame).CornerRadius = UDim.new(0, 8)
 
--- Creature count: smaller text and narrower so it doesn't overlap Income/Defense/Battle
-local invLabel = Instance.new("TextLabel")
-invLabel.Name = "InvLabel"
-invLabel.Size = UDim2.new(0.35, -10, 1, 0)
-invLabel.Position = UDim2.new(0, 10, 0, 0)
-invLabel.BackgroundTransparency = 1
-invLabel.Text = "Sieglings: 0/" .. GameConfig.MaxInventorySize
-invLabel.TextColor3 = Color3.fromRGB(200, 200, 210)
-invLabel.Font = Enum.Font.GothamMedium; invLabel.TextSize = 9
-invLabel.TextXAlignment = Enum.TextXAlignment.Left; invLabel.Parent = invFrame
+local invStatsPad = Instance.new("UIPadding")
+invStatsPad.PaddingLeft = UDim.new(0, INV_STATS_PAD_H)
+invStatsPad.PaddingRight = UDim.new(0, INV_STATS_PAD_H)
+invStatsPad.PaddingTop = UDim.new(0, INV_STATS_PAD_V)
+invStatsPad.PaddingBottom = UDim.new(0, INV_STATS_PAD_V)
+invStatsPad.Parent = invFrame
 
--- Income / Defense / Battle active counts (right side of row)nghg
-local invSlotsLbl = Instance.new("TextLabel")
-invSlotsLbl.Name = "InvSlotsLabel"
--- Nudge right slightly so it never overlaps the "Sieglings" label at smaller widths.
-invSlotsLbl.Size = UDim2.new(0.62, -18, 1, 0)
-invSlotsLbl.Position = UDim2.new(0.35, 8, 0, 0)
-invSlotsLbl.BackgroundTransparency = 1
-invSlotsLbl.Text = "Income: 0/6  Defense: 0/6  Battle: 0/5"
-invSlotsLbl.TextColor3 = Color3.fromRGB(160, 170, 190)
-invSlotsLbl.Font = Enum.Font.GothamMedium; invSlotsLbl.TextSize = 10
-invSlotsLbl.TextXAlignment = Enum.TextXAlignment.Right; invSlotsLbl.Parent = invFrame
+local invStatsLbl = Instance.new("TextLabel")
+invStatsLbl.Name = "InvStatsLabel"
+invStatsLbl.AutomaticSize = Enum.AutomaticSize.XY
+invStatsLbl.Size = UDim2.fromOffset(0, 0)
+invStatsLbl.BackgroundTransparency = 1
+invStatsLbl.Text = "Siegelings: 0/" .. GameConfig.MaxInventorySize .. " | Income: 0/6 | Defense: 0/6 | Battle: 0/5"
+invStatsLbl.TextColor3 = Color3.fromRGB(190, 195, 210)
+invStatsLbl.Font = Enum.Font.GothamMedium
+invStatsLbl.TextSize = 10
+invStatsLbl.TextXAlignment = Enum.TextXAlignment.Left
+invStatsLbl.TextYAlignment = Enum.TextYAlignment.Center
+invStatsLbl.Parent = invFrame
 
 -- Legendary dungeon badge + toggle panel
 local DUNGEON_BADGE_WIDTH = 36
@@ -326,14 +330,21 @@ local function refreshData()
 	-- Creature count (defensive: data.inventory can be nil)
 	local invCount = data.inventory and #data.inventory or 0
 	local invMax = GameConfig.MaxInventorySize or 50
-	invLabel.Text = ("Sieglings: %d/%d"):format(invCount, invMax)
-	-- Income points: filled/available, Defense: filled/available, Battle: filled/5
 	local inc = data.filledBaseCount or 0
 	local incMax = data.incomeMax or 6
 	local def = data.filledDefenseCount or 0
 	local defMax = data.defenseMax or 6
 	local bat = data.battleFilled or 0
-	invSlotsLbl.Text = ("Income: %d/%d  Defense: %d/%d  Battle: %d/%d"):format(inc, incMax, def, defMax, bat, BATTLE_TEAM_DISPLAY_MAX)
+	invStatsLbl.Text = ("Siegelings: %d/%d | Income: %d/%d | Defense: %d/%d | Battle: %d/%d"):format(
+		invCount,
+		invMax,
+		inc,
+		incMax,
+		def,
+		defMax,
+		bat,
+		BATTLE_TEAM_DISPLAY_MAX
+	)
 end
 
 -- -- EVENTS --
@@ -415,6 +426,9 @@ if ShowNotification then
 			duration = 4.5
 		elseif level == "info" then
 			duration = 3.5
+		end
+		if category == "cooking" then
+			duration = math.max(duration, 5.2)
 		end
 		Notify.Toast(message, nil, duration, nil, category)
 	end)

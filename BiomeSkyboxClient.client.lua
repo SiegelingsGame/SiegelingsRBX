@@ -2,7 +2,7 @@
 -- BiomeSkyboxClient.client.lua
 -- Dynamically swaps the Lighting skybox based on which biome zone the player
 -- is currently standing in. Supports:
---   • 3 outer biome baseplates (Desert, Electric, Water)
+--   • 4 outer biome baseplates (Desert, Electric, Water, Cave)
 --   • Hub area + road surfaces (all use ArenaSky)
 --   • 4 inner biome wedges between spoke-roads (Forest, Wind, Ice, Fire)
 --   • Fallback to ArenaSky when no zone matches
@@ -13,7 +13,7 @@
 --      DesertSky, ElectricSky, WaterSky,
 --      ForestSky, WindSky, IceSky, FireSky
 --   2. Outer baseplates in workspace.Terrain:
---      DesertBaseplate, ElectricBaseplate, OceanBaseplate
+--      DesertBaseplate, ElectricBaseplate, OceanBaseplate, CaveBaseplate
 --   3. Hub ground part at workspace.HubArea.HubGround
 --   4. Road parts in workspace.Roads:
 --      CaveRoad, ElectricRoad, DesertRoad, WetRoad
@@ -63,7 +63,7 @@ local WAIT_TIMEOUT = 15
 --- Maximum XZ distance (studs) from hub center that inner-wedge detection applies...
 --- Beyond this radius the player is in an outer biome zone, not an inner wedge.
 --- Set this to roughly the distance from hub center to the nearest outer baseplate edge.
-local INNER_WEDGE_MAX_RADIUS = 900
+local INNER_WEDGE_MAX_RADIUS = 1200
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- ZONE DEFINITIONS
@@ -72,11 +72,12 @@ local INNER_WEDGE_MAX_RADIUS = 900
 --- Outer biomes: each has a single baseplate Part whose XZ footprint defines
 --- the zone boundary.
 --- @field path string[] — ancestor chain under workspace to reach the part
---- @field sky  string   — name of the Sky object in ReplicatedStorage.Skyboxs
+--- @field sky  string   — name of the Sky object in ReplicatedStorage.SkyBox
 local OUTER_ZONES = {
 	{ path = {"Terrain", "DesertBaseplate"},   sky = "DesertSky" },
 	{ path = {"Terrain", "ElectricBaseplate"}, sky = "ElectricSky" },
 	{ path = {"Terrain", "OceanBaseplate"},    sky = "WaterSky" },
+	{ path = {"Terrain", "CaveBaseplate"},     sky = "CaveSky" },
 }
 
 --- Hub ground parts that use the default arena skybox.
@@ -225,7 +226,7 @@ if #hubParts > 0 then
 	hubCenter = hubParts[1].Position
 end
 
---- Precomputed angle (radians) for each road, measured from hubCenter.
+--- Precomputed angle (radians) for each road, measured from hubCenter..
 --- @type {[string]: number}
 local roadAngles = {}
 for name, part in pairs(roadParts) do

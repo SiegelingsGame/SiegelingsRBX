@@ -1,100 +1,84 @@
--- DecorClient.client.lua - StarterPlayerScripts (LocalScript)
--- ═══════════════════════════════════════════════════════════════════════════════
--- Floor 4 Creature Statue Decoration UI
---
--- When the player interacts with a DecorPoint on their own Floor 4, this script
--- shows a selection UI listing all creatures in their inventory. Selecting one
--- places it as a statue (gold sink) via the PlaceDecor remote event.
---
--- The UI shows:
---   - Creature name + rarity
---   - Gold cost (from GameConfig.DecorCostByRarity)
---   - Place / Remove buttons
---
--- Uses ProximityPrompts on DecorPoint parts. Only the base owner can interact
--- (other players see the statues but can't modify them).
--- ═══════════════════════════════════════════════════════════════════════════════
+-- DecorClient.client.lua — Furnish base: Furniture / Statues / Other on DecorPoints (any floor).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui", 10)
+if not playerGui then return end
 
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
-local Notify = require(ReplicatedStorage.Modules.NotificationManager)
+local FurnitureCatalog = require(ReplicatedStorage.Modules.FurnitureCatalog)
 local MobileWindowLayout = require(ReplicatedStorage.Modules:WaitForChild("MobileWindowLayout"))
 
 local Events = ReplicatedStorage:WaitForChild("Events", 15)
 if not Events then return end
 
-local placeDecor = Events:WaitForChild("PlaceDecor", 8)
-local removeDecor = Events:WaitForChild("RemoveDecor", 8)
+local placeFurnish = Events:WaitForChild("PlaceFurnish", 8)
+local removeFurnish = Events:WaitForChild("RemoveFurnish", 8)
 local getDecorSlots = Events:WaitForChild("GetDecorSlots", 8)
-local getInventory = Events:WaitForChild("GetInventory", 8)
 
--- ═══════════════════════════════════════════════════════════════════════════════
--- COLORS
--- ═══════════════════════════════════════════════════════════════════════════════
 local C = {
-	bg      = Color3.fromRGB(14, 16, 24),
-	card    = Color3.fromRGB(22, 26, 38),
-	green   = Color3.fromRGB(80, 220, 120),
-	red     = Color3.fromRGB(255, 70, 60),
-	gold    = Color3.fromRGB(255, 200, 50),
-	muted   = Color3.fromRGB(120, 125, 140),
-	white   = Color3.new(1, 1, 1),
-	divider = Color3.fromRGB(40, 44, 55),
+	bg = Color3.fromRGB(14, 16, 24),
+	card = Color3.fromRGB(22, 26, 38),
+	green = Color3.fromRGB(80, 220, 120),
+	red = Color3.fromRGB(255, 70, 60),
+	gold = Color3.fromRGB(255, 200, 50),
+	muted = Color3.fromRGB(120, 125, 140),
+	white = Color3.new(1, 1, 1),
+	tabOn = Color3.fromRGB(40, 48, 70),
+	tabOff = Color3.fromRGB(28, 32, 44),
 }
 
--- Rarity colors for labels
 local RARITY_COLORS = {
-	Common    = Color3.fromRGB(180, 180, 180),
-	Uncommon  = Color3.fromRGB(80, 220, 120),
-	Rare      = Color3.fromRGB(60, 140, 255),
-	Epic      = Color3.fromRGB(180, 80, 255),
+	Common = Color3.fromRGB(180, 180, 180),
+	Uncommon = Color3.fromRGB(80, 220, 120),
+	Rare = Color3.fromRGB(60, 140, 255),
+	Epic = Color3.fromRGB(180, 80, 255),
 	Legendary = Color3.fromRGB(255, 200, 50),
 }
 
--- ═══════════════════════════════════════════════════════════════════════════════
--- SCREEN GUI
--- ═══════════════════════════════════════════════════════════════════════════════
 local sg = Instance.new("ScreenGui")
-sg.Name = "DecorGUI"
+sg.Name = "FurnishGUI"
 sg.ResetOnSpawn = false
 sg.DisplayOrder = 35
 sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 sg.Parent = playerGui
 
-local decorUI = Instance.new("Frame")
-decorUI.Name = "DecorPanel"
-decorUI.Size = UDim2.new(0, 380, 0, 460)
-decorUI.Position = UDim2.new(0.5, -190, 0.5, -230)
-decorUI.BackgroundColor3 = C.bg
-decorUI.BackgroundTransparency = 0.03
-decorUI.BorderSizePixel = 0
-decorUI.Visible = false
-decorUI.Active = true
-decorUI.Draggable = true
-decorUI.Parent = sg
-Instance.new("UICorner", decorUI).CornerRadius = UDim.new(0, 14)
-Instance.new("UIStroke", decorUI).Color = C.gold
+local DECOR_DESIGN_W = 420
+local DECOR_DESIGN_H = 520
 
--- Title
+local main = Instance.new("Frame")
+main.Name = "FurnishPanel"
+main.Size = UDim2.new(0, DECOR_DESIGN_W, 0, DECOR_DESIGN_H)
+main.Position = UDim2.new(0.5, -DECOR_DESIGN_W / 2, 0.5, -DECOR_DESIGN_H / 2)
+main.BackgroundColor3 = C.bg
+main.BackgroundTransparency = 0.03
+main.BorderSizePixel = 0
+main.Visible = false
+main.Active = true
+main.Draggable = true
+main.Parent = sg
+Instance.new("UICorner", main).CornerRadius = UDim.new(0, 14)
+Instance.new("UIStroke", main).Color = C.gold
+
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -44, 0, 32)
+title.Size = UDim2.new(1, -80, 0, 28)
 title.Position = UDim2.new(0, 12, 0, 6)
 title.BackgroundTransparency = 1
-title.Text = "PLACE STATUE"
+title.Text = "FURNISH BASE"
 title.TextColor3 = C.gold
 title.Font = Enum.Font.GothamBlack
-title.TextSize = 14
+title.TextSize = 15
 title.TextXAlignment = Enum.TextXAlignment.Left
-title.Parent = decorUI
+title.Parent = main
+local applyDecorTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(title, {
+	Position = UDim2.new(0, 12, 0, 6),
+	Size = UDim2.new(1, -80, 0, 28),
+	TextXAlignment = Enum.TextXAlignment.Left,
+})
 
--- Close button
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 28, 0, 28)
 closeBtn.Position = UDim2.new(1, -34, 0, 6)
@@ -104,26 +88,35 @@ closeBtn.Text = "✕"
 closeBtn.TextColor3 = C.white
 closeBtn.Font = Enum.Font.GothamBold
 closeBtn.TextSize = 12
-closeBtn.Parent = decorUI
+closeBtn.Parent = main
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
 
--- Current statue info
+local slotLabel = Instance.new("TextLabel")
+slotLabel.Size = UDim2.new(1, -24, 0, 18)
+slotLabel.Position = UDim2.new(0, 12, 0, 34)
+slotLabel.BackgroundTransparency = 1
+slotLabel.Text = "Slot: —"
+slotLabel.TextColor3 = C.muted
+slotLabel.Font = Enum.Font.GothamMedium
+slotLabel.TextSize = 11
+slotLabel.TextXAlignment = Enum.TextXAlignment.Left
+slotLabel.Parent = main
+
 local currentLabel = Instance.new("TextLabel")
-currentLabel.Size = UDim2.new(1, -24, 0, 20)
-currentLabel.Position = UDim2.new(0, 12, 0, 40)
+currentLabel.Size = UDim2.new(1, -100, 0, 20)
+currentLabel.Position = UDim2.new(0, 12, 0, 52)
 currentLabel.BackgroundTransparency = 1
 currentLabel.Text = "Current: Empty"
 currentLabel.TextColor3 = C.muted
 currentLabel.Font = Enum.Font.GothamMedium
 currentLabel.TextSize = 11
 currentLabel.TextXAlignment = Enum.TextXAlignment.Left
-currentLabel.Parent = decorUI
+currentLabel.Parent = main
 
--- Remove button (only visible when a statue is placed)
 local removeBtn = Instance.new("TextButton")
 removeBtn.Name = "RemoveBtn"
 removeBtn.Size = UDim2.new(0, 80, 0, 22)
-removeBtn.Position = UDim2.new(1, -92, 0, 40)
+removeBtn.Position = UDim2.new(1, -92, 0, 52)
 removeBtn.BackgroundColor3 = Color3.fromRGB(60, 25, 25)
 removeBtn.Text = "REMOVE"
 removeBtn.TextColor3 = C.red
@@ -131,155 +124,166 @@ removeBtn.Font = Enum.Font.GothamBold
 removeBtn.TextSize = 10
 removeBtn.BorderSizePixel = 0
 removeBtn.Visible = false
-removeBtn.Parent = decorUI
+removeBtn.Parent = main
 Instance.new("UICorner", removeBtn).CornerRadius = UDim.new(0, 5)
 
--- Scrolling creature list
+local tabBar = Instance.new("Frame")
+tabBar.Size = UDim2.new(1, -24, 0, 32)
+tabBar.Position = UDim2.new(0, 12, 0, 78)
+tabBar.BackgroundTransparency = 1
+tabBar.Parent = main
+local tabLayout = Instance.new("UIListLayout")
+tabLayout.FillDirection = Enum.FillDirection.Horizontal
+tabLayout.Padding = UDim.new(0, 6)
+tabLayout.Parent = tabBar
+
+local function makeTabButton(text)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.new(0, 120, 1, 0)
+	b.BackgroundColor3 = C.tabOff
+	b.Text = text
+	b.TextColor3 = C.white
+	b.Font = Enum.Font.GothamBold
+	b.TextSize = 11
+	b.BorderSizePixel = 0
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+	b.Parent = tabBar
+	return b
+end
+
+local tabFurniture = makeTabButton("Furniture")
+local tabStatues = makeTabButton("Statues")
+local tabOther = makeTabButton("Other")
+
 local scroll = Instance.new("ScrollingFrame")
-scroll.Size = UDim2.new(1, -24, 1, -72)
-scroll.Position = UDim2.new(0, 12, 0, 64)
+scroll.Size = UDim2.new(1, -24, 1, -118)
+scroll.Position = UDim2.new(0, 12, 0, 114)
 scroll.BackgroundTransparency = 1
 scroll.BorderSizePixel = 0
 scroll.ScrollBarThickness = 4
 scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-scroll.Parent = decorUI
+scroll.Parent = main
 local listLayout = Instance.new("UIListLayout")
-listLayout.Padding = UDim.new(0, 4)
+listLayout.Padding = UDim.new(0, 6)
 listLayout.SortOrder = Enum.SortOrder.LayoutOrder
 listLayout.Parent = scroll
 
--- ═══════════════════════════════════════════════════════════════════════════════
--- STATE
--- ═══════════════════════════════════════════════════════════════════════════════
-local activeSlotIndex = nil  -- which DecorPoint is being edited
+local activeSlotKey = nil
+local activeTab = "Furniture"
 
--- ═══════════════════════════════════════════════════════════════════════════════
--- Mobile layout
--- ═══════════════════════════════════════════════════════════════════════════════
 local function applyLayout()
-	if MobileWindowLayout.IsMobile() then
-		MobileWindowLayout.ApplyWindow(decorUI, {
-			leftInset = 10, rightInset = 10,
-			topInset = 10, bottomInset = 10,
-			bottomMobileExtra = 40,
-		})
+	MobileWindowLayout.SyncNpcMenuScreenGui(sg, DECOR_DESIGN_W, DECOR_DESIGN_H)
+	if MobileWindowLayout.NpcMenuUsesFullscreenBounds(DECOR_DESIGN_W, DECOR_DESIGN_H) then
+		MobileWindowLayout.ApplyWindow(main, MobileWindowLayout.GetNpcFullscreenBoundsConfig(DECOR_DESIGN_W, DECOR_DESIGN_H))
+	else
+		main.AnchorPoint = Vector2.new(0.5, 0.5)
+		main.Size = UDim2.new(0, DECOR_DESIGN_W, 0, DECOR_DESIGN_H)
+		main.Position = UDim2.new(0.5, 0, 0.5, 0)
+		MobileWindowLayout.RestoreDesktopWindow(main, { draggable = true })
+	end
+	applyDecorTitleLayout()
+end
+
+local function setTabVisual()
+	tabFurniture.BackgroundColor3 = activeTab == "Furniture" and C.tabOn or C.tabOff
+	tabStatues.BackgroundColor3 = activeTab == "Statues" and C.tabOn or C.tabOff
+	tabOther.BackgroundColor3 = activeTab == "Other" and C.tabOn or C.tabOff
+end
+
+local function clearScroll()
+	for _, ch in ipairs(scroll:GetChildren()) do
+		if ch:IsA("GuiObject") then ch:Destroy() end
 	end
 end
 
--- ═══════════════════════════════════════════════════════════════════════════════
--- refreshList(slotIndex)
--- Rebuilds the creature list from the player's inventory, showing each unique
--- creature with its rarity and placement cost.
--- ═══════════════════════════════════════════════════════════════════════════════
-local function refreshList(slotIndex)
-	activeSlotIndex = slotIndex
-
-	-- Clear old entries
-	for _, ch in ipairs(scroll:GetChildren()) do
-		if ch:IsA("Frame") then ch:Destroy() end
-	end
-
-	-- Get current decor state
-	local currentDecor = {}
+local function getSlots()
+	local t = {}
 	if getDecorSlots then
-		local ok, result = pcall(function() return getDecorSlots:InvokeServer() end)
-		if ok and result then currentDecor = result end
+		local ok, r = pcall(function() return getDecorSlots:InvokeServer() end)
+		if ok and r then t = r end
 	end
+	return t
+end
 
-	-- Show current statue for this slot
-	local currentSlotData = currentDecor[slotIndex] or currentDecor[tostring(slotIndex)]
-	if currentSlotData and currentSlotData.creatureId then
-		local info = CreatureData.GetById(currentSlotData.creatureId)
-		currentLabel.Text = "Current: " .. (info and info.displayName or currentSlotData.creatureId)
-		currentLabel.TextColor3 = C.green
-		removeBtn.Visible = true
-	else
+local function refreshHeader()
+	if not activeSlotKey then return end
+	slotLabel.Text = "Slot: " .. activeSlotKey:gsub("_", " · point ")
+	local slots = getSlots()
+	local data = slots[activeSlotKey]
+	removeBtn.Visible = data ~= nil
+	if not data then
 		currentLabel.Text = "Current: Empty"
 		currentLabel.TextColor3 = C.muted
-		removeBtn.Visible = false
+		return
 	end
-
-	-- Get inventory (unique creatures)
-	-- getInventory returns the full data table {coins, gems, inventory, ...}
-	-- The creature list is in the .inventory field
-	local inventory = {}
-	if getInventory then
-		local ok, result = pcall(function() return getInventory:InvokeServer() end)
-		if ok and result then
-			inventory = result.inventory or result
-		end
+	if data.kind == "statue" and data.creatureId then
+		local info = CreatureData.GetById(data.creatureId)
+		currentLabel.Text = "Current: Statue — " .. (info and info.displayName or data.creatureId)
+		currentLabel.TextColor3 = C.green
+	elseif data.kind == "furniture" and data.furnitureId then
+		local fe = FurnitureCatalog.GetById(data.furnitureId)
+		currentLabel.Text = "Current: " .. (fe and fe.displayName or data.furnitureId)
+		currentLabel.TextColor3 = C.green
+	else
+		currentLabel.Text = "Current: (unknown)"
+		currentLabel.TextColor3 = C.muted
 	end
+end
 
-	-- Build unique creature list from inventory
-	local seen = {}
-	local uniqueCreatures = {}
-	for _, entry in ipairs(inventory) do
-		if entry.id and not seen[entry.id] then
-			seen[entry.id] = true
-			local info = CreatureData.GetById(entry.id)
-			if info then
-				table.insert(uniqueCreatures, {
-					id = entry.id,
-					displayName = info.displayName or entry.id,
-					rarity = info.rarity or "Common",
-				})
-			end
-		end
-	end
-
-	-- Sort by rarity then name
-	local rarityOrder = { Common = 1, Uncommon = 2, Rare = 3, Epic = 4, Legendary = 5 }
-	table.sort(uniqueCreatures, function(a, b)
-		local ra = rarityOrder[a.rarity] or 0
-		local rb = rarityOrder[b.rarity] or 0
-		if ra ~= rb then return ra < rb end
-		return a.displayName < b.displayName
-	end)
-
-	-- Render creature rows
+local function buildStatuesList()
+	clearScroll()
 	local costTable = GameConfig.DecorCostByRarity or {}
-
-	for i, creature in ipairs(uniqueCreatures) do
-		local cost = costTable[creature.rarity] or 1000
-		local rarityColor = RARITY_COLORS[creature.rarity] or C.muted
+	local creatures = CreatureData.GetAll() or {}
+	local rarityOrder = { Common = 1, Uncommon = 2, Rare = 3, Epic = 4, Legendary = 5 }
+	table.sort(creatures, function(a, b)
+		local oa = rarityOrder[a.rarity] or 0
+		local ob = rarityOrder[b.rarity] or 0
+		if oa ~= ob then return oa < ob end
+		return (a.displayName or a.id or "") < (b.displayName or b.id or "")
+	end)
+	local layoutOrder = 0
+	for _, creature in ipairs(creatures) do
+		local id = creature.id
+		if not id then continue end
+		local rarity = creature.rarity or "Common"
+		local cost = costTable[rarity] or 1000
+		local rarityColor = RARITY_COLORS[rarity] or C.muted
+		layoutOrder += 1
 
 		local row = Instance.new("Frame")
-		row.Size = UDim2.new(1, 0, 0, 40)
+		row.Size = UDim2.new(1, 0, 0, 44)
 		row.BackgroundColor3 = C.card
 		row.BorderSizePixel = 0
-		row.LayoutOrder = i
+		row.LayoutOrder = layoutOrder
 		row.Parent = scroll
 		Instance.new("UICorner", row).CornerRadius = UDim.new(0, 7)
 
-		-- Creature name
 		local nameLabel = Instance.new("TextLabel")
-		nameLabel.Size = UDim2.new(0.5, -4, 0, 16)
+		nameLabel.Size = UDim2.new(0.55, -8, 0, 18)
 		nameLabel.Position = UDim2.new(0, 8, 0, 4)
 		nameLabel.BackgroundTransparency = 1
-		nameLabel.Text = creature.displayName
+		nameLabel.Text = creature.displayName or id
 		nameLabel.TextColor3 = C.white
 		nameLabel.Font = Enum.Font.GothamBold
 		nameLabel.TextSize = 11
 		nameLabel.TextXAlignment = Enum.TextXAlignment.Left
 		nameLabel.Parent = row
 
-		-- Rarity + cost
 		local infoLabel = Instance.new("TextLabel")
-		infoLabel.Size = UDim2.new(0.5, -4, 0, 14)
-		infoLabel.Position = UDim2.new(0, 8, 0, 22)
+		infoLabel.Size = UDim2.new(0.55, -8, 0, 16)
+		infoLabel.Position = UDim2.new(0, 8, 0, 24)
 		infoLabel.BackgroundTransparency = 1
-		infoLabel.Text = creature.rarity .. " — " .. tostring(cost) .. " gold"
+		infoLabel.Text = rarity .. " — " .. tostring(cost) .. " gold"
 		infoLabel.TextColor3 = rarityColor
 		infoLabel.Font = Enum.Font.GothamMedium
 		infoLabel.TextSize = 9
 		infoLabel.TextXAlignment = Enum.TextXAlignment.Left
 		infoLabel.Parent = row
 
-		-- Place button
 		local placeBtn = Instance.new("TextButton")
-		placeBtn.Size = UDim2.new(0, 70, 0, 28)
-		placeBtn.Position = UDim2.new(1, -78, 0.5, -14)
+		placeBtn.Size = UDim2.new(0, 72, 0, 30)
+		placeBtn.Position = UDim2.new(1, -80, 0.5, -15)
 		placeBtn.BackgroundColor3 = Color3.fromRGB(30, 70, 45)
 		placeBtn.Text = "PLACE"
 		placeBtn.TextColor3 = C.green
@@ -290,68 +294,155 @@ local function refreshList(slotIndex)
 		Instance.new("UICorner", placeBtn).CornerRadius = UDim.new(0, 6)
 
 		placeBtn.MouseButton1Click:Connect(function()
-			if placeDecor then
-				placeDecor:FireServer(slotIndex, creature.id)
-				task.wait(0.3)
-				refreshList(slotIndex)
+			if activeSlotKey and placeFurnish then
+				placeFurnish:FireServer(activeSlotKey, "statue", id)
+				task.wait(0.25)
+				refreshHeader()
 			end
 		end)
 	end
+end
 
-	if #uniqueCreatures == 0 then
-		local emptyLabel = Instance.new("TextLabel")
-		emptyLabel.Size = UDim2.new(1, 0, 0, 40)
-		emptyLabel.BackgroundTransparency = 1
-		emptyLabel.Text = "No creatures in inventory"
-		emptyLabel.TextColor3 = C.muted
-		emptyLabel.Font = Enum.Font.GothamMedium
-		emptyLabel.TextSize = 11
-		emptyLabel.Parent = scroll
+local function addFurnitureRows(categories)
+	local layoutOrder = 0
+	for _, cat in ipairs(categories) do
+		local header = Instance.new("TextLabel")
+		header.Size = UDim2.new(1, 0, 0, 22)
+		header.BackgroundTransparency = 1
+		header.Text = cat
+		header.TextColor3 = C.gold
+		header.Font = Enum.Font.GothamBold
+		header.TextSize = 12
+		header.TextXAlignment = Enum.TextXAlignment.Left
+		layoutOrder += 1
+		header.LayoutOrder = layoutOrder
+		header.Parent = scroll
+
+		for _, entry in ipairs(FurnitureCatalog.GetByCategory(cat)) do
+			layoutOrder += 1
+			local row = Instance.new("Frame")
+			row.Size = UDim2.new(1, 0, 0, 40)
+			row.BackgroundColor3 = C.card
+			row.BorderSizePixel = 0
+			row.LayoutOrder = layoutOrder
+			row.Parent = scroll
+			Instance.new("UICorner", row).CornerRadius = UDim.new(0, 7)
+
+			local nl = Instance.new("TextLabel")
+			nl.Size = UDim2.new(0.55, -8, 1, -8)
+			nl.Position = UDim2.new(0, 8, 0, 4)
+			nl.BackgroundTransparency = 1
+			nl.Text = entry.displayName .. " — " .. tostring(entry.coinCost) .. " gold"
+			nl.TextColor3 = C.white
+			nl.Font = Enum.Font.GothamMedium
+			nl.TextSize = 11
+			nl.TextXAlignment = Enum.TextXAlignment.Left
+			nl.Parent = row
+
+			local buyBtn = Instance.new("TextButton")
+			buyBtn.Size = UDim2.new(0, 88, 0, 28)
+			buyBtn.Position = UDim2.new(1, -96, 0.5, -14)
+			buyBtn.BackgroundColor3 = Color3.fromRGB(35, 55, 90)
+			buyBtn.Text = "BUY"
+			buyBtn.TextColor3 = C.gold
+			buyBtn.Font = Enum.Font.GothamBold
+			buyBtn.TextSize = 10
+			buyBtn.BorderSizePixel = 0
+			buyBtn.Parent = row
+			Instance.new("UICorner", buyBtn).CornerRadius = UDim.new(0, 6)
+
+			buyBtn.MouseButton1Click:Connect(function()
+				if activeSlotKey and placeFurnish then
+					placeFurnish:FireServer(activeSlotKey, "furniture", entry.id)
+					task.wait(0.25)
+					refreshHeader()
+				end
+			end)
+		end
 	end
 end
 
--- ═══════════════════════════════════════════════════════════════════════════════
--- EVENT HANDLERS
--- ═══════════════════════════════════════════════════════════════════════════════
+local function buildFurnitureMain()
+	clearScroll()
+	local cats = { "Chair", "Bed", "Lamp", "Table", "Dresser", "Drawer", "Appliance" }
+	addFurnitureRows(cats)
+end
+
+local function buildOtherTab()
+	clearScroll()
+	addFurnitureRows({ "Other" })
+end
+
+local function refreshContent()
+	if activeTab == "Furniture" then
+		buildFurnitureMain()
+	elseif activeTab == "Statues" then
+		buildStatuesList()
+	else
+		buildOtherTab()
+	end
+end
+
+local function openAtSlot(slotKey)
+	activeSlotKey = slotKey
+	main.Visible = true
+	applyLayout()
+	MobileWindowLayout.NotifyMenuOpened()
+	setTabVisual()
+	refreshHeader()
+	refreshContent()
+end
 
 closeBtn.MouseButton1Click:Connect(function()
-	decorUI.Visible = false
+	main.Visible = false
+	sg.IgnoreGuiInset = false
 	MobileWindowLayout.NotifyMenuClosed()
 end)
 
 removeBtn.MouseButton1Click:Connect(function()
-	if activeSlotIndex and removeDecor then
-		removeDecor:FireServer(activeSlotIndex)
-		task.wait(0.3)
-		refreshList(activeSlotIndex)
+	if activeSlotKey and removeFurnish then
+		removeFurnish:FireServer(activeSlotKey)
+		task.wait(0.25)
+		refreshHeader()
 	end
 end)
 
--- ═══════════════════════════════════════════════════════════════════════════════
--- BINDABLE EVENT: OpenDecorUI
--- Other scripts (e.g. ProximityPrompt handler) can fire this to open the decor
--- panel for a specific slot. A BindableEvent is created in PlayerGui for this.
--- ═══════════════════════════════════════════════════════════════════════════════
-local openDecorEvt = Instance.new("BindableEvent")
-openDecorEvt.Name = "OpenDecorUI"
-openDecorEvt.Parent = playerGui
-
-openDecorEvt.Event:Connect(function(slotIndex)
-	if type(slotIndex) ~= "number" then return end
-	decorUI.Visible = true
-	applyLayout()
-	MobileWindowLayout.NotifyMenuOpened()
-	refreshList(slotIndex)
+tabFurniture.MouseButton1Click:Connect(function()
+	activeTab = "Furniture"
+	setTabVisual()
+	refreshContent()
+end)
+tabStatues.MouseButton1Click:Connect(function()
+	activeTab = "Statues"
+	setTabVisual()
+	refreshContent()
+end)
+tabOther.MouseButton1Click:Connect(function()
+	activeTab = "Other"
+	setTabVisual()
+	refreshContent()
 end)
 
--- ═══════════════════════════════════════════════════════════════════════════════
--- PROXIMITY PROMPT SETUP
--- Listens for DecorPoint parts that get ProximityPrompts (created by server or
--- already in workspace). When the player triggers one on THEIR OWN plot, opens
--- the decor UI for that slot index.
--- ═══════════════════════════════════════════════════════════════════════════════
+local openFurnishEvt = Instance.new("BindableEvent")
+openFurnishEvt.Name = "OpenFurnishUI"
+openFurnishEvt.Parent = playerGui
+openFurnishEvt.Event:Connect(function(slotKey)
+	if type(slotKey) == "string" and slotKey:match("^%d+_%d+$") then
+		openAtSlot(slotKey)
+	elseif type(slotKey) == "number" then
+		openAtSlot("4_" .. tostring(math.floor(slotKey)))
+	end
+end)
 
--- Find the player's own plot
+local openDecorLegacy = Instance.new("BindableEvent")
+openDecorLegacy.Name = "OpenDecorUI"
+openDecorLegacy.Parent = playerGui
+openDecorLegacy.Event:Connect(function(slotIndex)
+	if type(slotIndex) == "number" then
+		openAtSlot("4_" .. tostring(math.floor(slotIndex)))
+	end
+end)
+
 local function findOwnPlot()
 	local plotsFolder = workspace:FindFirstChild("BasePlots")
 	if not plotsFolder then return nil end
@@ -363,63 +454,90 @@ local function findOwnPlot()
 	return nil
 end
 
--- Scan for DecorPoints and create client-side ProximityPrompts
-task.defer(function()
-	-- Wait for plot assignment
-	task.wait(5)
-
-	local plot = findOwnPlot()
-	if not plot then return end
-
-	local floor4 = plot:FindFirstChild("Floor4")
-	if not floor4 then
-		-- Watch for Floor4 to appear (after purchase)
-		plot.ChildAdded:Connect(function(child)
-			if child.Name == "Floor4" then
-				task.wait(1)
-				-- Re-scan
-				for _, desc in ipairs(child:GetDescendants()) do
-					if desc:IsA("BasePart") and desc.Name:match("^DecorPoint%d+$") then
-						local idx = tonumber(desc.Name:match("(%d+)$"))
-						if idx and not desc:FindFirstChildOfClass("ProximityPrompt") then
-							local prompt = Instance.new("ProximityPrompt")
-							prompt.Name = "DecorPrompt"
-							prompt.ActionText = "Decorate"
-							prompt.ObjectText = "Statue Pedestal " .. idx
-							prompt.HoldDuration = 0
-							prompt.MaxActivationDistance = 8
-							prompt.RequiresLineOfSight = false
-							prompt.Parent = desc
-							prompt.Triggered:Connect(function()
-								openDecorEvt:Fire(idx)
-							end)
-						end
-					end
-				end
-			end
-		end)
-		return
+local function floorFromAncestors(part)
+	local p = part.Parent
+	while p and p ~= workspace do
+		local n = p.Name
+		local f = string.match(n, "^Floor(%d+)$")
+		if f then return tonumber(f) or 1 end
+		p = p.Parent
 	end
+	return 1
+end
 
-	-- Floor4 exists — set up prompts on DecorPoints
-	for _, desc in ipairs(floor4:GetDescendants()) do
-		if desc:IsA("BasePart") and desc.Name:match("^DecorPoint%d+$") then
-			local idx = tonumber(desc.Name:match("(%d+)$"))
-			if idx and not desc:FindFirstChildOfClass("ProximityPrompt") then
-				local prompt = Instance.new("ProximityPrompt")
-				prompt.Name = "DecorPrompt"
-				prompt.ActionText = "Decorate"
-				prompt.ObjectText = "Statue Pedestal " .. idx
-				prompt.HoldDuration = 0
-				prompt.MaxActivationDistance = 8
-				prompt.RequiresLineOfSight = false
-				prompt.Parent = desc
-				prompt.Triggered:Connect(function()
-					openDecorEvt:Fire(idx)
-				end)
+local attached = {} -- [BasePart] = true
+
+local function attachPrompt(part, slotKey)
+	if attached[part] or part:FindFirstChild("DecorFurnishPrompt") then return end
+	attached[part] = true
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "DecorFurnishPrompt"
+	prompt.ActionText = "Furnish"
+	prompt.ObjectText = "Decor " .. slotKey:gsub("_", " · ")
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = GameConfig.BaseInteractionRange or 10
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = part
+	prompt.Triggered:Connect(function()
+		openFurnishEvt:Fire(slotKey)
+	end)
+end
+
+local function scanPlot(plot: Instance)
+	for _, desc in ipairs(plot:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			local idx = string.match(desc.Name, "^DecorPoint(%d+)$")
+			if idx then
+				local floorNum = floorFromAncestors(desc)
+				local slotKey = tostring(floorNum) .. "_" .. idx
+				attachPrompt(desc, slotKey)
+			end
+		end
+	end
+end
+
+local function setupPlot(plot: Instance)
+	scanPlot(plot)
+	plot.DescendantAdded:Connect(function(inst)
+		if inst:IsA("BasePart") then
+			task.defer(function()
+				local idx = string.match(inst.Name, "^DecorPoint(%d+)$")
+				if idx and inst.Parent then
+					local floorNum = floorFromAncestors(inst)
+					attachPrompt(inst, tostring(floorNum) .. "_" .. idx)
+				end
+			end)
+		end
+	end)
+end
+
+task.defer(function()
+	local plot = findOwnPlot()
+	if plot then
+		setupPlot(plot)
+	else
+		local plotsFolder = workspace:WaitForChild("BasePlots", 60)
+		if plotsFolder then
+			local tries = 0
+			while tries < 120 do
+				tries += 1
+				plot = findOwnPlot()
+				if plot then break end
+				task.wait(0.5)
+			end
+			if plot then
+				setupPlot(plot)
 			end
 		end
 	end
 end)
 
-print("[DecorClient] Loaded — interact with DecorPoints on your Floor 4 to place creature statues")
+MobileWindowLayout.BindViewportUpdate(function()
+	if main.Visible then
+		applyLayout()
+	else
+		sg.IgnoreGuiInset = false
+	end
+end)
+
+print("[DecorClient] Furnish UI — use DecorPoints on your base (any floor)")

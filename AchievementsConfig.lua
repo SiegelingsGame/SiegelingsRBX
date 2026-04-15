@@ -1,9 +1,25 @@
 -- AchievementsConfig.lua - ReplicatedStorage.Modules (ModuleScript)
--- Generated achievement definitions and chain metadata for Sieglings.
+-- Generated achievement definitions and chain metadata for Siegelings.
 
 local CreatureData = require(script.Parent:WaitForChild("CreatureData"))
+local GameConfig = require(script.Parent:WaitForChild("GameConfig"))
 
 local AchievementsConfig = {}
+
+local function defaultRewardData(tierIndex, titleEarned)
+	local tier = math.clamp(tonumber(tierIndex) or 1, 1, 5)
+	local gemsTable = GameConfig.AchievementGemsByTier or { 5, 12, 24, 45, 80 }
+	local xpTable = GameConfig.AchievementXPByTier or { 35, 75, 140, 230, 350 }
+	local gems = gemsTable[tier] or gemsTable[#gemsTable]
+	local xp = xpTable[tier] or xpTable[#xpTable]
+	return {
+		type = "title",
+		title = titleEarned,
+		gems = gems,
+		xp = xp,
+		future = { coins = 0, cosmetics = {} },
+	}
+end
 
 AchievementsConfig.TierLabels = { "I", "II", "III", "IV", "V" }
 
@@ -12,7 +28,7 @@ AchievementsConfig.Categories = {
 		label = "Capture",
 		accent = Color3.fromRGB(255, 196, 84),
 		order = 1,
-		description = "Fill the royal card ledger with Sieglings from every walk of life.",
+		description = "Fill the royal card ledger with Siegelings from every walk of life.",
 	},
 	Evolution = {
 		label = "Evolution",
@@ -187,6 +203,16 @@ local function addChain(meta)
 	for tierIndex, required in ipairs(meta.thresholds) do
 		local tierLabel = AchievementsConfig.TierLabels[tierIndex] or tostring(tierIndex)
 		local titleEarned = meta.titles[tierIndex] or meta.titles[#meta.titles] or meta.chainName
+		local rewardData = defaultRewardData(tierIndex, titleEarned)
+		if meta.rewardData then
+			local custom = meta.rewardData(required, tierIndex, titleEarned)
+			if type(custom) == "table" then
+				for k, v in pairs(custom) do
+					rewardData[k] = v
+				end
+			end
+		end
+
 		local def = {
 			id = ("%s_t%d"):format(chain.id, tierIndex),
 			category = chain.category,
@@ -202,11 +228,7 @@ local function addChain(meta)
 			requiredProgress = required,
 			tier = tierIndex,
 			tierChainId = chain.id,
-			rewardData = meta.rewardData and meta.rewardData(required, tierIndex, titleEarned) or {
-				type = "title",
-				title = titleEarned,
-				future = { coins = 0, cosmetics = {} },
-			},
+			rewardData = rewardData,
 			metric = meta.metric,
 			sortOrder = (chain.sortOrder * 10) + tierIndex,
 			chainTierCount = #meta.thresholds,
@@ -232,12 +254,20 @@ local function addSingle(meta)
 		description = function()
 			return meta.description
 		end,
-		rewardData = function()
-			return meta.rewardData or {
-				type = "title",
-				title = meta.titleEarned,
-				future = { coins = 0, cosmetics = {} },
-			}
+		rewardData = function(required, tierIndex, titleEarned)
+			local rewardData = defaultRewardData(tierIndex or 1, titleEarned or meta.titleEarned)
+			if meta.rewardData then
+				local custom = meta.rewardData
+				if type(custom) == "function" then
+					custom = custom(required, tierIndex, titleEarned)
+				end
+				if type(custom) == "table" then
+					for k, v in pairs(custom) do
+						rewardData[k] = v
+					end
+				end
+			end
+			return rewardData
 		end,
 		metric = meta.metric,
 	})
@@ -252,7 +282,7 @@ addChain({
 	thresholds = STANDARD_THRESHOLDS,
 	titles = { "First Binder", "Card Warden", "Menagerie Squire", "Capture Knight", "Grand Binder" },
 	description = function(required)
-		return ("Capture %d Sieglings total."):format(required)
+		return ("Capture %d Siegelings total."):format(required)
 	end,
 	metric = metricCounter("capture.total"),
 })
@@ -278,7 +308,7 @@ for _, element in ipairs(AchievementsConfig.ActiveElements) do
 		thresholds = STANDARD_THRESHOLDS,
 		titles = info.titles,
 		description = function(required)
-			return ("Capture %d %s Sieglings."):format(required, element)
+			return ("Capture %d %s Siegelings."):format(required, element)
 		end,
 		metric = metricCounter("capture.element." .. element),
 	})
@@ -304,7 +334,7 @@ for _, classEntry in ipairs(classChains) do
 		thresholds = STANDARD_THRESHOLDS,
 		titles = makeTitles(className, CAPTURE_LADDER),
 		description = function(required)
-			return ("Capture %d %s-class Sieglings."):format(required, className)
+			return ("Capture %d %s-class Siegelings."):format(required, className)
 		end,
 		metric = metricCounter("capture.class." .. className),
 	})
@@ -330,7 +360,7 @@ for _, rarityEntry in ipairs(rarityChains) do
 		thresholds = info.thresholds,
 		titles = makeTitles(rarity, CAPTURE_LADDER),
 		description = function(required)
-			return ("Capture %d %s Sieglings."):format(required, rarity)
+			return ("Capture %d %s Siegelings."):format(required, rarity)
 		end,
 		metric = metricCounter("capture.rarity." .. rarity),
 	})
@@ -369,7 +399,7 @@ addChain({
 	thresholds = EVOLUTION_THRESHOLDS,
 	titles = { "First Ascendant", "Morph Adept", "Line Squire", "Ascension Knight", "Ascension Lord" },
 	description = function(required)
-		return ("Evolve %d Sieglings."):format(required)
+		return ("Evolve %d Siegelings."):format(required)
 	end,
 	metric = metricCounter("evolution.total"),
 })
@@ -393,7 +423,7 @@ for _, element in ipairs(AchievementsConfig.EvolvingElements) do
 		thresholds = ELEMENT_EVOLUTION_THRESHOLDS,
 		titles = makeTitles(element, ASCENT_LADDER),
 		description = function(required)
-			return ("Evolve %d %s Sieglings."):format(required, element)
+			return ("Evolve %d %s Siegelings."):format(required, element)
 		end,
 		metric = metricCounter("evolution.element." .. element),
 	})
@@ -416,7 +446,7 @@ for _, rarityEntry in ipairs(evolutionRarityChains) do
 		thresholds = EVOLUTION_RARITY_THRESHOLDS[rarity],
 		titles = makeTitles(rarity, ASCENT_LADDER),
 		description = function(required)
-			return ("Evolve %d %s Sieglings."):format(required, rarity)
+			return ("Evolve %d %s Siegelings."):format(required, rarity)
 		end,
 		metric = metricCounter("evolution.rarity." .. rarity),
 	})
@@ -459,7 +489,7 @@ addChain({
 	thresholds = HOLDING_THRESHOLDS,
 	titles = { "Small Kennel", "Stable Keeper", "Menagerie Steward", "Kennel Knight", "Grand Menagerist" },
 	description = function(required)
-		return ("Own %d Sieglings at once."):format(required)
+		return ("Own %d Siegelings at once."):format(required)
 	end,
 	metric = metricBest("collection.peakOwned"),
 })
@@ -473,7 +503,7 @@ addChain({
 	thresholds = SPECIES_THRESHOLDS,
 	titles = { "Species Seeker", "Codex Keeper", "Bestiary Squire", "Bestiary Knight", "Grand Archivist" },
 	description = function(required)
-		return ("Own %d different Siegling species over time."):format(required)
+		return ("Own %d different Siegeling species over time."):format(required)
 	end,
 	metric = metricSetCount("collection.speciesOwned"),
 })
@@ -487,7 +517,7 @@ addChain({
 	thresholds = DISTINCT_ELEMENT_THRESHOLDS,
 	titles = makeTitles("Elemental", CURATOR_LADDER),
 	description = function(required)
-		return ("Own Sieglings from %d different live elements."):format(required)
+		return ("Own Siegelings from %d different live elements."):format(required)
 	end,
 	metric = metricSetCount("collection.elementsOwned"),
 })
@@ -501,7 +531,7 @@ addChain({
 	thresholds = DISTINCT_RARITY_THRESHOLDS,
 	titles = makeTitles("Rarity", CURATOR_LADDER),
 	description = function(required)
-		return ("Own Sieglings from %d different rarities."):format(required)
+		return ("Own Siegelings from %d different rarities."):format(required)
 	end,
 	metric = metricSetCount("collection.raritiesOwned"),
 })
@@ -574,7 +604,7 @@ addChain({
 	thresholds = ASSIGN_THRESHOLDS,
 	titles = { "First Watch", "Watch Keeper", "Watch Squire", "Wall Knight", "Grand Castellan" },
 	description = function(required)
-		return ("Assign %d unique Sieglings to defense duty."):format(required)
+		return ("Assign %d unique Siegelings to defense duty."):format(required)
 	end,
 	metric = metricSetCount("base.defendersAssigned"),
 })
@@ -588,7 +618,7 @@ addChain({
 	thresholds = ASSIGN_THRESHOLDS,
 	titles = { "Tithe Started", "Coin Keeper", "Revenue Squire", "Guild Knight", "Golden Castellan" },
 	description = function(required)
-		return ("Assign %d unique Sieglings to income duty."):format(required)
+		return ("Assign %d unique Siegelings to income duty."):format(required)
 	end,
 	metric = metricSetCount("base.incomeAssigned"),
 })
@@ -672,7 +702,7 @@ addChain({
 	thresholds = SALE_THRESHOLDS,
 	titles = { "Vendor", "Merchant", "Market Squire", "Guild Merchant", "High Factor" },
 	description = function(required)
-		return ("Sell %d Sieglings."):format(required)
+		return ("Sell %d Siegelings."):format(required)
 	end,
 	metric = metricCounter("economy.salesCompleted"),
 })
@@ -686,7 +716,7 @@ addChain({
 	thresholds = SOURCE_THRESHOLDS,
 	titles = { "Pathfinder", "Way Broker", "Route Squire", "Route Knight", "Route Master" },
 	description = function(required)
-		return ("Obtain Sieglings through %d different systems."):format(required)
+		return ("Obtain Siegelings through %d different systems."):format(required)
 	end,
 	metric = metricSetCount("economy.acquisitionSources"),
 })

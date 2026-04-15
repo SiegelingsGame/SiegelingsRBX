@@ -55,6 +55,9 @@ local DEFAULTS = {
 	themedLighting = true,
 	playIdleAnimation = false,
 	interactable = true,
+	-- If set (e.g. UDim.new(1, 0) for a circle on a square host), applies UICorner on the
+	-- ViewportFrame. Parent Frame clipping does not mask 3D viewport output; this does.
+	viewportCornerRadius = nil,
 }
 local START_ANGLE_Y = math.pi * 1.5 -- rotate start 90deg so model faces camera
 local START_ANGLE_X = math.rad(12)
@@ -211,6 +214,13 @@ function CodexModelViewer.new(parent, options)
 	vf.BorderSizePixel = 0
 	vf.BackgroundTransparency = 0
 	vf.Parent = parent
+	local cornerR = options.viewportCornerRadius
+	if cornerR == nil then cornerR = DEFAULTS.viewportCornerRadius end
+	if cornerR ~= nil then
+		vf.ClipsDescendants = true
+		local cr = Instance.new("UICorner", vf)
+		cr.CornerRadius = cornerR
+	end
 
 	local cam = Instance.new("Camera")
 	cam.CameraType = Enum.CameraType.Scriptable
@@ -388,7 +398,7 @@ function CodexModelViewer:SetCreature(creatureId)
 		clone.Parent = self._world or self._viewport
 		local _, modelSize = centerModelAtOrigin(clone)
 		-- Match income/favorite orientation: apply same stand-up + yaw as base placement,
-		-- then +90° Y (180° from prior setting) so Sieglings face the viewport camera.
+		-- then +90° Y (180° from prior setting) so Siegelings face the viewport camera.
 		local cd = getCreatureData()
 		if cd and cd.GetModelRotationOffset and clone:IsA("Model") then
 			local rotOffset = cd.GetModelRotationOffset(creatureId, "companion", false) or CFrame.identity

@@ -65,32 +65,26 @@ local function getPanelScale()
 	return math.clamp(scale, PANEL_SCALE_MIN, PANEL_SCALE_MAX)
 end
 
-local function applyPanelScale(pnl)
-	if MobileWindowLayout.IsMobile() then
-		MobileWindowLayout.ApplyWindow(pnl, {
-			leftInset = 14,
-			rightInset = 14,
-			topInset = 10,
-			bottomInset = 14,
-			bottomMobileExtra = 20,
-		})
-		pnl.Draggable = true
-		return
-	end
-
-	local scale = getPanelScale()
-	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
-	pnl.Size = UDim2.new(0, w, 0, h)
-	pnl.Position = UDim2.new(0.5, -w/2, 0.5, -h/2)
-	MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
-end
-
 -- Screen GUI
 local sg = Instance.new("ScreenGui")
 sg.Name = "EggShopGUI"
 sg.ResetOnSpawn = false
 sg.DisplayOrder = 32
 sg.Parent = playerGui
+
+local function applyPanelScale(pnl)
+	MobileWindowLayout.SyncNpcMenuScreenGui(sg, PANEL_DESIGN_W, PANEL_DESIGN_H)
+	if MobileWindowLayout.NpcMenuUsesFullscreenBounds(PANEL_DESIGN_W, PANEL_DESIGN_H) then
+		MobileWindowLayout.ApplyWindow(pnl, MobileWindowLayout.GetNpcFullscreenBoundsConfig(PANEL_DESIGN_W, PANEL_DESIGN_H))
+		return
+	end
+
+	local scale = getPanelScale()
+	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
+	pnl.Size = UDim2.new(0, w, 0, h)
+	pnl.Position = UDim2.new(0.5, -w / 2, 0.5, -h / 2)
+	MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
+end
 
 -- Main panel (size/position set on open via applyPanelScale)
 local panel = Instance.new("Frame")
@@ -152,6 +146,7 @@ closeBtn.Parent = titleBar
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
 closeBtn.MouseButton1Click:Connect(function()
 	panel.Visible = false
+	sg.IgnoreGuiInset = false
 	MobileWindowLayout.NotifyMenuClosed()
 end)
 
@@ -171,7 +166,7 @@ cardLayout.Padding = UDim.new(0, 10)
 cardLayout.Parent = cardContainer
 
 local function applyResponsiveContentLayout()
-	local mobile = MobileWindowLayout.IsMobile()
+	local mobile = MobileWindowLayout.NpcMenuUsesFullscreenBounds(PANEL_DESIGN_W, PANEL_DESIGN_H)
 	titleLbl.TextSize = mobile and 22 or 18
 	currLbl.TextSize = mobile and 14 or 12
 	closeBtn.Size = mobile and UDim2.new(0, 38, 0, 38) or UDim2.new(0, 32, 0, 32)
@@ -183,6 +178,21 @@ local function applyResponsiveContentLayout()
 	cardLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	cardLayout.VerticalAlignment = Enum.VerticalAlignment.Top
 	cardLayout.Padding = mobile and UDim.new(0, 6) or UDim.new(0, 10)
+	if mobile then
+		titleLbl.TextXAlignment = Enum.TextXAlignment.Center
+		titleLbl.Position = UDim2.new(0, 8, 0, 2)
+		titleLbl.Size = UDim2.new(1, -16, 0, 22)
+		currLbl.TextXAlignment = Enum.TextXAlignment.Center
+		currLbl.Position = UDim2.new(0, 8, 0, 24)
+		currLbl.Size = UDim2.new(1, -16, 0, 16)
+	else
+		titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+		titleLbl.Size = UDim2.new(0.5, 0, 1, 0)
+		titleLbl.Position = UDim2.new(0, 15, 0, 0)
+		currLbl.TextXAlignment = Enum.TextXAlignment.Right
+		currLbl.Size = UDim2.new(0.45, -48, 1, 0)
+		currLbl.Position = UDim2.new(0.55, 0, 0, 0)
+	end
 end
 
 local hatching = false
@@ -203,7 +213,7 @@ local function buildEggCards()
 	local items = GameConfig.EggShopItems
 	if not items or #items == 0 then return end
 
-	local gap = MobileWindowLayout.IsMobile() and 6 or 10
+	local gap = MobileWindowLayout.NpcMenuUsesFullscreenBounds(PANEL_DESIGN_W, PANEL_DESIGN_H) and 6 or 10
 	local containerWidth = math.max(200, cardContainer.AbsoluteSize.X)
 	local cardWidth = math.max(62, math.floor((containerWidth - ((#items - 1) * gap)) / #items))
 	local uiScale = math.clamp(cardWidth / 120, 0.58, 1)
@@ -546,6 +556,8 @@ MobileWindowLayout.BindViewportUpdate(function()
 		applyPanelScale(panel)
 		applyResponsiveContentLayout()
 		buildEggCards()
+	else
+		sg.IgnoreGuiInset = false
 	end
 end)
 

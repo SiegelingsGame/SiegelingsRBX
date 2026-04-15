@@ -100,9 +100,10 @@ local RARITY_COLORS = {
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local ELEMENTAL_ELEMENTS = GameConfig.ElementalBossElements or { "Fire", "Ice", "Wind", "Earth" }
-local ELEMENTAL_TO_ZONE  = GameConfig.ElementalBossToZoneId or { Fire = "Desert", Ice = "Cave", Wind = "Ocean", Earth = "Electric" }
 local SIEGE_LABELS       = GameConfig.SiegeKnightSigilLabels or { "Desert", "Cave", "Ocean", "Cyber" }
 local SIEGE_ZONE_IDS     = GameConfig.SiegeKnightSigilZoneIds or { "Desert", "Cave", "Ocean", "Electric" }
+local SIEGE_LORD_ZONE_ID = GameConfig.SiegeLordSigilZoneId or "Badlands"
+local SIEGE_LORD_SUB     = GameConfig.SiegeLordSigilSubtext or "Successful extraction"
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- Layout constants
@@ -115,6 +116,41 @@ local PANEL_SCALE_MIN  = 0.55
 local PANEL_SCALE_MAX  = 1
 local TAB_BAR_HEIGHT   = 36
 local HEADER_HEIGHT    = 48
+local MOBILE_BREAKPOINT = 620
+
+local function isMobileLayout()
+	local cam = workspace.CurrentCamera
+	local vp = (cam and cam.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
+	return MobileWindowLayout.IsMobile() or vp.X < MOBILE_BREAKPOINT or vp.Y < 500
+end
+
+-- Match InventoryUI: full safe-area rect, vertical bleed, no hub gap (same GetBounds flags).
+local function profileUsesFullscreenBounds()
+	local cam = workspace.CurrentCamera
+	local vp = (cam and cam.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
+	if isMobileLayout() then
+		return true
+	end
+	return vp.X < PANEL_DESIGN_W or vp.Y < PANEL_DESIGN_H
+end
+
+local function profileGetBoundsConfig()
+	local cam = workspace.CurrentCamera
+	local vp = (cam and cam.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
+	local compactViewport = vp.X < PANEL_DESIGN_W or vp.Y < PANEL_DESIGN_H
+	local boundsConfig = {
+		extendViewportVertically = true,
+		reserveBottomHubGap = false,
+		bottomMobileExtra = 0,
+		topInset = 0,
+		bottomInset = 0,
+		mobileDraggable = false,
+	}
+	if compactViewport and not isMobileLayout() then
+		boundsConfig.useMaximalSafeRect = true
+	end
+	return boundsConfig
+end
 
 local function getPanelScale()
 	local cam = workspace.CurrentCamera
@@ -124,11 +160,8 @@ local function getPanelScale()
 end
 
 local function getScaledDims()
-	if MobileWindowLayout.IsMobile() then
-		local bounds = MobileWindowLayout.GetBounds({
-			leftInset = 14, rightInset = 14, topInset = 10,
-			bottomInset = 14, bottomMobileExtra = 20,
-		})
+	if profileUsesFullscreenBounds() then
+		local bounds = MobileWindowLayout.GetBounds(profileGetBoundsConfig())
 		local w = math.floor(bounds.width)
 		local h = math.floor(bounds.height)
 		local sb = math.floor(math.clamp(w * 0.34, 140, 220))
@@ -148,6 +181,14 @@ sg.ResetOnSpawn = false
 sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 sg.DisplayOrder = 16
 sg.Parent = playerGui
+
+local function syncProfileScreenGuiInset()
+	if profileUsesFullscreenBounds() then
+		sg.IgnoreGuiInset = true
+	else
+		sg.IgnoreGuiInset = false
+	end
+end
 
 local main = Instance.new("Frame")
 main.Size = UDim2.new(0, PANEL_DESIGN_W, 0, PANEL_DESIGN_H)
@@ -186,6 +227,11 @@ title.Font = Enum.Font.GothamBlack
 title.TextSize = 17
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = hdr
+local applyProfileHeaderTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(title, {
+	Position = UDim2.new(0, 18, 0, 0),
+	Size = UDim2.new(1, -50, 1, 0),
+	TextXAlignment = Enum.TextXAlignment.Left,
+})
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 30, 0, 30)
@@ -619,7 +665,7 @@ function refreshProfile()
 	for _, ch in ipairs(sidebarContent:GetChildren()) do
 		if not ch:IsA("UIListLayout") then ch:Destroy() end
 	end
-	sidebarTitle.Text = MobileWindowLayout.IsMobile() and "DETAILS" or "BASE FLOORS"
+	sidebarTitle.Text = isMobileLayout() and "DETAILS" or "BASE FLOORS"
 
 	if not getProfile then return end
 	local ok, data = pcall(function() return getProfile:InvokeServer() end)
@@ -631,7 +677,7 @@ function refreshProfile()
 	local lvl = data.playerLevel or 1
 	local xp = data.playerXP or 0
 	local xpNeeded = data.xpNeeded or 100
-	local isMobile = MobileWindowLayout.IsMobile()
+	local isMobile = isMobileLayout()
 
 	-- Name + level + XP (goes in sidebar on mobile)
 	local barParent = isMobile and sidebarContent or leftCol
@@ -693,10 +739,37 @@ function refreshProfile()
 	xpLbl.TextSize = 8
 	xpLbl.Parent = xpBg
 
+	local pc = data.pilotCombat
+	if pc then
+		local pct = math.floor((pc.statGainPerLevel or 0.08) * 100 + 0.5)
+		mkSection(leftCol, "PILOT COMBAT (SCALES WITH LEVEL)", 1)
+		mkStatRow(leftCol, "ATK", tostring(pc.attack), Color3.fromRGB(255, 100, 80), 2)
+		mkStatRow(leftCol, "DEF", tostring(pc.defense), Color3.fromRGB(80, 150, 255), 3)
+		mkStatRow(leftCol, "Health (max)", tostring(pc.maxHealth), Color3.fromRGB(90, 220, 120), 4)
+		mkStatRow(leftCol, "Speed (walk / sprint)", ("%d / %d studs/s"):format(pc.walkSpeed, pc.sprintSpeed), C.text, 5)
+		local pilotNote = Instance.new("TextLabel")
+		pilotNote.Size = UDim2.new(1, 0, 0, 0)
+		pilotNote.AutomaticSize = Enum.AutomaticSize.Y
+		pilotNote.BackgroundTransparency = 1
+		pilotNote.TextXAlignment = Enum.TextXAlignment.Left
+		pilotNote.Font = Enum.Font.GothamMedium
+		pilotNote.TextSize = 9
+		pilotNote.TextColor3 = C.textSec
+		pilotNote.TextWrapped = true
+		pilotNote.LayoutOrder = 6
+		pilotNote.Parent = leftCol
+		local multPct = math.floor(((pc.levelMult or 1) - 1) * 100 + 0.5)
+		local note = ("Each player level adds +%d%% to your pilot combat stats (same rule as creature level scaling). Right now your level multiplier is +%d%% vs. level 1. Rebirth further boosts damage and max health. This growth is what keeps you viable in the Badlands when you enter without your Siegeling."):format(pct, multPct)
+		if pc.inBadlands and (pc.badlandsAttack > 0 or pc.badlandsDefense > 0 or pc.badlandsHealth > 0 or pc.badlandsMove > 0) then
+			note = note .. " Badlands run bonuses are included in the numbers above."
+		end
+		pilotNote.Text = note
+	end
+
 	-- Economy + Stats
-	mkSection(leftCol, "ECONOMY", 1)
-	mkStatRow(leftCol, "Coins", tostring(data.coins or 0), C.gold, 2)
-	mkStatRow(leftCol, "Gems", tostring(data.gems or 0), C.blue, 3)
+	mkSection(leftCol, "ECONOMY", 10)
+	mkStatRow(leftCol, "Coins", tostring(data.coins or 0), C.gold, 11)
+	mkStatRow(leftCol, "Gems", tostring(data.gems or 0), C.blue, 12)
 
 	mkSection(leftCol, "STATS", 20)
 	mkStatRow(leftCol, "Monsters Owned", tostring(data.monstersOwned or 0), C.text, 21)
@@ -716,9 +789,10 @@ function refreshProfile()
 	if isMobile then mkSection(leftCol, "BASE FLOORS", 40) end
 
 	local unlockHint = Instance.new("TextLabel")
-	unlockHint.Size = UDim2.new(1, 0, 0, 32)
+	unlockHint.Size = UDim2.new(1, 0, 0, 0)
+	unlockHint.AutomaticSize = Enum.AutomaticSize.Y
 	unlockHint.BackgroundTransparency = 1
-	unlockHint.Text = "Floor 2 unlocks Battles! Floor 4 unlocks your Siegelord Arena!"
+	unlockHint.Text = "Each floor adds space and a siege title. Floor 2 — Siege Squire (Battles & battle team). Floor 3 — Siege Knight (teleporters, Recycler, and Combiners). Floor 4 — Siegelord (Siegelord Arena)."
 	unlockHint.TextColor3 = C.textMut
 	unlockHint.Font = Enum.Font.GothamMedium
 	unlockHint.TextSize = 9
@@ -726,8 +800,19 @@ function refreshProfile()
 	unlockHint.LayoutOrder = 0
 	unlockHint.Parent = floorsParent
 
-	-- Floor display names: Floor 4 is the "Siegelord Arena"
-	local FLOOR_DISPLAY_NAMES = { [1] = "Floor 1", [2] = "Floor 2", [3] = "Floor 3", [4] = "Floor 4 — Siegelord" }
+	-- Titles match progression; benefits explain gameplay unlocks per row below.
+	local FLOOR_DISPLAY_NAMES = {
+		[1] = "Floor 1 — Starter base",
+		[2] = "Floor 2 — Siege Squire",
+		[3] = "Floor 3 — Siege Knight",
+		[4] = "Floor 4 — Siegelord",
+	}
+	local FLOOR_BENEFITS = {
+		[1] = "Starting stronghold: ground-floor income & defense slots.",
+		[2] = "You become a Siege Squire. Unlocks Battles and your battle team.",
+		[3] = "You become a Siege Knight. Unlocks teleporters, the Recycler, and Combiners on Floor 3.",
+		[4] = "You become a Siegelord. Unlocks the Siegelord Arena.",
+	}
 	-- Floor config lookup: { cost, levelReq } for purchasable floors
 	local FLOOR_UI_CONFIG = {
 		[2] = { cost = GameConfig.Floor2Cost or 500,    levelReq = GameConfig.Floor2LevelReq or 2,   prereq = nil },
@@ -738,7 +823,8 @@ function refreshProfile()
 	for i, floorNum in ipairs({ 1, 2, 3, 4 }) do
 		local owned = ownsFloor(floorNum)
 		local isLocked = not owned and floorNum > 1
-		local rowHeight = isLocked and 70 or 44
+		local benefitLine = FLOOR_BENEFITS[floorNum] or ""
+		local rowHeight = isLocked and 96 or (floorNum == 1 and 56 or 62)
 		local floorRow = Instance.new("Frame")
 		floorRow.Size = UDim2.new(1, 0, 0, rowHeight)
 		floorRow.BackgroundColor3 = C.card
@@ -758,18 +844,34 @@ function refreshProfile()
 		fName.TextXAlignment = Enum.TextXAlignment.Left
 		fName.Parent = floorRow
 
+		local fBenefit = Instance.new("TextLabel")
+		fBenefit.BackgroundTransparency = 1
+		fBenefit.Font = Enum.Font.GothamMedium
+		fBenefit.TextSize = 8
+		fBenefit.TextXAlignment = Enum.TextXAlignment.Left
+		fBenefit.TextWrapped = true
+		fBenefit.TextColor3 = C.textSec
+		fBenefit.Text = benefitLine
+		fBenefit.Parent = floorRow
+
 		if owned or floorNum == 1 then
+			local benH = floorNum == 1 and 20 or 26
+			fBenefit.Size = UDim2.new(1, -16, 0, benH)
+			fBenefit.Position = UDim2.new(0, 8, 0, 22)
 			local fStatus = Instance.new("TextLabel")
-			fStatus.Size = UDim2.new(1, -16, 0, 14)
-			fStatus.Position = UDim2.new(0, 8, 0, 22)
+			fStatus.Size = UDim2.new(1, -16, 0, 12)
+			fStatus.Position = UDim2.new(0, 8, 0, 22 + benH + 2)
 			fStatus.BackgroundTransparency = 1
-			fStatus.Font = Enum.Font.GothamMedium
+			fStatus.Font = Enum.Font.GothamBold
 			fStatus.TextSize = 9
 			fStatus.TextXAlignment = Enum.TextXAlignment.Left
 			fStatus.Parent = floorRow
 			fStatus.Text = owned and "OWNED" or "STARTER"
 			fStatus.TextColor3 = C.green
 		else
+			fBenefit.Size = UDim2.new(1, -16, 0, 22)
+			fBenefit.Position = UDim2.new(0, 8, 0, 22)
+
 			local floorCfg = FLOOR_UI_CONFIG[floorNum] or { cost = 0, levelReq = 1 }
 			local reqLvl = floorCfg.levelReq
 			local cost = floorCfg.cost
@@ -777,8 +879,8 @@ function refreshProfile()
 			local meetsPrereq = (not floorCfg.prereq) or ownsFloor(floorCfg.prereq)
 
 			local costLbl = Instance.new("TextLabel")
-			costLbl.Size = UDim2.new(1, -16, 0, 14)
-			costLbl.Position = UDim2.new(0, 8, 0, 22)
+			costLbl.Size = UDim2.new(1, -16, 0, 13)
+			costLbl.Position = UDim2.new(0, 8, 0, 46)
 			costLbl.BackgroundTransparency = 1
 			costLbl.Font = Enum.Font.GothamBold
 			costLbl.TextSize = 11
@@ -788,8 +890,8 @@ function refreshProfile()
 			costLbl.Parent = floorRow
 
 			local lvlLbl = Instance.new("TextLabel")
-			lvlLbl.Size = UDim2.new(1, -16, 0, 12)
-			lvlLbl.Position = UDim2.new(0, 8, 0, 36)
+			lvlLbl.Size = UDim2.new(1, -16, 0, 11)
+			lvlLbl.Position = UDim2.new(0, 8, 0, 60)
 			lvlLbl.BackgroundTransparency = 1
 			lvlLbl.Font = Enum.Font.GothamMedium
 			lvlLbl.TextSize = 9
@@ -805,7 +907,7 @@ function refreshProfile()
 			local canBuy = meetsLevel and meetsPrereq and (data.coins or 0) >= cost
 			local buyBtn2 = Instance.new("TextButton")
 			buyBtn2.Size = UDim2.new(1, -16, 0, 22)
-			buyBtn2.Position = UDim2.new(0, 8, 1, -26)
+			buyBtn2.Position = UDim2.new(0, 8, 0, 74)
 			buyBtn2.BackgroundColor3 = canBuy and C.green or C.divider
 			buyBtn2.Text = canBuy and ("BUY - " .. cost .. " Coins") or "BUY"
 			buyBtn2.TextColor3 = canBuy and Color3.new(1, 1, 1) or C.textMut
@@ -966,8 +1068,7 @@ function refreshSigils()
 	mkSection(sigilsTab, "SiegeSquire Sigils", order)
 	for _, element in ipairs(ELEMENTAL_ELEMENTS) do
 		order = order + 1
-		local zoneId = ELEMENTAL_TO_ZONE and ELEMENTAL_TO_ZONE[element]
-		local defeated = zoneId and hasSigil(zoneId)
+		local defeated = hasSigil(element)
 		addSigilRow(sigilsTab, order, element, getBossDisplayName(element),
 			defeated and "Defeated" or "Not defeated",
 			defeated and C.income or C.textMut)
@@ -993,14 +1094,18 @@ function refreshSigils()
 	order = order + 1
 	mkSection(sigilsTab, "SiegeLord Sigils", order)
 	order = order + 1
-	addSigilRow(sigilsTab, order, "Badlands", "\226\128\148", "Coming Soon", C.textMut)
+	local lordEarned = hasSigil(SIEGE_LORD_ZONE_ID)
+	addSigilRow(sigilsTab, order, "Badlands", SIEGE_LORD_SUB,
+		lordEarned and "Earned" or "Not earned",
+		lordEarned and C.income or C.textMut)
 
 	-- Hint
 	order = order + 1
 	local hint = Instance.new("TextLabel")
 	hint.Size = UDim2.new(1, 0, 0, 36)
 	hint.BackgroundTransparency = 1
-	hint.Text = "Defeat elemental bosses for SiegeSquire sigils; earn SiegeKnight sigils for zone doors. SiegeLord content coming soon."
+	hint.Text = GameConfig.ZoneDoorModalSigilsHint
+		or "Inner zones: defeat Legendary Siegelings for SiegeSquire Sigils (one per element). Exterior: win each zone Gym for SiegeKnight Sigils — four unlock a Biome Pass; each Gym also awards a pass for another gate. SiegeLord: complete a successful Badlands extraction to earn your SiegeLord Sigil."
 	hint.TextColor3 = C.textMut
 	hint.Font = Enum.Font.Gotham
 	hint.TextSize = 10
@@ -1064,6 +1169,27 @@ local function mkBadgeIcon(parent, iconId, tint, locked)
 	return ring
 end
 
+--- Diamonds + player XP granted on first unlock (from server `rewardData` or config).
+local function getAchievementRewardLine(entry)
+	local rd = type(entry) == "table" and entry.rewardData
+	if type(rd) ~= "table" then
+		return ""
+	end
+	local gems = math.floor(tonumber(rd.gems) or 0)
+	local xp = math.floor(tonumber(rd.xp) or 0)
+	if gems <= 0 and xp <= 0 then
+		return ""
+	end
+	local parts = {}
+	if gems > 0 then
+		table.insert(parts, "+" .. tostring(gems) .. " diamonds")
+	end
+	if xp > 0 then
+		table.insert(parts, "+" .. tostring(xp) .. " XP")
+	end
+	return table.concat(parts, " · ")
+end
+
 local function applyAchievementVisualState(card, entry)
 	local required = entry.requiredProgress or 0
 	local cur = entry.currentProgress or 0
@@ -1084,6 +1210,7 @@ local function applyAchievementVisualState(card, entry)
 	local progText = bg and bg:FindFirstChild("ProgText")
 	local reqText = bg and bg:FindFirstChild("ReqText")
 	local lockOverlay = bg and bg:FindFirstChild("LockOverlay")
+	local rewardRow = bg and bg:FindFirstChild("RewardRow")
 
 	if bg then
 		bg.BackgroundColor3 = unlocked and Color3.fromRGB(18, 28, 22) or C.card
@@ -1145,6 +1272,13 @@ local function applyAchievementVisualState(card, entry)
 	if lockOverlay then
 		lockOverlay.Visible = locked
 	end
+	if rewardRow and rewardRow:IsA("TextLabel") then
+		local line = getAchievementRewardLine(entry)
+		rewardRow.Visible = line ~= ""
+		rewardRow.Text = line ~= "" and ("Reward: " .. line) or ""
+		rewardRow.TextColor3 = unlocked and Color3.fromRGB(130, 210, 160) or inProgress and C.blue or C.textMut
+		rewardRow.TextTransparency = locked and 0.25 or 0
+	end
 end
 
 local function buildAchievementCard(entry, layoutOrder, cellW)
@@ -1200,7 +1334,7 @@ local function buildAchievementCard(entry, layoutOrder, cellW)
 
 	local descLbl = Instance.new("TextLabel")
 	descLbl.Name = "Desc"
-	descLbl.Size = UDim2.new(1, -92, 0, 28)
+	descLbl.Size = UDim2.new(1, -92, 0, 20)
 	descLbl.Position = UDim2.new(0, 80, 0, 28)
 	descLbl.BackgroundTransparency = 1
 	descLbl.Text = tostring(entry.description or "")
@@ -1212,6 +1346,21 @@ local function buildAchievementCard(entry, layoutOrder, cellW)
 	descLbl.TextYAlignment = Enum.TextYAlignment.Top
 	descLbl.ZIndex = 6
 	descLbl.Parent = bg
+
+	local rewardRow = Instance.new("TextLabel")
+	rewardRow.Name = "RewardRow"
+	rewardRow.Size = UDim2.new(1, -92, 0, 12)
+	rewardRow.Position = UDim2.new(0, 80, 0, 48)
+	rewardRow.BackgroundTransparency = 1
+	rewardRow.Text = ""
+	rewardRow.TextColor3 = C.blue
+	rewardRow.Font = Enum.Font.GothamBold
+	rewardRow.TextSize = 9
+	rewardRow.TextXAlignment = Enum.TextXAlignment.Left
+	rewardRow.TextTruncate = Enum.TextTruncate.AtEnd
+	rewardRow.ZIndex = 6
+	rewardRow.Visible = false
+	rewardRow.Parent = bg
 
 	-- State pill (top-right)
 	local pill = Instance.new("Frame")
@@ -1262,7 +1411,7 @@ local function buildAchievementCard(entry, layoutOrder, cellW)
 	local progText = Instance.new("TextLabel")
 	progText.Name = "ProgText"
 	progText.Size = UDim2.new(0, 70, 0, 14)
-	progText.Position = UDim2.new(1, -78, 1, -38)
+	progText.Position = UDim2.new(1, -78, 1, -36)
 	progText.BackgroundTransparency = 1
 	progText.Text = "0/0"
 	progText.TextColor3 = C.textMut
@@ -1275,7 +1424,7 @@ local function buildAchievementCard(entry, layoutOrder, cellW)
 	local reqText = Instance.new("TextLabel")
 	reqText.Name = "ReqText"
 	reqText.Size = UDim2.new(1, -92, 0, 14)
-	reqText.Position = UDim2.new(0, 80, 1, -38)
+	reqText.Position = UDim2.new(0, 80, 1, -36)
 	reqText.BackgroundTransparency = 1
 	reqText.Text = tostring(entry.category or "General")
 	reqText.TextColor3 = C.textMut
@@ -1321,7 +1470,7 @@ function refreshAchievements()
 	end
 	achievementCardById = {}
 
-	local isMobile = MobileWindowLayout.IsMobile()
+	local isMobile = isMobileLayout()
 	local w = achievementsTab.AbsoluteSize.X
 	if w <= 0 then w = 720 end
 	local cols = isMobile and 1 or 2
@@ -1349,6 +1498,7 @@ function refreshAchievements()
 				currentProgress = 0,
 				requiredProgress = def.requiredProgress,
 				unlocked = false,
+				rewardData = def.rewardData,
 			})
 		end
 	end
@@ -1393,14 +1543,36 @@ local function showAchievementUnlockPopup(def)
 	if unlockedPopupShown[def.id] then return end
 	unlockedPopupShown[def.id] = true
 
+	local rg = tonumber(def.gems) or 0
+	local rx = tonumber(def.xp) or 0
+	local rd = type(def.rewardData) == "table" and def.rewardData or nil
+	if rg <= 0 and rd then
+		rg = tonumber(rd.gems) or 0
+	end
+	if rx <= 0 and rd then
+		rx = tonumber(rd.xp) or 0
+	end
+
+	local rows = {
+		{ text = def.name or "Badge Earned", color = C.text, font = Enum.Font.GothamBlack, textSize = 16, size = 22 },
+		{ text = def.titleEarned and def.titleEarned ~= "" and ("Title Earned: " .. def.titleEarned) or "New title unlocked", color = C.achieveAccent, font = Enum.Font.GothamBold, textSize = 12, size = 18 },
+	}
+	if rg > 0 or rx > 0 then
+		local parts = {}
+		if rg > 0 then
+			table.insert(parts, "+" .. tostring(rg) .. " diamonds")
+		end
+		if rx > 0 then
+			table.insert(parts, "+" .. tostring(rx) .. " XP")
+		end
+		table.insert(rows, { text = table.concat(parts, " · "), color = C.blue, font = Enum.Font.GothamBold, textSize = 12, size = 18 })
+	end
+	table.insert(rows, { text = def.description or "", color = C.textSec, font = Enum.Font.GothamMedium, textSize = 12, size = 18 })
+
 	Notify.RewardPopup(
 		"ACHIEVEMENT UNLOCKED",
 		C.achieveAccent,
-		{
-			{ text = def.name or "Badge Earned", color = C.text, font = Enum.Font.GothamBlack, textSize = 16, size = 22 },
-			{ text = def.titleEarned and def.titleEarned ~= "" and ("Title Earned: " .. def.titleEarned) or "New title unlocked", color = C.achieveAccent, font = Enum.Font.GothamBold, textSize = 12, size = 18 },
-			{ text = def.description or "", color = C.textSec, font = Enum.Font.GothamMedium, textSize = 12, size = 18 },
-		},
+		rows,
 		5.5
 	)
 end
@@ -1873,7 +2045,7 @@ local function buildAchievementTierCard(entry, order, cardWidth, cardHeight)
 
 	local descLbl = Instance.new("TextLabel")
 	descLbl.Name = "Desc"
-	descLbl.Size = UDim2.new(1, -24, 0, 38)
+	descLbl.Size = UDim2.new(1, -24, 0, 24)
 	descLbl.Position = UDim2.new(0, 12, 0, 64)
 	descLbl.BackgroundTransparency = 1
 	descLbl.Text = tostring(entry.description or "")
@@ -1886,10 +2058,25 @@ local function buildAchievementTierCard(entry, order, cardWidth, cardHeight)
 	descLbl.ZIndex = 6
 	descLbl.Parent = bg
 
+	local rewardRow = Instance.new("TextLabel")
+	rewardRow.Name = "RewardRow"
+	rewardRow.Size = UDim2.new(1, -24, 0, 14)
+	rewardRow.Position = UDim2.new(0, 12, 0, 89)
+	rewardRow.BackgroundTransparency = 1
+	rewardRow.Text = ""
+	rewardRow.TextColor3 = C.blue
+	rewardRow.Font = Enum.Font.GothamBold
+	rewardRow.TextSize = 9
+	rewardRow.TextXAlignment = Enum.TextXAlignment.Left
+	rewardRow.TextTruncate = Enum.TextTruncate.AtEnd
+	rewardRow.ZIndex = 6
+	rewardRow.Visible = false
+	rewardRow.Parent = bg
+
 	local reqText = Instance.new("TextLabel")
 	reqText.Name = "ReqText"
 	reqText.Size = UDim2.new(1, -106, 0, 14)
-	reqText.Position = UDim2.new(0, 12, 1, -40)
+	reqText.Position = UDim2.new(0, 12, 1, -36)
 	reqText.BackgroundTransparency = 1
 	reqText.Text = "Title: " .. tostring(entry.titleEarned or "Unknown Honor")
 	reqText.TextColor3 = entry.badgeAccent or C.achieveAccent
@@ -1903,7 +2090,7 @@ local function buildAchievementTierCard(entry, order, cardWidth, cardHeight)
 	local progText = Instance.new("TextLabel")
 	progText.Name = "ProgText"
 	progText.Size = UDim2.new(0, 82, 0, 14)
-	progText.Position = UDim2.new(1, -94, 1, -40)
+	progText.Position = UDim2.new(1, -94, 1, -36)
 	progText.BackgroundTransparency = 1
 	progText.Text = "0/0"
 	progText.TextColor3 = C.textMut
@@ -2129,7 +2316,7 @@ function refreshAchievements()
 		totalTiers = 0,
 		unlockedTiers = 0,
 		completionRatio = 0,
-		subtitle = "Track your legend across the full world of Sieglings.",
+		subtitle = "Track your legend across the full world of Siegelings.",
 	}
 
 	local chainsByCategory = {}
@@ -2234,7 +2421,7 @@ function refreshAchievements()
 	end
 
 	local tierGap = 10
-	local tierCellHeight = MobileWindowLayout.IsMobile() and 146 or 138
+	local tierCellHeight = isMobileLayout() and 146 or 138
 	local innerGridWidth = availableWidth - 28
 	local tierCellWidth = math.max(118, math.floor((innerGridWidth - (tierGap * (tierColumns - 1))) / tierColumns))
 
@@ -2663,14 +2850,11 @@ end
 isVis = false
 
 local function applyMobileScale()
+	syncProfileScreenGuiInset()
 	local w, h, sbWidth = getScaledDims()
-	local mobile = MobileWindowLayout.IsMobile()
-	if mobile then
-		MobileWindowLayout.ApplyWindow(main, {
-			leftInset = 14, rightInset = 14, topInset = 10,
-			bottomInset = 14, bottomMobileExtra = 20,
-		})
-		main.Draggable = true
+	if profileUsesFullscreenBounds() then
+		MobileWindowLayout.ApplyWindow(main, profileGetBoundsConfig())
+		main.Draggable = false
 		profileBody.FillDirection = Enum.FillDirection.Horizontal
 		profileBody.Padding = UDim.new(0, 10)
 		leftCol.Size = UDim2.new(1, -sbWidth - 10, 1, -8)
@@ -2679,6 +2863,7 @@ local function applyMobileScale()
 		closeBtn.Position = UDim2.new(1, -44, 0, 6)
 		closeBtn.TextSize = 15
 		sidebarTitle.Text = "DETAILS"
+		applyProfileHeaderTitleLayout()
 		return
 	end
 	main.Size = UDim2.new(0, w, 0, h)
@@ -2691,6 +2876,7 @@ local function applyMobileScale()
 	closeBtn.Position = UDim2.new(1, -38, 0, 9)
 	closeBtn.TextSize = 13
 	MobileWindowLayout.RestoreDesktopWindow(main, { draggable = true })
+	applyProfileHeaderTitleLayout()
 end
 
 local function openUI(tabName)
@@ -2768,7 +2954,11 @@ playerGui.ChildAdded:Connect(function(child)
 end)
 
 MobileWindowLayout.BindViewportUpdate(function()
-	if isVis then applyMobileScale() end
+	if isVis then
+		applyMobileScale()
+	else
+		syncProfileScreenGuiInset()
+	end
 end)
 
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -2801,4 +2991,5 @@ end)
 -- Initialize default tab state (Profile active, others hidden)
 switchTab("Profile")
 
+task.defer(syncProfileScreenGuiInset)
 print("[PlayerProfileClient] Loaded — tabbed Profile/Sigils/Rebirth menu (press P)")

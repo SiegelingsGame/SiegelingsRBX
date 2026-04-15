@@ -10,6 +10,7 @@
         "CreatureAnimation": { "$path": "CreatureAnimation.lua" },
         "CreatureData": { "$path": "CreatureData.lua" },
         "CreatureModelLoader": { "$path": "CreatureModelLoader.lua" },
+        "EleminionData": { "$path": "EleminionData.lua" },
         "GameConfig": { "$path": "GameConfig.lua" },
         "GameConfigData": { "$path": "GameConfigData.lua" },
         "BiomeZone": { "$path": "BiomeZone.lua" },
@@ -17,7 +18,23 @@
         "NotificationManager": { "$path": "NotificationManager.lua" },
         "LivingWorldData": { "$path": "LivingWorldData.lua" },
         "CodexModelViewer": { "$path": "CodexModelViewer.lua" },
-        "MobileWindowLayout": { "$path": "MobileWindowLayout.lua" }
+        "MobileWindowLayout": { "$path": "MobileWindowLayout.lua" },
+        "CaptureCostUtil": { "$path": "CaptureCostUtil.lua" },
+        "FurnitureCatalog": { "$path": "FurnitureCatalog.lua" },
+        "PlayerWorldStats": { "$path": "PlayerWorldStats.lua" }
+      },
+      "FurnitureModels": {
+        "$className": "Folder",
+        "PlaceholderCube": {
+          "$className": "Model",
+          "Cube": {
+            "$className": "Part",
+            "$properties": {
+              "Anchored": true,
+              "Size": [1.2, 1.2, 1.2]
+            }
+          }
+        }
       }
     },
 
@@ -154,6 +171,9 @@
       "ArenaTraderSystem": {
         "$path": "ArenaTraderSystem.lua"
       },
+      "EleminionSystem": {
+        "$path": "EleminionSystem.lua"
+      },
       "DecorSystem": {
         "$path": "DecorSystem.lua"
       },
@@ -199,6 +219,9 @@
         },
         "PlayerProfileClient": {
           "$path": "PlayerProfileClient.client.lua"
+        },
+        "ZoneDoorBoardClient": {
+          "$path": "ZoneDoorBoardClient.client.lua"
         },
         "FriendsListClient": {
           "$path": "FriendsListClient.client.lua"
@@ -274,6 +297,9 @@
         },
         "ArenaTraderClient": {
           "$path": "ArenaTraderClient.client.lua"
+        },
+        "EleminionClient": {
+          "$path": "EleminionClient.client.lua"
         },
         "BadlandsClient": {
           "$path": "BadlandsClient.client.lua"

@@ -2,8 +2,8 @@
 -- Pilot Rebirth UI: requirements, what you lose/keep, double verification.
 --
 -- FIX #34: DISABLED — Rebirth content has been merged into the tabbed PlayerProfileClient.
--- This file is kept as reference. The early return prevents any UI creation or event listeners.
-return
+-- This file is kept as reference. Wrapped return: bare `return` cannot be followed by more code in a chunk.
+do return end
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -99,6 +99,11 @@ title.Font = Enum.Font.GothamBlack
 title.TextSize = 17
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = hdr
+local applyRebirthTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(title, {
+	Position = UDim2.new(0, 18, 0, 0),
+	Size = UDim2.new(1, -50, 1, 0),
+	TextXAlignment = Enum.TextXAlignment.Left,
+})
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 30, 0, 30)
@@ -377,13 +382,7 @@ end
 -- Show/hide
 local function applyMainLayout()
 	if MobileWindowLayout.IsMobile() then
-		MobileWindowLayout.ApplyWindow(main, {
-			leftInset = 14,
-			rightInset = 14,
-			topInset = 10,
-			bottomInset = 14,
-			bottomMobileExtra = 20,
-		})
+		MobileWindowLayout.ApplyWindow(main, {})
 		main.Draggable = true
 		content.Size = UDim2.new(1, -20, 1, -132)
 		content.Position = UDim2.new(0, 10, 0, 56)
@@ -394,6 +393,7 @@ local function applyMainLayout()
 		closeBtn.TextSize = 16
 		confirmBox.Size = UDim2.new(1, -24, 0, 220)
 		confirmBox.Position = UDim2.new(0, 12, 0.5, -110)
+		applyRebirthTitleLayout()
 		return
 	end
 
@@ -409,6 +409,7 @@ local function applyMainLayout()
 	confirmBox.Size = UDim2.new(0, 320, 0, 200)
 	confirmBox.Position = UDim2.new(0.5, -160, 0.5, -100)
 	MobileWindowLayout.RestoreDesktopWindow(main, { draggable = true })
+	applyRebirthTitleLayout()
 end
 
 local function openUI()

@@ -20,12 +20,16 @@ local REGEN_TICK = 0.1  -- how often to apply healing once the quiet period has 
 local lastRegenTick = 0
 
 local function setupPlayerHealth(player, humanoid)
-	local baseMaxHP = GameConfig.PlayerMaxHealth or 100
-	local bonuses = PlayerDataManager.GetRebirthBonuses and PlayerDataManager.GetRebirthBonuses(player)
-	local healthBonus = (bonuses and bonuses.healthBonus) or 0
-	local maxHP = baseMaxHP + healthBonus
-	humanoid.MaxHealth = maxHP
-	humanoid.Health = maxHP
+	PlayerDataManager.ApplyWorldStatsToCharacter(player, humanoid)
+	-- If player data is not in cache yet, sync is a no-op — use plain config + rebirth until join finishes.
+	if type(player:GetAttribute("WorldStat_MaxHealth")) ~= "number" then
+		local baseMaxHP = GameConfig.PlayerMaxHealth or 100
+		local bonuses = PlayerDataManager.GetRebirthBonuses and PlayerDataManager.GetRebirthBonuses(player)
+		local healthBonus = (bonuses and bonuses.healthBonus) or 0
+		local maxHP = baseMaxHP + healthBonus
+		humanoid.MaxHealth = maxHP
+		humanoid.Health = maxHP
+	end
 
 	-- Roblox may enable default humanoid health regen on some rigs; our rules are delay-gated only.
 	pcall(function()

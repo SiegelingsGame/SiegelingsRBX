@@ -12,6 +12,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+local CaptureCostUtil = require(ReplicatedStorage.Modules.CaptureCostUtil)
 
 local PlayerDataManager
 local CreatureSpawner
@@ -106,8 +107,8 @@ function CaptureSystem.TryCapture(player, creatureModel)
 		return false, "Must defeat creature first! Use your companion to faint it."
 	end
 
+	-- Any capture while in The Badlands uses the run bag (not main inventory / income UI).
 	local isBadlandsCapture = player:GetAttribute("InBadlands") == true
-		and creatureModel:GetAttribute("BadlandsCreature") == true
 
 	if isBadlandsCapture and player:GetAttribute("BadlandsLoading") then
 		return false, "Still loading into The Badlands..."
@@ -120,6 +121,9 @@ function CaptureSystem.TryCapture(player, creatureModel)
 	if not creatureId then return false, "Unknown creature" end
 	local creatureInfo = CreatureData.GetById(creatureId)
 	if not creatureInfo then return false, "Invalid creature data" end
+	if CreatureData.IsNpcOnly and CreatureData.IsNpcOnly(creatureInfo) then
+		return false, "Eleminions cannot be captured."
+	end
 
 	local data = nil
 	if not isBadlandsCapture then
@@ -133,7 +137,8 @@ function CaptureSystem.TryCapture(player, creatureModel)
 	local cost = 0
 	if not isBadlandsCapture then
 		cost = CreatureData.GetCaptureCost(creatureId)
-		-- Lucky buff: 25% capture cost reduction
+		local decorBonus = PlayerDataManager.GetDecorStatueBonusMap and PlayerDataManager.GetDecorStatueBonusMap(player) or {}
+		cost = CaptureCostUtil.ApplyDecorStatueDiscount(cost, creatureId, decorBonus)
 		if PlayerDataManager.HasBuff and PlayerDataManager.HasBuff(player, "lucky") then
 			cost = math.floor(cost * 0.75)
 		end
@@ -146,6 +151,10 @@ function CaptureSystem.TryCapture(player, creatureModel)
 	captureCooldowns[player.UserId] = tick()
 
 	local holdTime = GameConfig.CaptureAnimationTime or GameConfig.CaptureHoldTime or 2.5
+	if not isBadlandsCapture and PlayerDataManager.GetDecorStatueBonusMap then
+		local decorBonus = PlayerDataManager.GetDecorStatueBonusMap(player)
+		holdTime = CaptureCostUtil.ApplyDecorStatueHoldMultiplier(holdTime, creatureId, decorBonus)
+	end
 	local events = ReplicatedStorage:FindFirstChild("Events")
 	local captureSessionId = HttpService:GenerateGUID(false)
 
@@ -198,10 +207,14 @@ function CaptureSystem.TryCapture(player, creatureModel)
 
 		local successEvent = events and events:FindFirstChild("CaptureSuccess")
 		if successEvent then
-			successEvent:FireClient(player, creatureId, bagInfo and bagInfo.uid or "", 0, {
+			local bid = (bagInfo and bagInfo.creatureId) or creatureId
+			successEvent:FireClient(player, bid, bagInfo and bagInfo.uid or "", 0, {
 				badlands = true,
+				badlandsPending = bagInfo and bagInfo.badlandsPending == true,
+				bagFull = bagInfo and bagInfo.bagFull == true,
 				bagCount = bagInfo and bagInfo.bagCount or 0,
 				bagMax = bagInfo and bagInfo.bagMax or 0,
+				bag = bagInfo and bagInfo.bag,
 				activeSlot = bagInfo and bagInfo.activeIndex or nil,
 			}, captureSessionId)
 		end
@@ -232,18 +245,21 @@ function CaptureSystem.TryCapture(player, creatureModel)
 
 	data.stats.totalCaptured = (data.stats.totalCaptured or 0) + 1
 
-	-- If this was an elemental boss (Fire, Ice, Wind, Earth), grant the corresponding SiegeKnight Sigil (zone)
+	-- Inner-zone elemental legendaries: grant SiegeKnight sigil for the matching exterior zone (see ElementalBossToZoneId).
 	do
 		local elementalElements = GameConfig.ElementalBossElements or { "Fire", "Ice", "Wind", "Earth" }
-		local elementalToZone = GameConfig.ElementalBossToZoneId or { Fire = "Desert", Ice = "Cave", Wind = "Ocean", Earth = "Electric" }
+		local elemToZone = GameConfig.ElementalBossToZoneId or {}
 		for _, element in ipairs(elementalElements) do
 			local bossId = CreatureData.GetBossCreatureId and CreatureData.GetBossCreatureId(element, false)
 			if bossId and creatureId == bossId then
-				local zoneId = elementalToZone[element]
+				local zoneId = elemToZone[element]
 				if zoneId then
+					local had = PlayerDataManager.HasSigil(player, zoneId)
 					PlayerDataManager.AddSigil(player, zoneId)
 					local sigilEvt = events and events:FindFirstChild("SigilEarned")
-					if sigilEvt then sigilEvt:FireClient(player, zoneId) end
+					if sigilEvt and not had then
+						sigilEvt:FireClient(player, zoneId)
+					end
 				end
 				break
 			end

@@ -64,10 +64,16 @@ local RARITY_COLORS = {
 
 local screenGui
 local mainFrame
+local applyTraderTitleLayout = nil
+local applyTraderSubLayout = nil
+local applyTraderCountdownLayout = nil
 local stockUISession = 0
 local viewers = {}
 local busy = false
 local currentPayload
+
+local TRADER_DESIGN_W = 560
+local TRADER_DESIGN_H = 520
 
 local function destroyViewers()
 	for _, v in ipairs(viewers) do
@@ -88,6 +94,9 @@ local function closeUI()
 		screenGui = nil
 	end
 	mainFrame = nil
+	applyTraderTitleLayout = nil
+	applyTraderSubLayout = nil
+	applyTraderCountdownLayout = nil
 	currentPayload = nil
 	if MobileWindowLayout and MobileWindowLayout.NotifyMenuClosed then
 		MobileWindowLayout.NotifyMenuClosed()
@@ -113,25 +122,34 @@ local function formatTimeLeft(endsAt)
 end
 
 local function applyLayout()
-	if not mainFrame then
+	if not mainFrame or not screenGui then
 		return
 	end
-	if MobileWindowLayout.IsMobile() then
-		MobileWindowLayout.ApplyWindow(mainFrame, {
-			leftInset = 12,
-			rightInset = 12,
-			topInset = 8,
-			bottomInset = 14,
-			bottomMobileExtra = 18,
-			mobileDraggable = true,
-		})
+	MobileWindowLayout.SyncNpcMenuScreenGui(screenGui, TRADER_DESIGN_W, TRADER_DESIGN_H)
+	if MobileWindowLayout.NpcMenuUsesFullscreenBounds(TRADER_DESIGN_W, TRADER_DESIGN_H) then
+		MobileWindowLayout.ApplyWindow(
+			mainFrame,
+			MobileWindowLayout.GetNpcFullscreenBoundsConfig(TRADER_DESIGN_W, TRADER_DESIGN_H, {
+				mobileDraggable = true,
+			})
+		)
 		mainFrame.AnchorPoint = Vector2.new(0, 0)
-		return
+	else
+		screenGui.IgnoreGuiInset = false
+		mainFrame.Size = UDim2.new(0, TRADER_DESIGN_W, 0, TRADER_DESIGN_H)
+		mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+		mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+		MobileWindowLayout.RestoreDesktopWindow(mainFrame, { draggable = true })
 	end
-	mainFrame.Size = UDim2.new(0, 560, 0, 520)
-	mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
-	mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-	MobileWindowLayout.RestoreDesktopWindow(mainFrame, { draggable = true })
+	if applyTraderTitleLayout then
+		applyTraderTitleLayout()
+	end
+	if applyTraderSubLayout then
+		applyTraderSubLayout()
+	end
+	if applyTraderCountdownLayout then
+		applyTraderCountdownLayout()
+	end
 end
 
 local function makeButton(parent, text, bg, pos, size)
@@ -179,8 +197,6 @@ local function showTraderUI(payload)
 	stroke.Thickness = 1.2
 	stroke.Transparency = 0.35
 
-	applyLayout()
-
 	local title = Instance.new("TextLabel")
 	title.Name = "Title"
 	title.Size = UDim2.new(1, -24, 0, 28)
@@ -216,6 +232,27 @@ local function showTraderUI(payload)
 	countdown.TextColor3 = Color3.fromRGB(180, 185, 200)
 	countdown.Text = "Next rotation: " .. formatTimeLeft(payload.rotationEndsAt)
 	countdown.Parent = mainFrame
+
+	applyTraderTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(title, {
+		Position = UDim2.new(0, 12, 0, 10),
+		Size = UDim2.new(1, -24, 0, 28),
+		TextXAlignment = Enum.TextXAlignment.Left,
+	})
+	applyTraderSubLayout = MobileWindowLayout.MenuHeaderTitleLayout(sub, {
+		Position = UDim2.new(0, 12, 0, 38),
+		Size = UDim2.new(1, -24, 0, 18),
+		TextXAlignment = Enum.TextXAlignment.Left,
+		mobileLeftGutter = 40,
+		mobileRightGutter = 40,
+	})
+	applyTraderCountdownLayout = MobileWindowLayout.MenuHeaderTitleLayout(countdown, {
+		Position = UDim2.new(0, 12, 0, 56),
+		Size = UDim2.new(1, -24, 0, 18),
+		TextXAlignment = Enum.TextXAlignment.Left,
+		mobileLeftGutter = 40,
+		mobileRightGutter = 40,
+	})
+	applyLayout()
 
 	local scroll = Instance.new("ScrollingFrame")
 	scroll.Name = "List"
@@ -370,4 +407,10 @@ stockEvt.OnClientEvent:Connect(function(payload)
 		return
 	end
 	showTraderUI(payload)
+end)
+
+MobileWindowLayout.BindViewportUpdate(function()
+	if mainFrame and mainFrame.Parent and screenGui and screenGui.Parent then
+		applyLayout()
+	end
 end)

@@ -1,0 +1,856 @@
+-- EleminionSystem.lua - ServerScriptService (ModuleScript)
+-- Spawns Eleminion NPCs at biome EPoints / EleminionPoints and handles affinity quest progress.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
+local CreatureModelLoader = require(ReplicatedStorage.Modules.CreatureModelLoader)
+local EleminionData = require(ReplicatedStorage.Modules.EleminionData)
+local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+
+local EleminionSystem = {}
+
+local PlayerDataManager
+local eventsFolder
+local statusUpdateEvent
+local openUiEvent
+local showNotificationEvent
+local coinsUpdateEvent
+local gemsUpdateEvent
+local playerXpEvent
+local playerLevelEvent
+
+local eleminionNpcs = {}
+local promptConnections = {}
+local warnedMissingPoints = {}
+
+local function normalizeName(value)
+	return string.lower((tostring(value or "")):gsub("[%s%p_]+", ""))
+end
+
+local function scoreNameKey(nameKey, def)
+	if not nameKey or nameKey == "" then
+		return 0
+	end
+
+	local score = 0
+	local elementKey = normalizeName(def.element)
+	local npcKey = normalizeName(def.npcCreatureId)
+
+	for _, hint in ipairs(def.pointHints or {}) do
+		local hintKey = normalizeName(hint)
+		if nameKey == hintKey then
+			score += 140
+		elseif nameKey:find(hintKey, 1, true) then
+			score += 80
+		end
+	end
+
+	if nameKey == "epoint" or nameKey == "eleminionpoint" then
+		score += 60
+	end
+	if nameKey:find("eleminionpoint", 1, true) or nameKey:find("epoint", 1, true) then
+		score += 40
+	end
+	if nameKey:find("eleminion", 1, true) then
+		score += 28
+	end
+	if nameKey:find(elementKey, 1, true) then
+		score += 18
+	end
+	if nameKey:find(npcKey, 1, true) then
+		score += 24
+	end
+
+	return score
+end
+
+local function scoreAttributes(instance, def)
+	if not instance then
+		return 0
+	end
+
+	local score = 0
+	local elementKey = normalizeName(def.element)
+	local npcKey = normalizeName(def.npcCreatureId)
+
+	local attrElementNames = { "EleminionElement", "Element", "BiomeElement", "SpawnElement" }
+	for _, attrName in ipairs(attrElementNames) do
+		local attrValue = instance:GetAttribute(attrName)
+		if type(attrValue) == "string" and normalizeName(attrValue) == elementKey then
+			score += 200
+			break
+		end
+	end
+
+	local attrIdNames = { "EleminionId", "NpcCreatureId", "CreatureId", "NpcId" }
+	for _, attrName in ipairs(attrIdNames) do
+		local attrValue = instance:GetAttribute(attrName)
+		if type(attrValue) == "string" and normalizeName(attrValue) == npcKey then
+			score += 220
+			break
+		end
+	end
+
+	local pointTypeNames = { "PointType", "SpawnType", "MarkerType" }
+	for _, attrName in ipairs(pointTypeNames) do
+		local attrValue = instance:GetAttribute(attrName)
+		if type(attrValue) == "string" then
+			local key = normalizeName(attrValue)
+			if key == "eleminion" or key == "epoint" or key == "eleminionpoint" then
+				score += 90
+				break
+			end
+		end
+	end
+
+	return score
+end
+
+local function getElementColor(element)
+	local def = CreatureData.Elements[element]
+	return (def and def.color) or Color3.fromRGB(220, 220, 220)
+end
+
+local function isEnabled()
+	return GameConfig.EleminionsEnabled ~= false
+end
+
+local function getPromptRange()
+	local cfg = GameConfig.Eleminion
+	return (type(cfg) == "table" and tonumber(cfg.PromptRange)) or 14
+end
+
+local function getNpcGroundOffset()
+	local cfg = GameConfig.Eleminion
+	return (type(cfg) == "table" and tonumber(cfg.GroundOffsetStuds)) or 0.2
+end
+
+local function notify(player, message, level)
+	if showNotificationEvent and player and message and message ~= "" then
+		showNotificationEvent:FireClient(player, message, level or "info")
+	end
+end
+
+local function disconnectPromptForModel(model)
+	if not model then
+		return
+	end
+	for prompt, connection in pairs(promptConnections) do
+		if prompt == nil or prompt.Parent == nil or prompt:IsDescendantOf(model) then
+			if connection then
+				connection:Disconnect()
+			end
+			promptConnections[prompt] = nil
+		end
+	end
+end
+
+local function getOrCreateElementState(player, element)
+	local data = PlayerDataManager and PlayerDataManager.GetData and PlayerDataManager.GetData(player)
+	if not data then
+		return nil, nil
+	end
+	if type(data.eleminions) ~= "table" then
+		data.eleminions = {}
+	end
+	local state = data.eleminions[element]
+	if type(state) ~= "table" then
+		state = {
+			affinity = 0,
+			quests = {},
+		}
+		data.eleminions[element] = state
+	end
+	if type(state.affinity) ~= "number" then
+		state.affinity = math.max(0, tonumber(state.affinity) or 0)
+	end
+	if type(state.quests) ~= "table" then
+		state.quests = {}
+	end
+	return data, state
+end
+
+local function getOrCreateQuestState(state, questIndex)
+	local questState = state.quests[questIndex]
+	if type(questState) ~= "table" then
+		questState = {
+			claimed = false,
+			completed = false,
+			completedAt = nil,
+			claimedAt = nil,
+			objectives = {},
+		}
+		state.quests[questIndex] = questState
+	end
+	if type(questState.objectives) ~= "table" then
+		questState.objectives = {}
+	end
+	return questState
+end
+
+local function getCurrentQuestIndex(def, state)
+	for index = 1, #(def.quests or {}) do
+		local questState = state and state.quests and state.quests[index]
+		if not (questState and questState.claimed == true) then
+			return index
+		end
+	end
+	return nil
+end
+
+local function countOwnedCreatures(data, creatureId)
+	local count = 0
+	for _, entry in ipairs(data.inventory or {}) do
+		if entry.id == creatureId then
+			count += 1
+		end
+	end
+	return count
+end
+
+local function getHighestOwnedLevel(data, creatureId)
+	local best = 0
+	for _, entry in ipairs(data.inventory or {}) do
+		if entry.id == creatureId then
+			best = math.max(best, tonumber(entry.level) or 1)
+		end
+	end
+	return best
+end
+
+local function isObjectiveComplete(objective, progressValue)
+	progressValue = tonumber(progressValue) or 0
+	if objective.type == "capture" then
+		return progressValue >= (tonumber(objective.amount) or 1)
+	end
+	if objective.type == "level" then
+		return progressValue >= (tonumber(objective.targetLevel) or 1)
+	end
+	return false
+end
+
+local function finalizeQuestState(questDef, questState)
+	local wasCompleted = questState.completed == true
+	local completed = true
+	for objectiveIndex, objective in ipairs(questDef.objectives or {}) do
+		if not isObjectiveComplete(objective, questState.objectives[objectiveIndex]) then
+			completed = false
+			break
+		end
+	end
+	questState.completed = completed
+	if completed and not wasCompleted then
+		questState.completedAt = os.time()
+	end
+	return wasCompleted, completed
+end
+
+local function syncActiveQuestProgress(player, element)
+	local def = EleminionData.GetByElement(element)
+	if not def then
+		return nil
+	end
+	local data, state = getOrCreateElementState(player, element)
+	if not data or not state then
+		return nil
+	end
+	local questIndex = getCurrentQuestIndex(def, state)
+	if not questIndex then
+		return {
+			data = data,
+			state = state,
+			def = def,
+			questIndex = nil,
+			questDef = nil,
+			questState = nil,
+			justCompleted = false,
+		}
+	end
+
+	local questDef = def.quests[questIndex]
+	local questState = getOrCreateQuestState(state, questIndex)
+	for objectiveIndex, objective in ipairs(questDef.objectives or {}) do
+		local saved = tonumber(questState.objectives[objectiveIndex]) or 0
+		if objective.type == "capture" then
+			local ownedCount = countOwnedCreatures(data, objective.creatureId)
+			questState.objectives[objectiveIndex] = math.max(saved, math.min(tonumber(objective.amount) or 1, ownedCount))
+		elseif objective.type == "level" then
+			local bestLevel = getHighestOwnedLevel(data, objective.creatureId)
+			questState.objectives[objectiveIndex] = math.max(saved, bestLevel)
+		end
+	end
+
+	local wasCompleted, completed = finalizeQuestState(questDef, questState)
+	return {
+		data = data,
+		state = state,
+		def = def,
+		questIndex = questIndex,
+		questDef = questDef,
+		questState = questState,
+		justCompleted = (not wasCompleted) and completed,
+	}
+end
+
+local function buildRewardsText(questDef)
+	local parts = {}
+	local rewards = questDef.rewards or {}
+	if tonumber(rewards.coins) and rewards.coins > 0 then
+		table.insert(parts, tostring(math.floor(rewards.coins)) .. " coins")
+	end
+	if tonumber(rewards.gems) and rewards.gems > 0 then
+		table.insert(parts, tostring(math.floor(rewards.gems)) .. " gems")
+	end
+	if tonumber(rewards.playerXP) and rewards.playerXP > 0 then
+		table.insert(parts, tostring(math.floor(rewards.playerXP)) .. " player XP")
+	end
+	if rewards.legendaryEggElement then
+		table.insert(parts, tostring(rewards.legendaryEggElement) .. " Legendary Egg")
+	end
+	table.insert(parts, "+" .. tostring(math.floor(tonumber(questDef.affinityReward) or 0)) .. " affinity")
+	return table.concat(parts, "  |  ")
+end
+
+local function buildQuestPayload(def, questIndex, questDef, questState, unlocked)
+	local objectives = {}
+	for objectiveIndex, objective in ipairs(questDef.objectives or {}) do
+		local progressValue = tonumber(questState and questState.objectives and questState.objectives[objectiveIndex]) or 0
+		local targetValue = (objective.type == "level") and (tonumber(objective.targetLevel) or 1) or (tonumber(objective.amount) or 1)
+		local progressText
+		if objective.type == "level" then
+			progressText = "Lv." .. tostring(math.min(progressValue, targetValue)) .. " / Lv." .. tostring(targetValue)
+		else
+			progressText = tostring(math.min(progressValue, targetValue)) .. " / " .. tostring(targetValue)
+		end
+		table.insert(objectives, {
+			index = objectiveIndex,
+			type = objective.type,
+			creatureId = objective.creatureId,
+			label = objective.label,
+			progress = math.min(progressValue, targetValue),
+			target = targetValue,
+			progressText = progressText,
+			complete = isObjectiveComplete(objective, progressValue),
+		})
+	end
+
+	local status = "locked"
+	if questState and questState.claimed == true then
+		status = "claimed"
+	elseif questState and questState.completed == true then
+		status = "complete"
+	elseif unlocked then
+		status = "active"
+	end
+
+	return {
+		index = questIndex,
+		title = questDef.title,
+		description = questDef.description,
+		status = status,
+		claimable = questState and questState.completed == true and questState.claimed ~= true or false,
+		rewardsText = buildRewardsText(questDef),
+		objectives = objectives,
+	}
+end
+
+function EleminionSystem.GetStatusPayload(player, element)
+	local def = EleminionData.GetByElement(element)
+	if not def then
+		return nil
+	end
+
+	local sync = syncActiveQuestProgress(player, element)
+	if not sync then
+		return nil
+	end
+
+	local state = sync.state
+	local affinity = math.max(0, tonumber(state.affinity) or 0)
+	local maxAffinity = EleminionData.GetMaxAffinity(element)
+	local currentQuestIndex = getCurrentQuestIndex(def, state)
+	local allClaimed = currentQuestIndex == nil
+
+	local quests = {}
+	local unlocked = true
+	for questIndex, questDef in ipairs(def.quests or {}) do
+		local questState = getOrCreateQuestState(state, questIndex)
+		local payload = buildQuestPayload(def, questIndex, questDef, questState, unlocked)
+		table.insert(quests, payload)
+		unlocked = questState.claimed == true
+	end
+
+	return {
+		element = def.element,
+		title = def.title,
+		subtitle = def.subtitle,
+		biomeLabel = def.biomeLabel,
+		npcCreatureId = def.npcCreatureId,
+		affinity = affinity,
+		maxAffinity = maxAffinity,
+		affinityPercent = (maxAffinity > 0) and math.clamp(affinity / maxAffinity, 0, 1) or 0,
+		currentQuestIndex = currentQuestIndex or #(def.quests or {}),
+		totalQuests = #(def.quests or {}),
+		allClaimed = allClaimed,
+		canClaimCurrent = sync.questState and sync.questState.completed == true and sync.questState.claimed ~= true or false,
+		currentQuest = (currentQuestIndex and quests[currentQuestIndex]) or quests[#quests],
+		quests = quests,
+		finalRewardLabel = def.element .. " Legendary Egg",
+	}
+end
+
+local function fireStatusUpdate(player, element)
+	if statusUpdateEvent then
+		local payload = EleminionSystem.GetStatusPayload(player, element)
+		if payload then
+			statusUpdateEvent:FireClient(player, element, payload)
+		end
+	end
+end
+
+local function awardPlayerXp(player, amount)
+	amount = math.max(0, math.floor(tonumber(amount) or 0))
+	if amount <= 0 or not PlayerDataManager.AddPlayerXP then
+		return
+	end
+	local newLevel, didLevel = PlayerDataManager.AddPlayerXP(player, amount)
+	if playerXpEvent then
+		playerXpEvent:FireClient(player, amount)
+	end
+	if didLevel and playerLevelEvent then
+		playerLevelEvent:FireClient(player, newLevel)
+	end
+end
+
+local function awardLegendaryEgg(player, element)
+	local data = PlayerDataManager.GetData(player)
+	if not data then
+		return false, "No data"
+	end
+	if #(data.eggs or {}) >= (GameConfig.MaxInventorySize or 50) then
+		return false, "Too many eggs. Hatch or clear space first."
+	end
+
+	local creatureId = EleminionData.RollLegendaryEggCreatureId(element, true)
+	if not creatureId then
+		creatureId = EleminionData.RollLegendaryEggCreatureId(element, false)
+	end
+	if not creatureId then
+		return false, "No eligible egg reward creature for " .. tostring(element)
+	end
+
+	local eggUid = PlayerDataManager.AddEgg(player, creatureId, 1, "Legendary", true)
+	if not eggUid then
+		return false, "Failed to create reward egg"
+	end
+
+	return true, eggUid, creatureId
+end
+
+function EleminionSystem.ClaimQuestReward(player, element)
+	local def = EleminionData.GetByElement(element)
+	if not def then
+		return false, "Unknown Eleminion", nil
+	end
+
+	local sync = syncActiveQuestProgress(player, element)
+	if not sync or not sync.state then
+		return false, "Data not ready", nil
+	end
+	if not sync.questIndex or not sync.questDef or not sync.questState then
+		return false, "This affinity path is already complete.", EleminionSystem.GetStatusPayload(player, element)
+	end
+	if sync.questState.claimed == true then
+		return false, "That reward has already been claimed.", EleminionSystem.GetStatusPayload(player, element)
+	end
+	if sync.questState.completed ~= true then
+		return false, "Finish the current quest first.", EleminionSystem.GetStatusPayload(player, element)
+	end
+
+	local rewards = sync.questDef.rewards or {}
+	if rewards.legendaryEggElement then
+		local ok, err = awardLegendaryEgg(player, rewards.legendaryEggElement)
+		if not ok then
+			return false, err or "Reward egg unavailable.", EleminionSystem.GetStatusPayload(player, element)
+		end
+	end
+
+	if tonumber(rewards.coins) and rewards.coins > 0 then
+		PlayerDataManager.AddCoins(player, math.floor(rewards.coins))
+		if coinsUpdateEvent then
+			coinsUpdateEvent:FireClient(player, PlayerDataManager.GetCoins(player))
+		end
+	end
+	if tonumber(rewards.gems) and rewards.gems > 0 then
+		PlayerDataManager.AddGems(player, math.floor(rewards.gems))
+		if gemsUpdateEvent then
+			gemsUpdateEvent:FireClient(player, PlayerDataManager.GetGems(player))
+		end
+	end
+	if tonumber(rewards.playerXP) and rewards.playerXP > 0 then
+		awardPlayerXp(player, rewards.playerXP)
+	end
+
+	sync.questState.claimed = true
+	sync.questState.claimedAt = os.time()
+	sync.state.affinity = math.min(EleminionData.GetMaxAffinity(element), math.max(0, tonumber(sync.state.affinity) or 0) + (tonumber(sync.questDef.affinityReward) or 0))
+
+	local message = def.title .. " rewarded your progress."
+	if rewards.legendaryEggElement then
+		message = message .. " A " .. rewards.legendaryEggElement .. " Legendary Egg was added to your eggs."
+	end
+	notify(player, message, "info")
+	fireStatusUpdate(player, element)
+
+	return true, "Reward claimed!", EleminionSystem.GetStatusPayload(player, element)
+end
+
+function EleminionSystem.OnCreatureCaptured(_, player, creatureId, creatureLevel)
+	for _, def in ipairs(EleminionData.GetAll()) do
+		local sync = syncActiveQuestProgress(player, def.element)
+		if sync and sync.questDef and sync.questState and sync.questState.claimed ~= true then
+			local changed = false
+			for objectiveIndex, objective in ipairs(sync.questDef.objectives or {}) do
+				if objective.creatureId == creatureId then
+					local currentValue = tonumber(sync.questState.objectives[objectiveIndex]) or 0
+					if objective.type == "capture" then
+						local ownedCount = countOwnedCreatures(sync.data, objective.creatureId)
+						local nextValue = math.min(tonumber(objective.amount) or 1, ownedCount)
+						if nextValue ~= currentValue then
+							sync.questState.objectives[objectiveIndex] = nextValue
+							changed = true
+						end
+					elseif objective.type == "level" then
+						local nextValue = math.max(currentValue, tonumber(creatureLevel) or 1)
+						if nextValue ~= currentValue then
+							sync.questState.objectives[objectiveIndex] = nextValue
+							changed = true
+						end
+					end
+				end
+			end
+			if changed then
+				local wasCompleted, completed = finalizeQuestState(sync.questDef, sync.questState)
+				fireStatusUpdate(player, def.element)
+				if not wasCompleted and completed then
+					notify(player, def.title .. " quest complete. Return and claim your reward.", "info")
+				end
+			end
+		end
+	end
+end
+
+function EleminionSystem.OnCreatureLevelChanged(_, player, creatureId, _, newLevel)
+	for _, def in ipairs(EleminionData.GetAll()) do
+		local sync = syncActiveQuestProgress(player, def.element)
+		if sync and sync.questDef and sync.questState and sync.questState.claimed ~= true then
+			local changed = false
+			for objectiveIndex, objective in ipairs(sync.questDef.objectives or {}) do
+				if objective.type == "level" and objective.creatureId == creatureId then
+					local currentValue = tonumber(sync.questState.objectives[objectiveIndex]) or 0
+					local nextValue = math.max(currentValue, tonumber(newLevel) or 1)
+					if nextValue ~= currentValue then
+						sync.questState.objectives[objectiveIndex] = nextValue
+						changed = true
+					end
+				end
+			end
+			if changed then
+				local wasCompleted, completed = finalizeQuestState(sync.questDef, sync.questState)
+				fireStatusUpdate(player, def.element)
+				if not wasCompleted and completed then
+					notify(player, def.title .. " quest complete. Return and claim your reward.", "info")
+				end
+			end
+		end
+	end
+end
+
+local function getModelBottomY(model)
+	local minY = math.huge
+	for _, desc in ipairs(model:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			local bottom = desc.Position.Y - desc.Size.Y * 0.5
+			if bottom < minY then
+				minY = bottom
+			end
+		end
+	end
+	return minY ~= math.huge and minY or nil
+end
+
+local function getPointScore(point, def)
+	if not point or not point:IsA("BasePart") then
+		return -1
+	end
+
+	local score = 0
+
+	local current = point
+	local depth = 0
+	while current and current ~= Workspace and depth < 8 do
+		local depthBias = math.max(0, 8 - depth)
+		score += scoreNameKey(normalizeName(current.Name), def) * depthBias
+		score += scoreAttributes(current, def) * depthBias
+		current = current.Parent
+		depth += 1
+	end
+
+	return score
+end
+
+local function findSpawnPoint(def)
+	local bestPoint
+	local bestScore = -1
+
+	local function scanContainer(container)
+		if not container then
+			return
+		end
+		if container:IsA("BasePart") then
+			local score = getPointScore(container, def)
+			if score > 0 and score > bestScore then
+				bestPoint = container
+				bestScore = score
+			end
+		end
+		for _, desc in ipairs(container:GetDescendants()) do
+			if desc:IsA("BasePart") then
+				local score = getPointScore(desc, def)
+				if score > 0 and score > bestScore then
+					bestPoint = desc
+					bestScore = score
+				end
+			end
+		end
+	end
+
+	local biomesFolder = Workspace:FindFirstChild("Biomes")
+	if biomesFolder then
+		local folderNames = CreatureData.GetBiomeFolderNamesForElement(def.element)
+		for _, folderName in ipairs(folderNames or {}) do
+			scanContainer(biomesFolder:FindFirstChild(folderName))
+		end
+	end
+
+	if not bestPoint then
+		scanContainer(Workspace)
+	end
+
+	return bestPoint
+end
+
+local function createFallbackNpc(def, info)
+	local model = Instance.new("Model")
+	model.Name = info.displayName .. "EleminionNPC"
+
+	local body = Instance.new("Part")
+	body.Name = "Body"
+	body.Shape = Enum.PartType.Ball
+	body.Size = Vector3.new(4.5, 4.5, 4.5)
+	body.Anchored = true
+	body.CanCollide = false
+	body.Material = Enum.Material.Neon
+	body.Color = getElementColor(def.element)
+	body.Parent = model
+
+	model.PrimaryPart = body
+	return model, body
+end
+
+local function spawnNpc(def, point)
+	local info = CreatureData.GetById(def.npcCreatureId)
+	if not info then
+		return nil
+	end
+
+	local existing = eleminionNpcs[def.element]
+	if existing and existing.Parent then
+		disconnectPromptForModel(existing)
+		existing:Destroy()
+	end
+
+	local model = Instance.new("Model")
+	model.Name = info.displayName .. "EleminionNPC"
+	model:SetAttribute("EleminionElement", def.element)
+	model:SetAttribute("EleminionId", def.npcCreatureId)
+
+	local body = nil
+	local templateOptions = { targetSize = 6, creatureId = def.npcCreatureId }
+	body = select(1, CreatureModelLoader.LoadAndIntegrate(model, info.modelName, info.displayName, point.Position + Vector3.new(0, 4, 0), templateOptions))
+	if not body then
+		model:Destroy()
+		model, body = createFallbackNpc(def, info)
+	end
+
+	for _, desc in ipairs(model:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			desc.Anchored = true
+			desc.CanCollide = false
+		end
+	end
+	if not model.PrimaryPart and body then
+		model.PrimaryPart = body
+	end
+
+	local placementOffset = CreatureData.GetModelPlacementOffset(info)
+	local baseY = point.Position.Y + point.Size.Y * 0.5 + getNpcGroundOffset()
+	local pivot = CFrame.new(
+		point.Position.X + placementOffset.X,
+		baseY + placementOffset.Y,
+		point.Position.Z + placementOffset.Z
+	) * (point.CFrame - point.Position)
+	model:PivotTo(pivot * CreatureData.GetModelRotationOffset(info, "world", false))
+
+	local bottomY = getModelBottomY(model)
+	if bottomY then
+		local lift = (baseY - bottomY) + CreatureData.GetModelPlacementYOffset(info)
+		if lift ~= 0 then
+			model:PivotTo(model:GetPivot() + Vector3.new(0, lift, 0))
+		end
+	end
+
+	local promptParent = model.PrimaryPart or body
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "EleminionTag"
+	billboard.Adornee = promptParent
+	billboard.Size = UDim2.new(0, 240, 0, 64)
+	billboard.StudsOffset = Vector3.new(0, CreatureModelLoader.GetBillboardStudsOffsetForTopOfModel(model, promptParent), 0)
+	billboard.MaxDistance = 80
+	billboard.Parent = model
+
+	local titleLabel = Instance.new("TextLabel")
+	titleLabel.Size = UDim2.new(1, 0, 0.5, 0)
+	titleLabel.BackgroundTransparency = 1
+	titleLabel.Font = Enum.Font.GothamBlack
+	titleLabel.TextScaled = true
+	titleLabel.TextColor3 = Color3.fromRGB(245, 245, 245)
+	titleLabel.Text = info.displayName
+	titleLabel.Parent = billboard
+
+	local subtitleLabel = Instance.new("TextLabel")
+	subtitleLabel.Size = UDim2.new(1, 0, 0.42, 0)
+	subtitleLabel.Position = UDim2.new(0, 0, 0.54, 0)
+	subtitleLabel.BackgroundTransparency = 1
+	subtitleLabel.Font = Enum.Font.GothamMedium
+	subtitleLabel.TextScaled = true
+	subtitleLabel.TextColor3 = getElementColor(def.element)
+	subtitleLabel.Text = def.element .. " Eleminion"
+	subtitleLabel.Parent = billboard
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "EleminionPrompt"
+	prompt.ObjectText = info.displayName
+	prompt.ActionText = "Talk"
+	prompt.HoldDuration = 0
+	prompt.RequiresLineOfSight = false
+	prompt.MaxActivationDistance = getPromptRange()
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.Parent = promptParent
+
+	local highlight = Instance.new("Highlight")
+	highlight.FillColor = getElementColor(def.element)
+	highlight.FillTransparency = 0.7
+	highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+	highlight.OutlineTransparency = 0.2
+	highlight.Parent = model
+
+	model.Parent = Workspace
+	eleminionNpcs[def.element] = model
+
+	if not promptConnections[prompt] then
+		promptConnections[prompt] = prompt.Triggered:Connect(function(player)
+			if openUiEvent then
+				openUiEvent:FireClient(player, def.element)
+			end
+			fireStatusUpdate(player, def.element)
+		end)
+	end
+
+	return model
+end
+
+local function ensureNpcForDefinition(def)
+	local point = findSpawnPoint(def)
+	if not point then
+		if not warnedMissingPoints[def.element] then
+			warn("[EleminionSystem] No EPoint / EleminionPoint found for " .. tostring(def.element))
+			warnedMissingPoints[def.element] = true
+		end
+		return nil
+	end
+
+	warnedMissingPoints[def.element] = nil
+	local npc = eleminionNpcs[def.element]
+	if npc and npc.Parent then
+		return npc
+	end
+	print(string.format("[EleminionSystem] Spawning %s at %s", tostring(def.npcCreatureId), point:GetFullName()))
+	return spawnNpc(def, point)
+end
+
+local function ensureAllNpcs()
+	for _, def in ipairs(EleminionData.GetAll()) do
+		ensureNpcForDefinition(def)
+	end
+end
+
+function EleminionSystem.Init(playerDataManager)
+	PlayerDataManager = playerDataManager
+	if PlayerDataManager and PlayerDataManager.BindEleminionObserver then
+		PlayerDataManager.BindEleminionObserver(EleminionSystem)
+	end
+
+	if not isEnabled() then
+		print("[EleminionSystem] Disabled via GameConfig.EleminionsEnabled")
+		return
+	end
+
+	eventsFolder = ReplicatedStorage:WaitForChild("Events", 30)
+	if not eventsFolder then
+		warn("[EleminionSystem] Events folder not found")
+		return
+	end
+
+	openUiEvent = eventsFolder:FindFirstChild("OpenEleminionUI")
+	statusUpdateEvent = eventsFolder:FindFirstChild("EleminionStatusUpdated")
+	showNotificationEvent = eventsFolder:FindFirstChild("ShowNotification")
+	coinsUpdateEvent = eventsFolder:FindFirstChild("CoinsUpdate")
+	gemsUpdateEvent = eventsFolder:FindFirstChild("GemsUpdate")
+	playerXpEvent = eventsFolder:FindFirstChild("PlayerXPGained")
+	playerLevelEvent = eventsFolder:FindFirstChild("PlayerLevelUp")
+
+	local getStatusFunction = eventsFolder:FindFirstChild("GetEleminionStatus")
+	if getStatusFunction and getStatusFunction:IsA("RemoteFunction") then
+		getStatusFunction.OnServerInvoke = function(player, element)
+			if type(element) ~= "string" or element == "" then
+				return nil
+			end
+			return EleminionSystem.GetStatusPayload(player, element)
+		end
+	end
+
+	local claimRewardFunction = eventsFolder:FindFirstChild("ClaimEleminionQuestReward")
+	if claimRewardFunction and claimRewardFunction:IsA("RemoteFunction") then
+		claimRewardFunction.OnServerInvoke = function(player, element)
+			if type(element) ~= "string" or element == "" then
+				return false, "Invalid Eleminion", nil
+			end
+			return EleminionSystem.ClaimQuestReward(player, element)
+		end
+	end
+
+	ensureAllNpcs()
+	task.spawn(function()
+		while true do
+			task.wait(10)
+			ensureAllNpcs()
+		end
+	end)
+
+	print("[EleminionSystem] Initialized")
+end
+
+return EleminionSystem

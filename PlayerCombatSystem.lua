@@ -21,6 +21,19 @@ local WORLD_TAG = "WorldCreature"
 local rangedCooldowns = {}
 local meleeCooldowns = {}
 
+local function pilotDamageAfterLevelAndBadlands(player, baseDmg, mult)
+	local lvlMult = player:GetAttribute("WorldStat_LevelMult")
+	if type(lvlMult) ~= "number" or lvlMult <= 0 then
+		lvlMult = 1
+	end
+	local dmg = math.floor(baseDmg * mult * lvlMult)
+	local bl = player:GetAttribute("BadlandsStat_Attack")
+	if type(bl) == "number" and bl > 0 then
+		dmg = dmg + math.floor(bl)
+	end
+	return math.max(1, dmg)
+end
+
 local function findCreatureByUniqueId(targetId)
 	if type(targetId) ~= "string" or #targetId == 0 then return nil end
 	local targetStr = targetId
@@ -56,7 +69,7 @@ local function doRangedAttack(player, origin, direction, targetUniqueId)
 			mult = mult * cm
 		end
 	end
-	local dmg = math.floor(baseDmg * mult)
+	local dmg = pilotDamageAfterLevelAndBadlands(player, baseDmg, mult)
 
 	-- If targetUniqueId provided, only damage that creature (target-based combat)
 	local bestTarget = nil
@@ -148,7 +161,7 @@ local function doMeleeAttack(player, origin, targetUniqueId)
 			mult = mult * cm
 		end
 	end
-	local dmg = math.floor(baseDmg * mult)
+	local dmg = pilotDamageAfterLevelAndBadlands(player, baseDmg, mult)
 	local radius = GameConfig.PlayerMeleeRadius
 	local hitCount = 0
 

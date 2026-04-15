@@ -1,6 +1,6 @@
 -- LeaderboardClient.lua - StarterPlayer.StarterPlayerScripts (LocalScript)
 -- Full-screen leaderboard panel. Toggle with L key or HUD button.
--- Tabs: Income, Victories, PvP, Sieglings.
+-- Tabs: Income, Victories, PvP, Siegelings.
 -- Top 3 only: Smash-style tilted portrait frames (2nd | 1st | 3rd).
 
 local Players = game:GetService("Players")
@@ -61,33 +61,6 @@ local function getPanelScale()
 	return math.clamp(scale, PANEL_SCALE_MIN, PANEL_SCALE_MAX)
 end
 
-local function applyPanelScale(pnl)
-	if MobileWindowLayout.IsMobile() then
-		MobileWindowLayout.ApplyWindow(pnl, {
-			leftInset = 14,
-			rightInset = 14,
-			topInset = 10,
-			bottomInset = 14,
-			bottomMobileExtra = 20,
-		})
-		pnl.Draggable = true
-		return
-	end
-
-	local camera = workspace.CurrentCamera
-	local vp = (camera and camera.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
-	local scale = getPanelScale()
-	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
-	pnl.Size = UDim2.new(0, w, 0, h)
-	local centerX = vp.X * 0.5
-	local centerY = vp.Y * 0.5
-	local yMin = VIEWPORT_PADDING + h * 0.5
-	local yMax = vp.Y - VIEWPORT_PADDING - h * 0.5
-	local clampedY = math.clamp(centerY, yMin, math.max(yMin, yMax))
-	pnl.Position = UDim2.new(0, math.floor(centerX - w * 0.5), 0, math.floor(clampedY - h * 0.5))
-	MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
-end
-
 -- Thumbnail cache to avoid repeated async calls (key = userId .. "_" .. sizeName)
 local thumbnailCache = {}
 
@@ -112,6 +85,34 @@ sg.Name = "LeaderboardGUI"
 sg.ResetOnSpawn = false
 sg.DisplayOrder = 45
 sg.Parent = playerGui
+
+local function applyPanelScale(pnl)
+	MobileWindowLayout.SyncNpcMenuScreenGui(sg, PANEL_DESIGN_W, PANEL_DESIGN_H)
+	if MobileWindowLayout.NpcMenuUsesFullscreenBounds(PANEL_DESIGN_W, PANEL_DESIGN_H) then
+		MobileWindowLayout.ApplyWindow(
+			pnl,
+			MobileWindowLayout.GetNpcFullscreenBoundsConfig(PANEL_DESIGN_W, PANEL_DESIGN_H, {
+				mobileDraggable = true,
+			})
+		)
+		return
+	end
+
+	sg.IgnoreGuiInset = false
+	local camera = workspace.CurrentCamera
+	local vp = (camera and camera.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
+	local scale = getPanelScale()
+	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
+	pnl.AnchorPoint = Vector2.new(0.5, 0.5)
+	pnl.Size = UDim2.new(0, w, 0, h)
+	local centerX = vp.X * 0.5
+	local centerY = vp.Y * 0.5
+	local yMin = VIEWPORT_PADDING + h * 0.5
+	local yMax = vp.Y - VIEWPORT_PADDING - h * 0.5
+	local clampedY = math.clamp(centerY, yMin, math.max(yMin, yMax))
+	pnl.Position = UDim2.new(0, math.floor(centerX - w * 0.5), 0, math.floor(clampedY - h * 0.5))
+	MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
+end
 
 -- Main panel
 local panel = Instance.new("Frame")
@@ -147,6 +148,11 @@ titleLabel.Font = Enum.Font.GothamBlack
 titleLabel.TextSize = 18
 titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 titleLabel.Parent = titleBar
+local applyLeaderboardTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(titleLabel, {
+	Position = UDim2.new(0, 14, 0, 0),
+	Size = UDim2.new(1, -50, 1, 0),
+	TextXAlignment = Enum.TextXAlignment.Left,
+})
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 30, 0, 30)
@@ -170,7 +176,7 @@ local tabs = {
 	{ key = "income",   label = "Income" },
 	{ key = "battle",   label = "Victories" },
 	{ key = "pvp",      label = "PvP" },
-	{ key = "monsters", label = "Sieglings" },
+	{ key = "monsters", label = "Siegelings" },
 }
 
 local currentTab = "income"
@@ -215,7 +221,7 @@ myRankLabel.TextXAlignment = Enum.TextXAlignment.Left
 myRankLabel.Parent = myRankBar
 
 local function applyResponsiveContentLayout()
-	local mobile = MobileWindowLayout.IsMobile()
+	local mobile = MobileWindowLayout.NpcMenuUsesFullscreenBounds(PANEL_DESIGN_W, PANEL_DESIGN_H)
 	tabBar.Size = mobile and UDim2.new(1, -12, 0, 36) or UDim2.new(1, -20, 0, 32)
 	tabBar.Position = mobile and UDim2.new(0, 6, 0, 48) or UDim2.new(0, 10, 0, 48)
 	contentFrame.Size = mobile and UDim2.new(1, -12, 1, -140) or UDim2.new(1, -20, 1, -130)
@@ -227,6 +233,7 @@ local function applyResponsiveContentLayout()
 		btn.TextSize = mobile and 14 or 13
 	end
 	myRankLabel.TextSize = mobile and 13 or 12
+	applyLeaderboardTitleLayout()
 end
 
 -- Build tab buttons
@@ -499,6 +506,7 @@ end
 -- Close
 closeBtn.MouseButton1Click:Connect(function()
 	panel.Visible = false
+	sg.IgnoreGuiInset = false
 	MobileWindowLayout.NotifyMenuClosed()
 end)
 
@@ -534,6 +542,8 @@ MobileWindowLayout.BindViewportUpdate(function()
 	if panel.Visible then
 		applyPanelScale(panel)
 		applyResponsiveContentLayout()
+	else
+		sg.IgnoreGuiInset = false
 	end
 end)
 

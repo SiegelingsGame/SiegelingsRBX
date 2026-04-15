@@ -9,6 +9,7 @@ local HttpService = game:GetService("HttpService")
 local GameConfig = require(game.ReplicatedStorage.Modules.GameConfig)
 local CreatureData = require(game.ReplicatedStorage.Modules.CreatureData)
 local IngredientData = require(game.ReplicatedStorage.Modules.IngredientData)
+local PlayerWorldStats = require(game.ReplicatedStorage.Modules:WaitForChild("PlayerWorldStats"))
 
 local PlayerDataManager = {}
 
@@ -24,11 +25,16 @@ local GRID_SLOTS = 9
 local dataStore = DataStoreService:GetDataStore(DATA_STORE_NAME)
 local playerCache = {}
 local AchievementObserver = nil
+local EleminionObserver = nil
 -- plotId -> userId: atomic source of truth to prevent two players claiming same base
 local claimedPlotIds = {}
 
 function PlayerDataManager.BindAchievementObserver(observer)
 	AchievementObserver = observer
+end
+
+function PlayerDataManager.BindEleminionObserver(observer)
+	EleminionObserver = observer
 end
 
 function PlayerDataManager.NotifyAchievement(eventName, ...)
@@ -45,6 +51,24 @@ function PlayerDataManager.NotifyAchievement(eventName, ...)
 		end)
 		if not ok then
 			warn("[PlayerDataManager] Achievement event failed:", tostring(eventName), tostring(err))
+		end
+	end)
+end
+
+function PlayerDataManager.NotifyEleminion(eventName, ...)
+	local observer = EleminionObserver
+	local handler = observer and observer[eventName]
+	if type(handler) ~= "function" then
+		return
+	end
+
+	local args = table.pack(...)
+	task.defer(function()
+		local ok, err = pcall(function()
+			handler(observer, table.unpack(args, 1, args.n))
+		end)
+		if not ok then
+			warn("[PlayerDataManager] Eleminion event failed:", tostring(eventName), tostring(err))
 		end
 	end)
 end
@@ -72,11 +96,11 @@ local function getDefaultData()
 		playerLevel  = 1,
 		playerXP     = 0,
 		ownedFloors  = {1},  -- array of floor numbers owned; starts with Floor 1
-		decorSlots   = {},   -- { [slotIndex] = { creatureId = "firsky" } } Floor 4 creature statues
+		decorSlots   = {},   -- { ["floor_slot"] = { kind="statue"|"furniture", creatureId?, furnitureId? } }
 		eggs         = {},   -- { { uid, creatureId, level, rarity, hatchMinutes, createdAt }, ... }; place on base/defense to hatch
 		rebirthLevel = 0,    -- pilot rebirth level (0 = never rebirthed); bonuses apply to passive gold, damage, health
-		-- Zone doors / sigils: 4 boss sieglings (Ocean, Desert, Electric, Cave); 4 sigils open one door; gym win grants key for another
-		sigils             = {},  -- { Ocean = true, Desert = true, ... } when that boss is defeated
+		-- Zone doors / sigils: inner legendaries + gym wins store SiegeKnight entries by zone id (Ocean, Desert, Electric, Cave); four unlock one Biome Pass
+		sigils             = {},  -- { Ocean = true, Desert = true, ... }
 		firstZoneDoorOpened = nil, -- zoneId opened with "4 sigils" choice, or nil
 		zoneKeysFromGyms   = {},  -- { Ocean = true, ... } key earned by winning that zone's gym
 		doorsUnlocked      = {},  -- { Ocean = true, ... } which ZoneDoors are open
@@ -86,6 +110,7 @@ local function getDefaultData()
 		achievements = {},
 		achievementMetrics = { counters = {}, best = {}, sets = {} },
 		ingredientBank = {}, -- { [ingredientId] = count }
+		eleminions = {}, -- { [element] = { affinity = number, quests = { [questIndex] = { claimed, completed, objectives = { [objectiveIndex] = number } } } } }
 	}
 end
 
@@ -201,18 +226,81 @@ local function normalizeSingleUnlockData(data)
 	return fixed
 end
 
+-- Accepts id->count maps, id->{id,qty} entries (serialization quirks), and array-shaped banks from DataStore/JSON.
 local function normalizeIngredientBank(raw)
 	local fixed = {}
 	if type(raw) ~= "table" then
 		return fixed
 	end
 	for k, v in pairs(raw) do
-		local id = tostring(k)
-		local n = math.floor(tonumber(v) or 0)
-		if id ~= "" and n > 0 then
-			fixed[id] = n
+		if type(v) == "table" and v.id then
+			local id = tostring(v.id)
+			local n = math.floor(tonumber(v.qty or v.count or v.n) or 0)
+			if id ~= "" and n > 0 then
+				fixed[id] = (fixed[id] or 0) + n
+			end
+		else
+			local id = tostring(k)
+			local n = math.floor(tonumber(v) or 0)
+			if id ~= "" and n > 0 then
+				fixed[id] = (fixed[id] or 0) + n
+			end
 		end
 	end
+	if next(fixed) == nil then
+		for _, e in ipairs(raw) do
+			if type(e) == "table" and e.id then
+				local id = tostring(e.id)
+				local n = math.floor(tonumber(e.qty or e.count or e.n) or 0)
+				if id ~= "" and n > 0 then
+					fixed[id] = (fixed[id] or 0) + n
+				end
+			end
+		end
+	end
+	return fixed
+end
+
+local function normalizeEleminionData(raw)
+	local fixed = {}
+	if type(raw) ~= "table" then
+		return fixed
+	end
+
+	for element, state in pairs(raw) do
+		if type(element) == "string" and type(state) == "table" then
+			local quests = {}
+			for questKey, questState in pairs(state.quests or {}) do
+				local questIndex = tonumber(questKey)
+				if questIndex then
+					local objectives = {}
+					for objectiveKey, value in pairs((type(questState) == "table" and questState.objectives) or {}) do
+						local objectiveIndex = tonumber(objectiveKey)
+						local numericValue = tonumber(value)
+						if not numericValue and value == true then
+							numericValue = 1
+						end
+						if objectiveIndex and numericValue and numericValue > 0 then
+							objectives[objectiveIndex] = math.floor(numericValue)
+						end
+					end
+					quests[questIndex] = {
+						claimed = type(questState) == "table" and questState.claimed == true or false,
+						completed = type(questState) == "table" and questState.completed == true or false,
+						completedAt = type(questState) == "table" and tonumber(questState.completedAt) or nil,
+						claimedAt = type(questState) == "table" and tonumber(questState.claimedAt) or nil,
+						objectives = objectives,
+					}
+				end
+			end
+
+			fixed[element] = {
+				affinity = math.max(0, math.floor(tonumber(state.affinity) or 0)),
+				quests = quests,
+			}
+		end
+	end
+
 	return fixed
 end
 
@@ -221,20 +309,33 @@ local function getMaxMixIngredients()
 	return tonumber(cook.MaxMixIngredients) or 4
 end
 
---- mix[1..max] = { id, qty } or false (empty slot). Legacy compact lists are re-packed from slot 1.
+--- mix[1..max] = { id, qty } or false (empty slot). Indices are preserved (sparse layouts like slots 2–4 only stay valid).
 local function ensureFixedMixSlots(mix, maxMix)
 	maxMix = maxMix or getMaxMixIngredients()
-	local entries = {}
-	for _, e in ipairs(mix) do
-		if type(e) == "table" and e.id and tostring(e.id) ~= "" and (tonumber(e.qty) or 0) > 0 then
-			table.insert(entries, { id = tostring(e.id), qty = math.floor(e.qty) })
+	for i = 1, maxMix do
+		local e = mix[i]
+		if e == false or e == nil then
+			mix[i] = false
+		elseif type(e) == "table" then
+			local id = tostring(e.id or "")
+			local q = math.floor(tonumber(e.qty) or 0)
+			if id == "" or q <= 0 then
+				mix[i] = false
+			else
+				mix[i] = { id = id, qty = q }
+			end
+		else
+			mix[i] = false
 		end
 	end
 	for k in pairs(mix) do
-		mix[k] = nil
-	end
-	for i = 1, maxMix do
-		mix[i] = entries[i] or false
+		if type(k) == "number" then
+			if k < 1 or k > maxMix or k % 1 ~= 0 then
+				mix[k] = nil
+			end
+		else
+			mix[k] = nil
+		end
 	end
 end
 
@@ -418,19 +519,151 @@ function PlayerDataManager.HasZoneKey(player, zoneId)
 	return d and d.zoneKeysFromGyms and (d.zoneKeysFromGyms[zoneId] == true or d.zoneKeysFromGyms[zoneId] == "true")
 end
 
-function PlayerDataManager.UnlockDoorWithKey(player, zoneId)
+-- Furthest exterior zone along GameConfig.ZoneDoorZoneIds that this player has already opened (used for Arena Pass source).
+function PlayerDataManager.GetLastUnlockedExteriorZone(player)
 	local d = playerCache[player.UserId]
-	if not d or not PlayerDataManager.HasZoneKey(player, zoneId) then return false end
-	if PlayerDataManager.IsDoorUnlocked(player, zoneId) then return true end
-	if not d.doorsUnlocked then d.doorsUnlocked = {} end
-	d.doorsUnlocked[zoneId] = true
-	PlayerDataManager.NotifyAchievement("OnDoorUnlocked", player, zoneId, "key")
+	if not d or not d.doorsUnlocked then
+		return nil
+	end
+	local last = nil
+	for _, zid in ipairs(ZONE_IDS) do
+		if d.doorsUnlocked[zid] == true or d.doorsUnlocked[zid] == "true" then
+			last = zid
+		end
+	end
+	return last
+end
+
+function PlayerDataManager.HasAnyExteriorDoorUnlocked(player)
+	local d = playerCache[player.UserId]
+	if not d or not d.doorsUnlocked then
+		return false
+	end
+	for _, zid in ipairs(ZONE_IDS) do
+		if d.doorsUnlocked[zid] == true or d.doorsUnlocked[zid] == "true" then
+			return true
+		end
+	end
+	return false
+end
+
+-- Open an exterior gate using one Arena Pass (gym key) from the latest unlocked exterior biome. Consumes that pass.
+function PlayerDataManager.UnlockDoorWithKey(player, targetZoneId)
+	local d = playerCache[player.UserId]
+	if not d then
+		return false, "No data"
+	end
+	if PlayerDataManager.IsDoorUnlocked(player, targetZoneId) then
+		return true
+	end
+	local validTarget = false
+	for _, zid in ipairs(ZONE_IDS) do
+		if zid == targetZoneId then
+			validTarget = true
+			break
+		end
+	end
+	if not validTarget then
+		return false, "Invalid zone"
+	end
+	local passZone = PlayerDataManager.GetLastUnlockedExteriorZone(player)
+	if not passZone then
+		return false, "Open your first exterior gate before using Arena Passes"
+	end
+	if not PlayerDataManager.HasZoneKey(player, passZone) then
+		return false, "Need an Arena Pass from your latest exterior biome (win at that zone's Gym)"
+	end
+	if not d.doorsUnlocked then
+		d.doorsUnlocked = {}
+	end
+	d.doorsUnlocked[targetZoneId] = true
+	if not d.zoneKeysFromGyms then
+		d.zoneKeysFromGyms = {}
+	end
+	d.zoneKeysFromGyms[passZone] = nil
+	PlayerDataManager.NotifyAchievement("OnDoorUnlocked", player, targetZoneId, "arenaPass")
+	PlayerDataManager.SavePlayer(player)
 	return true
 end
 
 function PlayerDataManager.IsDoorUnlocked(player, zoneId)
 	local d = playerCache[player.UserId]
 	return d and d.doorsUnlocked and (d.doorsUnlocked[zoneId] == true or d.doorsUnlocked[zoneId] == "true")
+end
+
+-- Spend exactly one of each inner-zone boss Legendary (Fire/Ice/Wind/Earth) to open this exterior gate for this player.
+function PlayerDataManager.SpendFourBossLegendariesOpenDoor(player, zoneId, uids)
+	if not player or not player.Parent then return false, "Invalid player" end
+	if type(zoneId) ~= "string" or zoneId == "" then return false, "Invalid zone" end
+	local validZone = false
+	for _, zid in ipairs(ZONE_IDS) do
+		if zid == zoneId then
+			validZone = true
+			break
+		end
+	end
+	if not validZone then return false, "Invalid zone" end
+	if PlayerDataManager.IsDoorUnlocked(player, zoneId) then
+		return false, "This gate is already open for you"
+	end
+	if PlayerDataManager.HasAnyExteriorDoorUnlocked(player) then
+		return false, "Further gates require an Arena Pass from the Gym in your latest unlocked exterior biome"
+	end
+	if type(uids) ~= "table" or #uids ~= 4 then
+		return false, "Select exactly four creatures"
+	end
+	local seen = {}
+	for _, u in ipairs(uids) do
+		if type(u) ~= "string" or u == "" then return false, "Invalid creature" end
+		if seen[u] then return false, "Duplicate creature in selection" end
+		seen[u] = true
+	end
+
+	local elements = GameConfig.ElementalBossElements or { "Fire", "Ice", "Wind", "Earth" }
+	local requiredIds = {}
+	for _, el in ipairs(elements) do
+		local bid = CreatureData.GetBossCreatureId(el, false)
+		if not bid then return false, "Boss creature data missing" end
+		table.insert(requiredIds, bid)
+	end
+	table.sort(requiredIds)
+
+	local d = playerCache[player.UserId]
+	if not d or not d.inventory then return false, "No data" end
+
+	local collected = {}
+	for _, uid in ipairs(uids) do
+		local entry = nil
+		for _, e in ipairs(d.inventory) do
+			if e and tostring(e.uid) == tostring(uid) then
+				entry = e
+				break
+			end
+		end
+		if not entry then return false, "Creature not in inventory" end
+		table.insert(collected, entry.id)
+	end
+	table.sort(collected)
+
+	if #requiredIds ~= #collected then return false, "Wrong creatures" end
+	for i = 1, #requiredIds do
+		if collected[i] ~= requiredIds[i] then
+			return false, "Place one of each inner Legendary boss (Fire, Ice, Wind, Earth)"
+		end
+	end
+
+	for _, uid in ipairs(uids) do
+		PlayerDataManager.RemoveCreature(player, uid)
+	end
+
+	if not d.doorsUnlocked then d.doorsUnlocked = {} end
+	d.doorsUnlocked[zoneId] = true
+	if d.firstZoneDoorOpened == nil or d.firstZoneDoorOpened == "" then
+		d.firstZoneDoorOpened = zoneId
+	end
+	PlayerDataManager.NotifyAchievement("OnDoorUnlocked", player, zoneId, "legendaries")
+	PlayerDataManager.SavePlayer(player)
+	return true
 end
 
 function PlayerDataManager.AddCreature(player, creatureId, level, xp, variant, existingUid, context)
@@ -443,6 +676,7 @@ function PlayerDataManager.AddCreature(player, creatureId, level, xp, variant, e
 	local source = context and context.source
 	if source == "capture" then
 		PlayerDataManager.NotifyAchievement("OnCapture", player, creatureId, context)
+		PlayerDataManager.NotifyEleminion("OnCreatureCaptured", player, creatureId, level or 1, context)
 	else
 		PlayerDataManager.NotifyAchievement("OnAcquireCreature", player, creatureId, context)
 	end
@@ -477,6 +711,7 @@ function PlayerDataManager.AddXP(player, uid, amount)
 					e.xp = e.xp - needed; e.level = e.level + 1; leveled = true
 				else break end
 			end
+			PlayerDataManager.NotifyEleminion("OnCreatureLevelChanged", player, e.id, e.uid, e.level, e.xp, amount, leveled)
 			return e.level, leveled
 		end
 	end
@@ -1525,6 +1760,11 @@ function PlayerDataManager.DoRebirth(player)
 	end
 	-- If we kept the favorite, it's still in inventory and still favoriteUid; it's just no longer on base/battle. Optionally re-add to inventory if it was removed from slots only (it wasn't removed — we only removed others). So inventory now = at most [favorite]. Good.
 	d.rebirthLevel = (d.rebirthLevel or 0) + 1
+	task.defer(function()
+		if player.Parent then
+			PlayerDataManager.ApplyWorldStatsToCharacter(player)
+		end
+	end)
 	return true
 end
 
@@ -1606,6 +1846,7 @@ function PlayerDataManager.OnPlayerJoin(player)
 		if type(data.achievementMetrics.counters) ~= "table" then data.achievementMetrics.counters = {} end
 		if type(data.achievementMetrics.best) ~= "table" then data.achievementMetrics.best = {} end
 		if type(data.achievementMetrics.sets) ~= "table" then data.achievementMetrics.sets = {} end
+		data.eleminions = normalizeEleminionData(data.eleminions)
 		data.cosmetics = normalizeCosmeticsData(data.cosmetics)
 		data.exterior = normalizeSingleUnlockData(data.exterior)
 		data.baseColor = normalizeSingleUnlockData(data.baseColor)
@@ -1657,6 +1898,7 @@ function PlayerDataManager.OnPlayerJoin(player)
 			data.battleTeam = normalizeBattleTeam(data.battleTeam)
 		end
 		data.ingredientBank = normalizeIngredientBank(data.ingredientBank)
+		PlayerDataManager.NormalizeDecorSlotsIfNeeded(data)
 		-- Clear removed themes (OceanBreeze, InvisibleBase) so plots return to visible
 		if data.exterior then
 			if data.exterior.owned then
@@ -1665,6 +1907,28 @@ function PlayerDataManager.OnPlayerJoin(player)
 			end
 			if data.exterior.equipped == "OceanBreeze" or data.exterior.equipped == "InvisibleBase" then
 				data.exterior.equipped = nil
+			end
+		end
+		-- Sigils: Squire keys = element names; Knight keys = zone ids. Legacy: inner legendaries wrongly stored a zone id (see oldInnerBossZoneByElement).
+		do
+			local zoneIds = GameConfig.ZoneDoorZoneIds or { "Ocean", "Desert", "Electric", "Cave" }
+			local oldInnerBossZoneByElement = { Fire = "Desert", Ice = "Cave", Wind = "Ocean", Earth = "Electric" }
+			if not data.sigils then data.sigils = {} end
+			if data.zoneKeysFromGyms then
+				for _, zid in ipairs(zoneIds) do
+					local v = data.zoneKeysFromGyms[zid]
+					if v == true or v == "true" then
+						data.sigils[zid] = true
+					end
+				end
+			end
+			for element, zid in pairs(oldInnerBossZoneByElement) do
+				local hasKey = data.zoneKeysFromGyms and (data.zoneKeysFromGyms[zid] == true or data.zoneKeysFromGyms[zid] == "true")
+				local hasZoneSigil = data.sigils[zid] == true or data.sigils[zid] == "true"
+				if hasZoneSigil and not hasKey then
+					data.sigils[element] = true
+					data.sigils[zid] = nil
+				end
 			end
 		end
 		playerCache[player.UserId] = data
@@ -1693,6 +1957,9 @@ function PlayerDataManager.OnPlayerJoin(player)
 				ingEvt:FireClient(player, snap)
 			end
 		end
+	end)
+	task.defer(function()
+		PlayerDataManager.ApplyWorldStatsToCharacter(player)
 	end)
 end
 
@@ -1778,7 +2045,19 @@ function PlayerDataManager.GetIngredientBankSnapshot(player)
 	local bank = PlayerDataManager.GetIngredientBank(player)
 	local copy = {}
 	for id, n in pairs(bank) do
-		copy[id] = n
+		local nid = tostring(id)
+		if nid ~= "" then
+			local num = n
+			if type(n) == "table" and n.id then
+				num = tonumber(n.qty or n.count or n.n) or 0
+			else
+				num = tonumber(n) or 0
+			end
+			num = math.floor(num)
+			if num > 0 then
+				copy[nid] = (copy[nid] or 0) + num
+			end
+		end
 	end
 	return copy
 end
@@ -1956,8 +2235,18 @@ function PlayerDataManager.CraftingMixAdd(player, ingredientId, qty)
 	local maxMix = getMaxMixIngredients()
 	local mix = getOrInitMix(player.UserId)
 	ensureFixedMixSlots(mix, maxMix)
+	local function slotEmpty(mi, idx)
+		local e = mi[idx]
+		if e == false or e == nil then
+			return true
+		end
+		if type(e) ~= "table" then
+			return true
+		end
+		return (not e.id or tostring(e.id) == "") or (tonumber(e.qty) or 0) <= 0
+	end
 	for i = 1, maxMix do
-		if mix[i] == false then
+		if slotEmpty(mix, i) then
 			return PlayerDataManager.CraftingMixPlaceAt(player, i, ingredientId, qty)
 		end
 	end
@@ -2175,8 +2464,59 @@ function PlayerDataManager.AddPlayerXP(player, amount)
 	end
 	if leveled then
 		PlayerDataManager.NotifyAchievement("OnPlayerLevelChanged", player, d.playerLevel)
+		task.defer(function()
+			if player.Parent then
+				PlayerDataManager.ApplyWorldStatsToCharacter(player)
+			end
+		end)
 	end
 	return d.playerLevel, leveled
+end
+
+-- Sync pilot combat attributes (level scaling + rebirth). Safe when data not loaded.
+function PlayerDataManager.SyncPlayerWorldStats(player)
+	if not player then
+		return nil
+	end
+	local d = playerCache[player.UserId]
+	if not d then
+		return nil
+	end
+	local lvl = d.playerLevel or 1
+	local bonuses = PlayerDataManager.GetRebirthBonuses(player)
+	local s = PlayerWorldStats.ComputeForPlayer(lvl, bonuses)
+	player:SetAttribute("WorldStat_LevelMult", s.levelMult)
+	player:SetAttribute("WorldStat_Attack", s.attack)
+	player:SetAttribute("WorldStat_Defense", s.defense)
+	player:SetAttribute("WorldStat_MaxHealth", s.maxHealth)
+	player:SetAttribute("WorldStat_WalkSpeed", s.walkSpeed)
+	player:SetAttribute("WorldStat_SprintSpeed", s.sprintSpeed)
+	return s
+end
+
+--- Apply synced max health to the humanoid (includes Badlands flat Health boost when active).
+function PlayerDataManager.ApplyWorldStatsToCharacter(player, humanoidOpt)
+	PlayerDataManager.SyncPlayerWorldStats(player)
+	local hum = humanoidOpt or (player.Character and player.Character:FindFirstChildOfClass("Humanoid"))
+	if not hum then
+		return
+	end
+	local baseMax = player:GetAttribute("WorldStat_MaxHealth")
+	if type(baseMax) ~= "number" or baseMax < 1 then
+		return
+	end
+	local blHP = 0
+	if player:GetAttribute("InBadlands") == true then
+		local bh = player:GetAttribute("BadlandsStat_Health")
+		if type(bh) == "number" and bh > 0 then
+			blHP = bh
+		end
+	end
+	local maxHP = math.max(1, math.floor(baseMax + blHP))
+	local prevMax = hum.MaxHealth
+	local ratio = prevMax > 0 and (hum.Health / prevMax) or 1
+	hum.MaxHealth = maxHP
+	hum.Health = math.min(maxHP, math.max(1, math.floor(ratio * maxHP + 0.5)))
 end
 
 -- Get player level info: level, currentXP, xpNeededForNext
@@ -2256,57 +2596,127 @@ function PlayerDataManager.GetMaxSlots(player, slotType)
 	return #floors * perFloor
 end
 
--- -- DECOR SYSTEM (Floor 4 creature statues) --
+-- -- DECOR / FURNISH (multi-floor DecorPoints) --
 
---- Place a creature statue on a DecorPoint slot.
---- Deducts gold based on creature rarity from GameConfig.DecorCostByRarity.
---- @param player  Player
---- @param slotIndex number  Which DecorPoint (1-6)
---- @param creatureId string  Creature ID from CreatureData (e.g. "firsky")
+local function parseDecorSlotKey(slotKey)
+	if type(slotKey) ~= "string" then return nil, nil end
+	local floorStr, idxStr = slotKey:match("^(%d+)_(%d+)$")
+	if not floorStr then return nil, nil end
+	return tonumber(floorStr), tonumber(idxStr)
+end
+
+--- Migrate legacy numeric keys to "4_n" and normalize slot payloads.
+function PlayerDataManager.NormalizeDecorSlotsIfNeeded(d)
+	if not d then return end
+	if type(d.decorSlots) ~= "table" then
+		d.decorSlots = {}
+		return
+	end
+	local newSlots = {}
+	for k, v in pairs(d.decorSlots) do
+		if type(v) ~= "table" then continue end
+		local keyStr = tostring(k)
+		local outKey = keyStr
+		if type(k) == "number" or keyStr:match("^%d+$") then
+			outKey = "4_" .. keyStr
+		end
+		if v.kind == "furniture" and v.furnitureId then
+			newSlots[outKey] = { kind = "furniture", furnitureId = v.furnitureId }
+		elseif v.creatureId then
+			newSlots[outKey] = { kind = "statue", creatureId = v.creatureId }
+		end
+	end
+	d.decorSlots = newSlots
+end
+
+function PlayerDataManager.GetDecorStatueBonusMap(player)
+	local d = playerCache[player.UserId]
+	if not d then return {} end
+	PlayerDataManager.NormalizeDecorSlotsIfNeeded(d)
+	local map = {}
+	for _, slot in pairs(d.decorSlots or {}) do
+		if slot.kind == "statue" and slot.creatureId then
+			map[slot.creatureId] = true
+		end
+	end
+	return map
+end
+
 --- @return boolean success, string message
-function PlayerDataManager.PlaceDecor(player, slotIndex, creatureId)
+function PlayerDataManager.PlaceFurnish(player, slotKey, kind, id)
 	local d = playerCache[player.UserId]
 	if not d then return false, "No data" end
-	if not PlayerDataManager.OwnsFloor(player, 4) then return false, "Floor 4 required" end
+	PlayerDataManager.NormalizeDecorSlotsIfNeeded(d)
 
-	local maxSlots = GameConfig.DecorPointsPerFloor4 or 6
-	if type(slotIndex) ~= "number" or slotIndex < 1 or slotIndex > maxSlots then
-		return false, "Invalid slot"
+	local floorNum, slotIdx = parseDecorSlotKey(slotKey)
+	if not floorNum or not slotIdx then return false, "Invalid slot" end
+	if not PlayerDataManager.OwnsFloor(player, floorNum) then return false, "Floor " .. floorNum .. " required" end
+
+	local maxIdx = GameConfig.DecorMaxSlotIndexPerFloor or GameConfig.DecorPointsPerFloor4 or 12
+	if slotIdx < 1 or slotIdx > maxIdx then return false, "Invalid slot index" end
+
+	local cost = 0
+	local entry = nil
+
+	if kind == "statue" then
+		if type(id) ~= "string" then return false, "Invalid creature" end
+		local CreatureData = require(game.ReplicatedStorage.Modules.CreatureData)
+		local info = CreatureData.GetById(id)
+		if not info then return false, "Unknown creature" end
+		local costTable = GameConfig.DecorCostByRarity or {}
+		cost = costTable[info.rarity] or 1000
+	elseif kind == "furniture" then
+		if type(id) ~= "string" then return false, "Invalid item" end
+		local FurnitureCatalog = require(game.ReplicatedStorage.Modules.FurnitureCatalog)
+		entry = FurnitureCatalog.GetById(id)
+		if not entry then return false, "Unknown furniture" end
+		cost = entry.coinCost or 0
+		local modelsFolder = game.ReplicatedStorage:FindFirstChild("FurnitureModels")
+		local template = modelsFolder and modelsFolder:FindFirstChild(entry.modelName)
+		if not template then return false, "Furniture model missing" end
+	else
+		return false, "Invalid kind"
 	end
 
-	-- Look up creature rarity for cost
-	local CreatureData = require(game.ReplicatedStorage.Modules.CreatureData)
-	local info = CreatureData.GetById(creatureId)
-	if not info then return false, "Unknown creature" end
-
-	local costTable = GameConfig.DecorCostByRarity or {}
-	local cost = costTable[info.rarity] or 1000
 	if d.coins < cost then return false, "Need " .. cost .. " coins" end
 
 	d.coins = d.coins - cost
-	if not d.decorSlots then d.decorSlots = {} end
-	d.decorSlots[slotIndex] = { creatureId = creatureId }
-	return true, "Statue placed!"
+	d.decorSlots[slotKey] = kind == "statue" and { kind = "statue", creatureId = id }
+		or { kind = "furniture", furnitureId = id }
+
+	return true, "Placed!"
 end
 
---- Remove a creature statue from a DecorPoint slot. No refund.
---- @param player  Player
---- @param slotIndex number  Which DecorPoint (1-6)
---- @return boolean success, string message
-function PlayerDataManager.RemoveDecor(player, slotIndex)
+function PlayerDataManager.RemoveFurnish(player, slotKey)
 	local d = playerCache[player.UserId]
 	if not d then return false, "No data" end
-	if not d.decorSlots or not d.decorSlots[slotIndex] then return false, "Slot empty" end
-	d.decorSlots[slotIndex] = nil
-	return true, "Statue removed"
+	PlayerDataManager.NormalizeDecorSlotsIfNeeded(d)
+	if type(slotKey) ~= "string" or not d.decorSlots or not d.decorSlots[slotKey] then
+		return false, "Slot empty"
+	end
+	d.decorSlots[slotKey] = nil
+	return true, "Removed"
 end
 
---- Get all decor slots for a player.
---- @param player Player
---- @return table  { [slotIndex] = { creatureId = "..." }, ... }
+--- Legacy: numeric slot = Floor 4 slot index.
+function PlayerDataManager.PlaceDecor(player, slotIndex, creatureId)
+	if type(slotIndex) == "number" then
+		return PlayerDataManager.PlaceFurnish(player, "4_" .. tostring(math.floor(slotIndex)), "statue", creatureId)
+	end
+	return false, "Invalid slot"
+end
+
+function PlayerDataManager.RemoveDecor(player, slotIndex)
+	if type(slotIndex) == "number" then
+		return PlayerDataManager.RemoveFurnish(player, "4_" .. tostring(math.floor(slotIndex)))
+	end
+	return false, "Invalid slot"
+end
+
 function PlayerDataManager.GetDecorSlots(player)
 	local d = playerCache[player.UserId]
 	if not d then return {} end
+	PlayerDataManager.NormalizeDecorSlotsIfNeeded(d)
 	return d.decorSlots or {}
 end
 

@@ -1,12 +1,17 @@
 -- IngredientsMenuClient.client.lua - StarterPlayerScripts
 -- Ingredient bank UI, campfire mix/craft, world pickup prompts + sparkle FX.
--- Last updated: 2026-03-28 19:00
+-- Layout: bankColumn | rightNormal (mix) OR rightChef (craft) — non-overlapping columns, no reparent hacks.
+-- Rojo: default.project.json → StarterPlayer.StarterPlayerScripts.IngredientsMenuClient (this file). Run `rojo serve` from repo root, connect the Rojo plugin in Studio.
+-- If the build stamp (top-right of the panel) does not match ING_UI_BUILD, Studio is not using this file — paste/sync from this repo into StarterPlayer > StarterPlayerScripts.
+
+local ING_UI_BUILD = "2026-04-11 v15"
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
@@ -18,26 +23,50 @@ local IngredientData = require(ReplicatedStorage.Modules.IngredientData)
 local Notify = require(ReplicatedStorage.Modules.NotificationManager)
 local MobileWindowLayout = require(ReplicatedStorage.Modules:WaitForChild("MobileWindowLayout"))
 
-local Events = ReplicatedStorage:FindFirstChild("Events")
-if not Events then return end
+-- Same as Inventory UI: wait for Events/remotes. FindFirstChild at script start often runs before replication
+-- finishes, so GetIngredientBank was nil → whole script exited, or InvokeServer targeted a bad ref → empty bank.
+local Events = ReplicatedStorage:WaitForChild("Events", 30)
+if not Events then
+	warn("[IngredientsMenu] ReplicatedStorage.Events not found")
+	return
+end
 
-local getIngredientBank = Events:FindFirstChild("GetIngredientBank")
-local getCraftingMix = Events:FindFirstChild("GetCraftingMix")
-local getCampfireRecipePattern = Events:FindFirstChild("GetCampfireRecipePattern")
+local getIngredientBank = Events:WaitForChild("GetIngredientBank", 30)
+local collectIngredient = Events:WaitForChild("CollectIngredient", 30)
+-- Wait for mix/craft remotes — FindFirstChild at startup often runs before replication finishes,
+-- leaving nil forever and breaking chef slots + sync (blank craft pad, empty mix).
+local getCraftingMix = Events:WaitForChild("GetCraftingMix", 30)
+local getCampfireRecipePattern = Events:WaitForChild("GetCampfireRecipePattern", 30)
 local ingredientBankChanged = Events:FindFirstChild("IngredientBankChanged")
-local collectIngredient = Events:FindFirstChild("CollectIngredient")
-local craftAtCampfire = Events:FindFirstChild("CraftAtCampfire")
-local craftAtCampfireWithQuality = Events:FindFirstChild("CraftAtCampfireWithQuality")
-local ingredientDestroy = Events:FindFirstChild("IngredientDestroy")
-local craftingMixAdd = Events:FindFirstChild("CraftingMixAdd")
-local craftingMixRemoveSlot = Events:FindFirstChild("CraftingMixRemoveSlot")
-local craftingMixClear = Events:FindFirstChild("CraftingMixClear")
-local craftingMixPlaceAt = Events:FindFirstChild("CraftingMixPlaceAt")
+local ingredientPickupCollected = Events:FindFirstChild("IngredientPickupCollected")
+	or Events:WaitForChild("IngredientPickupCollected", 25)
+local craftAtCampfire = Events:WaitForChild("CraftAtCampfire", 30)
+local craftAtCampfireWithQuality = Events:WaitForChild("CraftAtCampfireWithQuality", 30)
+local craftingMixAdd = Events:WaitForChild("CraftingMixAdd", 30)
+local craftingMixRemoveSlot = Events:WaitForChild("CraftingMixRemoveSlot", 30)
+local craftingMixClear = Events:WaitForChild("CraftingMixClear", 30)
+local craftingMixPlaceAt = Events:WaitForChild("CraftingMixPlaceAt", 30)
 
-if not getIngredientBank or not collectIngredient then return end
+if not getIngredientBank or not collectIngredient then
+	warn("[IngredientsMenu] GetIngredientBank or CollectIngredient missing")
+	return
+end
 
 local cookCfg = GameConfig.Cooking or {}
-if cookCfg.Enabled == false then return end
+if cookCfg.Enabled == false then
+	warn(
+		"[IngredientsMenu] GameConfig.Cooking.Enabled is false — this script exits. Bag/inventory can still show ingredients via GetIngredientBank; cooking UI and pickups from this LocalScript are disabled."
+	)
+	return
+end
+
+local function canStartCampfireCook()
+	return (craftAtCampfire ~= nil) or (craftAtCampfireWithQuality ~= nil)
+end
+
+-- Nominal desktop sizes (cook mode is largest; used for fullscreen / compact detection)
+local ING_DESIGN_W = 720
+local ING_DESIGN_H = 540
 
 local C = {
 	bg = Color3.fromRGB(18, 22, 28),
@@ -55,6 +84,7 @@ local C = {
 
 local bank = {}
 local mix = {}
+local bankSyncGeneration = 0
 local selectedId = nil
 local cookMode = false
 local gui = nil
@@ -63,6 +93,7 @@ local bankList = nil
 local mixList = nil
 local craftBtn = nil
 local titleLbl = nil
+local applyIngredientsTitleLayout = nil
 local panelScale = nil
 local qualityLabel = nil
 local recipeFrame = nil
@@ -76,16 +107,19 @@ local enteredSequence = {}
 local recipeStartClock = 0
 local recipeTimeLimit = 12
 local recipeTimerConn = nil
+local recipeSubmitInFlight = false
 local closeRecipeFrame
 local unbindViewportUpdate = nil
+-- Use sentinel so first open is never blocked (now - 0 < 0.3 would skip the first ~0.3s of session time).
+local lastCookOpenClock = -1
 
-local layoutIngredients = nil
-local layoutChef = nil
-local ingLeftHost = nil
-local chefLeftHost = nil
+local bankColumn = nil
+local rightNormal = nil
+local rightChef = nil
 local craftPad = nil
 local slotsHost = nil
 local combineHubBtn = nil
+local recipeLogFrame = nil
 local recipeLogList = nil
 local combinePulseConn = nil
 local bodyFrame = nil
@@ -101,13 +135,85 @@ local function rarityColor(r)
 	return (rr and rr.color) or C.muted
 end
 
-local function syncBank()
-	local ok, data = pcall(function()
-		return getIngredientBank:InvokeServer()
-	end)
-	if ok and type(data) == "table" then
-		bank = data
+-- Mirrors PlayerDataManager.normalizeIngredientBank; also accepts array-shaped payloads from replication quirks.
+local function normalizeIngredientBankClient(raw)
+	local fixed = {}
+	if type(raw) ~= "table" then
+		return fixed
 	end
+	for k, v in pairs(raw) do
+		if type(v) == "table" and v.id then
+			local id = tostring(v.id)
+			local n = math.floor(tonumber(v.qty or v.count or v.n) or 0)
+			if id ~= "" and n > 0 then
+				fixed[id] = (fixed[id] or 0) + n
+			end
+		else
+			local id = tostring(k)
+			local n = math.floor(tonumber(v) or 0)
+			if id ~= "" and n > 0 then
+				fixed[id] = n
+			end
+		end
+	end
+	if next(fixed) == nil then
+		for _, e in ipairs(raw) do
+			if type(e) == "table" and e.id then
+				local id = tostring(e.id)
+				local n = math.floor(tonumber(e.qty or e.count or e.n) or 0)
+				if id ~= "" and n > 0 then
+					fixed[id] = (fixed[id] or 0) + n
+				end
+			end
+		end
+	end
+	return fixed
+end
+
+local function syncBank()
+	local rf = getIngredientBank
+	if not rf or not rf:IsA("RemoteFunction") then
+		return
+	end
+	bankSyncGeneration += 1
+	local myGen = bankSyncGeneration
+	local ok, data = pcall(function()
+		return rf:InvokeServer()
+	end)
+	if not ok then
+		warn("[IngredientsMenu] GetIngredientBank InvokeServer failed:", data)
+		return
+	end
+	-- Server returns nil until PlayerDataManager has loaded this player (same moment Bag would also fail).
+	if data == nil then
+		bank = {}
+		task.spawn(function()
+			for attempt = 1, 14 do
+				task.wait(0.15 + attempt * 0.05)
+				if myGen ~= bankSyncGeneration then
+					return
+				end
+				if not rf.Parent then
+					return
+				end
+				local ok2, data2 = pcall(function()
+					return rf:InvokeServer()
+				end)
+				if ok2 and data2 ~= nil and type(data2) == "table" then
+					bank = normalizeIngredientBankClient(data2)
+					if gui and gui.Enabled and bankList then
+						rebuildBankList()
+					end
+					return
+				end
+			end
+		end)
+		return
+	end
+	if type(data) ~= "table" then
+		return
+	end
+	bank = normalizeIngredientBankClient(data)
 end
 
 local function syncMix()
@@ -130,32 +236,93 @@ local function mixSlotEntryValid(e)
 	return type(e) == "table" and e.id and e.id ~= "" and (tonumber(e.qty) or 0) > 0
 end
 
+local CHEF_SLOT_COUNT = 4
+
 local function chefMaxSlots()
 	return math.min(tonumber(cookCfg.MaxMixIngredients) or CHEF_SLOT_COUNT, CHEF_SLOT_COUNT)
 end
 
---- Dense 1..N mix array (handles sparse / string-key payloads from remotes).
-local function assignMixFromServer(data)
-	if type(data) ~= "table" then return end
+local function ensureMixDense(maxMix)
+	for i = 1, maxMix do
+		if mix[i] == nil then
+			mix[i] = { id = "", qty = 0 }
+		end
+	end
+end
+
+--- Snapshot for revert; same shape as GetCraftingMix / assignMixFromServer..
+local function snapshotMixDense()
 	local maxMix = chefMaxSlots()
 	local out = {}
 	for i = 1, maxMix do
-		local e = data[i]
-		if type(e) ~= "table" then
-			e = data[tostring(i)]
-		end
+		local e = mix[i]
 		if mixSlotEntryValid(e) then
 			out[i] = { id = tostring(e.id), qty = math.floor(tonumber(e.qty) or 0) }
 		else
 			out[i] = { id = "", qty = 0 }
 		end
 	end
-	mix = out
+	return out
+end
+
+local function applySnapshotMix(snap)
+	if type(snap) == "table" then
+		assignMixFromServer(snap)
+	end
+end
+
+--- Sum of qty per ingredient id in current mix must not exceed bank (same rule as server).
+local function mixWithinBankTotals()
+	local maxMix = chefMaxSlots()
+	local counts = {}
+	for i = 1, maxMix do
+		local e = mix[i]
+		if mixSlotEntryValid(e) then
+			local id = tostring(e.id)
+			counts[id] = (counts[id] or 0) + math.floor(tonumber(e.qty) or 0)
+		end
+	end
+	for id, n in pairs(counts) do
+		local have = math.floor(tonumber(bank[id]) or 0)
+		if n > have then
+			return false
+		end
+	end
+	return true
+end
+
+-- While InvokeServer yields, extra clicks used to queue more tryPlace calls and stack bad optimistic state.
+local slotPlaceInFlight = false
+
+--- Dense 1..N mix array (handles sparse / string-key payloads from remotes)
+local function assignMixFromServer(data)
+	if type(data) ~= "table" then return end
+	local ok, err = pcall(function()
+		local maxMix = chefMaxSlots()
+		local out = {}
+		for i = 1, maxMix do
+			local e = data[i]
+			if type(e) ~= "table" then
+				e = data[tostring(i)]
+			end
+			if mixSlotEntryValid(e) then
+				out[i] = { id = tostring(e.id), qty = math.floor(tonumber(e.qty) or 0) }
+			else
+				out[i] = { id = "", qty = 0 }
+			end
+		end
+		mix = out
+	end)
+	if not ok then
+		warn("[IngredientsMenu] assignMixFromServer:", err)
+	end
 end
 
 local function mixTotal()
 	local t = 0
-	for _, e in ipairs(mix) do
+	local maxS = chefMaxSlots()
+	for i = 1, maxS do
+		local e = mix[i]
 		if mixSlotEntryValid(e) then
 			t = t + (tonumber(e.qty) or 0)
 		end
@@ -168,7 +335,9 @@ local function qtyInMixForIngredient(ingredientId)
 		return 0
 	end
 	local t = 0
-	for _, e in ipairs(mix) do
+	local maxS = chefMaxSlots()
+	for i = 1, maxS do
+		local e = mix[i]
 		if mixSlotEntryValid(e) and e.id == ingredientId then
 			t = t + (tonumber(e.qty) or 0)
 		end
@@ -190,28 +359,60 @@ local function rebuildBankList()
 	clearChildren(bankList)
 	local order = {}
 	for id, n in pairs(bank) do
-		if (tonumber(n) or 0) > 0 then
-			table.insert(order, { id = id, n = n })
+		local idStr = tostring(id)
+		local qty = math.floor(tonumber(n) or 0)
+		if idStr ~= "" and qty > 0 then
+			table.insert(order, { id = idStr, n = qty })
 		end
 	end
-	table.sort(order, function(a, b)
-		local da, db = IngredientData.GetById(a.id), IngredientData.GetById(b.id)
-		local ra = (da and da.region) or ""
-		local rb = (db and db.region) or ""
-		if ra ~= rb then return ra < rb end
-		local oa = da and CreatureData.RarityOrder and CreatureData.RarityOrder[da.rarity] or 0
-		local ob = db and CreatureData.RarityOrder and CreatureData.RarityOrder[db.rarity] or 0
-		if oa ~= ob then return oa < ob end
-		return a.id < b.id
+	local sortOk, sortErr = pcall(function()
+		table.sort(order, function(a, b)
+			local da = IngredientData.GetById(a.id) or IngredientData.GetById(tostring(a.id))
+			local db = IngredientData.GetById(b.id) or IngredientData.GetById(tostring(b.id))
+			local ra = (da and da.region) or ""
+			local rb = (db and db.region) or ""
+			if ra ~= rb then
+				return ra < rb
+			end
+			local oa = da and CreatureData.RarityOrder and CreatureData.RarityOrder[da.rarity] or 0
+			local ob = db and CreatureData.RarityOrder and CreatureData.RarityOrder[db.rarity] or 0
+			if oa ~= ob then
+				return oa < ob
+			end
+			return tostring(a.id) < tostring(b.id)
+		end)
 	end)
+	if not sortOk then
+		warn("[IngredientsMenu] rebuildBankList sort failed (showing unsorted):", sortErr)
+		table.sort(order, function(a, b)
+			return tostring(a.id) < tostring(b.id)
+		end)
+	end
 	local layout = Instance.new("UIListLayout")
 	layout.Padding = UDim.new(0, 6)
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Parent = bankList
 
+	if #order == 0 then
+		local empty = Instance.new("TextLabel")
+		empty.BackgroundTransparency = 1
+		empty.Size = UDim2.new(1, -8, 0, 0)
+		empty.AutomaticSize = Enum.AutomaticSize.Y
+		empty.Font = Enum.Font.GothamMedium
+		empty.TextSize = 12
+		empty.TextColor3 = C.muted
+		empty.TextWrapped = true
+		empty.TextXAlignment = Enum.TextXAlignment.Left
+		empty.Text =
+			"No ingredients listed yet. If your Bag shows ingredients, close this and reopen, or wait a moment — your profile may still be loading."
+		empty.Parent = bankList
+		return
+	end
+
 	for idx, row in ipairs(order) do
 		local def = IngredientData.GetById(row.id)
 		local shownN = bankCountShownForRow(row.id, row.n)
+		local inMixN = qtyInMixForIngredient(row.id)
 		local btn = Instance.new("TextButton")
 		btn.Name = row.id
 		local rowH = cookMode and 56 or 36
@@ -261,7 +462,8 @@ local function rebuildBankList()
 			badge.Font = Enum.Font.GothamBold
 			badge.TextSize = 11
 			badge.TextColor3 = C.cyan
-			badge.Text = "x" .. tostring(shownN)
+			-- Total owned in bank (server); not "remaining" — x0 remaining looked like "you own 0".
+			badge.Text = "x" .. tostring(row.n)
 			badge.Parent = icon
 			Instance.new("UICorner", badge).CornerRadius = UDim.new(0, 4)
 			local tl = Instance.new("TextLabel")
@@ -276,13 +478,21 @@ local function rebuildBankList()
 			tl.Parent = btn
 			local tr = Instance.new("TextLabel")
 			tr.BackgroundTransparency = 1
-			tr.Position = UDim2.new(1, -56, 0, 8)
-			tr.Size = UDim2.fromOffset(48, 20)
+			tr.Position = UDim2.new(1, -120, 0, 8)
+			tr.Size = UDim2.fromOffset(112, 36)
 			tr.Font = Enum.Font.GothamBold
-			tr.TextSize = 13
+			tr.TextSize = 12
 			tr.TextColor3 = C.accent
 			tr.TextXAlignment = Enum.TextXAlignment.Right
-			tr.Text = "x" .. tostring(shownN)
+			tr.TextYAlignment = Enum.TextYAlignment.Top
+			tr.TextWrapped = true
+			if shownN > 0 then
+				tr.Text = "+" .. tostring(shownN) .. " free"
+			elseif inMixN > 0 then
+				tr.Text = "in mix ×" .. tostring(inMixN)
+			else
+				tr.Text = "—"
+			end
 			tr.Parent = btn
 		else
 			local tl = Instance.new("TextLabel")
@@ -314,7 +524,9 @@ local function rebuildBankList()
 end
 
 local function mixAnyFilled()
-	for _, e in ipairs(mix) do
+	local maxS = chefMaxSlots()
+	for i = 1, maxS do
+		local e = mix[i]
 		if mixSlotEntryValid(e) then
 			return true
 		end
@@ -328,7 +540,6 @@ local SLOT_UI_POS = {
 	UDim2.new(0.5, 0, 0.89, 0),
 	UDim2.new(0.13, 0, 0.5, 0),
 }
-local CHEF_SLOT_COUNT = 4
 
 local function rebuildRecipeLog()
 	if not recipeLogList then return end
@@ -350,7 +561,8 @@ local function rebuildRecipeLog()
 		empty.Parent = recipeLogList
 		return
 	end
-	for i, e in ipairs(mix) do
+	for i = 1, chefMaxSlots() do
+		local e = mix[i]
 		if not mixSlotEntryValid(e) then
 			continue
 		end
@@ -387,15 +599,43 @@ local function tryPlaceIngredientInSlot(si)
 		Notify.Toast("Cooking service unavailable", Color3.fromRGB(255, 100, 80), 2)
 		return
 	end
+	if slotPlaceInFlight then
+		return
+	end
+	local id = selectedId
+	if not id or id == "" then
+		Notify.Toast("Select an ingredient, then tap a slot", Color3.fromRGB(255, 200, 100), 2.5)
+		return
+	end
+	local maxMix = chefMaxSlots()
+	ensureMixDense(maxMix)
+	local prev = snapshotMixDense()
+	local cur = mix[si]
+	if mixSlotEntryValid(cur) and cur.id == id then
+		mix[si] = { id = id, qty = math.floor(tonumber(cur.qty) or 0) + 1 }
+	else
+		mix[si] = { id = id, qty = 1 }
+	end
+	if not mixWithinBankTotals() then
+		applySnapshotMix(prev)
+		Notify.Toast("Not enough in bank for that mix", Color3.fromRGB(255, 140, 90), 2.5)
+		return
+	end
+	rebuildMixList()
+	rebuildBankList()
+
+	slotPlaceInFlight = true
 	local callOk, ok, payload = pcall(function()
-		return craftingMixPlaceAt:InvokeServer(si, selectedId, 1)
+		return craftingMixPlaceAt:InvokeServer(si, id, 1)
 	end)
+	slotPlaceInFlight = false
+
 	if not callOk then
 		Notify.Toast("Could not reach server", Color3.fromRGB(255, 100, 80), 2)
-		syncMix()
+		applySnapshotMix(prev)
 	elseif not ok then
 		Notify.Toast(tostring(payload) or "Cannot add to slot", Color3.fromRGB(255, 100, 80), 2)
-		syncMix()
+		applySnapshotMix(prev)
 	elseif type(payload) == "table" then
 		assignMixFromServer(payload)
 	else
@@ -406,7 +646,9 @@ local function tryPlaceIngredientInSlot(si)
 end
 
 local function rebuildCraftingSlots()
-	if not slotsHost or not craftingMixRemoveSlot then return end
+	if not slotsHost then
+		return
+	end
 	clearChildren(slotsHost)
 	local maxMix = math.min(tonumber(cookCfg.MaxMixIngredients) or CHEF_SLOT_COUNT, CHEF_SLOT_COUNT)
 	for si = 1, maxMix do
@@ -449,10 +691,10 @@ local function rebuildCraftingSlots()
 			q.TextColor3 = C.cyan
 			q.Text = "×" .. tostring(e.qty)
 			q.Parent = slot
-			slot.MouseButton1Click:Connect(function()
+			slot.Activated:Connect(function()
 				if cookMode and selectedId and craftingMixPlaceAt then
 					tryPlaceIngredientInSlot(si)
-				else
+				elseif craftingMixRemoveSlot then
 					local rOk, removed, mixData = pcall(function()
 						return craftingMixRemoveSlot:InvokeServer(si)
 					end)
@@ -463,6 +705,9 @@ local function rebuildCraftingSlots()
 					end
 					rebuildMixList()
 					rebuildBankList()
+				else
+					Notify.Toast("Cooking service unavailable", Color3.fromRGB(255, 100, 80), 2)
+					syncMix()
 				end
 			end)
 		else
@@ -475,7 +720,7 @@ local function rebuildCraftingSlots()
 			lab.Text = "SLOT\n" .. si
 			lab.TextWrapped = true
 			lab.Parent = slot
-			slot.MouseButton1Click:Connect(function()
+			slot.Activated:Connect(function()
 				if not cookMode then
 					return
 				end
@@ -549,30 +794,110 @@ local function rebuildMixList()
 	end
 end
 
+-- craftPad was UDim2 Y = scale 1 + offset -124. If rightChef height < ~124px (fullscreen/mobile),
+-- the pad height becomes <= 0 and the slot ring / combine hub vanish.
+local function applyChefMixingPanelLayout()
+	if not cookMode or not rightChef or not craftPad then
+		return
+	end
+	local h = rightChef.AbsoluteSize.Y
+	if h < 2 then
+		return
+	end
+	local gap = 6
+	local logH = math.min(116, math.max(52, math.floor(h * 0.36)))
+	local padH = math.max(56, h - logH - gap)
+	if padH + logH + gap > h then
+		logH = math.max(44, math.floor((h - gap) * 0.34))
+		padH = math.max(48, h - logH - gap)
+	end
+	craftPad.Position = UDim2.new(0, 0, 0, 0)
+	craftPad.Size = UDim2.new(1, -6, 0, padH)
+	local log = recipeLogFrame
+	if log and log.Parent == rightChef then
+		log.AnchorPoint = Vector2.new(0, 1)
+		log.Position = UDim2.new(0, 0, 1, -2)
+		log.Size = UDim2.new(0.58, 0, 0, logH)
+	end
+end
+
+-- Bottom-bar Cook must stay visible whenever the menu is open (chef or bank). Do not tie to canStartCampfireCook —
+-- that hid Cook in chef mode when CraftAtCampfire remotes were still nil after WaitForChild.
+local function refreshCookBarVisibility()
+	if craftBtn and gui and gui.Enabled then
+		craftBtn.Visible = true
+	end
+end
+
+-- Two-column body: bankColumn | rightNormal (mix) or rightChef (craft). No overlapping full-bleed panels.
+local function applyBodyLayout()
+	if not bankColumn or not rightNormal or not rightChef or not bankScroll then
+		return
+	end
+	bankScroll.AnchorPoint = Vector2.new(0, 0)
+	bankScroll.Position = UDim2.new(0, 0, 0, 0)
+	bankScroll.Size = UDim2.new(1, 0, 1, 0)
+	bankScroll.Visible = true
+	bankScroll.ScrollingDirection = Enum.ScrollingDirection.Y
+	bankScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	if cookMode then
+		bankColumn.Position = UDim2.new(0, 8, 0, 4)
+		bankColumn.Size = UDim2.new(0.30, -8, 1, -8)
+		rightNormal.Visible = false
+		rightChef.Visible = true
+		rightChef.Position = UDim2.new(0.30, 8, 0, 4)
+		rightChef.Size = UDim2.new(0.70, -16, 1, -8)
+		task.defer(function()
+			applyChefMixingPanelLayout()
+			task.defer(function()
+				applyChefMixingPanelLayout()
+				if cookMode then
+					rebuildMixList()
+				end
+			end)
+		end)
+	else
+		bankColumn.Position = UDim2.new(0, 8, 0, 4)
+		bankColumn.Size = UDim2.new(0.48, -12, 1, -8)
+		rightNormal.Visible = true
+		rightChef.Visible = false
+		rightNormal.Position = UDim2.new(0.52, 4, 0, 4)
+		rightNormal.Size = UDim2.new(0.48, -14, 1, -8)
+	end
+	refreshCookBarVisibility()
+end
+
 local function applyIngredientsMenuLayout()
 	if not mainFrame then return end
-	if MobileWindowLayout.IsMobile() then
-		local bounds = MobileWindowLayout.GetBounds({
-			leftInset = 12,
-			rightInset = 12,
-			topInset = 10,
-			bottomInset = 14,
-			bottomMobileExtra = 18,
-		})
-		local maxW = cookMode and 740 or 520
-		local maxH = cookMode and 560 or 420
-		local width = math.min(maxW, math.floor(bounds.width))
-		local height = math.min(maxH, math.floor(bounds.height))
-		mainFrame.Size = UDim2.fromOffset(width, height)
+	if gui then
+		if gui.Enabled then
+			MobileWindowLayout.SyncNpcMenuScreenGui(gui, ING_DESIGN_W, ING_DESIGN_H)
+		else
+			gui.IgnoreGuiInset = false
+		end
+	end
+	if MobileWindowLayout.NpcMenuUsesFullscreenBounds(ING_DESIGN_W, ING_DESIGN_H) then
+		local bounds = MobileWindowLayout.GetBounds(MobileWindowLayout.GetNpcFullscreenBoundsConfig(ING_DESIGN_W, ING_DESIGN_H))
+		mainFrame.AnchorPoint = Vector2.new(0, 0)
+		mainFrame.Position = UDim2.fromOffset(math.floor(bounds.left), math.floor(bounds.top))
+		mainFrame.Size = UDim2.fromOffset(math.floor(bounds.width), math.floor(bounds.height))
+		mainFrame.Draggable = false
 	else
 		if cookMode then
 			mainFrame.Size = UDim2.fromOffset(720, 540)
 		else
 			mainFrame.Size = UDim2.fromOffset(520, 420)
 		end
+		mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+		mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+		mainFrame.Draggable = true
 	end
-	mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-	mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+	if bodyFrame and bankColumn then
+		applyBodyLayout()
+	end
+	if applyIngredientsTitleLayout then
+		applyIngredientsTitleLayout()
+	end
 end
 
 local function setVisible(v)
@@ -581,6 +906,12 @@ local function setVisible(v)
 	end
 	if not v then
 		closeRecipeFrame()
+		if gui then
+			gui.IgnoreGuiInset = false
+		end
+		if craftBtn then
+			craftBtn.Visible = false
+		end
 	end
 	if v then
 		if mainFrame then
@@ -590,19 +921,7 @@ local function setVisible(v)
 		if panelScale then
 			panelScale.Scale = 1
 		end
-		if layoutIngredients and layoutChef and ingLeftHost and chefLeftHost and bankScroll then
-			layoutIngredients.Visible = not cookMode
-			layoutChef.Visible = cookMode
-			if cookMode then
-				bankScroll.Parent = chefLeftHost
-				bankScroll.Position = UDim2.new(0, 0, 0, 0)
-				bankScroll.Size = UDim2.new(1, 0, 1, 0)
-			else
-				bankScroll.Parent = ingLeftHost
-				bankScroll.Position = UDim2.new(0, 0, 0, 0)
-				bankScroll.Size = UDim2.new(1, 0, 1, 0)
-			end
-		end
+		applyBodyLayout()
 		if headerAccent then
 			headerAccent.BackgroundColor3 = cookMode and C.teal or Color3.fromRGB(45, 52, 68)
 		end
@@ -613,17 +932,28 @@ local function setVisible(v)
 		end
 		applyIngredientsMenuLayout()
 		syncBank()
-		syncMix()
+		-- Bank list must not run after syncMix: assignMixFromServer can throw and would skip the list rebuild.
 		rebuildBankList()
+		syncMix()
 		rebuildMixList()
+		task.defer(function()
+			if not gui or not gui.Enabled or not bankList then
+				return
+			end
+			-- Refresh bank + layout after one frame (chef panel bounds). Do not syncMix here — it races with
+			-- CraftingMixPlaceAt responses and can wipe the mix UI until the user clicks again.
+			syncBank()
+			rebuildBankList()
+			applyChefMixingPanelLayout()
+			rebuildMixList()
+			refreshCookBarVisibility()
+		end)
 		if titleLbl then
 			titleLbl.Text = cookMode and "MASTER CHEF CRAFTING" or "Ingredients"
 		end
-		if craftBtn then
-			craftBtn.Visible = false
-		end
+		refreshCookBarVisibility()
 		if combineHubBtn then
-			combineHubBtn.Visible = cookMode and craftAtCampfire ~= nil
+			combineHubBtn.Visible = cookMode and canStartCampfireCook()
 		end
 		if qualityLabel then
 			if cookMode then
@@ -688,6 +1018,9 @@ local function openRecipeFrame(recipeData)
 end
 
 local function submitRecipeMinigame()
+	if recipeSubmitInFlight then
+		return
+	end
 	if not recipeToken or recipeToken == "" then
 		Notify.Toast("No active recipe", Color3.fromRGB(255, 120, 90), 2)
 		return
@@ -707,6 +1040,7 @@ local function submitRecipeMinigame()
 		Notify.Toast("Cooking service unavailable", Color3.fromRGB(255, 120, 90), 2)
 		return
 	end
+	recipeSubmitInFlight = true
 	local ok, crafted, foodName, buffId, errMsg, extra = pcall(function()
 		if invoke == craftAtCampfireWithQuality then
 			return invoke:InvokeServer({
@@ -718,6 +1052,7 @@ local function submitRecipeMinigame()
 		end
 		return invoke:InvokeServer()
 	end)
+	recipeSubmitInFlight = false
 	if not ok then
 		Notify.Toast("Craft failed (network)", Color3.fromRGB(255, 80, 80), 2)
 		return
@@ -726,6 +1061,8 @@ local function submitRecipeMinigame()
 		Notify.Toast(tostring(errMsg) or "Cannot cook", Color3.fromRGB(255, 120, 100), 3)
 		return
 	end
+	-- Close the minigame first so a sync/list rebuild error cannot leave the overlay up.
+	closeRecipeFrame()
 	local grade = extra and extra.qualityGrade
 	if qualityLabel then
 		if grade then
@@ -738,11 +1075,12 @@ local function submitRecipeMinigame()
 			qualityLabel.Text = "Cooked successfully."
 		end
 	end
-	syncBank()
-	syncMix()
-	rebuildBankList()
-	rebuildMixList()
-	closeRecipeFrame()
+	pcall(function()
+		syncBank()
+		rebuildBankList()
+		syncMix()
+		rebuildMixList()
+	end)
 end
 
 local function buildGui()
@@ -751,8 +1089,10 @@ local function buildGui()
 	gui.Name = "IngredientsMenu"
 	gui.ResetOnSpawn = false
 	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	gui.DisplayOrder = 50
 	gui.Enabled = false
 	gui.Parent = playerGui
+	gui:SetAttribute("IngredientsBuild", ING_UI_BUILD)
 
 	mainFrame = Instance.new("Frame")
 	mainFrame.Name = "Panel"
@@ -791,6 +1131,23 @@ local function buildGui()
 	titleLbl.TextXAlignment = Enum.TextXAlignment.Left
 	titleLbl.Text = "Ingredients"
 	titleLbl.Parent = mainFrame
+	applyIngredientsTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(titleLbl, {
+		Position = UDim2.new(0, 16, 0, 8),
+		Size = UDim2.new(1, -80, 0, 36),
+		TextXAlignment = Enum.TextXAlignment.Left,
+	})
+
+	local buildStamp = Instance.new("TextLabel")
+	buildStamp.Name = "BuildStamp"
+	buildStamp.BackgroundTransparency = 1
+	buildStamp.Size = UDim2.new(0, 160, 0, 18)
+	buildStamp.Position = UDim2.new(1, -172, 0, 10)
+	buildStamp.Font = Enum.Font.Gotham
+	buildStamp.TextSize = 10
+	buildStamp.TextColor3 = C.muted
+	buildStamp.TextXAlignment = Enum.TextXAlignment.Right
+	buildStamp.Text = ING_UI_BUILD
+	buildStamp.Parent = mainFrame
 
 	qualityLabel = Instance.new("TextLabel")
 	qualityLabel.BackgroundTransparency = 1
@@ -832,22 +1189,10 @@ local function buildGui()
 	bodyFrame.Size = UDim2.new(1, 0, 1, -104)
 	bodyFrame.Parent = mainFrame
 
-	layoutIngredients = Instance.new("Frame")
-	layoutIngredients.BackgroundTransparency = 1
-	layoutIngredients.Size = UDim2.new(1, 0, 1, 0)
-	layoutIngredients.Parent = bodyFrame
-
-	ingLeftHost = Instance.new("Frame")
-	ingLeftHost.BackgroundTransparency = 1
-	ingLeftHost.Position = UDim2.new(0, 8, 0, 4)
-	ingLeftHost.Size = UDim2.new(0.48, -12, 1, -8)
-	ingLeftHost.Parent = layoutIngredients
-
-	local ingRightHost = Instance.new("Frame")
-	ingRightHost.BackgroundTransparency = 1
-	ingRightHost.Position = UDim2.new(0.52, 4, 0, 4)
-	ingRightHost.Size = UDim2.new(0.48, -14, 1, -8)
-	ingRightHost.Parent = layoutIngredients
+	bankColumn = Instance.new("Frame")
+	bankColumn.Name = "BankColumn"
+	bankColumn.BackgroundTransparency = 1
+	bankColumn.Parent = bodyFrame
 
 	bankScroll = Instance.new("ScrollingFrame")
 	bankScroll.Name = "Bank"
@@ -858,7 +1203,7 @@ local function buildGui()
 	bankScroll.ScrollBarThickness = 6
 	bankScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 	bankScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-	bankScroll.Parent = ingLeftHost
+	bankScroll.Parent = bankColumn
 	Instance.new("UICorner", bankScroll).CornerRadius = UDim.new(0, 10)
 	local bankStroke = Instance.new("UIStroke")
 	bankStroke.Color = Color3.fromRGB(55, 65, 82)
@@ -880,7 +1225,11 @@ local function buildGui()
 	mixScroll.BorderSizePixel = 0
 	mixScroll.ScrollBarThickness = 6
 	mixScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-	mixScroll.Parent = ingRightHost
+	rightNormal = Instance.new("Frame")
+	rightNormal.Name = "IngredientsMix"
+	rightNormal.BackgroundTransparency = 1
+	rightNormal.Parent = bodyFrame
+	mixScroll.Parent = rightNormal
 	Instance.new("UICorner", mixScroll).CornerRadius = UDim.new(0, 10)
 
 	mixList = Instance.new("Frame")
@@ -901,24 +1250,11 @@ local function buildGui()
 	mixHeader.Text = "Mix (3–4 items)"
 	mixHeader.Parent = mixScroll
 
-	layoutChef = Instance.new("Frame")
-	layoutChef.Name = "ChefLayout"
-	layoutChef.Visible = false
-	layoutChef.BackgroundTransparency = 1
-	layoutChef.Size = UDim2.new(1, 0, 1, 0)
-	layoutChef.Parent = bodyFrame
-
-	chefLeftHost = Instance.new("Frame")
-	chefLeftHost.BackgroundTransparency = 1
-	chefLeftHost.Position = UDim2.new(0, 8, 0, 4)
-	chefLeftHost.Size = UDim2.new(0.30, -8, 1, -8)
-	chefLeftHost.Parent = layoutChef
-
-	local chefRightHost = Instance.new("Frame")
-	chefRightHost.BackgroundTransparency = 1
-	chefRightHost.Position = UDim2.new(0.30, 8, 0, 4)
-	chefRightHost.Size = UDim2.new(0.70, -16, 1, -8)
-	chefRightHost.Parent = layoutChef
+	rightChef = Instance.new("Frame")
+	rightChef.Name = "ChefPanel"
+	rightChef.BackgroundTransparency = 1
+	rightChef.Visible = false
+	rightChef.Parent = bodyFrame
 
 	craftPad = Instance.new("Frame")
 	craftPad.Name = "CraftPad"
@@ -928,7 +1264,7 @@ local function buildGui()
 	craftPad.Size = UDim2.new(1, -6, 1, -124)
 	craftPad.BorderSizePixel = 0
 	craftPad.ClipsDescendants = true
-	craftPad.Parent = chefRightHost
+	craftPad.Parent = rightChef
 	Instance.new("UICorner", craftPad).CornerRadius = UDim.new(0, 18)
 	local padStroke = Instance.new("UIStroke")
 	padStroke.Color = C.teal
@@ -999,7 +1335,7 @@ local function buildGui()
 	hubLbl.Active = false
 	hubLbl.Parent = combineHubBtn
 
-	local recipeLogFrame = Instance.new("Frame")
+	recipeLogFrame = Instance.new("Frame")
 	recipeLogFrame.Name = "RecipeLog"
 	recipeLogFrame.AnchorPoint = Vector2.new(0, 1)
 	recipeLogFrame.Position = UDim2.new(0, 0, 1, -2)
@@ -1007,7 +1343,7 @@ local function buildGui()
 	recipeLogFrame.BackgroundColor3 = Color3.fromRGB(22, 28, 36)
 	recipeLogFrame.BorderSizePixel = 0
 	recipeLogFrame.ZIndex = 5
-	recipeLogFrame.Parent = chefRightHost
+	recipeLogFrame.Parent = rightChef
 	Instance.new("UICorner", recipeLogFrame).CornerRadius = UDim.new(0, 12)
 	local logStroke = Instance.new("UIStroke")
 	logStroke.Color = C.tealGlow
@@ -1042,8 +1378,16 @@ local function buildGui()
 	recipeLogList.AutomaticSize = Enum.AutomaticSize.Y
 	recipeLogList.Parent = logScroll
 
+	rightChef:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+		if cookMode and rightChef.Visible then
+			applyChefMixingPanelLayout()
+			rebuildMixList()
+		end
+	end)
+
 	local btnRow = Instance.new("Frame")
 	btnRow.BackgroundTransparency = 1
+	btnRow.ZIndex = 10
 	btnRow.Position = UDim2.new(0, 12, 1, -52)
 	btnRow.Size = UDim2.new(1, -24, 0, 44)
 	btnRow.Parent = mainFrame
@@ -1087,14 +1431,14 @@ local function buildGui()
 		rebuildBankList()
 	end)
 
-	local add5 = mkBtn("+5", 0.12, Color3.fromRGB(45, 90, 140))
-	add5.Position = UDim2.new(0.18, 6, 0, 0)
-	add5.Parent = btnRow
-	add5.MouseButton1Click:Connect(function()
+	local add4 = mkBtn("+4", 0.12, Color3.fromRGB(45, 90, 140))
+	add4.Position = UDim2.new(0.18, 6, 0, 0)
+	add4.Parent = btnRow
+	add4.MouseButton1Click:Connect(function()
 		if not selectedId then return end
 		local maxMix = tonumber(cookCfg.MaxMixIngredients) or CHEF_SLOT_COUNT
 		local room = maxMix - mixTotal()
-		local q = math.min(5, math.max(0, room))
+		local q = math.min(4, math.max(0, room))
 		if q <= 0 then return end
 		local callOk, addOk, payload = pcall(function()
 			return craftingMixAdd:InvokeServer(selectedId, q)
@@ -1129,22 +1473,6 @@ local function buildGui()
 		rebuildBankList()
 	end)
 
-	local destroyB = mkBtn("Destroy 1", 0.18, Color3.fromRGB(90, 40, 40))
-	destroyB.Position = UDim2.new(0.52, 18, 0, 0)
-	destroyB.Parent = btnRow
-	destroyB.MouseButton1Click:Connect(function()
-		if not selectedId then return end
-		local callOk, destroyed = pcall(function()
-			return ingredientDestroy:InvokeServer(selectedId, 1)
-		end)
-		if callOk and destroyed then
-			syncBank()
-			rebuildBankList()
-		elseif callOk and not destroyed then
-			Notify.Toast("Cannot destroy", Color3.fromRGB(255, 100, 80), 2)
-		end
-	end)
-
 	local function startCampfireCookFlow()
 		if not getCampfireRecipePattern then
 			submitRecipeMinigame()
@@ -1164,12 +1492,16 @@ local function buildGui()
 		openRecipeFrame(dataOrMsg)
 	end
 
-	craftBtn = mkBtn("Cook!", 0.22, Color3.fromRGB(50, 120, 70))
-	craftBtn.Position = UDim2.new(0.72, 24, 0, 0)
+	craftBtn = mkBtn("Cook", 0.22, Color3.fromRGB(45, 130, 65))
+	craftBtn.Name = "CookBar"
+	craftBtn.ZIndex = 11
+	craftBtn.AnchorPoint = Vector2.new(1, 0)
+	craftBtn.Position = UDim2.new(1, -6, 0, 0)
+	craftBtn.Size = UDim2.new(0, 120, 1, 0)
 	craftBtn.Visible = false
 	craftBtn.Parent = btnRow
-	craftBtn.MouseButton1Click:Connect(startCampfireCookFlow)
-	combineHubBtn.MouseButton1Click:Connect(startCampfireCookFlow)
+	craftBtn.Activated:Connect(startCampfireCookFlow)
+	combineHubBtn.Activated:Connect(startCampfireCookFlow)
 
 	recipeFrame = Instance.new("Frame")
 	recipeFrame.Name = "RecipeStage"
@@ -1237,6 +1569,9 @@ local function buildGui()
 			if #enteredSequence < #expectedSequence then
 				table.insert(enteredSequence, token)
 				updateRecipeStatus()
+				if #expectedSequence > 0 and #enteredSequence >= #expectedSequence then
+					task.defer(submitRecipeMinigame)
+				end
 			end
 		end)
 	end
@@ -1272,17 +1607,25 @@ local function buildGui()
 	recipeCancelBtn.MouseButton1Click:Connect(function()
 		closeRecipeFrame()
 	end)
+
+	applyBodyLayout()
 end
 
 local function openBank()
-	buildGui()
 	cookMode = false
+	buildGui()
 	setVisible(true)
 end
 
 local function openCooking()
-	buildGui()
+	-- Debounce: hookCookNPC + ProximityPromptService can both fire for the same prompt.
+	local now = os.clock()
+	if lastCookOpenClock >= 0 and (now - lastCookOpenClock) < 0.3 then
+		return
+	end
+	lastCookOpenClock = now
 	cookMode = true
+	buildGui()
 	setVisible(true)
 end
 
@@ -1301,7 +1644,7 @@ end)
 if ingredientBankChanged then
 	ingredientBankChanged.OnClientEvent:Connect(function(newBank)
 		if type(newBank) == "table" then
-			bank = newBank
+			bank = normalizeIngredientBankClient(newBank)
 			if gui and gui.Enabled then
 				rebuildBankList()
 			end
@@ -1330,6 +1673,115 @@ local function addPickupFx(part)
 	pe.Parent = att
 end
 
+-- Client-only orb: bob outward, fly to player, +1 label (server confirms via IngredientPickupCollected).
+local function playIngredientPickupFx(worldPos, ingredientId)
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	local def = IngredientData.GetById(ingredientId)
+	local rarityCol = Color3.fromRGB(200, 205, 215)
+	if def and CreatureData.Rarities and CreatureData.Rarities[def.rarity] then
+		rarityCol = CreatureData.Rarities[def.rarity].color
+	end
+
+	local orb = Instance.new("Part")
+	orb.Name = "IngredientPickupFx"
+	orb.Shape = Enum.PartType.Ball
+	orb.Size = Vector3.new(1.15, 1.15, 1.15)
+	orb.Material = Enum.Material.Neon
+	orb.Color = rarityCol
+	orb.Transparency = 0.12
+	orb.Anchored = true
+	orb.CanCollide = false
+	orb.CastShadow = false
+	orb.Position = worldPos
+	orb.Parent = workspace
+
+	local bb = Instance.new("BillboardGui")
+	bb.Name = "PlusOne"
+	bb.AlwaysOnTop = true
+	bb.Size = UDim2.new(0, 96, 0, 44)
+	bb.StudsOffset = Vector3.new(0, 1.35, 0)
+	bb.Parent = orb
+
+	local plus = Instance.new("TextLabel")
+	plus.BackgroundTransparency = 1
+	plus.Size = UDim2.new(1, 0, 1, 0)
+	plus.Text = "+1"
+	plus.TextColor3 = Color3.fromRGB(110, 255, 150)
+	plus.Font = Enum.Font.GothamBlack
+	plus.TextSize = 26
+	plus.TextStrokeColor3 = Color3.new(0, 0, 0)
+	plus.TextStrokeTransparency = 0.35
+	plus.Parent = bb
+
+	local outward = Vector3.new(0, 0, -1)
+	if hrp then
+		local flat = Vector3.new(worldPos.X - hrp.Position.X, 0, worldPos.Z - hrp.Position.Z)
+		if flat.Magnitude > 0.2 then
+			outward = flat.Unit
+		else
+			local look = hrp.CFrame.LookVector * Vector3.new(1, 0, 1)
+			if look.Magnitude > 0.08 then
+				outward = look.Unit
+			end
+		end
+	end
+	local bobTarget = worldPos + outward * 2.8 + Vector3.new(0, 1.1, 0)
+	local endPos = (hrp and (hrp.Position + Vector3.new(0, 1.15, 0))) or (worldPos + Vector3.new(0, 2, 0))
+
+	local tiBob = TweenInfo.new(0.26, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+	local tiFly = TweenInfo.new(0.48, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+
+	local twBob = TweenService:Create(orb, tiBob, {
+		Position = bobTarget,
+		Size = Vector3.new(1.65, 1.65, 1.65),
+	})
+	local twPlusBob = TweenService:Create(plus, tiBob, { TextSize = 34 })
+
+	twBob:Play()
+	twPlusBob:Play()
+
+	task.delay(0.26, function()
+		if not orb.Parent then
+			return
+		end
+		TweenService:Create(orb, tiFly, {
+			Position = endPos,
+			Size = Vector3.new(0.35, 0.35, 0.35),
+			Transparency = 1,
+		}):Play()
+		TweenService:Create(plus, tiFly, {
+			TextTransparency = 1,
+			TextStrokeTransparency = 1,
+			TextSize = 14,
+		}):Play()
+		task.delay(0.52, function()
+			if orb.Parent then
+				orb:Destroy()
+			end
+		end)
+	end)
+end
+
+if ingredientPickupCollected then
+	ingredientPickupCollected.OnClientEvent:Connect(function(worldPos, ingredientId, displayName)
+		if typeof(worldPos) ~= "Vector3" then
+			return
+		end
+		if type(ingredientId) ~= "string" then
+			return
+		end
+		local nameStr = (type(displayName) == "string" and displayName ~= "") and displayName or ingredientId
+		local def = IngredientData.GetById(ingredientId)
+		local toastCol = Color3.fromRGB(200, 205, 215)
+		if def and CreatureData.Rarities and CreatureData.Rarities[def.rarity] then
+			toastCol = CreatureData.Rarities[def.rarity].color
+		end
+		Notify.Toast("Collected " .. nameStr .. " (+1)", toastCol, 2.8, nil, nil)
+		playIngredientPickupFx(worldPos, ingredientId)
+	end)
+end
+
 local function hookPickup(part)
 	if not part:IsA("BasePart") then return end
 	addPickupFx(part)
@@ -1339,6 +1791,13 @@ local function hookPickup(part)
 		local uid = part:GetAttribute("PickupUid")
 		if uid then
 			collectIngredient:FireServer(uid)
+			task.defer(function()
+				task.wait(0.15)
+				syncBank()
+				if gui and gui.Enabled and bankList then
+					rebuildBankList()
+				end
+			end)
 		end
 	end)
 end
@@ -1353,10 +1812,15 @@ local function hasCookTag(inst)
 end
 
 local function hookCookNPC(inst)
-	local part = inst:IsA("BasePart") and inst or inst:FindFirstChildWhichIsA("BasePart", true)
-	if not part then return end
-	local prompt = part:FindFirstChildOfClass("ProximityPrompt")
-	if not prompt then return end
+	-- Prompt may live on any BasePart in the model, not the first part returned by FindFirstChildWhichIsA.
+	local prompt = inst:FindFirstChildWhichIsA("ProximityPrompt", true)
+	if not prompt then
+		return
+	end
+	if prompt:GetAttribute("_IngMenuHooked") then
+		return
+	end
+	prompt:SetAttribute("_IngMenuHooked", true)
 	prompt.Triggered:Connect(function()
 		openCooking()
 	end)
@@ -1405,3 +1869,5 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt, triggerPlayer)
 		openCooking()
 	end
 end)
+
+print("[IngredientsMenu] Loaded " .. ING_UI_BUILD .. " — panel shows same id top-right; Explorer: ScreenGui attribute IngredientsBuild.")

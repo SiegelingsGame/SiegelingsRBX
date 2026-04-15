@@ -87,11 +87,11 @@ IngredientData.Ingredients = {
 	row("ing_wind_l", "Cyclone Eye", "WindSky", "Legendary", "element", "Wind", "Still point wrapped in howl."),
 
 	-- Cave
-	row("ing_cave_c", "Spore Mote", "Cave", "Common", "element", "Poison", "Bioluminescent dust."),
-	row("ing_cave_u", "Flint Chip", "Cave", "Uncommon", "element", "Shadow", "Sharp edge from the deep."),
-	row("ing_cave_r", "Deep Fungus", "Cave", "Rare", "class", "Bruiser", "Rubbery cap with iron taste."),
-	row("ing_cave_e", "Geode Dust", "Cave", "Epic", "class", "Mage", "Crystal powder that catches thought."),
-	row("ing_cave_l", "Abyssal Geode Heart", "Cave", "Legendary", "element", "Undead", "Hollow stone that whispers."),
+	row("ing_cave_c", "Spore Mote", "CaveSky", "Common", "element", "Poison", "Bioluminescent dust."),
+	row("ing_cave_u", "Flint Chip", "CaveSky", "Uncommon", "element", "Shadow", "Sharp edge from the deep."),
+	row("ing_cave_r", "Deep Fungus", "CaveSky", "Rare", "class", "Bruiser", "Rubbery cap with iron taste."),
+	row("ing_cave_e", "Geode Dust", "CaveSky", "Epic", "class", "Mage", "Crystal powder that catches thought."),
+	row("ing_cave_l", "Abyssal Geode Heart", "CaveSky", "Legendary", "element", "Undead", "Hollow stone that whispers."),
 }
 
 local byId = {}
@@ -156,7 +156,7 @@ function IngredientData.GetAllRegions()
 		"FireSky",
 		"IceSky",
 		"WindSky",
-		"Cave",
+		"CaveSky",
 	}
 end
 
@@ -188,9 +188,47 @@ function IngredientData.NormalizeMix(raw)
 	return out
 end
 
---- @param mixNormalized { {id, qty} }
+--- Snapshot from PlayerDataManager.GetCraftingMix: dense [1..maxSlots], empty slots as {id="",qty=0} or false.
+--- @return flat { {id,qty}, ... } in slot order (for consume), slotsByIndex { [i] = {id,qty}? }
+function IngredientData.ParseCraftingMixRaw(raw, maxSlots)
+	maxSlots = maxSlots or 4
+	local flat = {}
+	local slotsByIndex = {}
+	if type(raw) ~= "table" then
+		return flat, slotsByIndex
+	end
+	for i = 1, maxSlots do
+		local e = raw[i]
+		if type(e) == "table" and tostring(e.id or "") ~= "" and (tonumber(e.qty) or 0) > 0 then
+			local id = tostring(e.id)
+			local qty = math.floor(tonumber(e.qty) or 0)
+			slotsByIndex[i] = { id = id, qty = qty }
+			table.insert(flat, { id = id, qty = qty })
+		else
+			slotsByIndex[i] = nil
+		end
+	end
+	return flat, slotsByIndex
+end
+
+function IngredientData.SlotOccupancyMask(slotsByIndex, maxSlots)
+	local mask = 0
+	maxSlots = maxSlots or 4
+	if type(slotsByIndex) ~= "table" then
+		return mask
+	end
+	for i = 1, maxSlots do
+		if slotsByIndex[i] then
+			mask = mask + 2 ^ (i - 1)
+		end
+	end
+	return mask
+end
+
+--- @param mixNormalized { {id, qty} } slot-ordered flat list (same ids/qty as slots; used for consume)
 --- @param cfg GameConfig.Cooking or nil
-function IngredientData.ComputeCraft(mixNormalized, cfg)
+--- @param slotsByIndex optional { [1..max] = {id,qty}? } — when set, affinity scoring uses slot position as weight so layout changes the dish.
+function IngredientData.ComputeCraft(mixNormalized, cfg, slotsByIndex)
 	cfg = cfg or {}
 	local minN = tonumber(cfg.MinMixIngredients) or 3
 	local maxN = tonumber(cfg.MaxMixIngredients) or 4
@@ -207,6 +245,8 @@ function IngredientData.ComputeCraft(mixNormalized, cfg)
 		return nil, "Use at most " .. tostring(maxN) .. " ingredients."
 	end
 
+	-- Pass nil for legacy unweighted behavior; pass ParseCraftingMixRaw's second return for layout-aware crafts.
+	local useSlots = slotsByIndex ~= nil
 	local sumR = 0
 	local raritySeen = {}
 	local elemVotes = {}
@@ -214,20 +254,43 @@ function IngredientData.ComputeCraft(mixNormalized, cfg)
 	local elemScore = 0
 	local classScore = 0
 
-	for _, e in ipairs(mixNormalized) do
-		local ing = byId[e.id]
-		if not ing then
-			return nil, "Unknown ingredient: " .. tostring(e.id)
+	if useSlots then
+		for i = 1, maxN do
+			local e = slotsByIndex[i]
+			if type(e) == "table" and e.id and tostring(e.id) ~= "" and (tonumber(e.qty) or 0) > 0 then
+				local ing = byId[e.id]
+				if not ing then
+					return nil, "Unknown ingredient: " .. tostring(e.id)
+				end
+				raritySeen[ing.rarity] = true
+				local wBase = e.qty
+				local w = wBase * i
+				sumR += rarityToIndex(ing.rarity) * wBase
+				if ing.affinityType == "element" then
+					elemScore += w
+					elemVotes[ing.affinity] = (elemVotes[ing.affinity] or 0) + w
+				elseif ing.affinityType == "class" then
+					classScore += w
+					classVotes[ing.affinity] = (classVotes[ing.affinity] or 0) + w
+				end
+			end
 		end
-		raritySeen[ing.rarity] = true
-		local w = e.qty
-		sumR += rarityToIndex(ing.rarity) * w
-		if ing.affinityType == "element" then
-			elemScore += w
-			elemVotes[ing.affinity] = (elemVotes[ing.affinity] or 0) + w
-		elseif ing.affinityType == "class" then
-			classScore += w
-			classVotes[ing.affinity] = (classVotes[ing.affinity] or 0) + w
+	else
+		for _, e in ipairs(mixNormalized) do
+			local ing = byId[e.id]
+			if not ing then
+				return nil, "Unknown ingredient: " .. tostring(e.id)
+			end
+			raritySeen[ing.rarity] = true
+			local w = e.qty
+			sumR += rarityToIndex(ing.rarity) * w
+			if ing.affinityType == "element" then
+				elemScore += w
+				elemVotes[ing.affinity] = (elemVotes[ing.affinity] or 0) + w
+			elseif ing.affinityType == "class" then
+				classScore += w
+				classVotes[ing.affinity] = (classVotes[ing.affinity] or 0) + w
+			end
 		end
 	end
 
@@ -241,6 +304,16 @@ function IngredientData.ComputeCraft(mixNormalized, cfg)
 	end
 
 	local outRarity = indexToRarity(avg)
+
+	local slotMask = useSlots and IngredientData.SlotOccupancyMask(slotsByIndex, maxN) or 0
+	local sumIdx = 0
+	if useSlots then
+		for i = 1, maxN do
+			if slotsByIndex[i] then
+				sumIdx += i
+			end
+		end
+	end
 
 	local winElement, winElementN = nil, 0
 	for k, v in pairs(elemVotes) do
@@ -258,7 +331,7 @@ function IngredientData.ComputeCraft(mixNormalized, cfg)
 	end
 
 	local buffId
-	local meta = { craftRarity = outRarity }
+	local meta = { craftRarity = outRarity, slotMask = slotMask, slotIndexSum = sumIdx }
 
 	if elemScore > classScore and winElement then
 		buffId = "craft_siegeling_element"
@@ -267,8 +340,8 @@ function IngredientData.ComputeCraft(mixNormalized, cfg)
 		buffId = "craft_siegeling_class"
 		meta.class = winClass
 	else
-		-- Tie or no signal: rotate neutral foods by total mod 3
-		local r = total % 3
+		-- Tie or no signal: neutrals — total mod 3, shifted by which slots are used (sparse layouts differ).
+		local r = (total + slotMask * 3 + sumIdx) % 3
 		if r == 0 then
 			buffId = "craft_neutral_attack"
 		elseif r == 1 then
@@ -365,6 +438,95 @@ function IngredientData.ComputePatternQuality(expectedSeq, enteredSeq, elapsedMs
 		grade = "Good"
 	end
 	return grade, quality, accuracy, speedScore
+end
+
+-- Unique display titles per campfire craft buff id (internal ids stay snake_case; UI uses these).
+local CRAFT_BUFF_TYPE_TITLES = {
+	craft_neutral_attack = "Berserker Skewer",
+	craft_neutral_speed = "Sprinter's Trail Mix",
+	craft_neutral_health = "Emberheart Stew",
+	craft_siegeling_element = "Primal Element Banquet",
+	craft_siegeling_class = "Archetype Ration",
+}
+
+-- Minigame / quality tier — shown on cooking toasts (gamefied, no raw enum strings).
+local QUALITY_PLATE_NAMES = {
+	Poor = "Apprentice Plating",
+	Good = "Line Cook's Seal",
+	Great = "Sous-Chef's Glory",
+	Perfect = "Mythic Plate",
+}
+
+-- Short effect lines for toast (matches BuffShopSystem / stat logic).
+local CRAFT_BUFF_EFFECT_BLURBS = {
+	craft_neutral_attack = "Bonus attack damage in combat",
+	craft_neutral_speed = "Increased walk speed",
+	craft_neutral_health = "Increased max health",
+	craft_siegeling_element = "Element-aligned Siegeling stat boost",
+	craft_siegeling_class = "Class-aligned Siegeling stat boost",
+}
+
+local function titleCaseWords(str)
+	str = tostring(str or ""):gsub("_", " ")
+	str = str:gsub("(%a)([%w']*)", function(first, rest)
+		return first:upper() .. rest:lower()
+	end)
+	return str
+end
+
+--- Human label for any buff id when no shop config exists: removes underscores, title case.
+function IngredientData.PrettifyBuffId(buffId)
+	return titleCaseWords(buffId)
+end
+
+--- Stable, unique name for each craft buff type (for HUD / toasts).
+function IngredientData.GetCraftBuffTypeTitle(buffId)
+	if not buffId then
+		return "Campfire Boon"
+	end
+	local id = tostring(buffId)
+	return CRAFT_BUFF_TYPE_TITLES[id] or IngredientData.PrettifyBuffId(id)
+end
+
+--- One-line effect summary for notifications (shown in parentheses).
+function IngredientData.GetCraftBuffEffectBlurb(buffId)
+	if not buffId then
+		return ""
+	end
+	return CRAFT_BUFF_EFFECT_BLURBS[tostring(buffId)] or ""
+end
+
+--- Gamefied tier line for recipe minigame quality.
+function IngredientData.GetQualityPlateName(grade)
+	if not grade then
+		return ""
+	end
+	local g = tostring(grade)
+	return QUALITY_PLATE_NAMES[g] or titleCaseWords(g)
+end
+
+--- Single line for ShowNotification (cooking category adds a client-side banner prefix).
+--- @param result table from ComputeCraft
+--- @param qualityGrade string|nil Poor/Good/Great/Perfect or nil for simple craft
+function IngredientData.FormatCookingNotification(result, qualityGrade)
+	local dish = "Mystery Dish"
+	if type(result) == "table" and result.displayName then
+		dish = tostring(result.displayName)
+	end
+	local buffId = (type(result) == "table") and result.buffId
+	local typeTitle = IngredientData.GetCraftBuffTypeTitle(buffId)
+	local plate = IngredientData.GetQualityPlateName(qualityGrade)
+	local blurb = IngredientData.GetCraftBuffEffectBlurb(buffId)
+	local core
+	if plate ~= "" then
+		core = string.format("%s · %s · %s", typeTitle, dish, plate)
+	else
+		core = string.format("%s · %s", typeTitle, dish)
+	end
+	if blurb ~= "" then
+		return core .. " (" .. blurb .. ")"
+	end
+	return core
 end
 
 return IngredientData

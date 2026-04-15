@@ -69,13 +69,16 @@ local TICKER_SILENCE_TEXT = "...Silence..."
 local tickerSilenceArmed = true
 local tickerSilenceTaskToken = 0
 
--- Gold Tracking Sieglings color scheme
+-- Gold Tracking Siegelings color scheme
 local TICKER_BG = Color3.fromRGB(18, 22, 32)
 local TICKER_STROKE = Color3.fromRGB(220, 180, 60)
-local TICKER_TEXT = Color3.fromRGB(255, 215, 90)        -- Arena / default gold
+local TICKER_TEXT = Color3.fromRGB(235, 200, 120)       -- Arena / default (softened gold)
 local TICKER_COLOR_CONVERSATION = Color3.fromRGB(100, 180, 255)  -- Blue
 local TICKER_COLOR_RAID = Color3.fromRGB(255, 80, 80)   -- Red
 local TICKER_SEP = Color3.fromRGB(180, 170, 130)
+-- Cooking toasts: muted parchment text, dim border (avoids neon gold)
+local TOAST_COOKING_TEXT = Color3.fromRGB(198, 186, 158)
+local TOAST_COOKING_STROKE = Color3.fromRGB(82, 72, 58)
 
 -- Ticker layout constants
 local TICKER_PAD = 12            -- UIListLayout.Padding between children (must match contentLayout)
@@ -124,7 +127,15 @@ end
 local function getToastColorForCategory(category)
 	if category == "conversation" then return TICKER_COLOR_CONVERSATION end
 	if category == "raid" then return TICKER_COLOR_RAID end
+	if category == "cooking" then return TOAST_COOKING_TEXT end
 	return TICKER_TEXT
+end
+
+local function getToastStrokeForCategory(category, textColor)
+	if category == "cooking" then
+		return TOAST_COOKING_STROKE
+	end
+	return textColor
 end
 
 local function pushToastLine(text, color, duration, category)
@@ -132,26 +143,40 @@ local function pushToastLine(text, color, duration, category)
 	local container = ensureToastContainer()
 	toastOrder += 1
 
+	local textColor = color or getToastColorForCategory(category)
+	local strokeColor = getToastStrokeForCategory(category, textColor)
+	if color then
+		strokeColor = color
+	end
+	local isCooking = category == "cooking"
+
 	local row = Instance.new("TextLabel")
 	row.Name = "Toast_" .. tostring(toastOrder)
 	row.LayoutOrder = toastOrder
-	row.Size = UDim2.new(1, 0, 0, 26)
-	row.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
-	row.BackgroundTransparency = 0.15
+	if isCooking then
+		row.AutomaticSize = Enum.AutomaticSize.Y
+		row.Size = UDim2.new(1, -4, 0, 0)
+	else
+		row.Size = UDim2.new(1, 0, 0, 26)
+	end
+	row.BackgroundColor3 = isCooking and Color3.fromRGB(12, 14, 20) or Color3.fromRGB(18, 22, 32)
+	row.BackgroundTransparency = isCooking and 0.08 or 0.15
 	row.BorderSizePixel = 0
 	row.Text = text
-	row.TextColor3 = color or getToastColorForCategory(category)
+	row.TextColor3 = textColor
 	row.Font = Enum.Font.GothamMedium
-	row.TextSize = 13
+	row.TextSize = isCooking and 12 or 13
+	row.TextWrapped = isCooking
+	row.TextYAlignment = Enum.TextYAlignment.Center
 	row.TextXAlignment = Enum.TextXAlignment.Center
-	row.TextTruncate = Enum.TextTruncate.AtEnd
+	row.TextTruncate = isCooking and Enum.TextTruncate.None or Enum.TextTruncate.AtEnd
 	row.Parent = container
 	Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
 
 	local stroke = Instance.new("UIStroke")
-	stroke.Color = color or getToastColorForCategory(category)
-	stroke.Thickness = 1.5
-	stroke.Transparency = 0.2
+	stroke.Color = strokeColor
+	stroke.Thickness = isCooking and 1.1 or 1.5
+	stroke.Transparency = isCooking and 0.5 or 0.2
 	stroke.Parent = row
 
 	task.delay(duration or 4, function()
@@ -701,6 +726,8 @@ local function formatKnightly(text, category)
 	elseif category == "base" then return "Stronghold Log: " .. text
 	elseif category == "capture" then return "Capture Chronicle: " .. text
 	elseif category == "pvp" then return "Duel Chronicle: " .. text
+	elseif category == "cooking" then
+		return utf8.char(0x1F373) .. " Skillet Chronicles — " .. text
 	end
 	return text
 end

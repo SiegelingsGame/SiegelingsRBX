@@ -14,6 +14,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 
 
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+local IngredientData = require(ReplicatedStorage.Modules:WaitForChild("IngredientData"))
 local Notify = require(ReplicatedStorage.Modules.NotificationManager)
 
 local Events = ReplicatedStorage:WaitForChild("Events", 15)
@@ -74,6 +75,12 @@ local BUFF_EMOJIS = {
 	food_earth_siegeling = emoji(0x1FAA8),
 	food_wind_siegeling = emoji(0x1F32A),
 	food_water_siegeling = emoji(0x1F4A7),
+	-- Campfire craft buffs (unique icons; ids stay internal)
+	craft_neutral_attack = emoji(0x1F52A),
+	craft_neutral_speed = emoji(0x1F3C3),
+	craft_neutral_health = emoji(0x1F372),
+	craft_siegeling_element = emoji(0x1F525),
+	craft_siegeling_class = emoji(0x2694, 0xFE0F),
 }
 
 local buffConfigById = {}
@@ -85,7 +92,13 @@ local currentShopMode = "default"
 
 local function getBuffDisplayName(buffId)
 	local config = buffConfigById[buffId]
-	return (config and config.name) or buffId
+	if config and config.name then
+		return config.name
+	end
+	if IngredientData and IngredientData.GetCraftBuffTypeTitle then
+		return IngredientData.GetCraftBuffTypeTitle(buffId)
+	end
+	return tostring(buffId)
 end
 
 local function getBuffEmoji(buffId)
@@ -103,26 +116,6 @@ local function getPanelScale()
 	local vp = (camera and camera.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
 	local scale = math.min(vp.X / PANEL_DESIGN_W, vp.Y / PANEL_DESIGN_H)
 	return math.clamp(scale, PANEL_SCALE_MIN, PANEL_SCALE_MAX)
-end
-
-local function applyPanelScale(pnl)
-	if MobileWindowLayout.IsMobile() then
-		MobileWindowLayout.ApplyWindow(pnl, {
-			leftInset = 14,
-			rightInset = 14,
-			topInset = 10,
-			bottomInset = 14,
-			bottomMobileExtra = 20,
-		})
-		pnl.Draggable = true
-		return
-	end
-
-	local scale = getPanelScale()
-	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
-	pnl.Size = UDim2.new(0, w, 0, h)
-	pnl.Position = UDim2.new(0.5, -w/2, 0.5, -h/2)
-	MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
 end
 
 -- Simple full-screen FX when a buff activates
@@ -223,6 +216,20 @@ end
 sg = Instance.new("ScreenGui")
 sg.Name = "BuffShopGUI"; sg.ResetOnSpawn = false; sg.DisplayOrder = 30; sg.Parent = playerGui
 
+local function applyPanelScale(pnl)
+	MobileWindowLayout.SyncNpcMenuScreenGui(sg, PANEL_DESIGN_W, PANEL_DESIGN_H)
+	if MobileWindowLayout.NpcMenuUsesFullscreenBounds(PANEL_DESIGN_W, PANEL_DESIGN_H) then
+		MobileWindowLayout.ApplyWindow(pnl, MobileWindowLayout.GetNpcFullscreenBoundsConfig(PANEL_DESIGN_W, PANEL_DESIGN_H))
+		return
+	end
+
+	local scale = getPanelScale()
+	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
+	pnl.Size = UDim2.new(0, w, 0, h)
+	pnl.Position = UDim2.new(0.5, -w / 2, 0.5, -h / 2)
+	MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
+end
+
 -- Main panel (size/position set on open via applyPanelScale)
 local panel = Instance.new("Frame")
 panel.Name = "BuffPanel"
@@ -263,6 +270,7 @@ closeBtn.Font = Enum.Font.GothamBold; closeBtn.TextSize = 14; closeBtn.Parent = 
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
 closeBtn.MouseButton1Click:Connect(function()
 	panel.Visible = false
+	sg.IgnoreGuiInset = false
 	MobileWindowLayout.NotifyMenuClosed()
 end)
 
@@ -275,7 +283,7 @@ scroll.ScrollBarThickness = 4; scroll.ScrollBarImageColor3 = C.muted
 scroll.Parent = panel
 
 local function applyResponsiveContentLayout()
-	local mobile = MobileWindowLayout.IsMobile()
+	local mobile = MobileWindowLayout.NpcMenuUsesFullscreenBounds(PANEL_DESIGN_W, PANEL_DESIGN_H)
 	titleLbl.TextSize = mobile and 22 or 18
 	currLbl.TextSize = mobile and 14 or 12
 	closeBtn.Size = mobile and UDim2.new(0, 38, 0, 38) or UDim2.new(0, 32, 0, 32)
@@ -283,6 +291,22 @@ local function applyResponsiveContentLayout()
 	closeBtn.TextSize = mobile and 16 or 14
 	scroll.Size = mobile and UDim2.new(1, -12, 1, -60) or UDim2.new(1, -20, 1, -55)
 	scroll.Position = mobile and UDim2.new(0, 6, 0, 50) or UDim2.new(0, 10, 0, 48)
+	-- Fullscreen / phone: center title + currency so they are not hidden under Roblox CoreGui.
+	if mobile then
+		titleLbl.TextXAlignment = Enum.TextXAlignment.Center
+		titleLbl.Position = UDim2.new(0, 8, 0, 2)
+		titleLbl.Size = UDim2.new(1, -16, 0, 22)
+		currLbl.TextXAlignment = Enum.TextXAlignment.Center
+		currLbl.Position = UDim2.new(0, 8, 0, 24)
+		currLbl.Size = UDim2.new(1, -16, 0, 16)
+	else
+		titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+		titleLbl.Size = UDim2.new(0.7, 0, 1, 0)
+		titleLbl.Position = UDim2.new(0, 15, 0, 0)
+		currLbl.TextXAlignment = Enum.TextXAlignment.Right
+		currLbl.Size = UDim2.new(0.45, -48, 1, 0)
+		currLbl.Position = UDim2.new(0.55, 0, 0, 0)
+	end
 end
 
 local layout = Instance.new("UIListLayout")
@@ -677,6 +701,8 @@ MobileWindowLayout.BindViewportUpdate(function()
 	if panel.Visible then
 		applyPanelScale(panel)
 		applyResponsiveContentLayout()
+	else
+		sg.IgnoreGuiInset = false
 	end
 	positionTopBuffBadgeRow()
 end)

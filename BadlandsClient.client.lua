@@ -18,6 +18,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
+local GuiService = game:GetService("GuiService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -117,6 +118,8 @@ local hudToggleBadge = nil
 local hudToggleStroke = nil
 local hudBadgeGui = nil
 local tickerLayoutConns = {}
+local favCardLayoutConns = {}
+local boundFavCardForLayout = nil
 
 local BADGE_WIDTH = 40
 local BADGE_HEIGHT = 40
@@ -124,13 +127,23 @@ local BADGE_GAP = 8
 local BADGE_SLOT = 2
 local BADGE_DISPLAY_ORDER = 52
 local BAG_FALLBACK_X = 12
-local BAG_FALLBACK_Y = 76
+-- Matches InventoryUI left cluster design Y when that ScreenGui uses inset-relative coords.
+local BAG_FALLBACK_SAFE_Y = 76
+local BAG_GAP_FROM_FAV = 8
 
 local function disconnectTickerLayoutSignals()
 	for _, conn in ipairs(tickerLayoutConns) do
 		conn:Disconnect()
 	end
 	tickerLayoutConns = {}
+end
+
+local function disconnectFavCardLayoutSignals()
+	for _, conn in ipairs(favCardLayoutConns) do
+		conn:Disconnect()
+	end
+	favCardLayoutConns = {}
+	boundFavCardForLayout = nil
 end
 
 local function getTickerBar()
@@ -140,6 +153,24 @@ local function getTickerBar()
 		return tickerBar
 	end
 	return nil
+end
+
+--- Bottom edge (absolute pixels) of top-left HUD strip (coins + summary row) from HUD ScreenGui.
+local function getCoinHudBottomAbsolute()
+	local hudRoot = playerGui:FindFirstChild("HUD")
+	if not hudRoot then
+		return 0
+	end
+	local bottom = 0
+	for _, child in ipairs(hudRoot:GetChildren()) do
+		if child:IsA("GuiObject") and child.Visible then
+			local y = child.AbsolutePosition.Y + child.AbsoluteSize.Y
+			if y > bottom then
+				bottom = y
+			end
+		end
+	end
+	return bottom
 end
 
 local function getHudTopY()
@@ -158,17 +189,37 @@ local function layoutHudElements()
 		timerFrame.Position = UDim2.new(0.5, 0, 0, yTop)
 	end
 
-	-- BadBag: align vertically with FavoriteSummonCard when visible; fallback to BattleMenu anchor.
-	local bagAlignedY = BAG_FALLBACK_Y
-	local favCard = playerGui:FindFirstChild("FavoriteSummonCard", true)
+	-- BadBag: top-aligned with FavoriteSummonCard (ReCard / Summon row), immediately to its left (replaces Battle Menu).
+	-- BadlandsHUD uses IgnoreGuiInset=true; HUD + SiegelinQ cluster use inset-relative Y, so fallback
+	-- must add GetGuiInset().Y or the button sits under the physical top and covers the coin/summary bars.
+	local insetTop = GuiService:GetGuiInset().Y
+	local bagW = (bagButton and bagButton.AbsoluteSize.X > 0) and bagButton.AbsoluteSize.X or 46
+	local bagAlignedY = math.floor(BAG_FALLBACK_SAFE_Y + insetTop)
+	local bagX = BAG_FALLBACK_X
+	local alignedToFavCard = false
+
+	-- Scope to InventoryUI so we never pick up another gui's clone; match Summon/ReCard card top edge.
+	local invGui = playerGui:FindFirstChild("InventoryUI")
+	local favCard = invGui and invGui:FindFirstChild("FavoriteSummonCard", true)
 	if favCard and favCard:IsA("GuiObject") and favCard.Visible then
 		local favPos = favCard.AbsolutePosition
-		local favSize = favCard.AbsoluteSize
-		local bagH = (bagButton and bagButton.AbsoluteSize.Y > 0) and bagButton.AbsoluteSize.Y or 54
-		bagAlignedY = math.floor(favPos.Y + ((favSize.Y - bagH) * 0.5))
+		bagAlignedY = math.floor(favPos.Y)
+		bagX = math.floor(favPos.X - bagW - BAG_GAP_FROM_FAV)
+		alignedToFavCard = true
 	end
+
+	-- Pushing below coin/stats is only for the fallback row. max() here broke top-alignment with the ReCard
+	-- whenever the HUD strip's bottom extended below the card's top (card sits lower than that edge).
+	if not alignedToFavCard then
+		local hudBottom = getCoinHudBottomAbsolute()
+		if hudBottom > 0 then
+			bagAlignedY = math.max(bagAlignedY, math.floor(hudBottom + 6))
+		end
+	end
+
 	if bagButton and bagButton.Parent then
-		bagButton.Position = UDim2.new(0, BAG_FALLBACK_X, 0, bagAlignedY)
+		bagX = math.max(8, bagX)
+		bagButton.Position = UDim2.new(0, bagX, 0, bagAlignedY)
 	end
 
 	if bagPanel and bagPanel.Parent then
@@ -205,6 +256,25 @@ local function layoutHudElements()
 			hudToggleBadge.AnchorPoint = Vector2.new(0, 0)
 		end
 	end
+
+	ensureFavCardLayoutBindings()
+end
+
+-- Declared after layoutHudElements so connections reference the final function.
+local function ensureFavCardLayoutBindings()
+	local invGui = playerGui:FindFirstChild("InventoryUI")
+	local favCard = invGui and invGui:FindFirstChild("FavoriteSummonCard", true)
+	if not (favCard and favCard:IsA("GuiObject")) then
+		return
+	end
+	if boundFavCardForLayout == favCard then
+		return
+	end
+	disconnectFavCardLayoutSignals()
+	boundFavCardForLayout = favCard
+	table.insert(favCardLayoutConns, favCard:GetPropertyChangedSignal("AbsolutePosition"):Connect(layoutHudElements))
+	table.insert(favCardLayoutConns, favCard:GetPropertyChangedSignal("AbsoluteSize"):Connect(layoutHudElements))
+	table.insert(favCardLayoutConns, favCard:GetPropertyChangedSignal("Visible"):Connect(layoutHudElements))
 end
 
 local function bindTickerLayoutSignals()
@@ -267,6 +337,7 @@ end
 
 local function destroyScreenGui()
 	disconnectTickerLayoutSignals()
+	disconnectFavCardLayoutSignals()
 	if hudBadgeGui then
 		hudBadgeGui:Destroy()
 		hudBadgeGui = nil
@@ -370,8 +441,8 @@ end
 local refreshBagUI
 local toggleBagPanel
 
--- Opens Sieglinq (Inventory UI) on the BadBag tab — same path as [Q] / HUD SieglinQ in Badlands.
-local function openSieglinqBadBagFromHud()
+-- Opens SiegelinQ (Inventory UI) on the BadBag tab — same path as [Q] / HUD SiegelinQ in Badlands.
+local function openSiegelinQBadBagFromHud()
 	bagPanelOpen = false
 	if bagPanel and bagPanel.Parent then
 		bagPanel.Visible = false
@@ -455,11 +526,11 @@ local function createBagButton()
 	local gui = ensureScreenGui()
 
 	-- FIX #24: BadBag button replaces the Battle Menu button when in Badlands (left of favorite card).
-	-- 46×54; layoutHudElements() repositions using FavoriteSummonCard when visible.
+	-- 46×54; layoutHudElements() top-aligns to FavoriteSummonCard when visible.
 	bagButton = Instance.new("TextButton")
 	bagButton.Name = "BadBagButton"
 	bagButton.Size = UDim2.new(0, 46, 0, 54)
-	bagButton.Position = UDim2.new(0, BAG_FALLBACK_X, 0, BAG_FALLBACK_Y)
+	bagButton.Position = UDim2.new(0, BAG_FALLBACK_X, 0, BAG_FALLBACK_SAFE_Y + GuiService:GetGuiInset().Y)
 	bagButton.AnchorPoint = Vector2.new(0, 0)
 	bagButton.BackgroundColor3 = C.accent
 	bagButton.BackgroundTransparency = 0.15
@@ -478,7 +549,7 @@ local function createBagButton()
 	stroke.Transparency = 0.5
 
 	bagButton.MouseButton1Click:Connect(function()
-		openSieglinqBadBagFromHud()
+		openSiegelinQBadBagFromHud()
 	end)
 
 	updateBagButtonText()
@@ -1414,6 +1485,21 @@ if sacrificeResultEvt then
 		end
 		if success and bagPanelOpen then
 			refreshBagUI()
+		end
+	end)
+end
+
+-- Lets InventoryUIManager (applyLeftClusterGuiInset) nudge BadBag when safe-area / fullscreen inset changes.
+do
+	local relayout = playerGui:FindFirstChild("BadlandsRelayoutHud")
+	if not relayout or not relayout:IsA("BindableEvent") then
+		relayout = Instance.new("BindableEvent")
+		relayout.Name = "BadlandsRelayoutHud"
+		relayout.Parent = playerGui
+	end
+	relayout.Event:Connect(function()
+		if inBadlands then
+			layoutHudElements()
 		end
 	end)
 end

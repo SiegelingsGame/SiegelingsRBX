@@ -27,6 +27,7 @@ end
 
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+local CaptureCostUtil = require(ReplicatedStorage.Modules.CaptureCostUtil)
 local Notify = require(ReplicatedStorage.Modules.NotificationManager)
 local CreatureModelLoader = require(ReplicatedStorage.Modules.CreatureModelLoader)
 local DEBUG_CAPTURE_LOGS = false
@@ -40,6 +41,21 @@ local captureSuccess = eventsFolder:WaitForChild("CaptureSuccess", 8)
 local captureCancel = eventsFolder:WaitForChild("CaptureCancel", 8)
 local captureFail = eventsFolder:WaitForChild("CaptureFail", 8)
 local captureOutOfRange = eventsFolder:WaitForChild("CaptureOutOfRange", 8)
+
+local decorBonusMap = {}
+local decorBonusEvt = eventsFolder:WaitForChild("DecorStatueBonusSetUpdate", 30)
+if decorBonusEvt then
+	decorBonusEvt.OnClientEvent:Connect(function(list)
+		decorBonusMap = {}
+		if type(list) == "table" then
+			for _, id in ipairs(list) do
+				if type(id) == "string" then
+					decorBonusMap[id] = true
+				end
+			end
+		end
+	end)
+end
 local setCompanionTarget = eventsFolder:WaitForChild("SetCompanionTarget", 8)
 local clearCompanionTarget = eventsFolder:WaitForChild("ClearCompanionTarget", 8)
 local companionFainted = eventsFolder:FindFirstChild("CompanionFainted")
@@ -282,7 +298,7 @@ targetBarEmptyLabel.Name = "EmptyLabel"
 targetBarEmptyLabel.Size = UDim2.new(1, 0, 1, 0)
 targetBarEmptyLabel.Position = UDim2.new(0, 0, 0, 0)
 targetBarEmptyLabel.BackgroundTransparency = 1
-targetBarEmptyLabel.Text = "Tracking Sieglings"
+targetBarEmptyLabel.Text = "Tracking Siegelings"
 targetBarEmptyLabel.TextColor3 = Color3.fromRGB(255, 215, 90)  -- gold so it pops
 targetBarEmptyLabel.Font = Enum.Font.GothamBold
 targetBarEmptyLabel.TextSize = 10
@@ -406,8 +422,13 @@ task.spawn(function()
 						tipAction.Text = "Friendly | [E] Manage"
 						tipAction.TextColor3 = Color3.fromRGB(100, 220, 120)
 					elseif isFainted then
-						local cost = CreatureData.GetCaptureCost(cid)
-						tipAction.Text = "FAINTED - Click to capture (" .. cost .. " gold)"
+						local baseCost = CreatureData.GetCaptureCost(cid)
+						local cost = CaptureCostUtil.ApplyDecorStatueDiscount(baseCost, cid, decorBonusMap)
+						local tip = "FAINTED - Click to capture (" .. cost .. " gold)"
+						if cost < baseCost then
+							tip = tip .. "  [statue bonus]"
+						end
+						tipAction.Text = tip
 						tipAction.TextColor3 = Color3.fromRGB(255, 200, 0)
 					else
 						tipAction.Text = "[E] to target | Must faint to capture"
@@ -1729,6 +1750,207 @@ if captureStart then
 end
 
 local assignCaptured = eventsFolder:WaitForChild("AssignCaptured", 30)
+local badlandsCaptureResolve = eventsFolder:WaitForChild("BadlandsCaptureResolve", 30)
+
+-- Badlands: choose active vs bag, or replace a full bag slot (no income/defense UI)
+local function showBadlandsCapturePrompt(creatureId, uid, slotInfo)
+	local info = CreatureData.GetById(creatureId)
+	if not info then return end
+	local rc = info and CreatureData.Rarities[info.rarity]
+	local rarityColor = rc and rc.color or Color3.fromRGB(180, 180, 180)
+
+	if not badlandsCaptureResolve or not badlandsCaptureResolve:IsA("RemoteFunction") then
+		showNotif("Badlands capture UI unavailable (BadlandsCaptureResolve missing)", Color3.fromRGB(255, 80, 80), 4)
+		return
+	end
+
+	local bagFull = slotInfo and slotInfo.bagFull == true
+	local bagData = slotInfo and slotInfo.bag
+	local slots = bagData and bagData.slots or {}
+
+	local promptFrame = Instance.new("Frame")
+	promptFrame.Name = "BadlandsCapturePrompt"
+	promptFrame.Size = bagFull and UDim2.new(0, 340, 0, 320) or UDim2.new(0, 320, 0, 200)
+	promptFrame.Position = UDim2.new(0.5, -170, 0.32, 0)
+	promptFrame.BackgroundColor3 = Color3.fromRGB(18, 20, 32)
+	promptFrame.BorderSizePixel = 0
+	promptFrame.Parent = screenGui
+	Instance.new("UICorner", promptFrame).CornerRadius = UDim.new(0, 14)
+	local stroke = Instance.new("UIStroke", promptFrame)
+	stroke.Color = rarityColor
+	stroke.Thickness = 2
+
+	local titleLbl = Instance.new("TextLabel")
+	titleLbl.Size = UDim2.new(1, -16, 0, 26)
+	titleLbl.Position = UDim2.new(0, 8, 0, 8)
+	titleLbl.BackgroundTransparency = 1
+	titleLbl.Text = "Captured " .. info.displayName .. "!"
+	titleLbl.TextColor3 = rarityColor
+	titleLbl.Font = Enum.Font.GothamBold
+	titleLbl.TextSize = 15
+	titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+	titleLbl.Parent = promptFrame
+
+	local subLbl = Instance.new("TextLabel")
+	subLbl.Size = UDim2.new(1, -16, 0, 40)
+	subLbl.Position = UDim2.new(0, 8, 0, 36)
+	subLbl.BackgroundTransparency = 1
+	subLbl.Text = bagFull
+		and "Badlands bag is full. Tap a slot to replace that Siegeling — or abandon this capture."
+		or "Add to your Badlands bag or set as your active creature (favorite for this run)."
+	subLbl.TextColor3 = Color3.fromRGB(160, 165, 180)
+	subLbl.Font = Enum.Font.GothamMedium
+	subLbl.TextSize = 11
+	subLbl.TextWrapped = true
+	subLbl.TextXAlignment = Enum.TextXAlignment.Left
+	subLbl.Parent = promptFrame
+
+	local dismissed = false
+	local function dismiss()
+		if dismissed then return end
+		dismissed = true
+		promptFrame:Destroy()
+	end
+
+	local function invokeResolve(mode, replaceSlotIndex)
+		local callOk, success, message = pcall(function()
+			return badlandsCaptureResolve:InvokeServer(mode, replaceSlotIndex)
+		end)
+		if not callOk then
+			showNotif("Couldn't reach server — try again.", Color3.fromRGB(255, 80, 80), 3)
+			return
+		end
+		if success then
+			showNotif(message or "Done", rarityColor, 2.5)
+			dismiss()
+		else
+			showNotif(message or "Action failed", Color3.fromRGB(255, 100, 100), 3)
+		end
+	end
+
+	if not bagFull then
+		local activeBtn = Instance.new("TextButton")
+		activeBtn.Size = UDim2.new(1, -24, 0, 38)
+		activeBtn.Position = UDim2.new(0, 12, 0, 88)
+		activeBtn.BackgroundColor3 = Color3.fromRGB(50, 180, 90)
+		activeBtn.BorderSizePixel = 0
+		activeBtn.Text = "Set as active (favorite)"
+		activeBtn.TextColor3 = Color3.new(1, 1, 1)
+		activeBtn.Font = Enum.Font.GothamBold
+		activeBtn.TextSize = 13
+		activeBtn.Parent = promptFrame
+		Instance.new("UICorner", activeBtn).CornerRadius = UDim.new(0, 8)
+		activeBtn.MouseButton1Click:Connect(function()
+			invokeResolve("active")
+		end)
+
+		local addBtn = Instance.new("TextButton")
+		addBtn.Size = UDim2.new(1, -24, 0, 38)
+		addBtn.Position = UDim2.new(0, 12, 0, 132)
+		addBtn.BackgroundColor3 = Color3.fromRGB(60, 120, 220)
+		addBtn.BorderSizePixel = 0
+		addBtn.Text = "Add to bag only"
+		addBtn.TextColor3 = Color3.new(1, 1, 1)
+		addBtn.Font = Enum.Font.GothamBold
+		addBtn.TextSize = 13
+		addBtn.Parent = promptFrame
+		Instance.new("UICorner", addBtn).CornerRadius = UDim.new(0, 8)
+		addBtn.MouseButton1Click:Connect(function()
+			invokeResolve("passive")
+		end)
+
+		local cancelBtn = Instance.new("TextButton")
+		cancelBtn.Size = UDim2.new(1, -24, 0, 28)
+		cancelBtn.Position = UDim2.new(0, 12, 0, 176)
+		cancelBtn.BackgroundColor3 = Color3.fromRGB(50, 52, 65)
+		cancelBtn.BorderSizePixel = 0
+		cancelBtn.Text = "Abandon capture"
+		cancelBtn.TextColor3 = Color3.fromRGB(160, 165, 180)
+		cancelBtn.Font = Enum.Font.GothamMedium
+		cancelBtn.TextSize = 11
+		cancelBtn.Parent = promptFrame
+		Instance.new("UICorner", cancelBtn).CornerRadius = UDim.new(0, 6)
+		cancelBtn.MouseButton1Click:Connect(function()
+			invokeResolve("cancel")
+		end)
+	else
+		local scroll = Instance.new("ScrollingFrame")
+		scroll.Size = UDim2.new(1, -24, 0, 188)
+		scroll.Position = UDim2.new(0, 12, 0, 82)
+		scroll.BackgroundColor3 = Color3.fromRGB(26, 28, 40)
+		scroll.BorderSizePixel = 0
+		scroll.ScrollBarThickness = 5
+		scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+		scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+		scroll.Parent = promptFrame
+		Instance.new("UICorner", scroll).CornerRadius = UDim.new(0, 8)
+
+		local list = Instance.new("UIListLayout")
+		list.Padding = UDim.new(0, 6)
+		list.SortOrder = Enum.SortOrder.LayoutOrder
+		list.Parent = scroll
+
+		local cap = tonumber(bagData and bagData.capacity) or 0
+		for si = 1, cap do
+			local slot = slots[si] or slots[tostring(si)]
+			local occupied = slot and slot.id and not slot.empty
+			if occupied then
+				local row = Instance.new("TextButton")
+				row.Size = UDim2.new(1, -12, 0, 44)
+				row.BackgroundColor3 = Color3.fromRGB(36, 40, 55)
+				row.BorderSizePixel = 0
+				row.AutoButtonColor = false
+				row.Text = ""
+				row.LayoutOrder = si
+				row.Parent = scroll
+				Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
+
+				local t1 = Instance.new("TextLabel")
+				t1.Size = UDim2.new(1, -16, 0, 20)
+				t1.Position = UDim2.new(0, 8, 0, 4)
+				t1.BackgroundTransparency = 1
+				t1.Text = "#" .. si .. "  Replace with → " .. (slot.displayName or slot.id or "?")
+				t1.TextColor3 = Color3.fromRGB(240, 240, 245)
+				t1.Font = Enum.Font.GothamBold
+				t1.TextSize = 12
+				t1.TextXAlignment = Enum.TextXAlignment.Left
+				t1.Parent = row
+
+				local t2 = Instance.new("TextLabel")
+				t2.Size = UDim2.new(1, -16, 0, 16)
+				t2.Position = UDim2.new(0, 8, 0, 24)
+				t2.BackgroundTransparency = 1
+				t2.Text = "Lv" .. tostring(slot.level or 1) .. " · " .. tostring(slot.rarity or "Common")
+				t2.TextColor3 = Color3.fromRGB(140, 145, 160)
+				t2.Font = Enum.Font.GothamMedium
+				t2.TextSize = 10
+				t2.TextXAlignment = Enum.TextXAlignment.Left
+				t2.Parent = row
+
+				row.MouseButton1Click:Connect(function()
+					invokeResolve("replace", si)
+				end)
+			end
+		end
+
+		local cancelBtn = Instance.new("TextButton")
+		cancelBtn.Size = UDim2.new(1, -24, 0, 28)
+		cancelBtn.Position = UDim2.new(0, 12, 0, 278)
+		cancelBtn.BackgroundColor3 = Color3.fromRGB(50, 52, 65)
+		cancelBtn.BorderSizePixel = 0
+		cancelBtn.Text = "Abandon capture"
+		cancelBtn.TextColor3 = Color3.fromRGB(160, 165, 180)
+		cancelBtn.Font = Enum.Font.GothamMedium
+		cancelBtn.TextSize = 11
+		cancelBtn.Parent = promptFrame
+		Instance.new("UICorner", cancelBtn).CornerRadius = UDim.new(0, 6)
+		cancelBtn.MouseButton1Click:Connect(function()
+			invokeResolve("cancel")
+		end)
+	end
+
+	task.delay(90, dismiss)
+end
 
 -- Assignment prompt after capture
 local function showAssignPrompt(creatureId, uid, slotInfo)
@@ -1738,6 +1960,10 @@ local function showAssignPrompt(creatureId, uid, slotInfo)
 	local rarityColor = rc and rc.color or Color3.fromRGB(180, 180, 180)
 
 	if slotInfo and slotInfo.badlands then
+		if slotInfo.badlandsPending then
+			showBadlandsCapturePrompt(creatureId, uid, slotInfo)
+			return
+		end
 		local bagCount = tonumber(slotInfo.bagCount) or 0
 		local bagMax = tonumber(slotInfo.bagMax) or 0
 		showNotif(

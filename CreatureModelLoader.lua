@@ -148,6 +148,8 @@ local function applyModelTransform(creatureModel, body, isModelType, options)
 	end
 	if not targetSize then return end
 
+	local sizeMultiplier = (options and type(options.sizeMultiplier) == "number" and options.sizeMultiplier > 0) and options.sizeMultiplier or 1
+
 	if isModelType then
 		-- Rigged Model: try body part first (consistent for same-rig evolutions), then GetBoundingBox
 		local maxDim = nil
@@ -162,7 +164,7 @@ local function applyModelTransform(creatureModel, body, isModelType, options)
 			end
 		end
 		if maxDim and maxDim > 0.001 then
-			creatureModel:ScaleTo((targetSize / maxDim) * scaleMultiplier)
+			creatureModel:ScaleTo((targetSize / maxDim) * scaleMultiplier * sizeMultiplier)
 		end
 	else
 		-- Legacy mesh: scale the body part directly
@@ -170,10 +172,26 @@ local function applyModelTransform(creatureModel, body, isModelType, options)
 			local sz = body.Size
 			local maxDim = math.max(sz.X, sz.Y, sz.Z)
 			if maxDim > 0.001 then
-				body.Size = sz * (targetSize / maxDim) * scaleMultiplier
+				body.Size = sz * (targetSize / maxDim) * scaleMultiplier * sizeMultiplier
 			end
 		end
 	end
+end
+
+--- Scale a loaded template (Model or BasePart) like world creatures: modelDisplaySize × modelScaleMultiplier from CreatureData.
+--- sizeMultiplier: e.g. 0.5 for decor statues at half in-world visual size.
+--- targetSize fallback (5) applies only when the creature has no modelDisplaySize.
+function CreatureModelLoader.ApplyDisplayScaleFromCreatureData(model, creatureId, sizeMultiplier)
+	if not model or not creatureId then return end
+	sizeMultiplier = (type(sizeMultiplier) == "number" and sizeMultiplier > 0) and sizeMultiplier or 1
+	local body = CreatureModelLoader.GetBodyPart(model)
+	if not body then return end
+	local isModelType = model:IsA("Model")
+	pcall(applyModelTransform, model, body, isModelType, {
+		creatureId = creatureId,
+		sizeMultiplier = sizeMultiplier,
+		targetSize = 5,
+	})
 end
 
 --- Load template and integrate. Returns body, core, success (true if custom model loaded).

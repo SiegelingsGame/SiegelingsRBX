@@ -3,8 +3,8 @@
 -- Toggle with [R] key or "Sigils" HUD button.
 --
 -- FIX #34: DISABLED — Sigils content has been merged into the tabbed PlayerProfileClient.
--- This file is kept as reference. The early return prevents any UI creation or event listeners.
-return
+-- This file is kept as reference. Wrapped return: bare `return` cannot be followed by more code in a chunk.
+do return end
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -26,7 +26,6 @@ local sigilEarned = Events:FindFirstChild("SigilEarned")
 
 -- Section 1: Elemental bosses (Fire, Ice, Wind, Earth) — defeat in world to earn corresponding SiegeKnight Sigil
 local ELEMENTAL_ELEMENTS = GameConfig.ElementalBossElements or { "Fire", "Ice", "Wind", "Earth" }
-local ELEMENTAL_TO_ZONE = GameConfig.ElementalBossToZoneId or { Fire = "Desert", Ice = "Cave", Wind = "Ocean", Earth = "Electric" }
 -- Section 2: SiegeKnight Sigils (display labels; backend zone ids for data lookup)
 local SIEGE_LABELS = GameConfig.SiegeKnightSigilLabels or { "Desert", "Cave", "Ocean", "Cyber" }
 local SIEGE_ZONE_IDS = GameConfig.SiegeKnightSigilZoneIds or { "Desert", "Cave", "Ocean", "Electric" }
@@ -97,6 +96,11 @@ title.Font = Enum.Font.GothamBold
 title.TextSize = 14
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = header
+local applyBossBackboardTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(title, {
+	Position = UDim2.new(0, 16, 0, 0),
+	Size = UDim2.new(1, -50, 1, 0),
+	TextXAlignment = Enum.TextXAlignment.Left,
+})
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 32, 0, 32)
@@ -275,8 +279,7 @@ local function refreshBackboard()
 	-- Section 1: SiegeSquire Sigils (elemental bosses: Fire, Ice, Wind, Earth)
 	order = addSectionTitle(content, order, "SiegeSquire Sigils")
 	for i, element in ipairs(ELEMENTAL_ELEMENTS) do
-		local zoneId = ELEMENTAL_TO_ZONE and ELEMENTAL_TO_ZONE[element]
-		local defeated = zoneId and hasSigil(zoneId)
+		local defeated = hasSigil(element)
 		addRow(
 			content, order,
 			element,
@@ -335,13 +338,7 @@ local function toggle()
 	if main.Visible then
 		MobileWindowLayout.NotifyMenuOpened()
 		if MobileWindowLayout.IsMobile() then
-			MobileWindowLayout.ApplyWindow(main, {
-				leftInset = 14,
-				rightInset = 14,
-				topInset = 10,
-				bottomInset = 14,
-				bottomMobileExtra = 20,
-			})
+			MobileWindowLayout.ApplyWindow(main, {})
 			main.Draggable = true
 			content.Size = UDim2.new(1, -20, 1, -64)
 			content.Position = UDim2.new(0, 10, 0, 56)
@@ -358,6 +355,7 @@ local function toggle()
 			closeBtn.TextSize = 14
 			MobileWindowLayout.RestoreDesktopWindow(main, { draggable = true })
 		end
+		applyBossBackboardTitleLayout()
 		refreshBackboard()
 	else
 		MobileWindowLayout.NotifyMenuClosed()
@@ -395,13 +393,7 @@ end)
 MobileWindowLayout.BindViewportUpdate(function()
 	if main.Visible then
 		if MobileWindowLayout.IsMobile() then
-			MobileWindowLayout.ApplyWindow(main, {
-				leftInset = 14,
-				rightInset = 14,
-				topInset = 10,
-				bottomInset = 14,
-				bottomMobileExtra = 20,
-			})
+			MobileWindowLayout.ApplyWindow(main, {})
 			main.Draggable = true
 			content.Size = UDim2.new(1, -20, 1, -64)
 			content.Position = UDim2.new(0, 10, 0, 56)
@@ -418,5 +410,6 @@ MobileWindowLayout.BindViewportUpdate(function()
 			closeBtn.TextSize = 14
 			MobileWindowLayout.RestoreDesktopWindow(main, { draggable = true })
 		end
+		applyBossBackboardTitleLayout()
 	end
 end)

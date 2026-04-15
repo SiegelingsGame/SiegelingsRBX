@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════════════
--- Last updated: 2026-03-28
+-- Last updated: 2026-04-11
 -- GameplayMusic.client.lua
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- Multi-track biome music system with battle theme override.
@@ -9,9 +9,9 @@
 --
 -- Track routing (priority order):
 --   1. COMBAT → Sieglings_BattleTheme  (InBattleMusic / badlands / PvP — not arena proximity alone)
---   2. OUTER BIOME → Desert / Electric / Water sky (from baseplates): beats main-arena proximity BGM
+--   2. OUTER BIOME → Desert / Electric / Water / Cave sky (from Terrain baseplates via BiomeSkyboxClient): beats main-arena proximity BGM
 --   3. NEAR MAIN ARENA → battle theme within ArenaBattleMusicRadius of BattlePoints / ArenaCenter
---   4. BIOME  → mapped from current skybox name (cave, inner wedges, etc.):
+--   4. BIOME  → mapped from current skybox name (inner wedges, remaining skies, etc.):
 --        FireSky     → Sieglings_FireBiome
 --        IceSky      → Sieglings_SnowBiome
 --        WindSky     → Sieglings_WindBiome
@@ -19,7 +19,8 @@
 --        ForestSky   → Sieglings_ForestBiome   (if it exists, else Main Theme)
 --        DesertSky   → Sieglings_DesertBiome   (if it exists, else Main Theme)
 --        ElectricSky → Sieglings_ElectricBiome (if it exists, else Main Theme)
---        WaterSky    → Sieglings_WaterBiome    (if it exists, else Main Theme)
+--        WaterSky    → Sieglings_OceanBiome    (if it exists, else Main Theme)
+--        CaveSky     → Sieglings_CaveBiome     (fourth outer baseplate)
 --        ArenaSky    → Sieglings_ Main Theme   (hub / default)
 --   5. FALLBACK → Sieglings_ Main Theme
 --
@@ -27,7 +28,7 @@
 -- skybox changes. This script listens for that attribute.
 --
 -- Combat / battle music (instance-based — only participants hear it):
---   • player attribute "InBattleMusic"            == true  (set by server on arena/gym participants)
+--   • player attribute "InBattleMusic"            == true  (set by server on gym participants, etc.; not main Siegelord arena)
 --   • player attribute "InBadlands"               == true
 --   • PvPBattleStart / PvPBattleEnd RemoteEvents
 --   • within ArenaBattleMusicRadius studs of any workspace.Arena BlueTeam/RedTeam BattlePoint
@@ -88,7 +89,7 @@ local SKY_TO_TRACK = config.SkyToTrack or {
 	WaterSky    = "Sieglings_OceanBiome",
 }
 
--- Sky names that match BiomeSkyboxClient outer baseplates (Desert / Electric / Ocean).
+-- Sky names that match BiomeSkyboxClient outer baseplates (Desert / Electric / Ocean / Cave).
 -- While the player is in one of these zones, biome BGM wins over main-arena proximity battle music.
 local OUTER_BIOME_SKY = {}
 do
@@ -107,37 +108,9 @@ do
 	end
 end
 
--- ═══════════════════════════════════════════════════════════════════════════════
--- Cave biome: positional override (not skybox-based)
--- The cave is underground — no skybox change happens there. Instead we detect
--- the player standing above the CaveBaseplate within a vertical range.
--- ═══════════════════════════════════════════════════════════════════════════════
-local caveConfig = config.CaveBiome or {}
-local CAVE_TRACK_NAME     = caveConfig.TrackName      or "Sieglings_CaveBiome"
-local CAVE_BASEPLATE_PATH = { caveConfig.BaseplateParent or "Terrain", caveConfig.BaseplateName or "CaveBaseplate" }
-local CAVE_VERTICAL_RANGE = tonumber(caveConfig.VerticalRange) or 700
-local CAVE_CHECK_INTERVAL = 0.2  -- seconds between position checks
-
--- Resolve the CaveBaseplate part at startup
-local caveBaseplate = nil
-do
-	local current = workspace
-	for _, name in ipairs(CAVE_BASEPLATE_PATH) do
-		current = current:FindFirstChild(name)
-		if not current then break end
-	end
-	if current and current:IsA("BasePart") then
-		caveBaseplate = current
-	else
-		print("[GameplayMusic] CaveBaseplate not found — cave music disabled")
-	end
-end
-
--- Cave state (updated by position polling loop)
-local inCaveBiome = false
-
 -- Main Siegelord arena: battle theme when near team BattlePoints (see GameConfig.GameplayMusic.ArenaBattleMusicRadius).
 local ARENA_BATTLE_MUSIC_RADIUS = math.max(5, tonumber(config.ArenaBattleMusicRadius) or 80)
+local POSITION_CHECK_INTERVAL = 0.2 -- arena proximity poll (seconds)
 local mainArenaBattlePointParts = {} -- BasePart[]
 local mainArenaCenterPart = nil
 local nearMainArenaBattleMusicZone = false
@@ -218,7 +191,6 @@ end
 local knownTrackNames = {
 	[MAIN_THEME_NAME]   = true,
 	[BATTLE_THEME_NAME] = true,
-	[CAVE_TRACK_NAME]   = true,
 }
 for _, trackName in pairs(SKY_TO_TRACK) do
 	knownTrackNames[trackName] = true
@@ -245,9 +217,6 @@ for skyName, trackName in pairs(SKY_TO_TRACK) do
 	biomeTracks[skyName] = findSound(trackName)
 end
 
--- Cave track (positional, not skybox-based)
-local caveTrack = findSound(CAVE_TRACK_NAME)
-
 -- Log what we found
 local foundCount = 0
 local missingList = {}
@@ -262,8 +231,6 @@ for skyName, trackName in pairs(SKY_TO_TRACK) do
 		end
 	end
 end
-if caveTrack then foundCount += 1 else table.insert(missingList, CAVE_TRACK_NAME) end
-
 if foundCount == 0 then
 	warn("[GameplayMusic] No music tracks found in SoundService — music system disabled.")
 	return
@@ -309,7 +276,6 @@ end
 -- Prepare all discovered tracks
 prepareTrack(mainTheme)
 prepareTrack(battleTheme)
-prepareTrack(caveTrack)
 for _, snd in pairs(biomeTracks) do
 	prepareTrack(snd)
 end
@@ -481,7 +447,7 @@ local function crossfadeTo(targetTrack)
 	-- Silence ALL other managed tracks that aren't the target.
 	-- Prevents leftover volume from rapid biome transitions or cancelled tweens
 	-- (e.g. biome music still audible when battle music starts).
-	local allTracks = { mainTheme, battleTheme, caveTrack }
+	local allTracks = { mainTheme, battleTheme }
 	for _, snd in pairs(biomeTracks) do
 		table.insert(allTracks, snd)
 	end
@@ -497,7 +463,7 @@ local function crossfadeTo(targetTrack)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
--- Track selection: combat > outer biome > arena proximity > cave > other biomes > main
+-- Track selection: combat > outer biome (incl. CaveSky) > arena proximity > other biomes > main
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 --- Determine the correct track to play right now.
@@ -520,17 +486,12 @@ local function getDesiredTrack()
 		return mainTheme or battleTheme
 	end
 
-	-- Priority 3: Main Siegelord arena — battle theme when near BattlePoints / ArenaCenter
+	-- Priority 3: Main Siegelord arena — battle theme when near BattlePoints / ArenaCenter.
 	if nearMainArenaBattleMusicZone then
 		return battleTheme or mainTheme
 	end
 
-	-- Priority 4: Cave (positional, no skybox)
-	if inCaveBiome and caveTrack then
-		return caveTrack
-	end
-
-	-- Priority 5: Other sky-driven biomes (inner wedges, etc.)
+	-- Priority 4: Other sky-driven biomes (inner wedges; CaveSky is handled as outer biome in priority 2)
 	if skyName and biomeTracks[skyName] then
 		return biomeTracks[skyName]
 	end
@@ -551,13 +512,12 @@ local function resetAllMusicToMainTheme()
 	if activeTween then activeTween:Cancel() end
 	if inactiveTween then inactiveTween:Cancel() end
 
-	-- Clear transient combat/cave / arena-proximity state so death always returns to default music.
+	-- Clear transient combat / arena-proximity state so death always returns to default music.
 	inPvP = false
-	inCaveBiome = false
 	nearMainArenaBattleMusicZone = false
 
 	local uniqueTracks = {}
-	local allTracks = { mainTheme, battleTheme, caveTrack }
+	local allTracks = { mainTheme, battleTheme }
 	for _, snd in pairs(biomeTracks) do
 		table.insert(allTracks, snd)
 	end
@@ -603,7 +563,6 @@ task.spawn(function()
 	local toPreload = {}
 	if mainTheme   and not mainTheme.IsLoaded   then table.insert(toPreload, mainTheme) end
 	if battleTheme and not battleTheme.IsLoaded then table.insert(toPreload, battleTheme) end
-	if caveTrack   and not caveTrack.IsLoaded  then table.insert(toPreload, caveTrack) end
 	for _, snd in pairs(biomeTracks) do
 		if snd and not snd.IsLoaded then table.insert(toPreload, snd) end
 	end
@@ -680,46 +639,6 @@ task.spawn(function()
 		end
 	end
 
-	-- ═══════════════════════════════════════════════════════════════════════════
-	-- Cave biome position polling
-	-- The cave is underground (no skybox change). We poll the player's position
-	-- to detect when they're above the CaveBaseplate within the vertical range.
-	-- ═══════════════════════════════════════════════════════════════════════════
-	if caveBaseplate and caveTrack then
-		task.spawn(function()
-			while true do
-				task.wait(CAVE_CHECK_INTERVAL)
-				local char = player.Character
-				local root = char and char:FindFirstChild("HumanoidRootPart")
-				if root and caveBaseplate.Parent then
-					local pos = root.Position
-					local bp = caveBaseplate
-					-- Check XZ bounds (within the baseplate's footprint)
-					local bpPos = bp.Position
-					local bpSize = bp.Size
-					local halfX = bpSize.X / 2
-					local halfZ = bpSize.Z / 2
-					local inXZ = (pos.X >= bpPos.X - halfX and pos.X <= bpPos.X + halfX)
-						and (pos.Z >= bpPos.Z - halfZ and pos.Z <= bpPos.Z + halfZ)
-					-- Check Y: above baseplate top surface, within vertical range
-					local bpTop = bpPos.Y + bpSize.Y / 2
-					local inY = pos.Y >= bpTop and pos.Y <= bpTop + CAVE_VERTICAL_RANGE
-
-					local wasInCave = inCaveBiome
-					inCaveBiome = inXZ and inY
-					if inCaveBiome ~= wasInCave then
-						evaluateMusic()
-					end
-				else
-					if inCaveBiome then
-						inCaveBiome = false
-						evaluateMusic()
-					end
-				end
-			end
-		end)
-	end
-
 	workspace.ChildAdded:Connect(function(child)
 		if child.Name == "Arena" then
 			refreshMainArenaBattlePointParts()
@@ -730,7 +649,7 @@ task.spawn(function()
 	task.spawn(function()
 		local arenaRescanTicks = 0
 		while true do
-			task.wait(CAVE_CHECK_INTERVAL)
+			task.wait(POSITION_CHECK_INTERVAL)
 			arenaRescanTicks += 1
 			if arenaRescanTicks >= 25 or #mainArenaBattlePointParts == 0 then
 				arenaRescanTicks = 0
@@ -755,11 +674,10 @@ task.spawn(function()
 	local trackList = {}
 	if mainTheme then table.insert(trackList, "Main") end
 	if battleTheme then table.insert(trackList, "Battle") end
-	if caveTrack then table.insert(trackList, "Cave") end
 	for skyName, snd in pairs(biomeTracks) do
 		if snd then table.insert(trackList, skyName) end
 	end
 	print("[GameplayMusic] Initialized — " .. #trackList .. " tracks: " .. table.concat(trackList, ", ")
 		.. " | Volume: " .. TARGET_VOLUME .. " | Crossfade: " .. CROSSFADE_TIME .. "s"
-		.. (caveBaseplate and " | Cave: enabled" or " | Cave: no baseplate"))
+		.. " | Outer biomes use CurrentSkyName (incl. CaveSky on Terrain.CaveBaseplate)")
 end)

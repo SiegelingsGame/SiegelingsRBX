@@ -6,24 +6,72 @@ local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local MobileWindowLayout = {}
 
+local function readUiMenuLayoutTweaks()
+	local spawnOff, heightScale = 0, 1
+	local ok, cfg = pcall(function()
+		return require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("GameConfig"))
+	end)
+	if ok and type(cfg) == "table" then
+		if type(cfg.UIMenuSpawnOffsetYPx) == "number" then
+			spawnOff = cfg.UIMenuSpawnOffsetYPx
+		end
+		if type(cfg.UIMenuWindowHeightScale) == "number" and cfg.UIMenuWindowHeightScale > 0 then
+			heightScale = cfg.UIMenuWindowHeightScale
+		end
+	end
+	return spawnOff, heightScale
+end
+
+local function readMobileFillConfig()
+	local fillSafeArea = false
+	local edgeInsetPx = 0
+	local useCoinBarTop = true
+	local reserveHubGap = true
+	local ignoreLegacyHeightTweaks = true
+	local ok, cfg = pcall(function()
+		return require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("GameConfig"))
+	end)
+	if ok and type(cfg) == "table" then
+		if cfg.MobileMenuFillDeviceSafeArea == true then
+			fillSafeArea = true
+		end
+		if type(cfg.MobileMenuEdgeInsetPx) == "number" and cfg.MobileMenuEdgeInsetPx >= 0 then
+			edgeInsetPx = cfg.MobileMenuEdgeInsetPx
+		end
+		if cfg.MobileMenuUseHUDCoinBarTop == false then
+			useCoinBarTop = false
+		end
+		if cfg.MobileMenuReserveBottomHubGap == false then
+			reserveHubGap = false
+		end
+		if cfg.MobileMenuIgnoreLegacyMenuHeightTweaksWhenFilling == false then
+			ignoreLegacyHeightTweaks = false
+		end
+	end
+	return fillSafeArea, edgeInsetPx, useCoinBarTop, reserveHubGap, ignoreLegacyHeightTweaks
+end
+
 local DEFAULTS = {
-	-- Insets applied in addition to Roblox GUI insets.
-	leftInset = 16,
-	rightInset = 16,
-	topInset = 12,
-	bottomInset = 16,
-	-- Additional mobile breathing room to avoid bottom controls.
-	bottomMobileExtra = 16,
+	-- Insets applied in addition to Roblox GUI insets (tight = max usable area).
+	leftInset = 6,
+	rightInset = 6,
+	topInset = 0,
+	bottomInset = 4,
+	-- Extra gap above system/home bar when hub toolbar bound is unavailable.
+	bottomMobileExtra = 4,
 	-- Minimum usable panel size.
 	minWidth = 280,
 	minHeight = 220,
 	-- Optional guard rails for very large tablets.
-	maxWidthRatio = 0.98,
+	maxWidthRatio = 1,
 	maxHeightRatio = 1,
 }
+
+local MENU_GAP_ABOVE_HUB_PX = 4
 
 local HUD_TWEEN_INFO = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
@@ -58,6 +106,54 @@ local function getTickerTopBound()
 	return nil
 end
 
+--- Top Y of HUD coin strip (HUDClient: CoinLabel's parent frame). Menus align here when present.
+local function getCoinBarTopBound()
+	local player = Players.LocalPlayer
+	if not player then return nil end
+	local playerGui = player:FindFirstChild("PlayerGui")
+	if not playerGui then return nil end
+	local hud = playerGui:FindFirstChild("HUD")
+	if not hud or not hud:IsA("ScreenGui") then
+		return nil
+	end
+	local coinLabel = hud:FindFirstChild("CoinLabel", true)
+	if coinLabel and coinLabel:IsA("GuiObject") then
+		local bar = coinLabel.Parent
+		if bar and bar:IsA("GuiObject") then
+			return math.floor(bar.AbsolutePosition.Y)
+		end
+	end
+	return nil
+end
+
+local function getHUDToolbar()
+	local player = Players.LocalPlayer
+	if not player then return nil end
+	local playerGui = player:FindFirstChild("PlayerGui")
+	if not playerGui then return nil end
+	local hudGui = playerGui:FindFirstChild("HUDButtonBar")
+	if not hudGui or not hudGui:IsA("ScreenGui") then return nil end
+	local toolbar = hudGui:FindFirstChild("Toolbar")
+	if toolbar and toolbar:IsA("GuiObject") then
+		return toolbar
+	end
+	return nil
+end
+
+--- Exclusive bottom Y for full-screen menus: sit just above the hub button bar (same math when bar is visible).
+local function getMenuBottomExclusiveY()
+	local toolbar = getHUDToolbar()
+	if not toolbar then return nil end
+	local vp = getViewport()
+	local _, insetBR = getGuiInsets()
+	local barH = toolbar.AbsoluteSize.Y
+	if not barH or barH < 8 then return nil end
+	local lift = tonumber(toolbar:GetAttribute("BottomLiftPx")) or 0
+	local bottomEdgeY = vp.Y - insetBR.Y
+	local topOfToolbar = bottomEdgeY - barH - lift
+	return math.floor(topOfToolbar - MENU_GAP_ABOVE_HUB_PX)
+end
+
 function MobileWindowLayout.IsMobile()
 	-- Touch + no keyboard is the strictest signal for phones/tablets.
 	-- Keep viewport fallback for simulators and edge devices.
@@ -75,27 +171,72 @@ end
 function MobileWindowLayout.GetBounds(config)
 	config = config or {}
 	local cfg = {
-		leftInset = config.leftInset or DEFAULTS.leftInset,
-		rightInset = config.rightInset or DEFAULTS.rightInset,
-		topInset = config.topInset or DEFAULTS.topInset,
-		bottomInset = config.bottomInset or DEFAULTS.bottomInset,
-		bottomMobileExtra = config.bottomMobileExtra or DEFAULTS.bottomMobileExtra,
+		leftInset = config.leftInset ~= nil and config.leftInset or DEFAULTS.leftInset,
+		rightInset = config.rightInset ~= nil and config.rightInset or DEFAULTS.rightInset,
+		topInset = config.topInset ~= nil and config.topInset or DEFAULTS.topInset,
+		bottomInset = config.bottomInset ~= nil and config.bottomInset or DEFAULTS.bottomInset,
+		bottomMobileExtra = config.bottomMobileExtra ~= nil and config.bottomMobileExtra or DEFAULTS.bottomMobileExtra,
 		-- Optional vertical shift (negative = move up). Applied after insets/ticker bound.
 		shiftYScale = config.shiftYScale or 0,
 		shiftYOffset = config.shiftYOffset or 0,
 	}
 
+	local forceMaximal = config.useMaximalSafeRect == true
+	local fillSafeArea, edgeInsetPx, useCoinBarTop, reserveHubGap, ignoreLegacyHeightTweaks =
+		readMobileFillConfig()
+	if config.reserveBottomHubGap ~= nil then
+		reserveHubGap = config.reserveBottomHubGap
+	end
+	if forceMaximal then
+		useCoinBarTop = false
+		ignoreLegacyHeightTweaks = true
+	end
+	-- Full safe-area layout on touch devices when GameConfig enables it, or when a caller
+	-- requests useMaximalSafeRect (e.g. compact desktop window using the same menu chrome).
+	local mobileFillEffect = (MobileWindowLayout.IsMobile() and fillSafeArea) or forceMaximal
+	if mobileFillEffect then
+		if config.leftInset == nil then
+			cfg.leftInset = edgeInsetPx
+		end
+		if config.rightInset == nil then
+			cfg.rightInset = edgeInsetPx
+		end
+		if config.topInset == nil then
+			cfg.topInset = edgeInsetPx
+		end
+		if config.bottomInset == nil then
+			cfg.bottomInset = edgeInsetPx
+		end
+	end
+
 	local vp = getViewport()
 	local insetTL, insetBR = getGuiInsets()
+	-- Use full viewport height (ignore status / home-indicator padding from GetGuiInset on Y only).
+	if config.extendViewportVertically == true then
+		insetTL = Vector2.new(insetTL.X, 0)
+		insetBR = Vector2.new(insetBR.X, 0)
+	end
 	local left = insetTL.X + cfg.leftInset
 	local right = vp.X - insetBR.X - cfg.rightInset
+	-- Prefer HUD coin bar top (matches main HUD); else notification ticker; else safe top + inset.
 	local top = insetTL.Y + cfg.topInset
-	local tickerTop = getTickerTopBound()
-	if tickerTop then
-		-- Keep mobile windows aligned to the same top bound as the ticker area.
-		top = tickerTop
+	if not (mobileFillEffect and not useCoinBarTop) then
+		local coinTop = getCoinBarTopBound()
+		if coinTop then
+			top = coinTop
+		else
+			local tickerTop = getTickerTopBound()
+			if tickerTop then
+				top = math.min(top, tickerTop)
+			end
+		end
 	end
+	-- Fill to just above hub bar when we can measure it; else safe bottom minus padding.
 	local bottom = vp.Y - insetBR.Y - cfg.bottomInset - cfg.bottomMobileExtra
+	local menuBottomExclusive = getMenuBottomExclusiveY()
+	if reserveHubGap and menuBottomExclusive and menuBottomExclusive > top + DEFAULTS.minHeight then
+		bottom = menuBottomExclusive
+	end
 
 	-- Optional vertical shift (keeps window height stable by shifting top+bottom equally).
 	local shiftY = (cfg.shiftYScale * vp.Y) + cfg.shiftYOffset
@@ -117,6 +258,12 @@ function MobileWindowLayout.GetBounds(config)
 		top = top - d
 		bottom = bottom - d
 	end
+	-- Pulling bottom down can push top above the safe region upward past minTop; fix before height math.
+	if top < minTop then
+		local d = minTop - top
+		top = top + d
+		bottom = bottom + d
+	end
 
 	-- Clamp for narrow devices so we always return a valid region.
 	if bottom <= top + DEFAULTS.minHeight then
@@ -124,6 +271,40 @@ function MobileWindowLayout.GetBounds(config)
 	end
 	if right <= left + DEFAULTS.minWidth then
 		right = vp.X - insetBR.X - cfg.rightInset
+	end
+
+	-- GameConfig: vertical spawn offset + window height scale (all menus using GetBounds / ApplyWindow)
+	local spawnOff, heightScale = readUiMenuLayoutTweaks()
+	if mobileFillEffect and ignoreLegacyHeightTweaks then
+		spawnOff = 0
+		heightScale = 1
+	end
+	local h = bottom - top
+	h = math.max(DEFAULTS.minHeight, math.floor(h * heightScale + 0.5))
+	bottom = top + h
+	top = top + spawnOff
+	bottom = bottom + spawnOff
+	if top < minTop then
+		local d = minTop - top
+		top = top + d
+		bottom = bottom + d
+	end
+	if bottom > maxBottom then
+		local d = bottom - maxBottom
+		top = top - d
+		bottom = bottom - d
+	end
+	if bottom <= top + DEFAULTS.minHeight then
+		bottom = math.min(maxBottom, top + DEFAULTS.minHeight)
+	end
+	if top < minTop then
+		top = minTop
+	end
+	if bottom > maxBottom then
+		bottom = maxBottom
+	end
+	if bottom < top + DEFAULTS.minHeight then
+		bottom = math.min(maxBottom, top + DEFAULTS.minHeight)
 	end
 
 	return {
@@ -135,6 +316,62 @@ function MobileWindowLayout.GetBounds(config)
 		height = math.max(DEFAULTS.minHeight, bottom - top),
 		viewport = vp,
 	}
+end
+
+-- ── NPC / shop / cooking menus (parity with InventoryUI fullscreen bounds) ──
+local NPC_MENU_BREAKPOINT_X = 620
+local NPC_MENU_BREAKPOINT_Y = 500
+
+function MobileWindowLayout.NpcMenuUsesFullscreenBounds(designW, designH)
+	designW = designW or 640
+	designH = designH or 620
+	if MobileWindowLayout.IsMobile() then
+		return true
+	end
+	local cam = Workspace.CurrentCamera
+	local vp = (cam and cam.ViewportSize) or Vector2.new(designW, designH)
+	if vp.X < NPC_MENU_BREAKPOINT_X or vp.Y < NPC_MENU_BREAKPOINT_Y then
+		return true
+	end
+	return vp.X < designW or vp.Y < designH
+end
+
+function MobileWindowLayout.GetNpcFullscreenBoundsConfig(designW, designH, merge)
+	designW = designW or 640
+	designH = designH or 620
+	merge = merge or {}
+	local cam = Workspace.CurrentCamera
+	local vp = (cam and cam.ViewportSize) or Vector2.new(designW, designH)
+	local compactViewport = vp.X < designW or vp.Y < designH
+	local isMobileLike = MobileWindowLayout.IsMobile()
+		or vp.X < NPC_MENU_BREAKPOINT_X
+		or vp.Y < NPC_MENU_BREAKPOINT_Y
+	local cfg = {
+		extendViewportVertically = true,
+		reserveBottomHubGap = false,
+		bottomMobileExtra = 0,
+		topInset = 0,
+		bottomInset = 0,
+		mobileDraggable = false,
+	}
+	for k, v in pairs(merge) do
+		cfg[k] = v
+	end
+	if compactViewport and not isMobileLike then
+		cfg.useMaximalSafeRect = true
+	end
+	return cfg
+end
+
+function MobileWindowLayout.SyncNpcMenuScreenGui(screenGui, designW, designH)
+	if not screenGui then
+		return
+	end
+	if MobileWindowLayout.NpcMenuUsesFullscreenBounds(designW, designH) then
+		screenGui.IgnoreGuiInset = true
+	else
+		screenGui.IgnoreGuiInset = false
+	end
 end
 
 function MobileWindowLayout.ApplyWindow(frame, config)
@@ -203,20 +440,6 @@ function MobileWindowLayout.BindViewportUpdate(callback)
 	end
 end
 
-local function getHUDToolbar()
-	local player = Players.LocalPlayer
-	if not player then return nil end
-	local playerGui = player:FindFirstChild("PlayerGui")
-	if not playerGui then return nil end
-	local hudGui = playerGui:FindFirstChild("HUDButtonBar")
-	if not hudGui or not hudGui:IsA("ScreenGui") then return nil end
-	local toolbar = hudGui:FindFirstChild("Toolbar")
-	if toolbar and toolbar:IsA("GuiObject") then
-		return toolbar
-	end
-	return nil
-end
-
 function MobileWindowLayout.SetHUDBarVisible(visible)
 	if not MobileWindowLayout.IsMobile() then return end
 	local toolbar = getHUDToolbar()
@@ -265,6 +488,49 @@ end
 
 function MobileWindowLayout.NotifyMenuClosed()
 	MobileWindowLayout.SetHUDBarVisible(true)
+end
+
+--- Menu window titles on phone/tablet: center text with symmetric horizontal gutters so labels
+--- are not drawn under Roblox CoreGui (top-left). On desktop, restores the given layout.
+--- desktop: optional { Position, Size, TextXAlignment } (defaults captured from `label` if omitted).
+--- mobileLeftGutter / mobileRightGutter: pixels reserved for system UI and close buttons (defaults 44 / 50).
+--- Returns apply() — call whenever layout is reapplied (e.g. from BindViewportUpdate alongside ApplyWindow).
+function MobileWindowLayout.MenuHeaderTitleLayout(label, desktop)
+	if not label or not (label:IsA("TextLabel") or label:IsA("TextButton")) then
+		return function() end
+	end
+	desktop = desktop or {}
+	local save = {
+		Position = desktop.Position ~= nil and desktop.Position or label.Position,
+		Size = desktop.Size ~= nil and desktop.Size or label.Size,
+		TextXAlignment = desktop.TextXAlignment ~= nil and desktop.TextXAlignment or label.TextXAlignment,
+	}
+	local lg = desktop.mobileLeftGutter
+	if lg == nil then
+		lg = 44
+	end
+	local rg = desktop.mobileRightGutter
+	if rg == nil then
+		rg = 50
+	end
+
+	local function apply()
+		if not label.Parent then
+			return
+		end
+		if MobileWindowLayout.IsMobile() then
+			label.TextXAlignment = Enum.TextXAlignment.Center
+			label.Position = UDim2.new(0, lg, save.Position.Y.Scale, save.Position.Y.Offset)
+			label.Size = UDim2.new(1, -(lg + rg), save.Size.Y.Scale, save.Size.Y.Offset)
+		else
+			label.TextXAlignment = save.TextXAlignment
+			label.Position = save.Position
+			label.Size = save.Size
+		end
+	end
+
+	apply()
+	return apply
 end
 
 return MobileWindowLayout

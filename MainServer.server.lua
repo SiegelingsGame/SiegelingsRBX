@@ -3,7 +3,7 @@
 -- DELETE "EssentialdHandlers" and "BattleTeamSystem" if they exist....
 
 print("--------------------------------------")
-print("   MONSTER SIEGE - Server Starting")
+print("   SiegelinQ - Server Starting")
 print("--------------------------------------")
 
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -19,6 +19,7 @@ StarterGui.ResetPlayerGuiOnSpawn = false
 
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+local PlayerWorldStats = require(ReplicatedStorage.Modules:WaitForChild("PlayerWorldStats"))
 
 -- === STEP 1: Create ALL remotes ===
 local eventsFolder = ReplicatedStorage:FindFirstChild("Events")
@@ -78,7 +79,7 @@ makeEvent("GemsUpdate")
 
 -- Capture
 makeEvent("CaptureRequest"); makeEvent("CaptureStart"); makeEvent("CaptureSuccess")
-makeEvent("SigilEarned")  -- FireClient(player, zoneId) when player earns a sigil from defeating a boss
+makeEvent("SigilEarned")  -- FireClient(player, id) — SiegeSquire: element name; SiegeKnight: zone id (gym win)
 makeEvent("CaptureCancel"); makeEvent("CaptureFail"); makeEvent("CaptureOutOfRange"); makeEvent("AssignCaptured")
 
 -- AI Raids
@@ -110,10 +111,15 @@ makeEvent("BadlandsZoneCollapse"); makeEvent("BadlandsPlayerKill"); makeEvent("B
 makeEvent("BadlandsXPGain"); makeEvent("BadlandsContractData"); makeEvent("BadlandsOfferCreature")
 makeEvent("BadlandsLootBagSpawned"); makeEvent("BadlandsLootBagLoot"); makeEvent("BadlandsLootBagUpdate")
 makeEvent("BadlandsSacrificeCreature"); makeEvent("BadlandsSacrificeResult")
+makeFunc("BadlandsCaptureResolve") -- client -> server: finalize pending Badlands capture (active / passive / replace / cancel)
 
 -- Arena Hub: Curator Trader (rotating Siegeling stock)
 makeEvent("ArenaTraderStock") -- server -> client: payload when opening UI or when stock rotates
 makeEvent("OpenSiegeMasterShop") -- server -> client: open siege provisions catalog
+makeEvent("OpenEleminionUI") -- server -> client: open elemental affinity quest UI
+makeEvent("EleminionStatusUpdated") -- server -> client: refreshed affinity and quest payload
+makeFunc("GetEleminionStatus")
+makeFunc("ClaimEleminionQuestReward")
 
 -- Shared notifications
 makeEvent("ShowNotification")
@@ -226,6 +232,7 @@ makeEvent("RebirthFailed")   -- server -> client: errorMessage
 local getIngredientBank = makeFunc("GetIngredientBank")
 makeEvent("IngredientBankChanged")
 local collectIngredient = makeEvent("CollectIngredient")
+makeEvent("IngredientPickupCollected") -- server -> client: worldPos, ingredientId, displayName (pickup FX + toast)
 local craftAtCampfire = makeFunc("CraftAtCampfire")
 local getCampfireRecipePattern = makeFunc("GetCampfireRecipePattern")
 local craftAtCampfireWithQuality = makeFunc("CraftAtCampfireWithQuality")
@@ -404,6 +411,17 @@ do
 	end
 end
 
+local EleminionSystem = nil
+do
+	local ok, result = pcall(function() return require(ServerScriptService.EleminionSystem) end)
+	if ok then
+		EleminionSystem = result
+		print("[MainServer] EleminionSystem require OK")
+	else
+		warn("[MainServer] EleminionSystem require FAILED: " .. tostring(result))
+	end
+end
+
 local DecorSystem = nil
 do
 	local ok, result = pcall(function() return require(ServerScriptService.DecorSystem) end)
@@ -559,6 +577,14 @@ if IngredientSpawnSystem then
 end
 if getIngredientBank then
 	getIngredientBank.OnServerInvoke = function(plr)
+		-- Brief wait: client can invoke before PlayerDataManager finishes caching the player (same frame as join).
+		local deadline = tick() + 5
+		while not PlayerDataManager.GetData(plr) and tick() < deadline do
+			task.wait(0.05)
+		end
+		if not PlayerDataManager.GetData(plr) then
+			return nil
+		end
 		return PlayerDataManager.GetIngredientBankSnapshot(plr)
 	end
 end
@@ -681,6 +707,12 @@ if SiegeMasterSystem then
 		SiegeMasterSystem.Init()
 	end)
 	if ok then print("[MainServer] SiegeMasterSystem OK") else warn("[MainServer] SiegeMasterSystem failed: " .. tostring(err)) end
+end
+if EleminionSystem then
+	local ok, err = pcall(function()
+		EleminionSystem.Init(PlayerDataManager)
+	end)
+	if ok then print("[MainServer] EleminionSystem OK") else warn("[MainServer] EleminionSystem failed: " .. tostring(err)) end
 end
 if DecorSystem then
 	local ok, err = pcall(function() DecorSystem.Init(PlayerDataManager) end)
@@ -1555,13 +1587,26 @@ setCreatureNickname.OnServerInvoke = function(plr, uid, nickname)
 	return ok, msg, gemCost or 0, finalNickname
 end
 
+local function refreshZoneDoorCollision(plr)
+	if not plr or not plr.Parent then return end
+	if ZoneDoorSystem and ZoneDoorSystem.ApplyZoneDoorCollisionToCharacter then
+		pcall(function()
+			ZoneDoorSystem.ApplyZoneDoorCollisionToCharacter(plr)
+		end)
+	end
+end
+
 -- Zone doors: open one door with 4 sigils (client calls from Sigils UI)
 local openZoneDoorWithSigils = makeFunc("OpenZoneDoorWithSigils")
 openZoneDoorWithSigils.OnServerInvoke = function(plr, zoneId)
 	if not plr or not plr.Parent then return false, "Invalid player" end
+	if GameConfig.ZoneDoorsDisabled == true then return false, "Zone doors disabled" end
 	if type(zoneId) ~= "string" or zoneId == "" then return false, "Invalid zone" end
 	local ok = PlayerDataManager.SpendFourSigilsOpenDoor(plr, zoneId)
-	if ok then return true end
+	if ok then
+		refreshZoneDoorCollision(plr)
+		return true
+	end
 	return false, "Cannot open door (need 4 sigils and no door chosen yet, or invalid zone)"
 end
 
@@ -1569,10 +1614,28 @@ end
 local unlockDoorWithKey = makeFunc("UnlockDoorWithKey")
 unlockDoorWithKey.OnServerInvoke = function(plr, zoneId)
 	if not plr or not plr.Parent then return false, "Invalid player" end
+	if GameConfig.ZoneDoorsDisabled == true then return false, "Zone doors disabled" end
 	if type(zoneId) ~= "string" or zoneId == "" then return false, "Invalid zone" end
-	local ok = PlayerDataManager.UnlockDoorWithKey(plr, zoneId)
-	if ok then return true end
-	return false, "No key for this zone or door already unlocked"
+	local ok, err = PlayerDataManager.UnlockDoorWithKey(plr, zoneId)
+	if ok then
+		refreshZoneDoorCollision(plr)
+		return true
+	end
+	return false, err or "Cannot open gate"
+end
+
+-- Zone doors: spend four inner boss Legendaries from inventory (uids) to open this gate for this player
+local spendLegendariesForZoneDoor = makeFunc("SpendLegendariesForZoneDoor")
+spendLegendariesForZoneDoor.OnServerInvoke = function(plr, zoneId, uids)
+	if not plr or not plr.Parent then return false, "Invalid player" end
+	if GameConfig.ZoneDoorsDisabled == true then return false, "Zone doors disabled" end
+	if type(zoneId) ~= "string" or zoneId == "" then return false, "Invalid zone" end
+	local ok, err = PlayerDataManager.SpendFourBossLegendariesOpenDoor(plr, zoneId, uids)
+	if ok then
+		refreshZoneDoorCollision(plr)
+		return true
+	end
+	return false, err or "Cannot open gate"
 end
 
 -- Base Exterior: get config by id
@@ -2129,13 +2192,12 @@ buyFloor.OnServerInvoke = function(plr, floorNum)
 			LaserDoorSystem.CreateForPlot(pm, plr)
 		end
 
-		-- Floor 4: set up gym arena prompt and decor points
+		if DecorSystem and DecorSystem.PlaceAllDecor then
+			pcall(function() DecorSystem.PlaceAllDecor(plr) end)
+		end
 		if floorNum == 4 and pm then
 			if GymBattleSystem and GymBattleSystem.SetupPlot then
 				pcall(function() GymBattleSystem.SetupPlot(pm) end)
-			end
-			if DecorSystem and DecorSystem.PlaceAllDecor then
-				pcall(function() DecorSystem.PlaceAllDecor(plr) end)
 			end
 		end
 
@@ -2153,6 +2215,20 @@ getProfile.OnServerInvoke = function(plr)
 	local d = PlayerDataManager.GetData(plr)
 	if not d then return nil end
 	local lvl, xp, needed = PlayerDataManager.GetPlayerLevel(plr)
+	local bonuses = PlayerDataManager.GetRebirthBonuses(plr)
+	local baseCombat = PlayerWorldStats.ComputeForPlayer(lvl, bonuses)
+	local inBL = plr:GetAttribute("InBadlands") == true
+	local function numAttr(attrName)
+		local v = plr:GetAttribute(attrName)
+		return (type(v) == "number" and v > 0) and v or 0
+	end
+	local blA, blD, blH, blM = 0, 0, 0, 0
+	if inBL then
+		blA = numAttr("BadlandsStat_Attack")
+		blD = numAttr("BadlandsStat_Defense")
+		blH = numAttr("BadlandsStat_Health")
+		blM = numAttr("BadlandsStat_MovementSpeed")
+	end
 	return {
 		playerLevel = lvl, playerXP = xp, xpNeeded = needed,
 		coins = d.coins, gems = d.gems or 0,
@@ -2163,6 +2239,20 @@ getProfile.OnServerInvoke = function(plr)
 		arenaMaxStreak = d.stats.arenaMaxStreak or 0,
 		totalIncome = d.stats.totalIncome or 0,
 		rebirthLevel = PlayerDataManager.GetRebirthLevel(plr),
+		pilotCombat = {
+			attack = baseCombat.attack + blA,
+			defense = baseCombat.defense + blD,
+			maxHealth = baseCombat.maxHealth + blH,
+			walkSpeed = baseCombat.walkSpeed + blM,
+			sprintSpeed = baseCombat.sprintSpeed + blM,
+			levelMult = baseCombat.levelMult,
+			statGainPerLevel = baseCombat.statGainPerLevel,
+			inBadlands = inBL,
+			badlandsAttack = blA,
+			badlandsDefense = blD,
+			badlandsHealth = blH,
+			badlandsMove = blM,
+		},
 	}
 end
 
@@ -2250,5 +2340,5 @@ requestRebirth.OnServerEvent:Connect(function(plr)
 	if evt then evt:FireClient(plr, newLevel, bonuses) end
 end)
 print("--------------------------------------")
-print("   MONSTER SIEGE - Server Ready!")
+print("   SiegelinQ - Server Ready!")
 print("--------------------------------------")

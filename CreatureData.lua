@@ -39,6 +39,11 @@
 		"dungeon"       = Spawns at DungeonPoints (harder encounters)
 		"boss"          = Spawns at BossPoints (one legendary per biome; outer dual biomes also use BossPoint2)
 
+	NPC-ONLY CREATURES:
+		npcOnly = true     = Creature is reserved for systems like Eleminions and is excluded from
+		                     wild spawns, capture reward pools, eggs, and trader rolls.
+		creatureRole = "Eleminion" = Optional role tag for special NPC-only creatures.
+
 	FLYING (flying field):
 		true = Creature hovers at player height (FlyingHoverHeight) above ground
 		omit = Creature walks on ground, bottom of model on surface
@@ -67,7 +72,7 @@
 		stationary - base system only (not for world spawns)
 
 	Rarity Distribution Per Element: 5C, 4U, 3R, 2E, 1L = 15 each
-	Total Creatures: 90 (15 x 6 elements)
+	Total Creatures: 110 across 12 elements (see tools/validate_creature_data.py for roster checks)
 
 	MODEL ROTATION:
 		modelRotationY = degrees (default nil/0) — Rotate model around vertical axis from its base orientation.
@@ -478,8 +483,8 @@ CreatureData.Synergies = {
 }
 
 -- --------------------------------------
--- CREATURE DEFINITIONS (90 total)
--- 15 per element: 5 Common, 4 Uncommon, 3 Rare, 2 Epic, 1 Legendary
+-- CREATURE DEFINITIONS (110 entries; target 15 per element when roster complete)
+-- Target per element: 5 Common, 4 Uncommon, 3 Rare, 2 Epic, 1 Legendary
 -- Base stats: filled after this table via AllocateBaseStats (RarityStatBudget + class + element + id).
 -- --------------------------------------
 
@@ -543,7 +548,7 @@ CreatureData.Creatures = {
 		id = "raydile", displayName = "Raydile", rarity = "Uncommon",
 		element = "Fire", class = "Guardian", behavior = "lone",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.1,
-		description = "A salamander with a molten core. These lone sieglings seek the heat of the sun.",
+		description = "A salamander with a molten core. These lone siegelings seek the heat of the sun.",
 		modelName = "Raydile", primaryColor = Color3.fromRGB(200, 60, 20),
 		evolvesFrom = "sundile",
 		evolvesTo = "solgator",
@@ -551,19 +556,12 @@ CreatureData.Creatures = {
 		crawling = true,
 	},
 	{
-		id = "hotty", displayName = "Hotty", rarity = "Uncommon",
-		element = "Fire", class = "Support", behavior = "pack",
-		spawnWeight = 9, baseIncome = 3, captureTime = 1.0, packSize = {2, 3},
-		description = "Hotty's are helpers of the Fire Eleminion",
-		modelName = "Hotty", primaryColor = Color3.fromRGB(255, 160, 80),
-	},
-	{
 		id = "emberfin", displayName = "Emberfin", rarity = "Uncommon",
 		element = "Fire", class = "Assassin", behavior = "aggressive",
 		spawnWeight = 8, baseIncome = 3, captureTime = 1.2,
 		description = "A predator that hides in smoke clouds, striking with superheated fangs before vanishing again.",
 		modelName = "Emberfin", primaryColor = Color3.fromRGB(80, 50, 40),
-		evolvesTo = "Cindergil",flying = true, 
+		evolvesTo = "cindergil",flying = true, 
 	},
 
 	-- Fire Rare (3)
@@ -583,7 +581,7 @@ CreatureData.Creatures = {
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
 		description = "A majestic stag with antlers of living flame. It heals allies as it runs, but catching it requires persistence.",
 		modelName = "Cindergil", primaryColor = Color3.fromRGB(255, 180, 60),
-		mountable = true, mountOffset = {0, 3, -1.5}, mountScale = 2.0,
+		mountable = true, mountOffset = {0, 3, -1.5}, mountScale = 2.0,modelDisplaySize = 6.0,modelScaleMultiplier = 1.5,
 	},
 	{
 		id = "hotdog", displayName = "Hotdog", rarity = "Rare",
@@ -621,7 +619,7 @@ CreatureData.Creatures = {
 		id = "pylord", displayName = "Pylord", rarity = "Legendary",
 		element = "Fire", class = "Bruiser", behavior = "lone",
 		spawnWeight = 1, baseIncome = 50, captureTime = 3.5,
-		description = "This ancient Siegling is said to be the soul of a powerful SiegLord who jumped into the Volcano to become Fire itself",
+		description = "This ancient Siegeling is said to be the soul of a powerful SiegLord who jumped into the Volcano to become Fire itself",
 		modelName = "Pylord", primaryColor = Color3.fromRGB(255, 200, 30),
 		spawnPointType = "boss",modelDisplaySize = 16.0,
 		mountable = true, mountType = "Ground", mountOffset = {0, 4, -2}, mountScale = 2.5,
@@ -629,7 +627,7 @@ CreatureData.Creatures = {
 
 	-- ============================
 	-- ICE CREATURES (5C, 4U, 3R, 2E, 1L)
-	-- ============================123
+	-- ============================
 
 	-- Ice Common (5)
 	{
@@ -661,7 +659,7 @@ CreatureData.Creatures = {
 		spawnWeight = 17, baseIncome = 1, captureTime = 0.5,
 		description = "Ceeponee float through the winter winds and are known to be a bit shy",
 		modelName = "Falcool", primaryColor = Color3.fromRGB(130, 190, 255), 
-		evolvesTo = "peatbeak"
+		evolvesTo = "falcoat"
 	},
 	{
 		id = "cozycub", displayName = "Cozycub", rarity = "Common",
@@ -673,14 +671,6 @@ CreatureData.Creatures = {
 	},
 
 	-- Ice Uncommon (4)
-	{
-		id = "frosty", displayName = "Frosty", rarity = "Uncommon",
-		element = "Ice", class = "Mage", behavior = "lone",
-		spawnWeight = 10, baseIncome = 3, captureTime = 1.0,
-		description = "A ghostly wisp wrapped in a permanent chill. Patrols alone.",
-		modelName = "Frosty", primaryColor = Color3.fromRGB(140, 210, 255),
-
-	},
 	{
 		id = "chilldoe", displayName = "Chilldoe", rarity = "Uncommon",
 		element = "Ice", class = "Bruiser", behavior = "aggressive",
@@ -702,7 +692,7 @@ CreatureData.Creatures = {
 		element = "Ice", class = "Assassin", behavior = "lone",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.1,
 		description = "A well dressed predator that blends into ice fields. By the time you see it, its fangs are already at your throat.",
-		modelName = "Falcoat", primaryColor = Color3.fromRGB(100, 170, 230),evolvesTo ="Peatbeak", evolvesFrom = "falcool",
+		modelName = "Falcoat", primaryColor = Color3.fromRGB(100, 170, 230),evolvesTo = "peatbeak", evolvesFrom = "falcool",
 		modelDisplaySize = 5.0,modelScaleMultiplier = 1.5,
 	},
 
@@ -781,13 +771,6 @@ CreatureData.Creatures = {
 	},
 
 	-- Wind Uncommon (4)
-	{
-		id = "lofty", displayName = "Lofty", rarity = "Uncommon",
-		element = "Wind", class = "Assassin", behavior = "lone",
-		spawnWeight = 10, baseIncome = 3, captureTime = 1.0,
-		description = "A sleek predator that strikes from sudden gusts. Solitary hunter.",
-		modelName = "Lofty", primaryColor = Color3.fromRGB(170, 240, 200),
-	},
 	{
 		id = "gagglestand", displayName = "Gagglestand", rarity = "Uncommon",
 		element = "Wind", class = "Support", behavior = "gentle",
@@ -938,13 +921,6 @@ CreatureData.Creatures = {
 		evolvesFrom = "cacty", evolvesTo = "cactyjackedty",modelDisplaySize = 3.0,modelScaleMultiplier = 2.0,
 	},
 	{
-		id = "mossy", displayName = "Mossy", rarity = "Uncommon",
-		element = "Earth", class = "Bruiser", behavior = "gentle",
-		spawnWeight = 9, baseIncome = 3, captureTime = 1.0,
-		description = "A bearlike creature with fists of solid granite. It charges anything that enters its territory.",
-		modelName = "Mossy", primaryColor = Color3.fromRGB(150, 130, 100),
-	},
-	{
 		id = "floraknight", displayName = "Flora Knight", rarity = "Uncommon",
 		element = "Earth", class = "Mage", behavior = "lone",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.1,
@@ -961,7 +937,7 @@ CreatureData.Creatures = {
 		evolvesFrom = "pylme",evolvesTo = "guerilla",modelDisplaySize = 5.0,modelScaleMultiplier = 1.5
 	},
 
-	-- Earth Rare (3)sddf
+	-- Earth Rare (3)
 	{
 		id = "generoot", displayName = "Generoot", rarity = "Rare",
 		element = "Earth", class = "Bruiser", behavior = "lone",
@@ -976,7 +952,7 @@ CreatureData.Creatures = {
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
 		description = "A regal stag with antlers of living crystal that resonate with healing frequencies. Fiercely shy and nearly impossible to corner.",
 		modelName = "Guerilla", primaryColor = Color3.fromRGB(180, 200, 160),
-		modelDisplaySize = 8.0,modelScaleMultiplier = 2.0,
+		modelDisplaySize = 8.0,modelScaleMultiplier = 2.0,evolvesFrom = "bonoblade",
 		spawnPointType = "dungeon",
 	},
 	{
@@ -992,7 +968,7 @@ CreatureData.Creatures = {
 		evolvesTo = "dracosleaf",
 	},
 
-	-- Earth Epic (2)rfr
+	-- Earth Epic (2)
 	{
 		id = "cactyjackedty", displayName = "CactyJackedty", rarity = "Epic",
 		element = "Earth", class = "Bruiser", behavior = "aggressive",
@@ -1012,10 +988,10 @@ CreatureData.Creatures = {
 		modelName = "Dracosleaf", primaryColor = Color3.fromRGB(200, 160, 60),
 		spawnPointType = "dungeon",modelDisplaySize = 10, modelScaleMultiplier = 2.0,
 		mountable = true, mountOffset = {0, 5, -2}, mountScale = 2.5,
-		evolvesFrom = "sleafwrym", flying = true,
+		evolvesFrom = "sleafwyrm", flying = true,
 	},
 
-	-- Earth Legendary (1)s
+	-- Earth Legendary (1)
 	{
 		id = "gymstone", displayName = "Gymstone", rarity = "Legendary",
 		element = "Earth", class = "Guardian", behavior = "gentle",
@@ -1126,7 +1102,7 @@ CreatureData.Creatures = {
 		modelDisplaySize = 5.0,modelScaleMultiplier = 1.5
 	},
 	{
-		id = "Joltram", displayName = "Joltram", rarity = "Uncommon",
+		id = "joltram", displayName = "Joltram", rarity = "Uncommon",
 		element = "Lightning", class = "Bruiser", behavior = "aggressive",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.0,
 		description = "A burrowing creature that erupts from the ground in a shower of electric sparks. It headbutts targets with a charged skull.",
@@ -1152,11 +1128,11 @@ CreatureData.Creatures = {
 		modelName = "Newton", primaryColor = Color3.fromRGB(200, 180, 60),modelDisplaySize = 12,modelScaleMultiplier = 1.5,evolvesFrom = "newt",
 	},
 	{
-		id = "bleetsrike", displayName = "Bleetsrike", rarity = "Rare",
+		id = "bleetstrike", displayName = "Bleetstrike", rarity = "Rare",
 		element = "Lightning", class = "Bruiser", behavior = "lone",
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
 		description = "A floating jellyfish-like creature that drifts through mountain peaks, weaving devastating chain-lightning between its tendrils.",
-		modelName = "Bleetsrike", primaryColor = Color3.fromRGB(140, 100, 255),
+		modelName = "Bleetstrike", primaryColor = Color3.fromRGB(140, 100, 255),
 		spawnPointType = "dungeon",evolvesFrom="joltram",modemodelDisplaySize = 12,modelScaleMultiplier = 1.5,
 	},
 
@@ -1266,7 +1242,7 @@ CreatureData.Creatures = {
 		mountable = true,
 	},
 	{
-		id = "Shellnaut", displayName = "Shellnaut", rarity = "Rare",
+		id = "shellnaut", displayName = "Shellnaut", rarity = "Rare",
 		element = "Water", class = "Guardian", behavior = "lone",
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
 		description = "A massive crab-like guardian. Rises with the tide to shield allies behind walls of water.",
@@ -1296,7 +1272,7 @@ CreatureData.Creatures = {
 	},
 	{
 		id = "ceesteed", displayName = "Ceesteed", rarity = "Epic",
-		element = "Ice", class = "Guardian", behavior = "gentle",
+		element = "Water", class = "Guardian", behavior = "gentle",
 		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
 		description = "A massive yeti-like creature of compacted snow. It ignores most threats, but when provoked, nothing stops it.",
 		modelName = "Ceesteed", primaryColor = Color3.fromRGB(180, 210, 240),
@@ -1322,15 +1298,15 @@ CreatureData.Creatures = {
 
 	-- Light stand-ins (evolve chain only for this element among stand-ins)
 	{
-		id = "light_siegling_standin", displayName = "Light Siegling", rarity = "Common",
+		id = "light_siegling_standin", displayName = "Light Siegeling", rarity = "Common",
 		element = "Light", class = "Support", behavior = "gentle",
 		spawnWeight = 18, baseIncome = 1, captureTime = 0.5,
-		description = "A radiant placeholder Siegling. Full Light roster coming soon.",
+		description = "A radiant placeholder Siegeling. Full Light roster coming soon.",
 		modelName = "Egg", primaryColor = Color3.fromRGB(255, 250, 200),
 		evolvesTo = "light_daybreak",
 	},
 	{
-		id = "light_daybreak", displayName = "Light Siegling (Daybreak)", rarity = "Uncommon",
+		id = "light_daybreak", displayName = "Light Siegeling (Daybreak)", rarity = "Uncommon",
 		element = "Light", class = "Support", behavior = "gentle",
 		spawnWeight = 10, baseIncome = 3, captureTime = 1.1,
 		description = "Brighter placeholder form on the Light evolve path.",
@@ -1338,7 +1314,7 @@ CreatureData.Creatures = {
 		evolvesFrom = "light_siegling_standin", evolvesTo = "light_solbanner",
 	},
 	{
-		id = "light_solbanner", displayName = "Light Siegling (Solbanner)", rarity = "Rare",
+		id = "light_solbanner", displayName = "Light Siegeling (Solbanner)", rarity = "Rare",
 		element = "Light", class = "Guardian", behavior = "lone",
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
 		description = "Rare capstone of the Light stand-in line.",
@@ -1352,14 +1328,14 @@ CreatureData.Creatures = {
 		id = "mentaroo", displayName = "Mentaroo", rarity = "Common",
 		element = "Psychic", class = "Mage", behavior = "gentle",
 		spawnWeight = 18, baseIncome = 1, captureTime = 0.5,
-		description = "A mind-touched placeholder Siegling. Full Psychic roster coming soon.",
+		description = "A mind-touched placeholder Siegeling. Full Psychic roster coming soon.",
 		modelName = "Mentaroo", primaryColor = Color3.fromRGB(200, 150, 255),
 	},
 	{
 		id = "luvy", displayName = "Luvy", rarity = "Common",
 		element = "Psychic", class = "Support", behavior = "skittish",
 		spawnWeight = 17, baseIncome = 1, captureTime = 0.5,
-		description = "A mind-touched placeholder Siegling. Full Psychic roster coming soon.",
+		description = "A mind-touched placeholder Siegeling. Full Psychic roster coming soon.",
 		modelName = "Luvy", primaryColor = Color3.fromRGB(195, 145, 250),
 		evolvesTo = "luvysore",
 	},
@@ -1367,14 +1343,14 @@ CreatureData.Creatures = {
 		id = "papap", displayName = "Papap", rarity = "Common",
 		element = "Psychic", class = "Assassin", behavior = "lone",
 		spawnWeight = 16, baseIncome = 1, captureTime = 0.5,
-		description = "A mind-touched placeholder Siegling. Full Psychic roster coming soon.",
+		description = "A mind-touched placeholder Siegeling. Full Psychic roster coming soon.",
 		modelName = "papap", primaryColor = Color3.fromRGB(205, 160, 255),
 	},
 	{
 		id = "ragguette", displayName = "Ragguette", rarity = "Common",
 		element = "Psychic", class = "Support", behavior = "skittish",
 		spawnWeight = 15, baseIncome = 1, captureTime = 0.5,
-		description = "A mind-touched placeholder Siegling. Full Psychic roster coming soon.",
+		description = "A mind-touched placeholder Siegeling. Full Psychic roster coming soon.",
 		modelName = "Ragguette", primaryColor = Color3.fromRGB(190, 140, 245),
 	},
 	-- Psychic Uncommon (4)
@@ -1382,7 +1358,7 @@ CreatureData.Creatures = {
 		id = "luvysore", displayName = "Luvysore", rarity = "Uncommon",
 		element = "Psychic", class = "Support", behavior = "lone",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.1,
-		description = "A mind-touched placeholder Siegling. Full Psychic roster coming soon.",
+		description = "A mind-touched placeholder Siegeling. Full Psychic roster coming soon.",
 		modelName = "LuvySore", primaryColor = Color3.fromRGB(205, 155, 255),
 		evolvesFrom = "luvy",evolvesTo = "luvyduvysore",modelDisplaySize = 4,modelScaleMultiplier = 1.5,
 	},
@@ -1391,7 +1367,7 @@ CreatureData.Creatures = {
 		id = "mentarak", displayName = "Mentarak", rarity = "Rare",
 		element = "Psychic", class = "Mage", behavior = "lone",
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
-		description = "A mind-touched placeholder Siegling. Full Psychic roster coming soon.",
+		description = "A mind-touched placeholder Siegeling. Full Psychic roster coming soon.",
 		modelName = "mentarak", primaryColor = Color3.fromRGB(210, 165, 255),
 		spawnPointType = "dungeon",modelDisplaySize = 8,modelScaleMultiplier = 1.5,
 		evolvesFrom = "mentaroo",
@@ -1401,16 +1377,16 @@ CreatureData.Creatures = {
 		id = "luvyduvysore", displayName = "Luvy Duvysore", rarity = "Epic",
 		element = "Psychic", class = "Mage", behavior = "lone",
 		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
-		description = "A powerful placeholder Siegling. Full Psychic roster coming soon.",
+		description = "A powerful placeholder Siegeling. Full Psychic roster coming soon.",
 		modelName = "LuvyDuvySore", primaryColor = Color3.fromRGB(220, 175, 255),
 		spawnPointType = "dungeon",evolvesFrom = "luvysore",modelDisplaySize = 8,modelScaleMultiplier = 1.5,
 	},
 	-- Psychic Legendary (1)
 	{
-		id = "psychic_siegling_l1", displayName = "Psychic Siegling L1", rarity = "Legendary",
+		id = "psychic_siegling_l1", displayName = "Psychic Siegeling L1", rarity = "Legendary",
 		element = "Psychic", class = "Mage", behavior = "lone",
 		spawnWeight = 1, baseIncome = 50, captureTime = 3.5,
-		description = "A sovereign placeholder Siegling. Full Psychic roster coming soon.",
+		description = "A sovereign placeholder Siegeling. Full Psychic roster coming soon.",
 		modelName = "mentaroo", primaryColor = Color3.fromRGB(230, 185, 255),
 		spawnPointType = "boss",
 	},
@@ -1420,16 +1396,22 @@ CreatureData.Creatures = {
 		id = "bearby", displayName = "Bearby", rarity = "Common",
 		element = "Metal", class = "Guardian", behavior = "gentle",
 		spawnWeight = 18, baseIncome = 1, captureTime = 0.5,
-		description = "A metallic placeholder Siegling. Full Metal roster coming soon.",
+		description = "A metallic placeholder Siegeling. Full Metal roster coming soon.",
 		modelName = "Bearby", primaryColor = Color3.fromRGB(160, 170, 180),
 		evolvesTo = "bearnade",
+	},{
+		id = "drillbo", displayName = "Drillbo", rarity = "Common",
+		element = "Metal", class = "Bruiser", behavior = "gentle",
+		spawnWeight = 18, baseIncome = 1, captureTime = 0.5,
+		description = "A metallic placeholder Siegeling. Full Metal roster coming soon.",
+		modelName = "Drillbo", primaryColor = Color3.fromRGB(160, 170, 180),
 	},
 	-- Metal Uncommon (4)
 	{
 		id = "bearnade", displayName = "Bearnade", rarity = "Uncommon",
 		element = "Metal", class = "Guardian", behavior = "gentle",
 		spawnWeight = 10, baseIncome = 3, captureTime = 1.1,
-		description = "A metallic placeholder Siegling. Full Metal roster coming soon.",
+		description = "A metallic placeholder Siegeling. Full Metal roster coming soon.",
 		modelName = "Bearnade", primaryColor = Color3.fromRGB(170, 180, 190),modelDisplaySize = 5,modelScaleMultiplier = 1.5,
 		evolvesFrom = "bearby",evolvesTo = "bearzooka",
 	},
@@ -1438,39 +1420,39 @@ CreatureData.Creatures = {
 		id = "bearzooka", displayName = "Bearzooka", rarity = "Rare",
 		element = "Metal", class = "Guardian", behavior = "lone",
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
-		description = "A reinforced placeholder Siegling. Full Metal roster coming soon.",
+		description = "A reinforced placeholder Siegeling. Full Metal roster coming soon.",
 		modelName = "Bearzooka", primaryColor = Color3.fromRGB(175, 185, 195),
 		spawnPointType = "dungeon",evolvesFrom = "bearnade",modelDisplaySize = 12,modelScaleMultiplier = 1.5,
 	},
 	-- Metal Epic (2)
 	{
-		id = "metal_siegling_e1", displayName = "Metal Siegling E1", rarity = "Epic",
+		id = "metal_siegling_e1", displayName = "Metal Siegeling E1", rarity = "Epic",
 		element = "Metal", class = "Guardian", behavior = "lone",
 		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
-		description = "A hardened placeholder Siegling. Full Metal roster coming soon.",
+		description = "A hardened placeholder Siegeling. Full Metal roster coming soon.",
 		modelName = "Egg", primaryColor = Color3.fromRGB(180, 190, 200),
 		spawnPointType = "dungeon",
 	},
 	-- Metal Legendary (1)
 	{
-		id = "metal_siegling_l1", displayName = "Metal Siegling L1", rarity = "Legendary",
+		id = "metal_siegling_l1", displayName = "Metal Siegeling L1", rarity = "Legendary",
 		element = "Metal", class = "Guardian", behavior = "lone",
 		spawnWeight = 1, baseIncome = 50, captureTime = 3.5,
-		description = "An indomitable placeholder Siegling. Full Metal roster coming soon.",
+		description = "An indomitable placeholder Siegeling. Full Metal roster coming soon.",
 		modelName = "Egg", primaryColor = Color3.fromRGB(190, 200, 210),
 		spawnPointType = "boss",
 	},
 	-- Poison stand-ins (evolve chain only for this element among stand-ins)
 	{
-		id = "poison_siegling_standin", displayName = "Poison Siegling", rarity = "Common",
+		id = "poison_siegling_standin", displayName = "Poison Siegeling", rarity = "Common",
 		element = "Poison", class = "Assassin", behavior = "skittish",
 		spawnWeight = 1, baseIncome = 1, captureTime = 0.5,
-		description = "A toxic placeholder Siegling. Full Poison roster coming soon.",
+		description = "A toxic placeholder Siegeling. Full Poison roster coming soon.",
 		modelName = "Egg", primaryColor = Color3.fromRGB(120, 220, 80),
 		evolvesTo = "poison_venomidge",
 	},
 	{
-		id = "poison_venomidge", displayName = "Poison Siegling (Venomidge)", rarity = "Uncommon",
+		id = "poison_venomidge", displayName = "Poison Siegeling (Venomidge)", rarity = "Uncommon",
 		element = "Poison", class = "Assassin", behavior = "skittish",
 		spawnWeight = 10, baseIncome = 3, captureTime = 1.1,
 		description = "Uncommon step on the Poison stand-in evolve path.",
@@ -1478,7 +1460,7 @@ CreatureData.Creatures = {
 		evolvesFrom = "poison_siegling_standin", evolvesTo = "poison_venomapex",
 	},
 	{
-		id = "poison_venomapex", displayName = "Poison Siegling (Venomapex)", rarity = "Rare",
+		id = "poison_venomapex", displayName = "Poison Siegeling (Venomapex)", rarity = "Rare",
 		element = "Poison", class = "Assassin", behavior = "aggressive",
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
 		description = "Rare capstone of the Poison stand-in line.",
@@ -1491,7 +1473,7 @@ CreatureData.Creatures = {
 		id = "spookyweed", displayName = "Spooky Weed", rarity = "Common",
 		element = "Undead", class = "Bruiser", behavior = "lone",
 		spawnWeight = 18, baseIncome = 1, captureTime = 0.5,
-		description = "An undead placeholder Siegling. Full Undead roster coming soon.",
+		description = "An undead placeholder Siegeling. Full Undead roster coming soon.",
 		modelName = "Spookyweed", primaryColor = Color3.fromRGB(140, 120, 160),
 		evolvesTo = "livingwood",
 	},
@@ -1552,6 +1534,106 @@ end
 CreatureData._byId = {}
 for _, creature in ipairs(CreatureData.Creatures) do
 	CreatureData._byId[creature.id] = creature
+end
+
+-- Load-time validation: broken evolution links error; rarity ladder mismatches warn (roster still filling).
+do
+	local EVO_PLACEHOLDER = {
+		["coming soon"] = true,
+	}
+	local RARITY_TARGET = {
+		Common = 5,
+		Uncommon = 4,
+		Rare = 3,
+		Epic = 2,
+		Legendary = 1,
+	}
+
+	local function trimEvoId(s)
+		if type(s) ~= "string" then
+			return nil
+		end
+		local t = string.gsub(s, "^%s*(.-)%s*$", "%1")
+		if t == "" then
+			return nil
+		end
+		return t
+	end
+
+	for _, c in ipairs(CreatureData.Creatures) do
+		if c.evolvesTo then
+			local toId = trimEvoId(c.evolvesTo)
+			if toId and not CreatureData._byId[toId] then
+				local low = string.lower(toId)
+				if not EVO_PLACEHOLDER[low] then
+					error(
+						("[CreatureData] %s has invalid evolvesTo %q (not a creature id)"):format(
+							tostring(c.id),
+							toId
+						)
+					)
+				end
+			end
+		end
+		if c.evolvesFrom then
+			local fromId = trimEvoId(c.evolvesFrom)
+			if fromId and not CreatureData._byId[fromId] then
+				error(
+					("[CreatureData] %s has invalid evolvesFrom %q (not a creature id)"):format(
+						tostring(c.id),
+						fromId
+					)
+				)
+			end
+		end
+	end
+
+	local byEl = {}
+	for element in pairs(CreatureData.Elements) do
+		byEl[element] = {
+			Common = 0,
+			Uncommon = 0,
+			Rare = 0,
+			Epic = 0,
+			Legendary = 0,
+		}
+	end
+	for _, c in ipairs(CreatureData.Creatures) do
+		local el = c.element
+		local r = c.rarity
+		if type(el) == "string" and byEl[el] then
+			if type(r) == "string" and byEl[el][r] ~= nil then
+				byEl[el][r] = byEl[el][r] + 1
+			else
+				warn(("[CreatureData] %s has unknown rarity %q"):format(tostring(c.id), tostring(r)))
+			end
+		elseif type(el) == "string" then
+			warn(("[CreatureData] %s has unknown element %q"):format(tostring(c.id), el))
+		end
+	end
+	for element, counts in pairs(byEl) do
+		local total = 0
+		for _, n in pairs(counts) do
+			total = total + n
+		end
+		if total == 0 then
+			warn("[CreatureData] No creatures registered for element: " .. element)
+		else
+			for rarity, want in pairs(RARITY_TARGET) do
+				local have = counts[rarity]
+				if have ~= want then
+					warn(
+						("[CreatureData] %s %s: have %d, target %d (5C/4U/3R/2E/1L ladder)"):format(
+							element,
+							rarity,
+							have,
+							want
+						)
+					)
+				end
+			end
+		end
+	end
 end
 
 -- Get a creature definition by its unique id
@@ -1799,6 +1881,21 @@ function CreatureData.CreatureHasModel(creature)
 	return mf and (mf:FindFirstChild(creature.modelName) or (creature.displayName and mf:FindFirstChild(creature.displayName)))
 end
 
+function CreatureData.IsNpcOnly(creature)
+	local info = type(creature) == "string" and CreatureData.GetById(creature) or creature
+	return info and info.npcOnly == true or false
+end
+
+function CreatureData.IsEleminion(creature)
+	local info = type(creature) == "string" and CreatureData.GetById(creature) or creature
+	return info and info.creatureRole == "Eleminion" or false
+end
+
+function CreatureData.IsObtainableCreature(creature)
+	local info = type(creature) == "string" and CreatureData.GetById(creature) or creature
+	return info ~= nil and info.npcOnly ~= true
+end
+
 -- Pick a random creature for regular SpawnPoints (weighted by spawnWeight).
 -- preferCommon: when true, Common/Uncommon get 3x weight so SpawnPoints stay abundant with common monsters
 -- onlyWithModels: when true, only consider creatures that have models in CreatureModels
@@ -1807,7 +1904,7 @@ function CreatureData.GetRandomCreatureId(onlyWithModels, preferCommon)
 	local totalWeight = 0
 	local weights = {}
 	for _, creature in ipairs(CreatureData.Creatures) do
-		if not creature.spawnPointType then
+		if creature.npcOnly ~= true and not creature.spawnPointType then
 			if not onlyWithModels or CreatureData.CreatureHasModel(creature) then
 				local w = creature.spawnWeight or 10
 				if preferCommon then
@@ -1822,20 +1919,20 @@ function CreatureData.GetRandomCreatureId(onlyWithModels, preferCommon)
 	end
 	if totalWeight <= 0 then
 		for _, creature in ipairs(CreatureData.Creatures) do
-			if not creature.spawnPointType then return creature.id end
+			if creature.npcOnly ~= true and not creature.spawnPointType then return creature.id end
 		end
 		return CreatureData.Creatures[1].id
 	end
 	local roll = math.random() * totalWeight
 	local cumulative = 0
 	for _, creature in ipairs(CreatureData.Creatures) do
-		if not creature.spawnPointType and (not onlyWithModels or CreatureData.CreatureHasModel(creature)) then
+		if creature.npcOnly ~= true and not creature.spawnPointType and (not onlyWithModels or CreatureData.CreatureHasModel(creature)) then
 			cumulative = cumulative + (weights[creature] or creature.spawnWeight)
 			if roll <= cumulative then return creature.id end
 		end
 	end
 	for _, creature in ipairs(CreatureData.Creatures) do
-		if not creature.spawnPointType and (not onlyWithModels or CreatureData.CreatureHasModel(creature)) then
+		if creature.npcOnly ~= true and not creature.spawnPointType and (not onlyWithModels or CreatureData.CreatureHasModel(creature)) then
 			return creature.id
 		end
 	end
@@ -1854,7 +1951,7 @@ function CreatureData.GetDungeonCreatureId(element, onlyWithModels)
 	local totalWeight = 0
 
 	for _, creature in ipairs(CreatureData.Creatures) do
-		if creature.element == element then
+		if creature.npcOnly ~= true and creature.element == element then
 			local isDungeonType = (creature.spawnPointType == "dungeon")
 			local rarityRank = CreatureData.RarityOrder[creature.rarity] or 0
 			local isRareOrHigher = rarityRank >= CreatureData.RarityOrder["Rare"]
@@ -1886,6 +1983,7 @@ end
 function CreatureData.GetBossCreatureId(element, onlyWithModels)
 	for _, creature in ipairs(CreatureData.Creatures) do
 		if creature.element == element
+			and creature.npcOnly ~= true
 			and creature.rarity == "Legendary"
 			and creature.spawnPointType == "boss" then
 			if not onlyWithModels or CreatureData.CreatureHasModel(creature) then
@@ -1900,10 +1998,10 @@ end
 -- Get all creatures of a specific element.
 -- Useful for event systems that spawn creatures in foreign biomes.
 -- Returns: array of creature tables
-function CreatureData.GetCreaturesByElement(element)
+function CreatureData.GetCreaturesByElement(element, includeNpcOnly)
 	local result = {}
 	for _, creature in ipairs(CreatureData.Creatures) do
-		if creature.element == element then
+		if creature.element == element and (includeNpcOnly == true or creature.npcOnly ~= true) then
 			table.insert(result, creature)
 		end
 	end
@@ -1912,10 +2010,10 @@ end
 
 -- Get all creatures of a specific rarity.
 -- Returns: array of creature tables
-function CreatureData.GetCreaturesByRarity(rarity)
+function CreatureData.GetCreaturesByRarity(rarity, includeNpcOnly)
 	local result = {}
 	for _, creature in ipairs(CreatureData.Creatures) do
-		if creature.rarity == rarity then
+		if creature.rarity == rarity and (includeNpcOnly == true or creature.npcOnly ~= true) then
 			table.insert(result, creature)
 		end
 	end

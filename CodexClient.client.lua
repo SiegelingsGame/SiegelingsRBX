@@ -69,34 +69,47 @@ local PANEL_DESIGN_W = 640
 local PANEL_DESIGN_H = 620
 local PANEL_SCALE_MIN = 0.5
 local PANEL_SCALE_MAX = 1
-local MOBILE_WIDTH_THRESHOLD = 600 -- below this, use viewport-relative sizing so window is "wider" on mobile
+local MOBILE_BREAKPOINT = 620
+
+local function isMobileLayout()
+	local camera = workspace.CurrentCamera
+	local vp = (camera and camera.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
+	return MobileWindowLayout.IsMobile() or vp.X < MOBILE_BREAKPOINT or vp.Y < 500
+end
+
+-- Match InventoryUI / profile: full bleed GetBounds (vertical extend, no hub gap).
+local function codexUsesFullscreenBounds()
+	local camera = workspace.CurrentCamera
+	local vp = (camera and camera.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
+	if isMobileLayout() then
+		return true
+	end
+	return vp.X < PANEL_DESIGN_W or vp.Y < PANEL_DESIGN_H
+end
+
+local function codexGetBoundsConfig()
+	local camera = workspace.CurrentCamera
+	local vp = (camera and camera.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
+	local compactViewport = vp.X < PANEL_DESIGN_W or vp.Y < PANEL_DESIGN_H
+	local boundsConfig = {
+		extendViewportVertically = true,
+		reserveBottomHubGap = false,
+		bottomMobileExtra = 0,
+		topInset = 0,
+		bottomInset = 0,
+		mobileDraggable = false,
+	}
+	if compactViewport and not isMobileLayout() then
+		boundsConfig.useMaximalSafeRect = true
+	end
+	return boundsConfig
+end
 
 local function getPanelScale()
 	local camera = workspace.CurrentCamera
 	local vp = (camera and camera.ViewportSize) or Vector2.new(PANEL_DESIGN_W, PANEL_DESIGN_H)
 	local scale = math.min(vp.X / PANEL_DESIGN_W, vp.Y / PANEL_DESIGN_H)
 	return math.clamp(scale, PANEL_SCALE_MIN, PANEL_SCALE_MAX)
-end
-
-local function applyPanelScale(pnl)
-	if MobileWindowLayout.IsMobile() then
-		MobileWindowLayout.ApplyWindow(pnl, {
-			leftInset = 14,
-			rightInset = 14,
-			topInset = 10,
-			bottomInset = 14,
-			bottomMobileExtra = 20,
-		})
-		pnl.Draggable = true
-		return
-	end
-
-	pnl.AnchorPoint = Vector2.new(0, 0)
-	local scale = getPanelScale()
-	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
-	pnl.Size = UDim2.new(0, w, 0, h)
-	pnl.Position = UDim2.new(0.5, -w/2, 0.5, -h/2)
-	MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
 end
 
 -- Ordered creature list for next/prev
@@ -114,6 +127,34 @@ sg.Name = "CodexGUI"
 sg.ResetOnSpawn = false
 sg.DisplayOrder = 50
 sg.Parent = playerGui
+
+local function syncCodexScreenGuiInset()
+	if codexUsesFullscreenBounds() then
+		sg.IgnoreGuiInset = true
+	else
+		sg.IgnoreGuiInset = false
+	end
+end
+
+local applyCodexTitleLayout = nil
+
+local function applyPanelScale(pnl)
+	syncCodexScreenGuiInset()
+	if codexUsesFullscreenBounds() then
+		MobileWindowLayout.ApplyWindow(pnl, codexGetBoundsConfig())
+		pnl.Draggable = false
+	else
+		pnl.AnchorPoint = Vector2.new(0, 0)
+		local scale = getPanelScale()
+		local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
+		pnl.Size = UDim2.new(0, w, 0, h)
+		pnl.Position = UDim2.new(0.5, -w / 2, 0.5, -h / 2)
+		MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
+	end
+	if applyCodexTitleLayout then
+		applyCodexTitleLayout()
+	end
+end
 
 -- Main panel
 local panel = Instance.new("Frame")
@@ -151,6 +192,11 @@ titleLbl.Font = Enum.Font.GothamBlack
 titleLbl.TextSize = 18
 titleLbl.TextXAlignment = Enum.TextXAlignment.Left
 titleLbl.Parent = titleBar
+applyCodexTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(titleLbl, {
+	Position = UDim2.new(0, 14, 0, 0),
+	Size = UDim2.new(1, -50, 1, 0),
+	TextXAlignment = Enum.TextXAlignment.Left,
+})
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 32, 0, 32)
@@ -571,40 +617,40 @@ guideContent.Parent = panel
 
 local GUIDE_SECTIONS = {
 	{ title = "I. Quick Ref", text = [[CONTROLS
-[W][A][S][D] Move  [E] Target  [F] Attack  [Q] SieglinQ  [G] Shop  [V] Friends  [X] Leaders  [P] Profile  [Z] Rebirth  [H] Home Recall  [B] Battle tab  [Y] Toggle favorite
+[W][A][S][D] Move  [E] Target  [F] Attack  [Q] SiegelinQ  [G] Shop  [V] Friends  [X] Leaders  [P] Profile  [Z] Rebirth  [H] Home Recall  [B] Battle tab  [Y] Toggle favorite
 
 HOW TO PLAY
-1. CAPTURE — Find Sieglinqs in the world. Press [E] to target. Attack with [F] (and your companion) until the creature faints. Click the fainted creature to capture (costs gold; rarer = more cost).
-2. COMPANION — Set one creature as your Favorite in SieglinQ. That Sieglinq follows you and fights by your side.
-3. BASE — Assign creatures to Income (coins), Defense (raids), Battle (arena/PvP). Unlock Floor 2 for battle grid; up to five Sieglinqs in 3×3 formation.
+1. CAPTURE — Find Siegelings in the world. Press [E] to target. Attack with [F] (and your companion) until the creature faints. Click the fainted creature to capture (costs gold; rarer = more cost).
+2. COMPANION — Set one creature as your Favorite in SiegelinQ. That Siegeling follows you and fights by your side.
+3. BASE — Assign creatures to Income (coins), Defense (raids), Battle (arena/PvP). Unlock Floor 2 for battle grid; up to five Siegelings in 3×3 formation.
 4. ARENA — Team battles for fame and rewards.
 5. PVP — Challenge nearby players to 1v1 duels.
 6. RAIDS — Attack or defend bases; defend with your defense team.
 7. COMBINE — Three of the same variant tier (Normal/Silver/Gold) combine into the next. Use the Combiner at your base.]] },
 	{ title = "II. Foreword", text = [[You have taken the Rite of Thirteen. You hold your shield, you hold your first Capture Card. In the flame-lands of the frontier, we say: Through flame, we hold.
 
-This world turns on Sieglinqs—the creatures bound to us by card and shield. As a Squire, you must learn to capture, to assign, to fight, and to defend. The four houses have gathered our teachings here. Read them. Use them. Then go into the wilds.
+This world turns on Siegelings—the creatures bound to us by card and shield. As a Squire, you must learn to capture, to assign, to fight, and to defend. The four houses have gathered our teachings here. Read them. Use them. Then go into the wilds.
 
 — Lord Theron Emberward, House Emberward (Fire)]] },
-	{ title = "III. Shield & Card", text = [[Your SHIELD is more than armor. It is a wristguard with a slot for your Sieglinq card. Place a card into the slot, and the creature bound to it is summoned to your side. Withdraw the card, and it returns to the vault.
+	{ title = "III. Shield & Card", text = [[Your SHIELD is more than armor. It is a wristguard with a slot for your Siegeling card. Place a card into the slot, and the creature bound to it is summoned to your side. Withdraw the card, and it returns to the vault.
 
 Every shield bears a SIGIL. Ours declares house and allegiance. Hedge knights carry personal sigils they may pass to their Squires. Orders share sigils between members. Great houses wear one sigil for all—a mark of loyalty.
 
 Guard your shield. Guard your cards. They are the proof of your bond.
 
 — Lady Elara Frostholm, House Frostholm (Ice)]] },
-	{ title = "IV. Capturing", text = [[Capture is the heart of the path. You weaken a wild Sieglinq in combat—your strikes and your COMPANION's attacks—until it faints. Then you use a Capture Card. Success costs gold; the rarer the creature, the higher the cost.
+	{ title = "IV. Capturing", text = [[Capture is the heart of the path. You weaken a wild Siegeling in combat—your strikes and your COMPANION's attacks—until it faints. Then you use a Capture Card. Success costs gold; the rarer the creature, the higher the cost.
 
-TIP: Set one creature as your FAVORITE. That Sieglinq becomes your companion and follows you into the wilds, fighting by your side. Choose well—your companion will be your first line of defense and offense.
+TIP: Set one creature as your FAVORITE. That Siegeling becomes your companion and follows you into the wilds, fighting by your side. Choose well—your companion will be your first line of defense and offense.
 
-Do not force the bond. A Sieglinq that refuses the card cannot be bound. Patience and respect matter more than strength.
+Do not force the bond. A Siegeling that refuses the card cannot be bound. Patience and respect matter more than strength.
 
 — Lord Marcus Cinderthorn, House Cinderthorn (Earth)]] },
-	{ title = "V. Your Base", text = [[Every Squire is granted a PLOT—your home in this land. On it you assign your Sieglinqs to three roles:
+	{ title = "V. Your Base", text = [[Every Squire is granted a PLOT—your home in this land. On it you assign your Siegelings to three roles:
 
-• INCOME — Your Sieglinqs work the land. Coins flow over time.
-• DEFENSE — Your Sieglinqs stand guard. Raiders who attack your base must face them. Build a strong defense.
-• BATTLE TEAM — Your Sieglinqs fight for you in the arena and in duels. Unlock Floor 2 to access the battle grid. You may field up to five Sieglinqs in a 3×3 formation.
+• INCOME — Your Siegelings work the land. Coins flow over time.
+• DEFENSE — Your Siegelings stand guard. Raiders who attack your base must face them. Build a strong defense.
+• BATTLE TEAM — Your Siegelings fight for you in the arena and in duels. Unlock Floor 2 to access the battle grid. You may field up to five Siegelings in a 3×3 formation.
 
 Choose based on each creature's strengths. Fire for offense, Ice for control, Earth for endurance, Air for speed. Build a balanced team. Swift as the storm means knowing when to strike and when to hold.
 
@@ -616,14 +662,14 @@ Arena battles pit teams against each other. PvP duels let you challenge nearby k
 Fight with honor. Win or lose, you represent your house and the Valorous way.
 
 — Lord Theron Emberward, House Emberward (Fire)]] },
-	{ title = "VII. Dungeons & Raids", text = [[Beyond the safe paths lie DUNGEONS—stronger Sieglinqs, higher risk, greater reward. Rarer creatures lurk there. Face them when you are ready.
+	{ title = "VII. Dungeons & Raids", text = [[Beyond the safe paths lie DUNGEONS—stronger Siegelings, higher risk, greater reward. Rarer creatures lurk there. Face them when you are ready.
 
-Beware RAIDS. Other knights may assault your base to steal your Sieglinqs. Defend with your defense team. And remember: not all who wield Sieglinqs are Valorous. Some lay siege to these lands—raiders, warlords, outcasts. They take by force and fight without honor. Our duty is to stand against them.
+Beware RAIDS. Other knights may assault your base to steal your Siegelings. Defend with your defense team. And remember: not all who wield Siegelings are Valorous. Some lay siege to these lands—raiders, warlords, outcasts. They take by force and fight without honor. Our duty is to stand against them.
 
 Cold steel, warm heart.
 
 — Lady Elara Frostholm, House Frostholm (Ice)]] },
-	{ title = "VIII. Evolve & Combine", text = [[Sieglinqs can grow stronger. EVOLUTION advances a creature to a higher form. COMBINING takes three of the same variant tier—Normal, Silver, Gold—and merges them into the next. Three Normals become one Silver. Three Silvers become one Gold. Three Golds become one Legend.
+	{ title = "VIII. Evolve & Combine", text = [[Siegelings can grow stronger. EVOLUTION advances a creature to a higher form. COMBINING takes three of the same variant tier—Normal, Silver, Gold—and merges them into the next. Three Normals become one Silver. Three Silvers become one Gold. Three Golds become one Legend.
 
 House Cinderthorn holds the forges and the combiner. Use it. A stronger team means a stronger defense.
 
@@ -637,22 +683,22 @@ Choose your starter. Claim your plot. Capture, assign, and battle. The four hous
 — Lord Kael Zephyran, House Zephyran (Air)
 
 — The Siegler's Codex, compiled by the Council of Houses]] },
-	{ title = "X. Codex of Binding", text = [[THE CODEX OF BINDING — A History of the Sieglinqs and the Gift of Maestro
+	{ title = "X. Codex of Binding", text = [[THE CODEX OF BINDING — A History of the Siegelings and the Gift of Maestro
 
 I. THE AGE BEFORE CARDS
-In the earliest chronicles, before the wristguard and the Capture Card, the lands were wild. Humans fought the elements and the beasts of the frontier. Among those beasts were the Sieglinqs—creatures of flame, frost, stone, and wind—who lived as rivals and predators. Yet whispers survived of beings unlike the rest. Beings that spoke in the mind. They wore a third eye, hidden between the brows, and through it they saw the thoughts of others. They understood human speech. They could translate the tongues of the Sieglinqs. The chronicles name them Eleminions.
+In the earliest chronicles, before the wristguard and the Capture Card, the lands were wild. Humans fought the elements and the beasts of the frontier. Among those beasts were the Siegelings—creatures of flame, frost, stone, and wind—who lived as rivals and predators. Yet whispers survived of beings unlike the rest. Beings that spoke in the mind. They wore a third eye, hidden between the brows, and through it they saw the thoughts of others. They understood human speech. They could translate the tongues of the Siegelings. The chronicles name them Eleminions.
 
 II. THE ELEMINIONS AND THE THIRD EYE
-Each elemental region holds one Eleminion. Fire, Ice, Earth, Air. They live in secluded places. They are neither fully Sieglinq nor fully human. Their third eye pierces illusion, reads intention, and opens a bridge between minds. Through this gift they understand both human and Sieglinq. They translate meaning, emotion, and nuance. A knight may speak to his Sieglinq only because an Eleminion first taught how such speech might work. The Four Houses guard their whereabouts. To meet one is rare; to refuse their counsel, foolish.
+Each elemental region holds one Eleminion. Fire, Ice, Earth, Air. They live in secluded places. They are neither fully Siegeling nor fully human. Their third eye pierces illusion, reads intention, and opens a bridge between minds. Through this gift they understand both human and Siegeling. They translate meaning, emotion, and nuance. A knight may speak to his Siegeling only because an Eleminion first taught how such speech might work. The Four Houses guard their whereabouts. To meet one is rare; to refuse their counsel, foolish.
 
 III. MAESTRO AND THE FIRST CARDS
-The deepest mystery is Maestro. Whether Sieglinq or Eleminion, no text is certain. Some claim he was the progenitor of the Eleminions—the first of their kind. Others say he was an Eleminion who ascended, or a Sieglinq who transcended. What is recorded: Maestro appeared in a time of crisis. Humans and Sieglinqs fought without end. Then Maestro emerged—from where, none could say—and offered the first Capture Cards. Not weapons, but instruments of covenant. A card could bind a Sieglinq to a human only if the creature chose to accept. The bond was voluntary. Coercion broke it. He taught the crafting of the shield. The wristguard with its slot for the card. Place the card, and the creature answers. Withdraw it, and the creature returns. He gave the knowledge and then withdrew. He vanished. No grave, no shrine. Only the cards, the shields, and a legend: that Maestro might still watch over those who honor the bond.
+The deepest mystery is Maestro. Whether Siegeling or Eleminion, no text is certain. Some claim he was the progenitor of the Eleminions—the first of their kind. Others say he was an Eleminion who ascended, or a Siegeling who transcended. What is recorded: Maestro appeared in a time of crisis. Humans and Siegelings fought without end. Then Maestro emerged—from where, none could say—and offered the first Capture Cards. Not weapons, but instruments of covenant. A card could bind a Siegeling to a human only if the creature chose to accept. The bond was voluntary. Coercion broke it. He taught the crafting of the shield. The wristguard with its slot for the card. Place the card, and the creature answers. Withdraw it, and the creature returns. He gave the knowledge and then withdrew. He vanished. No grave, no shrine. Only the cards, the shields, and a legend: that Maestro might still watch over those who honor the bond.
 
 IV. THE VALOROUS AND THE UNVALOROUS
 Not all who hold cards are worthy. Raiders and warlords stole the craft. They learn to force bonds, to break the compact Maestro intended. They lay siege to peaceful lands. The chronicles call them the Unvalorous. The Valorous keep the pact: bond by consent, fight with honor, defend the realm. The conflict has never ended.]] },
-	{ title = "XI. Glossary", text = [[SIEGLINQ (pl. Sieglinqs) — Elemental creatures of Fire, Ice, Earth, Air (and faraway: Shadow, Lightning). Bound to humans via Capture Card and shield. Have their own language.
+	{ title = "XI. Glossary", text = [[SIEGELING (pl. Siegelings) — Elemental creatures of Fire, Ice, Earth, Air (and faraway: Shadow, Lightning). Bound to humans via Capture Card and shield. Have their own language.
 
-SIEGE KNIGHT — A knight who bonds Sieglinqs and duels in the arena. Noble defenders of the realm. Full rank after Squire.
+SIEGE KNIGHT — A knight who bonds Siegelings and duels in the arena. Noble defenders of the realm. Full rank after Squire.
 
 SQUIRE — Apprentice who serves under a Knight. Learns capture and combat. Earns Knighthood after proving themselves. Begins at 13 with the Rite.
 
@@ -662,13 +708,13 @@ SIRE — The single highest-ranked knight. Head of the Council. Everybody is Ser
 
 SER — Honorific for all knights. "Ser" before a name.
 
-SHIELD — Wristguard device with a slot for the Sieglinq card. Placing the card summons the creature. Bears a sigil (house, order, or hedge knight).
+SHIELD — Wristguard device with a slot for the Siegeling card. Placing the card summons the creature. Bears a sigil (house, order, or hedge knight).
 
-CAPTURE CARD — Enchanted card that binds a Sieglinq. Given by Maestro to humankind. Bond requires the creature's consent.
+CAPTURE CARD — Enchanted card that binds a Siegeling. Given by Maestro to humankind. Bond requires the creature's consent.
 
-RITE OF THIRTEEN — Ceremony at age 13. Youth receives shield and first Capture Card, then sets off to find and bond their first Sieglinq.
+RITE OF THIRTEEN — Ceremony at age 13. Youth receives shield and first Capture Card, then sets off to find and bond their first Siegeling.
 
-ELEMINION — Rare creatures with a third eye. Understand humans and Sieglinqs. Act as translators. One per elemental land. Can read minds and interpret language.
+ELEMINION — Rare creatures with a third eye. Understand humans and Siegelings. Act as translators. One per elemental land. Can read minds and interpret language.
 
 MAESTRO — Mysterious figure who gave humans the first Capture Cards. Believed to be Eleminion or progenitor of their kind. Vanished; may still watch over the bonded.
 
@@ -694,21 +740,21 @@ loreContent.Visible = false
 loreContent.Parent = panel
 
 local LORE_SECTIONS = {
-	{ title = "I. Age Before Cards", text = [[In the earliest chronicles, before the wristguard and the Capture Card, the lands were wild. Humans fought the elements and the beasts of the frontier. Among those beasts were the Sieglinqs—creatures of flame, frost, stone, and wind—who lived as rivals and predators.
+	{ title = "I. Age Before Cards", text = [[In the earliest chronicles, before the wristguard and the Capture Card, the lands were wild. Humans fought the elements and the beasts of the frontier. Among those beasts were the Siegelings—creatures of flame, frost, stone, and wind—who lived as rivals and predators.
 
-Yet whispers survived of beings unlike the rest. Beings that spoke in the mind. They wore a third eye, hidden between the brows, and through it they saw the thoughts of others. They understood human speech. They could translate the tongues of the Sieglinqs. The chronicles name them Eleminions.]] },
-	{ title = "II. Eleminions", text = [[Each elemental region holds one Eleminion. Fire, Ice, Earth, Air. They live in secluded places. They are neither fully Sieglinq nor fully human. Their third eye pierces illusion, reads intention, and opens a bridge between minds.
+Yet whispers survived of beings unlike the rest. Beings that spoke in the mind. They wore a third eye, hidden between the brows, and through it they saw the thoughts of others. They understood human speech. They could translate the tongues of the Siegelings. The chronicles name them Eleminions.]] },
+	{ title = "II. Eleminions", text = [[Each elemental region holds one Eleminion. Fire, Ice, Earth, Air. They live in secluded places. They are neither fully Siegeling nor fully human. Their third eye pierces illusion, reads intention, and opens a bridge between minds.
 
-Through this gift they understand both human and Sieglinq. They translate meaning, emotion, and nuance. A knight may speak to his Sieglinq only because an Eleminion first taught how such speech might work. The Four Houses guard their whereabouts. To meet one is rare; to refuse their counsel, foolish.]] },
-	{ title = "III. Maestro", text = [[The deepest mystery is Maestro. Whether Sieglinq or Eleminion, no text is certain. Some claim he was the progenitor of the Eleminions—the first of their kind. Others say he was an Eleminion who ascended, or a Sieglinq who transcended.
+Through this gift they understand both human and Siegeling. They translate meaning, emotion, and nuance. A knight may speak to his Siegeling only because an Eleminion first taught how such speech might work. The Four Houses guard their whereabouts. To meet one is rare; to refuse their counsel, foolish.]] },
+	{ title = "III. Maestro", text = [[The deepest mystery is Maestro. Whether Siegeling or Eleminion, no text is certain. Some claim he was the progenitor of the Eleminions—the first of their kind. Others say he was an Eleminion who ascended, or a Siegeling who transcended.
 
-What is recorded: Maestro appeared in a time of crisis. Humans and Sieglinqs fought without end. Then Maestro emerged—from where, none could say—and offered the first Capture Cards. Not weapons, but instruments of covenant. A card could bind a Sieglinq to a human only if the creature chose to accept. The bond was voluntary. Coercion broke it.
+What is recorded: Maestro appeared in a time of crisis. Humans and Siegelings fought without end. Then Maestro emerged—from where, none could say—and offered the first Capture Cards. Not weapons, but instruments of covenant. A card could bind a Siegeling to a human only if the creature chose to accept. The bond was voluntary. Coercion broke it.
 
 He taught the crafting of the shield. The wristguard with its slot for the card. Place the card, and the creature answers. Withdraw it, and the creature returns. He gave the knowledge and then withdrew. He vanished. No grave, no shrine. Only the cards, the shields, and a legend: that Maestro might still watch over those who honor the bond.]] },
 	{ title = "IV. Valorous & Unvalorous", text = [[Not all who hold cards are worthy. Raiders and warlords stole the craft. They learn to force bonds, to break the compact Maestro intended. They lay siege to peaceful lands. The chronicles call them the Unvalorous. The Valorous keep the pact: bond by consent, fight with honor, defend the realm. The conflict has never ended.]] },
-	{ title = "V. Glossary", text = [[SIEGLINQ (pl. Sieglinqs) — Elemental creatures of Fire, Ice, Earth, Air (and faraway: Shadow, Lightning). Bound to humans via Capture Card and shield. Have their own language.
+	{ title = "V. Glossary", text = [[SIEGELING (pl. Siegelings) — Elemental creatures of Fire, Ice, Earth, Air (and faraway: Shadow, Lightning). Bound to humans via Capture Card and shield. Have their own language.
 
-SIEGE KNIGHT — A knight who bonds Sieglinqs and duels in the arena. Noble defenders of the realm. Full rank after Squire.
+SIEGE KNIGHT — A knight who bonds Siegelings and duels in the arena. Noble defenders of the realm. Full rank after Squire.
 
 SQUIRE — Apprentice who serves under a Knight. Learns capture and combat. Earns Knighthood after proving themselves. Begins at 13 with the Rite.
 
@@ -718,13 +764,13 @@ SIRE — The single highest-ranked knight. Head of the Council. Everybody is Ser
 
 SER — Honorific for all knights.
 
-SHIELD — Wristguard device with a slot for the Sieglinq card. Placing the card summons the creature. Bears a sigil (house, order, or hedge knight).
+SHIELD — Wristguard device with a slot for the Siegeling card. Placing the card summons the creature. Bears a sigil (house, order, or hedge knight).
 
-CAPTURE CARD — Enchanted card that binds a Sieglinq. Given by Maestro to humankind. Bond requires the creature's consent.
+CAPTURE CARD — Enchanted card that binds a Siegeling. Given by Maestro to humankind. Bond requires the creature's consent.
 
-RITE OF THIRTEEN — Ceremony at age 13. Youth receives shield and first Capture Card, then sets off to find and bond their first Sieglinq.
+RITE OF THIRTEEN — Ceremony at age 13. Youth receives shield and first Capture Card, then sets off to find and bond their first Siegeling.
 
-ELEMINION — Rare creatures with a third eye. Understand humans and Sieglinqs. Act as translators. One per elemental land. Can read minds and interpret language.
+ELEMINION — Rare creatures with a third eye. Understand humans and Siegelings. Act as translators. One per elemental land. Can read minds and interpret language.
 
 MAESTRO — Mysterious figure who gave humans the first Capture Cards. Believed to be Eleminion or progenitor of their kind. Vanished; may still watch over the bonded.
 
@@ -1449,6 +1495,8 @@ end)
 MobileWindowLayout.BindViewportUpdate(function()
 	if panel.Visible then
 		applyPanelScale(panel)
+	else
+		syncCodexScreenGuiInset()
 	end
 end)
 
@@ -1456,4 +1504,5 @@ end)
 -- Codex panel will only open via `OpenCodex(...)` (creature click / HUD toggle),
 -- so it won't interrupt players right after spawn.
 
+task.defer(syncCodexScreenGuiInset)
 print("[CodexClient] Loaded — OpenCodex(creatureId) or OpenCodex(\"guide\") when ENABLE_CODEX_UI is true")

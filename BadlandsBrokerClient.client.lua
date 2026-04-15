@@ -117,19 +117,25 @@ local viewportLayoutUnbind = nil
 local brokerMenuVisible = false
 -- Set while Broker UI is open: recomputes inner layout for small mobile panels.
 local syncBrokerMobileContent = nil
+local applyBrokerTitleLayout = nil
+
+local BROKER_DESIGN_W = 520
+local BROKER_DESIGN_H = 480
 
 local function applyBrokerWindowLayout()
 	if not mainFrame then return end
 
-	if MobileWindowLayout.IsMobile() then
-		MobileWindowLayout.ApplyWindow(mainFrame, {
-			leftInset = 14,
-			rightInset = 14,
-			topInset = 10,
-			bottomInset = 14,
-			bottomMobileExtra = 20,
-			mobileDraggable = true,
-		})
+	if screenGui then
+		MobileWindowLayout.SyncNpcMenuScreenGui(screenGui, BROKER_DESIGN_W, BROKER_DESIGN_H)
+	end
+
+	if MobileWindowLayout.NpcMenuUsesFullscreenBounds(BROKER_DESIGN_W, BROKER_DESIGN_H) then
+		MobileWindowLayout.ApplyWindow(
+			mainFrame,
+			MobileWindowLayout.GetNpcFullscreenBoundsConfig(BROKER_DESIGN_W, BROKER_DESIGN_H, {
+				mobileDraggable = true,
+			})
+		)
 		mainFrame.AnchorPoint = Vector2.new(0, 0)
 		-- Inner content uses fixed pixel stacks; reflow after outer bounds are known.
 		if syncBrokerMobileContent then
@@ -139,13 +145,22 @@ local function applyBrokerWindowLayout()
 				task.defer(syncBrokerMobileContent)
 			end)
 		end
+		if applyBrokerTitleLayout then
+			applyBrokerTitleLayout()
+		end
 		return
 	end
 
-	mainFrame.Size = UDim2.new(0, 520, 0, 480)
+	if screenGui then
+		screenGui.IgnoreGuiInset = false
+	end
+	mainFrame.Size = UDim2.new(0, BROKER_DESIGN_W, 0, BROKER_DESIGN_H)
 	mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
 	mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 	MobileWindowLayout.RestoreDesktopWindow(mainFrame, { draggable = true })
+	if applyBrokerTitleLayout then
+		applyBrokerTitleLayout()
+	end
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -202,6 +217,7 @@ local function closeBrokerUI()
 		screenGui = nil
 	end
 	mainFrame = nil
+	applyBrokerTitleLayout = nil
 	selectedUid = nil
 	selectedCreatureId = nil
 	selectedOnDefense = false
@@ -479,6 +495,11 @@ local function showBrokerUI(data)
 	titleLabel.TextSize = 18
 	titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 	titleLabel.Parent = titleBar
+	applyBrokerTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(titleLabel, {
+		Position = UDim2.new(0, 16, 0, 0),
+		Size = UDim2.new(1, -80, 1, 0),
+		TextXAlignment = Enum.TextXAlignment.Left,
+	})
 
 	-- Close button (X)
 	local closeBtn = Instance.new("TextButton")
@@ -539,7 +560,7 @@ local function showBrokerUI(data)
 	end
 
 	local demandRich = string.format(
-		'Bring me a <b><font color="%s">%s</font></b> <font color="%s">%s</font> Siegling, at least <font color="%s"><b>LEVEL %d</b></font>, and I will send you to the <font color="%s"><b>BADLANDS</b></font>.',
+		'Bring me a <b><font color="%s">%s</font></b> <font color="%s">%s</font> Siegeling, at least <font color="%s"><b>LEVEL %d</b></font>, and I will send you to the <font color="%s"><b>BADLANDS</b></font>.',
 		colorHex(rarityColor), rarityStr:upper(),
 		colorHex(elemColor), elementStr:upper(),
 		colorHex(lvlColor), minLvl,
@@ -632,13 +653,13 @@ local function showBrokerUI(data)
 	rightCol.BackgroundTransparency = 1
 	rightCol.Parent = mainFrame
 
-	-- ── "Your Sieglings" header ──
+	-- ── "Your Siegelings" header ──
 	local listHeader = Instance.new("TextLabel")
 	listHeader.Name = "ListHeader"
 	listHeader.Size = UDim2.new(1, 0, 0, 24)
 	listHeader.Position = UDim2.new(0, 0, 0, 0)
 	listHeader.BackgroundTransparency = 1
-	listHeader.Text = "Your Qualifying Sieglings"
+	listHeader.Text = "Your Qualifying Siegelings"
 	listHeader.TextColor3 = C.white
 	listHeader.Font = Enum.Font.GothamBold
 	listHeader.TextSize = 14
@@ -675,7 +696,7 @@ local function showBrokerUI(data)
 	-- ── Action button (Place / Accept) ──
 	local actionBtn = makeButton(
 		rightCol,
-		"Select a Siegling",
+		"Select a Siegeling",
 		C.grey,
 		UDim2.new(1, 0, 0, 40),
 		UDim2.new(0, 0, 1, -44)
@@ -724,7 +745,7 @@ local function showBrokerUI(data)
 
 	local function updateActionButton()
 		if actionState == "none" then
-			actionBtn.Text = "Select a Siegling"
+			actionBtn.Text = "Select a Siegeling"
 			actionBtn.BackgroundColor3 = C.grey
 			actionBtn.BackgroundTransparency = 0.4
 		elseif actionState == "place" then
@@ -744,8 +765,8 @@ local function showBrokerUI(data)
 		noCreatures.Size = UDim2.new(1, -8, 0, 80)
 		noCreatures.BackgroundTransparency = 1
 		noCreatures.RichText = true
-		noCreatures.Text = "You have no Sieglings that match today's contract.\n\nThe Broker demands:\n"
-			.. string.format('Bring me a <b><font color="%s">%s</font></b> <font color="%s">%s</font> Siegling, at least <font color="%s"><b>Level %d</b></font>',
+		noCreatures.Text = "You have no Siegelings that match today's contract.\n\nThe Broker demands:\n"
+			.. string.format('Bring me a <b><font color="%s">%s</font></b> <font color="%s">%s</font> Siegeling, at least <font color="%s"><b>Level %d</b></font>',
 				colorHex(rarityColor), rarityStr:upper(),
 				colorHex(elemColor), elementStr:upper(),
 				colorHex(lvlColor), minLvl)
@@ -958,7 +979,7 @@ local function showBrokerUI(data)
 	-- shrink 3D viewport ~20%, let the creature list fill remaining height.
 	syncBrokerMobileContent = function()
 		if not mainFrame or not mainFrame.Parent then return end
-		if not MobileWindowLayout.IsMobile() then return end
+		if not MobileWindowLayout.NpcMenuUsesFullscreenBounds(BROKER_DESIGN_W, BROKER_DESIGN_H) then return end
 
 		local totalH = mainFrame.AbsoluteSize.Y
 		local totalW = mainFrame.AbsoluteSize.X
@@ -1042,7 +1063,7 @@ local function showBrokerUI(data)
 	brokerMenuVisible = true
 
 	-- ── Entrance animation: slide+fade desktop, fade mobile ──
-	if MobileWindowLayout.IsMobile() then
+	if MobileWindowLayout.NpcMenuUsesFullscreenBounds(BROKER_DESIGN_W, BROKER_DESIGN_H) then
 		mainFrame.BackgroundTransparency = 1
 		TweenService:Create(mainFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 			BackgroundTransparency = 0.05,

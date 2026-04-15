@@ -52,6 +52,41 @@ function AchievementsSystem.BindPlayerDataManager(pdm)
 	PlayerDataManager = pdm
 end
 
+local function grantAchievementRewards(player, def)
+	if not PlayerDataManager or not def then
+		return
+	end
+	local rd = def.rewardData
+	if type(rd) ~= "table" then
+		return
+	end
+	local gems = math.max(0, math.floor(tonumber(rd.gems) or 0))
+	local xp = math.max(0, math.floor(tonumber(rd.xp) or 0))
+	if gems <= 0 and xp <= 0 then
+		return
+	end
+	if gems > 0 and PlayerDataManager.AddGems then
+		PlayerDataManager.AddGems(player, gems)
+		local gemsEvt = Events:FindFirstChild("GemsUpdate")
+		if gemsEvt then
+			gemsEvt:FireClient(player, PlayerDataManager.GetGems(player))
+		end
+	end
+	if xp > 0 and PlayerDataManager.AddPlayerXP then
+		local newLvl, didLvl = PlayerDataManager.AddPlayerXP(player, xp)
+		local xpEvt = Events:FindFirstChild("PlayerXPGained")
+		if xpEvt then
+			xpEvt:FireClient(player, xp)
+		end
+		if didLvl then
+			local lvlEvt = Events:FindFirstChild("PlayerLevelUp")
+			if lvlEvt then
+				lvlEvt:FireClient(player, newLvl)
+			end
+		end
+	end
+end
+
 local function getOrInitAchievementState(data)
 	if type(data.achievements) ~= "table" then
 		data.achievements = {}
@@ -382,6 +417,10 @@ function AchievementsSystem.RecomputeAndUnlock(player, reason)
 	for id in pairs(unlockedNow) do
 		local def = AchievementsConfig.ById[id]
 		if def then
+			grantAchievementRewards(player, def)
+			local rd = type(def.rewardData) == "table" and def.rewardData or {}
+			local gems = math.floor(tonumber(rd.gems) or 0)
+			local xpAmt = math.floor(tonumber(rd.xp) or 0)
 			achievementUnlockedRE:FireClient(player, {
 				id = def.id,
 				name = def.name,
@@ -396,6 +435,9 @@ function AchievementsSystem.RecomputeAndUnlock(player, reason)
 				badgeAccent = def.badgeAccent,
 				tier = def.tier or 1,
 				tierChainId = def.tierChainId or def.id,
+				gems = gems,
+				xp = xpAmt,
+				rewardData = rd,
 			})
 		end
 	end

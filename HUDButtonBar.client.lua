@@ -30,7 +30,7 @@ local GOLD_GLOW_TRANSPARENCY = 0.85
 -- Button definitions (module-level so InputBegan can reference after restore)
 local buttonDefs = {
 	{ label = "[K] Codex",      key = "K", menuName = "CodexGuide",     color = Color3.fromRGB(180, 140, 255), desc = "Guide, Lore, creatures" },
-	{ label = "[Q] SieglinQ",   key = "Q", menuName = "InventoryUI",    color = Color3.fromRGB(60, 160, 255), desc = "Manage creatures" },
+	{ label = "[Q] SiegelinQ",   key = "Q", menuName = "InventoryUI",    color = Color3.fromRGB(60, 160, 255), desc = "Manage creatures" },
 	-- FIX #34: Sigils & Rebirth moved into Profile tabs (removed standalone buttons)
 	{ label = "[G] Shop",       key = "G", menuName = "ShopHubGUI",     color = Color3.fromRGB(120, 220, 170), desc = "Eggs, swag, and cosmetics" },
 	{ label = "[V] Friends",    key = "V", menuName = "FriendsListGUI", color = Color3.fromRGB(255, 130, 80), desc = "Base access list" },
@@ -127,6 +127,7 @@ local BAR_BUTTON_TEXT_PADDING_PX = 16  -- horizontal padding inside each button 
 	toolbar.Size = UDim2.new(0, 0, BAR_HEIGHT_SCALE * barScale * BUTTON_HEIGHT_MULTIPLIER * mobileHeightMult, 0)
 	toolbar.AutomaticSize = Enum.AutomaticSize.X
 	toolbar.Position = UDim2.new(0.5, 0, 1, isMobile and -MOBILE_BAR_LIFT_PX or 0)
+	toolbar:SetAttribute("BottomLiftPx", isMobile and MOBILE_BAR_LIFT_PX or 0)
 	toolbar.BackgroundColor3 = TOOLBAR_BG
 	toolbar.BackgroundTransparency = 1  -- no background bar (was distracting)
 	toolbar.BorderSizePixel = 0

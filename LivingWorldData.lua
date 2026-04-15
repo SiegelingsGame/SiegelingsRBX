@@ -810,7 +810,7 @@ LivingWorldData.Conversations = {
 		messages = {
 			"ATTENTION: World event in FIFTEEN MINUTES! Prepare your defenses!",
 			"I'M PREPARED!!! I THINK!!!",
-			"Slot your defense team! Secure your Sieglinqs!",
+			"Slot your defense team! Secure your Siegelings!",
 			"I DID!!! MY MOM IS ON DEFENSE!!!",
 		},
 	},

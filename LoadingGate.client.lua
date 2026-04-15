@@ -60,7 +60,12 @@ local function setFreeze(on)
 	if not char then return end
 	local hum = char:FindFirstChild("Humanoid")
 	if hum then
-		local speed = (GameConfig.DebugDoubleSpeed and 32) or (GameConfig.PlayerWalkSpeed or 16)
+		local base = (GameConfig.DebugDoubleSpeed and 32) or (GameConfig.PlayerWalkSpeed or 16)
+		local lm = player:GetAttribute("WorldStat_LevelMult")
+		if type(lm) ~= "number" or lm <= 0 then
+			lm = 1
+		end
+		local speed = math.floor(base * lm)
 		hum.WalkSpeed  = on and 0 or speed
 		hum.JumpPower  = on and 0 or 50
 	end
@@ -162,7 +167,7 @@ local LOADING_MESSAGES = {
 	"Anointing shields at the Rite of Thirteen...",
 	"Forging Capture Cards in Maestro's kiln...",
 	"Consulting the Eleminions of the Four Houses...",
-	"Summoning Sieglings from the flame-lands...",
+	"Summoning Siegelings from the flame-lands...",
 	"Building bases upon the frontier...",
 	"Herding Cloudhares through the Zephyr winds...",
 	"Taming Emberpups in House Emberward...",
@@ -175,7 +180,7 @@ local LOADING_MESSAGES = {
 	"Voiding Voidmaws beyond the safe paths...",
 	"Grooming Cinderstags in House Cinderthorn...",
 	"Buffing Pylords for the defense grid...",
-	"Binding Sieglings to the Valorous pact...",
+	"Binding Siegelings to the Valorous pact...",
 	"Raising sigils for the Council of Houses...",
 	"Channeling the third eye of the Eleminions...",
 	"Preparing the battle team formation...",
@@ -192,9 +197,9 @@ local LORE_QUOTES = {
 	'"The arena teaches. Both victory and defeat." — Lord Theron Emberward',
 	'"Cold steel, warm heart." — Lady Elara Frostholm',
 	'"Guard your shield. Guard your cards. They are the proof of your bond." — Lady Elara',
-	'"Not all who wield Sieglings are Valorous. Defend your base well." — Lady Elara',
-	'"Do not force the bond. A Siegling that refuses the card cannot be bound." — Lady Elara',
-	'"Beware raids. Other knights may assault your base to steal your Sieglings." — Lady Elara',
+	'"Not all who wield Siegelings are Valorous. Defend your base well." — Lady Elara',
+	'"Do not force the bond. A Siegeling that refuses the card cannot be bound." — Lady Elara',
+	'"Beware raids. Other knights may assault your base to steal your Siegelings." — Lady Elara',
 	'"Patience and respect matter more than strength when capturing." — Lord Marcus Cinderthorn',
 	'"Three Normals become Silver. Three Silvers become Gold. Three Golds become Legend." — Lord Marcus',
 	'"Use the combiner. A stronger team means a stronger defense." — Lord Marcus',
@@ -203,12 +208,12 @@ local LORE_QUOTES = {
 	'"Swift as the storm means knowing when to strike and when to hold." — Lord Kael Zephyran',
 	'"Everybody is Ser. Only one is Sire." — Lord Kael',
 	'"Build a balanced team. Earth for endurance, Air for speed." — Lord Kael',
-	'"Assign your Sieglings to Income, Defense, and Battle. Choose wisely." — Lord Kael Zephyran',
+	'"Assign your Siegelings to Income, Defense, and Battle. Choose wisely." — Lord Kael Zephyran',
 	'"A Squire learns: your companion is your first line of defense. Choose well." — Anon. Squire',
 	'"Press [E] to target, [F] to strike. Even a hedge knight knows the basics." — Training Yard Proverb',
 	'"Raiders lay siege without honor. Stand against them with your defense team." — Siege Knight\'s Creed',
 	'"Home Recall channels five seconds. Use it when the wilds grow too fierce." — Squire\'s Handbook',
-	'"Unlock Floor 2 for the battle grid. Five Sieglings in formation win duels." — Arena Veteran',
+	'"Unlock Floor 2 for the battle grid. Five Siegelings in formation win duels." — Arena Veteran',
 	'"Rarer creatures cost more gold to capture. Save your coins for the right bond." — House Steward',
 	'"The Valorous bond by consent. The Unvalorous force. Do not become them." — Council Edict',
 }
@@ -250,7 +255,7 @@ end
 -- seamlessly once the gate drops (it checks for an already-playing track).
 local loadingMusic = nil
 do
-	local mainThemeName = "Sieglings_MainTheme"
+	local mainThemeName = "Siegelings_MainTheme"
 	if GameConfig.GameplayMusic and GameConfig.GameplayMusic.MainThemeName then
 		mainThemeName = GameConfig.GameplayMusic.MainThemeName
 	end
@@ -467,7 +472,7 @@ if not quickSpawnDebug then
 
 		if plot then
 			updateProgress("baseVisual", 0.5)
-			statusLbl.Text = "Spawning your Sieglings..."
+			statusLbl.Text = "Spawning your Siegelings..."
 
 			-- Wait briefly for creature orbs to replicate (they spawn server-side
 			-- during PlaceCreatures, but replication to the client takes a moment)
@@ -629,6 +634,16 @@ loadingDone = true
 -- Log why we released
 if not characterReady then
 	loadingStatusReason = "character_timeout_fallback"
+end
+-- Character wait uses a timeout then marks "ready" anyway; gate can release with no Character.
+do
+	local charAtRelease = player.Character
+	local rootAtRelease = charAtRelease and charAtRelease:FindFirstChild("HumanoidRootPart")
+	if not rootAtRelease then
+		warn("[LoadingGate] Released without a character/HumanoidRootPart. "
+			.. "The 30s character wait may have timed out, or spawn failed (check server scripts / Studio team test). "
+			.. "You may see an empty sky until CharacterAdded fires.")
+	end
 end
 logMetric("join_to_control_release")
 

@@ -117,6 +117,7 @@ local viewportLayoutUnbind = nil
 local brokerMenuVisible = false
 -- Set while Broker UI is open: recomputes inner layout for small mobile panels.
 local syncBrokerMobileContent = nil
+local applyBrokerTitleLayout = nil
 
 local BROKER_DESIGN_W = 520
 local BROKER_DESIGN_H = 480
@@ -144,6 +145,9 @@ local function applyBrokerWindowLayout()
 				task.defer(syncBrokerMobileContent)
 			end)
 		end
+		if applyBrokerTitleLayout then
+			applyBrokerTitleLayout()
+		end
 		return
 	end
 
@@ -154,6 +158,9 @@ local function applyBrokerWindowLayout()
 	mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
 	mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 	MobileWindowLayout.RestoreDesktopWindow(mainFrame, { draggable = true })
+	if applyBrokerTitleLayout then
+		applyBrokerTitleLayout()
+	end
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -210,6 +217,7 @@ local function closeBrokerUI()
 		screenGui = nil
 	end
 	mainFrame = nil
+	applyBrokerTitleLayout = nil
 	selectedUid = nil
 	selectedCreatureId = nil
 	selectedOnDefense = false
@@ -487,6 +495,11 @@ local function showBrokerUI(data)
 	titleLabel.TextSize = 18
 	titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 	titleLabel.Parent = titleBar
+	applyBrokerTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(titleLabel, {
+		Position = UDim2.new(0, 16, 0, 0),
+		Size = UDim2.new(1, -80, 1, 0),
+		TextXAlignment = Enum.TextXAlignment.Left,
+	})
 
 	-- Close button (X)
 	local closeBtn = Instance.new("TextButton")

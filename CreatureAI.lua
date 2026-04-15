@@ -642,6 +642,56 @@ local function getWorldCreatureHP()
 	return WorldCreatureHP and WorldCreatureHP or nil
 end
 
+-- Badlands uses InfoTag + HPBarBG + HPFill + HPLabel; open-world uses NameTag + HPBar + Fill.
+-- WorldCreatureHP.updateHPBar only handles the latter — keep both in sync when CreatureAI owns HP.
+local function updateCreatureHPBillboard(model, hp, maxHp)
+	if not model or not model.Parent then return end
+	maxHp = math.max(1, maxHp or 1)
+	hp = math.clamp(hp, 0, maxHp)
+	local ratio = hp / maxHp
+
+	local infoTag = model:FindFirstChild("InfoTag")
+	if infoTag then
+		local hpBarBG = infoTag:FindFirstChild("HPBarBG")
+		if hpBarBG then
+			local fill = hpBarBG:FindFirstChild("HPFill")
+			if fill then
+				fill.Size = UDim2.new(ratio, 0, 1, 0)
+				if ratio > 0.5 then
+					fill.BackgroundColor3 = Color3.fromRGB(50, 220, 80)
+				elseif ratio > 0.25 then
+					fill.BackgroundColor3 = Color3.fromRGB(255, 200, 50)
+				else
+					fill.BackgroundColor3 = Color3.fromRGB(255, 60, 50)
+				end
+			end
+		end
+		local hpLabel = infoTag:FindFirstChild("HPLabel")
+		if hpLabel and hpLabel:IsA("TextLabel") then
+			hpLabel.Text = math.floor(hp) .. "/" .. math.floor(maxHp)
+		end
+		return
+	end
+
+	local bb = model:FindFirstChild("NameTag")
+	if bb then
+		local hpBg = bb:FindFirstChild("HPBar") or bb:FindFirstChild("HPBarBG")
+		if hpBg then
+			local fill = hpBg:FindFirstChild("Fill")
+			if fill then
+				fill.Size = UDim2.new(ratio, 0, 1, 0)
+				if ratio > 0.5 then
+					fill.BackgroundColor3 = Color3.fromRGB(50, 220, 80)
+				elseif ratio > 0.25 then
+					fill.BackgroundColor3 = Color3.fromRGB(255, 200, 50)
+				else
+					fill.BackgroundColor3 = Color3.fromRGB(255, 60, 50)
+				end
+			end
+		end
+	end
+end
+
 function CreatureAI.DamageCreature(model, damage, attackerModel)
 	local state = creatureStates[model]
 	if not state then
@@ -655,10 +705,14 @@ function CreatureAI.DamageCreature(model, damage, attackerModel)
 	if state.state == "faint" then return end
 
 	state.hp = state.hp - damage
+	if state.hp < 0 then
+		state.hp = 0
+	end
 
 	-- Sync HP to model attribute for external systems (AIRaidSystem HP bars)
 	model:SetAttribute("HP", state.hp)
 	model:SetAttribute("MaxHP", state.maxHp)
+	updateCreatureHPBillboard(model, state.hp, state.maxHp)
 
 	local body = getBody(model)
 	if body then
@@ -704,6 +758,9 @@ function CreatureAI.FaintCreature(model, killerModel)
 	state.state = "faint"
 	state.faintTime = tick()
 	state.target = nil
+	state.hp = 0
+	model:SetAttribute("HP", 0)
+	updateCreatureHPBillboard(model, 0, state.maxHp)
 
 	-- Check if this is a base creature (defense / income / battle)
 	local isBaseCreature = CollectionService:HasTag(model, DEFENSE_TAG)
@@ -1422,10 +1479,25 @@ function CreatureAI.RegisterCreature(model, creatureId, spawnPos, packId)
 	local info = CreatureData.GetById(creatureId)
 	if not info then return end
 
+	-- Badlands (and any spawner) may set HP/MaxHP on the model before RegisterCreature; use those so damage + UI match.
+	local baseHealth = info.health or 100
+	local maxHp = baseHealth
+	local hp = baseHealth
+	local attrMax = model:GetAttribute("MaxHP")
+	local attrHp = model:GetAttribute("HP")
+	if type(attrMax) == "number" and attrMax > 0 then
+		maxHp = math.floor(attrMax)
+		if type(attrHp) == "number" and attrHp >= 0 then
+			hp = math.floor(attrHp)
+		else
+			hp = maxHp
+		end
+	end
+
 	creatureStates[model] = {
 		id = creatureId,
-		hp = info.health,
-		maxHp = info.health,
+		hp = hp,
+		maxHp = maxHp,
 		behavior = info.behavior or "gentle",
 		state = "idle",
 		spawnPos = spawnPos,

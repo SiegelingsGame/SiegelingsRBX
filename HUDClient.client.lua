@@ -427,6 +427,9 @@ if ShowNotification then
 		elseif level == "info" then
 			duration = 3.5
 		end
+		if category == "cooking" then
+			duration = math.max(duration, 5.2)
+		end
 		Notify.Toast(message, nil, duration, nil, category)
 	end)
 end

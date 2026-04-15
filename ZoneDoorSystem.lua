@@ -280,29 +280,55 @@ local function wireZoneDoor(zoneId, doorInst, partForPrompt, promptRange)
 	print("[ZoneDoorSystem] " .. zoneId .. " gate prompt on " .. att:GetFullName())
 end
 
+-- When ZoneDoorsDisabled: same door discovery as normal, but all blocking parts become walk-through.
+local function makeZoneDoorPassable(zoneId, doorInst)
+	local doorRoot = getZoneDoorRootFromInstance(doorInst)
+	if not doorRoot then
+		return
+	end
+	if doorRoot:IsA("BasePart") then
+		doorRoot.CanCollide = false
+	end
+	for _, d in ipairs(doorRoot:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.CanCollide = false
+		end
+	end
+	local path = doorRoot:GetFullName()
+	print("[ZoneDoorSystem] " .. zoneId .. " gate passable (ZoneDoorsDisabled) at " .. path)
+end
+
 function ZoneDoorSystem.Init(playerDataMgr)
 	PlayerDataManager = playerDataMgr
+	local doorsDisabled = (GameConfig.ZoneDoorsDisabled == true)
 
-	registerCollisionGroups()
+	if not doorsDisabled then
+		registerCollisionGroups()
+
+		local events = ReplicatedStorage:FindFirstChild("Events")
+		if not events then
+			events = Instance.new("Folder")
+			events.Name = "Events"
+			events.Parent = ReplicatedStorage
+		end
+		local function ensureEvent(name)
+			local e = events:FindFirstChild(name)
+			if not e then
+				e = Instance.new("RemoteEvent")
+				e.Name = name
+				e.Parent = events
+			end
+			return e
+		end
+		ensureEvent("ZoneDoorLocked")
+
+		for _, plr in ipairs(Players:GetPlayers()) do
+			hookCharacterCollision(plr)
+		end
+		Players.PlayerAdded:Connect(hookCharacterCollision)
+	end
 
 	local zoneIds = ZONE_IDS
-	local events = ReplicatedStorage:FindFirstChild("Events")
-	if not events then
-		events = Instance.new("Folder")
-		events.Name = "Events"
-		events.Parent = ReplicatedStorage
-	end
-	local function ensureEvent(name)
-		local e = events:FindFirstChild(name)
-		if not e then e = Instance.new("RemoteEvent") e.Name = name e.Parent = events end
-		return e
-	end
-	ensureEvent("ZoneDoorLocked")
-
-	for _, plr in ipairs(Players:GetPlayers()) do
-		hookCharacterCollision(plr)
-	end
-	Players.PlayerAdded:Connect(hookCharacterCollision)
 
 	task.spawn(function()
 		local biomes = workspace:WaitForChild("Biomes", 60)
@@ -313,7 +339,11 @@ function ZoneDoorSystem.Init(playerDataMgr)
 
 		local promptRange = getPromptRange()
 
-		local function tryWire(zoneId, doorInst)
+		local function tryZoneDoor(zoneId, doorInst)
+			-- One prompt per zone; first successful wire wins (see attribute-before-folder ordering below).
+			if gateZonesWired[zoneId] then
+				return false
+			end
 			local anchor = getPromptAnchorPart(doorInst)
 			if not anchor then
 				return false
@@ -323,50 +353,57 @@ function ZoneDoorSystem.Init(playerDataMgr)
 			end
 			gatePartsWired[anchor] = true
 			gateZonesWired[zoneId] = true
-			wireZoneDoor(zoneId, doorInst, anchor, promptRange)
+			if doorsDisabled then
+				makeZoneDoorPassable(zoneId, doorInst)
+			else
+				wireZoneDoor(zoneId, doorInst, anchor, promptRange)
+			end
 			return true
 		end
 
-		for _, zoneId in ipairs(zoneIds) do
-			local folder = getBiomeFolderForZone(zoneId, biomes)
-			if not folder then
-				if zoneId ~= "Desert" then
-					warn(
-						"[ZoneDoorSystem] No biome folder for "
-							.. tostring(zoneId)
-							.. " (check GameConfig.ZoneDoorBiomeFolders / ZoneDoorBiomeAliases vs workspace.Biomes)"
-					)
-				end
-			else
-				local doorInst = findZoneDoorInstance(folder)
-				if not doorInst then
-					warn(
-						"[ZoneDoorSystem] No zone door part in "
-							.. folder:GetFullName()
-							.. ". Add a Part or Model named "
-							.. table.concat(getZoneDoorPartNames(), ", ")
-							.. " (anywhere under this folder), or any BasePart with Attribute ZoneDoorZoneId=\""
-							.. zoneId
-							.. "\""
-					)
-				else
-					tryWire(zoneId, doorInst)
+		-- Prefer explicit BaseParts with Attribute ZoneDoorZoneId (e.g. wide cave mouth) BEFORE named parts in the biome folder.
+		-- Otherwise findZoneDoorInstance can wire a small/wrong part first and the attribute pass was skipped (gateZonesWired[zid]).
+		for _, inst in ipairs(biomes:GetDescendants()) do
+			if inst:IsA("BasePart") then
+				local zid = inst:GetAttribute("ZoneDoorZoneId")
+				if type(zid) == "string" and zid ~= "" then
+					for _, zoneId in ipairs(zoneIds) do
+						if zoneId == zid then
+							tryZoneDoor(zoneId, inst)
+							break
+						end
+					end
 				end
 			end
 		end
 
-		-- Designer-placed triggers anywhere under Biomes (e.g. wide cave mouth): BasePart with Attribute ZoneDoorZoneId = "Cave" | ...
-		for _, inst in ipairs(biomes:GetDescendants()) do
-			if inst:IsA("BasePart") then
-				local zid = inst:GetAttribute("ZoneDoorZoneId")
-				if type(zid) == "string" and zid ~= "" and not gateZonesWired[zid] then
-					for _, zoneId in ipairs(zoneIds) do
-						if zoneId == zid then
-							if not gatePartsWired[inst] then
-								tryWire(zoneId, inst)
-							end
-							break
-						end
+		for _, zoneId in ipairs(zoneIds) do
+			if gateZonesWired[zoneId] then
+				-- Already wired from explicit ZoneDoorZoneId part(s).
+			else
+				local folder = getBiomeFolderForZone(zoneId, biomes)
+				if not folder then
+					if zoneId ~= "Desert" then
+						warn(
+							"[ZoneDoorSystem] No biome folder for "
+								.. tostring(zoneId)
+								.. " (check GameConfig.ZoneDoorBiomeFolders / ZoneDoorBiomeAliases vs workspace.Biomes)"
+						)
+					end
+				else
+					local doorInst = findZoneDoorInstance(folder)
+					if not doorInst then
+						warn(
+							"[ZoneDoorSystem] No zone door part in "
+								.. folder:GetFullName()
+								.. ". Add a Part or Model named "
+								.. table.concat(getZoneDoorPartNames(), ", ")
+								.. " (anywhere under this folder), or any BasePart with Attribute ZoneDoorZoneId=\""
+								.. zoneId
+								.. "\""
+						)
+					else
+						tryZoneDoor(zoneId, doorInst)
 					end
 				end
 			end
@@ -383,22 +420,24 @@ function ZoneDoorSystem.Init(playerDataMgr)
 				end
 				for _, zoneId in ipairs(zoneIds) do
 					if zoneId == zid and not gatePartsWired[inst] then
-						tryWire(zoneId, inst)
+						tryZoneDoor(zoneId, inst)
 						break
 					end
 				end
 			end)
 		end)
 
-		for _, zoneId in ipairs(zoneIds) do
-			if not gateZonesWired[zoneId] then
-				warn(
-					"[ZoneDoorSystem] Zone \""
-						.. zoneId
-						.. "\" has no gate prompt. Add a Part under the biome with Attribute ZoneDoorZoneId=\""
-						.. zoneId
-						.. "\" (size it across the opening; Transparent, CanCollide true)"
-				)
+		if not doorsDisabled then
+			for _, zoneId in ipairs(zoneIds) do
+				if not gateZonesWired[zoneId] then
+					warn(
+						"[ZoneDoorSystem] Zone \""
+							.. zoneId
+							.. "\" has no gate prompt. Add a Part under the biome with Attribute ZoneDoorZoneId=\""
+							.. zoneId
+							.. "\" (size it across the opening; Transparent, CanCollide true)"
+					)
+				end
 			end
 		end
 	end)

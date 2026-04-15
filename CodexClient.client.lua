@@ -136,20 +136,24 @@ local function syncCodexScreenGuiInset()
 	end
 end
 
+local applyCodexTitleLayout = nil
+
 local function applyPanelScale(pnl)
 	syncCodexScreenGuiInset()
 	if codexUsesFullscreenBounds() then
 		MobileWindowLayout.ApplyWindow(pnl, codexGetBoundsConfig())
 		pnl.Draggable = false
-		return
+	else
+		pnl.AnchorPoint = Vector2.new(0, 0)
+		local scale = getPanelScale()
+		local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
+		pnl.Size = UDim2.new(0, w, 0, h)
+		pnl.Position = UDim2.new(0.5, -w / 2, 0.5, -h / 2)
+		MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
 	end
-
-	pnl.AnchorPoint = Vector2.new(0, 0)
-	local scale = getPanelScale()
-	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
-	pnl.Size = UDim2.new(0, w, 0, h)
-	pnl.Position = UDim2.new(0.5, -w / 2, 0.5, -h / 2)
-	MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
+	if applyCodexTitleLayout then
+		applyCodexTitleLayout()
+	end
 end
 
 -- Main panel
@@ -188,6 +192,11 @@ titleLbl.Font = Enum.Font.GothamBlack
 titleLbl.TextSize = 18
 titleLbl.TextXAlignment = Enum.TextXAlignment.Left
 titleLbl.Parent = titleBar
+applyCodexTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(titleLbl, {
+	Position = UDim2.new(0, 14, 0, 0),
+	Size = UDim2.new(1, -50, 1, 0),
+	TextXAlignment = Enum.TextXAlignment.Left,
+})
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 32, 0, 32)

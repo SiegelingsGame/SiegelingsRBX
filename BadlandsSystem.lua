@@ -40,6 +40,7 @@
 --   BadlandsSupplyDrop, BadlandsXPGain, BadlandsContractData,
 --   BadlandsOfferCreature, BadlandsLootBagSpawned, BadlandsLootBagLoot,
 --   BadlandsLootBagUpdate, BadlandsBagReplace
+--   BadlandsCaptureResolve (RemoteFunction — client resolves pending capture)
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 local Players = game:GetService("Players")
@@ -470,6 +471,9 @@ local queue = {}
 
 -- Active run state (nil when no run is happening, one run at a time in V1)
 local activeRun = nil
+
+-- Creature captured from world but not yet placed in bag (player must choose slot / replace)
+local pendingBadlandsCapture = {} -- [userId] = entry table
 --[[
 activeRun = {
 	runId        = string,
@@ -644,12 +648,41 @@ local BONUS_BUFF_AMOUNT = GameConfig.BadlandsBonusBuffAmount or 10
 
 local function getBagCount(bag)
 	local count = 0
-	for _, creature in ipairs((bag and bag.slots) or {}) do
-		if creature and creature.id then
+	if not bag or not bag.slots then return 0 end
+	local cap = bag.capacity or BAG_SLOTS
+	for i = 1, cap do
+		local c = bag.slots[i]
+		if c and c.id then
 			count = count + 1
 		end
 	end
 	return count
+end
+
+local function findFirstEmptyBagSlot(bag)
+	if not bag or not bag.slots then return nil end
+	for i = 1, bag.capacity do
+		local s = bag.slots[i]
+		if not (s and s.id) then
+			return i
+		end
+	end
+	return nil
+end
+
+local function extractBagEntryFromCreatureModel(creatureModel)
+	if not creatureModel then return nil end
+	local creatureId = creatureModel:GetAttribute("CreatureId")
+	if not creatureId then return nil end
+	if not CreatureData.GetById(creatureId) then return nil end
+	return {
+		id = creatureId,
+		uid = creatureModel:GetAttribute("UniqueId") or HttpService:GenerateGUID(false),
+		level = creatureModel:GetAttribute("Level") or 1,
+		xp = creatureModel:GetAttribute("XP") or 0,
+		variant = creatureModel:GetAttribute("Variant") or "Normal",
+		capturedAt = os.clock(),
+	}
 end
 
 local function serializeBagForClient(bag)
@@ -715,6 +748,85 @@ local function pushBagUpdate(player, bag, reason)
 	})
 end
 
+local function resolvePendingBadlandsCapture(player, mode, replaceSlotIndex)
+	local userId = player.UserId
+	local entry = pendingBadlandsCapture[userId]
+	if not entry then
+		return false, "No pending capture."
+	end
+	if not activeRun then
+		pendingBadlandsCapture[userId] = nil
+		return false, "No active Badlands run."
+	end
+	local ps = activeRun.players[userId]
+	if not ps or not ps.alive or not ps.bag then
+		pendingBadlandsCapture[userId] = nil
+		return false, "You are not active in the Badlands."
+	end
+	local bag = ps.bag
+	mode = type(mode) == "string" and string.lower(mode) or ""
+
+	if mode == "cancel" then
+		pendingBadlandsCapture[userId] = nil
+		return true, "Capture abandoned."
+	end
+
+	if mode == "replace" or mode == "replaceslot" then
+		local slotIndex = tonumber(replaceSlotIndex)
+		if not slotIndex or slotIndex < 1 or slotIndex > bag.capacity then
+			return false, "Pick a valid bag slot."
+		end
+		local old = bag.slots[slotIndex]
+		if not (old and old.id) then
+			return false, "That bag slot is empty."
+		end
+		bag.slots[slotIndex] = entry
+		pendingBadlandsCapture[userId] = nil
+		ps.captures = (ps.captures or 0) + 1
+		pushBagUpdate(player, bag, "capture_replace")
+		return true, "Creature swapped into your bag."
+	end
+
+	if mode == "active" or mode == "passive" then
+		local dest = findFirstEmptyBagSlot(bag)
+		if not dest then
+			return false, "Your bag is full. Replace a slot instead."
+		end
+		bag.slots[dest] = entry
+		if mode == "active" then
+			bag.activeIndex = dest
+		end
+		pendingBadlandsCapture[userId] = nil
+		ps.captures = (ps.captures or 0) + 1
+		pushBagUpdate(player, bag, "capture")
+		return true, mode == "active" and "Set as active creature." or "Added to your bag."
+	end
+
+	return false, "Invalid choice."
+end
+
+--- Apply pending capture before extraction so the creature is not lost (passive add or replace active slot).
+local function tryApplyPendingBeforeExtract(player)
+	local userId = player.UserId
+	local entry = pendingBadlandsCapture[userId]
+	if not entry then return end
+	if not activeRun then pendingBadlandsCapture[userId] = nil return end
+	local ps = activeRun.players[userId]
+	if not ps or not ps.bag then pendingBadlandsCapture[userId] = nil return end
+	local bag = ps.bag
+	local dest = findFirstEmptyBagSlot(bag)
+	if dest then
+		bag.slots[dest] = entry
+		if not bag.activeIndex then bag.activeIndex = dest end
+	else
+		local ai = bag.activeIndex or 1
+		bag.slots[ai] = entry
+	end
+	pendingBadlandsCapture[userId] = nil
+	ps.captures = (ps.captures or 0) + 1
+	pushBagUpdate(player, bag, "capture_flush")
+end
+
 local function captureCreatureToBag(player, creatureModel)
 	if not activeRun then
 		return false, "No active Badlands run."
@@ -730,45 +842,17 @@ local function captureCreatureToBag(player, creatureModel)
 		return false, "Badlands bag unavailable."
 	end
 
-	local targetSlot = nil
-	for slotIndex = 1, bag.capacity do
-		local slot = bag.slots[slotIndex]
-		if not (slot and slot.id) then
-			targetSlot = slotIndex
-			break
-		end
+	local userId = player.UserId
+	if pendingBadlandsCapture[userId] then
+		return false, "You already have a capture to assign. Use the prompt first."
 	end
 
-	if not targetSlot then
-		return false, "Your Badlands bag is full."
-	end
-
-	local creatureId = creatureModel and creatureModel:GetAttribute("CreatureId")
-	if not creatureId then
+	local entry = extractBagEntryFromCreatureModel(creatureModel)
+	if not entry then
 		return false, "Unknown Badlands creature."
 	end
 
-	local info = CreatureData.GetById(creatureId)
-	if not info then
-		return false, "Creature data missing."
-	end
-
-	local entry = {
-		id = creatureId,
-		uid = creatureModel:GetAttribute("UniqueId") or HttpService:GenerateGUID(false),
-		level = creatureModel:GetAttribute("Level") or 1,
-		xp = creatureModel:GetAttribute("XP") or 0,
-		variant = creatureModel:GetAttribute("Variant") or "Normal",
-		capturedAt = os.clock(),
-	}
-
-	bag.slots[targetSlot] = entry
-	if not bag.activeIndex then
-		bag.activeIndex = targetSlot
-	end
-
-	ps.captures = (ps.captures or 0) + 1
-	pushBagUpdate(player, bag, "capture")
+	local info = CreatureData.GetById(entry.id)
 
 	if creatureModel and creatureModel.Parent then
 		pcall(function()
@@ -776,12 +860,23 @@ local function captureCreatureToBag(player, creatureModel)
 		end)
 	end
 
-	return true, ("Captured %s into slot %d."):format(info.displayName or creatureId, targetSlot), {
+	local firstEmpty = findFirstEmptyBagSlot(bag)
+	local bagFull = firstEmpty == nil
+
+	pendingBadlandsCapture[userId] = entry
+
+	local bagPayload = serializeBagForClient(bag)
+
+	return true, bagFull and "Bag full — replace a slot." or "Choose how to add this creature.", {
+		badlandsPending = true,
+		bagFull = bagFull,
+		creatureId = entry.id,
 		uid = entry.uid,
-		slotIndex = targetSlot,
+		slotIndex = nil,
 		activeIndex = bag.activeIndex,
 		bagCount = getBagCount(bag),
 		bagMax = bag.capacity,
+		bag = bagPayload,
 	}
 end
 
@@ -912,6 +1007,13 @@ local function enterBadlandsMode(player, savedCFrame)
 	-- Despawn companion
 	if FavoriteCreatureSystem and FavoriteCreatureSystem.DespawnCompanion then
 		pcall(function() FavoriteCreatureSystem.DespawnCompanion(player) end)
+		-- Second pass: character/teleport races can recreate a favorite model a frame later
+		task.delay(0.2, function()
+			if player and player.Parent and player:GetAttribute("InBadlands") == true
+				and FavoriteCreatureSystem and FavoriteCreatureSystem.DespawnCompanion then
+				pcall(function() FavoriteCreatureSystem.DespawnCompanion(player) end)
+			end
+		end)
 	end
 end
 
@@ -1083,6 +1185,8 @@ local function eliminatePlayer(userId, reason)
 	local ps = activeRun.players[userId]
 	if not ps or not ps.alive then return end
 
+	pendingBadlandsCapture[userId] = nil -- unpicked capture is lost on elimination
+
 	ps.alive = false
 
 	-- Snapshot bag for results UI, then clear server bag (loss — same as design: lose everything)
@@ -1178,6 +1282,8 @@ local function expelPlayer(userId)
 	local ps = activeRun.players[userId]
 	if not ps or not ps.alive then return end
 
+	tryApplyPendingBeforeExtract(ps.player)
+
 	ps.alive = false
 	ps.extracting = false
 
@@ -1244,6 +1350,8 @@ local function extractPlayer(userId)
 	if not activeRun then return end
 	local ps = activeRun.players[userId]
 	if not ps or not ps.alive then return end
+
+	tryApplyPendingBeforeExtract(ps.player)
 
 	ps.alive = false
 	ps.extracting = false
@@ -1997,7 +2105,8 @@ end
 -- @param spawnRef BasePart|nil — HubArea.SpawnLocation when present
 -- @return CFrame
 local function buildBrokerSpawnCFrame(basePos, groundY, spawnRef)
-	local pos = Vector3.new(basePos.X, groundY, basePos.Z)
+	local yOfs = tonumber(GameConfig.BrokerNPCGroundOffsetStuds) or 0
+	local pos = Vector3.new(basePos.X, groundY + yOfs, basePos.Z)
 	local baseCF
 	if spawnRef and spawnRef:IsA("BasePart") then
 		-- Use horizontal facing only so a tilted SpawnLocation pad doesn't roll the NPC onto its face
@@ -2521,6 +2630,13 @@ function BadlandsSystem.Init(playerDataMgr, favCreatureSys, mountSys, creatureAI
 				local ok, msg = sacrificeCreatureFromBag(player, slotIndex, statChoice)
 				fireClient("BadlandsSacrificeResult", player, ok, msg or "")
 			end)
+		end
+
+		local captureResolveFn = eventsFolder:FindFirstChild("BadlandsCaptureResolve")
+		if captureResolveFn and captureResolveFn:IsA("RemoteFunction") then
+			captureResolveFn.OnServerInvoke = function(player, mode, replaceSlotIndex)
+				return resolvePendingBadlandsCapture(player, mode, replaceSlotIndex)
+			end
 		end
 
 		-- Extraction is handled by ProximityPrompt Triggered in startRun.

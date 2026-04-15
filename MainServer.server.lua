@@ -111,10 +111,15 @@ makeEvent("BadlandsZoneCollapse"); makeEvent("BadlandsPlayerKill"); makeEvent("B
 makeEvent("BadlandsXPGain"); makeEvent("BadlandsContractData"); makeEvent("BadlandsOfferCreature")
 makeEvent("BadlandsLootBagSpawned"); makeEvent("BadlandsLootBagLoot"); makeEvent("BadlandsLootBagUpdate")
 makeEvent("BadlandsSacrificeCreature"); makeEvent("BadlandsSacrificeResult")
+makeFunc("BadlandsCaptureResolve") -- client -> server: finalize pending Badlands capture (active / passive / replace / cancel)
 
 -- Arena Hub: Curator Trader (rotating Siegeling stock)
 makeEvent("ArenaTraderStock") -- server -> client: payload when opening UI or when stock rotates
 makeEvent("OpenSiegeMasterShop") -- server -> client: open siege provisions catalog
+makeEvent("OpenEleminionUI") -- server -> client: open elemental affinity quest UI
+makeEvent("EleminionStatusUpdated") -- server -> client: refreshed affinity and quest payload
+makeFunc("GetEleminionStatus")
+makeFunc("ClaimEleminionQuestReward")
 
 -- Shared notifications
 makeEvent("ShowNotification")
@@ -227,6 +232,7 @@ makeEvent("RebirthFailed")   -- server -> client: errorMessage
 local getIngredientBank = makeFunc("GetIngredientBank")
 makeEvent("IngredientBankChanged")
 local collectIngredient = makeEvent("CollectIngredient")
+makeEvent("IngredientPickupCollected") -- server -> client: worldPos, ingredientId, displayName (pickup FX + toast)
 local craftAtCampfire = makeFunc("CraftAtCampfire")
 local getCampfireRecipePattern = makeFunc("GetCampfireRecipePattern")
 local craftAtCampfireWithQuality = makeFunc("CraftAtCampfireWithQuality")
@@ -405,6 +411,17 @@ do
 	end
 end
 
+local EleminionSystem = nil
+do
+	local ok, result = pcall(function() return require(ServerScriptService.EleminionSystem) end)
+	if ok then
+		EleminionSystem = result
+		print("[MainServer] EleminionSystem require OK")
+	else
+		warn("[MainServer] EleminionSystem require FAILED: " .. tostring(result))
+	end
+end
+
 local DecorSystem = nil
 do
 	local ok, result = pcall(function() return require(ServerScriptService.DecorSystem) end)
@@ -560,6 +577,14 @@ if IngredientSpawnSystem then
 end
 if getIngredientBank then
 	getIngredientBank.OnServerInvoke = function(plr)
+		-- Brief wait: client can invoke before PlayerDataManager finishes caching the player (same frame as join).
+		local deadline = tick() + 5
+		while not PlayerDataManager.GetData(plr) and tick() < deadline do
+			task.wait(0.05)
+		end
+		if not PlayerDataManager.GetData(plr) then
+			return nil
+		end
 		return PlayerDataManager.GetIngredientBankSnapshot(plr)
 	end
 end
@@ -682,6 +707,12 @@ if SiegeMasterSystem then
 		SiegeMasterSystem.Init()
 	end)
 	if ok then print("[MainServer] SiegeMasterSystem OK") else warn("[MainServer] SiegeMasterSystem failed: " .. tostring(err)) end
+end
+if EleminionSystem then
+	local ok, err = pcall(function()
+		EleminionSystem.Init(PlayerDataManager)
+	end)
+	if ok then print("[MainServer] EleminionSystem OK") else warn("[MainServer] EleminionSystem failed: " .. tostring(err)) end
 end
 if DecorSystem then
 	local ok, err = pcall(function() DecorSystem.Init(PlayerDataManager) end)
@@ -1569,6 +1600,7 @@ end
 local openZoneDoorWithSigils = makeFunc("OpenZoneDoorWithSigils")
 openZoneDoorWithSigils.OnServerInvoke = function(plr, zoneId)
 	if not plr or not plr.Parent then return false, "Invalid player" end
+	if GameConfig.ZoneDoorsDisabled == true then return false, "Zone doors disabled" end
 	if type(zoneId) ~= "string" or zoneId == "" then return false, "Invalid zone" end
 	local ok = PlayerDataManager.SpendFourSigilsOpenDoor(plr, zoneId)
 	if ok then
@@ -1582,19 +1614,21 @@ end
 local unlockDoorWithKey = makeFunc("UnlockDoorWithKey")
 unlockDoorWithKey.OnServerInvoke = function(plr, zoneId)
 	if not plr or not plr.Parent then return false, "Invalid player" end
+	if GameConfig.ZoneDoorsDisabled == true then return false, "Zone doors disabled" end
 	if type(zoneId) ~= "string" or zoneId == "" then return false, "Invalid zone" end
-	local ok = PlayerDataManager.UnlockDoorWithKey(plr, zoneId)
+	local ok, err = PlayerDataManager.UnlockDoorWithKey(plr, zoneId)
 	if ok then
 		refreshZoneDoorCollision(plr)
 		return true
 	end
-	return false, "No key for this zone or door already unlocked"
+	return false, err or "Cannot open gate"
 end
 
 -- Zone doors: spend four inner boss Legendaries from inventory (uids) to open this gate for this player
 local spendLegendariesForZoneDoor = makeFunc("SpendLegendariesForZoneDoor")
 spendLegendariesForZoneDoor.OnServerInvoke = function(plr, zoneId, uids)
 	if not plr or not plr.Parent then return false, "Invalid player" end
+	if GameConfig.ZoneDoorsDisabled == true then return false, "Zone doors disabled" end
 	if type(zoneId) ~= "string" or zoneId == "" then return false, "Invalid zone" end
 	local ok, err = PlayerDataManager.SpendFourBossLegendariesOpenDoor(plr, zoneId, uids)
 	if ok then

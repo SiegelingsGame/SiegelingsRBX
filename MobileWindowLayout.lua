@@ -490,4 +490,47 @@ function MobileWindowLayout.NotifyMenuClosed()
 	MobileWindowLayout.SetHUDBarVisible(true)
 end
 
+--- Menu window titles on phone/tablet: center text with symmetric horizontal gutters so labels
+--- are not drawn under Roblox CoreGui (top-left). On desktop, restores the given layout.
+--- desktop: optional { Position, Size, TextXAlignment } (defaults captured from `label` if omitted).
+--- mobileLeftGutter / mobileRightGutter: pixels reserved for system UI and close buttons (defaults 44 / 50).
+--- Returns apply() — call whenever layout is reapplied (e.g. from BindViewportUpdate alongside ApplyWindow).
+function MobileWindowLayout.MenuHeaderTitleLayout(label, desktop)
+	if not label or not (label:IsA("TextLabel") or label:IsA("TextButton")) then
+		return function() end
+	end
+	desktop = desktop or {}
+	local save = {
+		Position = desktop.Position ~= nil and desktop.Position or label.Position,
+		Size = desktop.Size ~= nil and desktop.Size or label.Size,
+		TextXAlignment = desktop.TextXAlignment ~= nil and desktop.TextXAlignment or label.TextXAlignment,
+	}
+	local lg = desktop.mobileLeftGutter
+	if lg == nil then
+		lg = 44
+	end
+	local rg = desktop.mobileRightGutter
+	if rg == nil then
+		rg = 50
+	end
+
+	local function apply()
+		if not label.Parent then
+			return
+		end
+		if MobileWindowLayout.IsMobile() then
+			label.TextXAlignment = Enum.TextXAlignment.Center
+			label.Position = UDim2.new(0, lg, save.Position.Y.Scale, save.Position.Y.Offset)
+			label.Size = UDim2.new(1, -(lg + rg), save.Size.Y.Scale, save.Size.Y.Offset)
+		else
+			label.TextXAlignment = save.TextXAlignment
+			label.Position = save.Position
+			label.Size = save.Size
+		end
+	end
+
+	apply()
+	return apply
+end
+
 return MobileWindowLayout

@@ -56,6 +56,11 @@ title.TextXAlignment = Enum.TextXAlignment.Left
 title.TextColor3 = Color3.fromRGB(235, 240, 255)
 title.Text = "Shop"
 title.Parent = panel
+local applyShopHubTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(title, {
+	Position = UDim2.new(0, 14, 0, 8),
+	Size = UDim2.new(1, -56, 0, 36),
+	TextXAlignment = Enum.TextXAlignment.Left,
+})
 
 local subtitle = Instance.new("TextLabel")
 subtitle.Size = UDim2.new(1, -20, 0, 20)
@@ -67,6 +72,13 @@ subtitle.TextXAlignment = Enum.TextXAlignment.Left
 subtitle.TextColor3 = Color3.fromRGB(160, 170, 190)
 subtitle.Text = "Choose a sub-shop"
 subtitle.Parent = panel
+local applyShopHubSubtitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(subtitle, {
+	Position = UDim2.new(0, 14, 0, 40),
+	Size = UDim2.new(1, -20, 0, 20),
+	TextXAlignment = Enum.TextXAlignment.Left,
+	mobileLeftGutter = 36,
+	mobileRightGutter = 36,
+})
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 28, 0, 28)
@@ -124,6 +136,8 @@ local function applyResponsiveContentLayout()
 	buttonHolder.Size = mobile and UDim2.new(1, -20, 1, -84) or UDim2.new(1, -24, 1, -78)
 	buttonHolder.Position = mobile and UDim2.new(0, 10, 0, 70) or UDim2.new(0, 12, 0, 66)
 	list.Padding = mobile and UDim.new(0, 12) or UDim.new(0, 10)
+	applyShopHubTitleLayout()
+	applyShopHubSubtitleLayout()
 end
 
 local function makeOptionButton(label, color)

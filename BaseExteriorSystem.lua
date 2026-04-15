@@ -27,6 +27,7 @@
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
+local CollectionService = game:GetService("CollectionService")
 
 local GameConfig = nil
 pcall(function() GameConfig = require(ReplicatedStorage:WaitForChild("Modules", 5):WaitForChild("GameConfig", 5)) end)
@@ -415,14 +416,39 @@ local function isLeaderboardCosmeticPart(part)
 	return false
 end
 
+-- Siegelings on income/defense/battle slots are Models under the plot (see BasePlacementSystem.spawnBaseOrb).
+-- Their meshes often contain names like "Floor" / "Wall" / "Point" that match structural filters; never tint them.
+local BASE_SLOT_CREATURE_TAGS = {
+	BaseDefenseCreature = true,
+	BaseIncomeCreature = true,
+	BaseBattleCreature = true,
+}
+
+local function isDescendantOfBaseSlotCreature(part)
+	local p = part
+	while p and p ~= game do
+		if p:IsA("Model") then
+			for _, tag in ipairs(CollectionService:GetTags(p)) do
+				if BASE_SLOT_CREATURE_TAGS[tag] then
+					return true
+				end
+			end
+		end
+		p = p.Parent
+	end
+	return false
+end
+
 --- Parts that should never use exterior / base-color cosmetics (keep asset colors).
 local function shouldSkipCosmeticRecolor(part)
 	if not part or not part:IsA("BasePart") then return false end
 	if isLeaderboardCosmeticPart(part) then return true end
+	if isDescendantOfBaseSlotCreature(part) then return true end
 	local n = part.Name
 	local nl = string.lower(n)
 	if nl:find("teleport") or nl:find("teleporter") then return true end
 	if nl:match("tele$") then return true end -- e.g. ElectricTele, CaveTele
+	if nl:find("battlepointwall", 1, true) then return true end
 	if n == "MCombiner" or n == "Combiner" or n == "MRecycler" or n == "Recycler" then return true end
 	local anc = part.Parent
 	while anc do

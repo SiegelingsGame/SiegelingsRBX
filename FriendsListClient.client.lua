@@ -90,6 +90,11 @@ ppTitle.Font = Enum.Font.GothamBlack
 ppTitle.TextSize = 14
 ppTitle.TextXAlignment = Enum.TextXAlignment.Left
 ppTitle.Parent = profilePopup
+local applyFriendsProfileTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(ppTitle, {
+	Position = UDim2.new(0, 12, 0, 6),
+	Size = UDim2.new(1, -44, 0, 32),
+	TextXAlignment = Enum.TextXAlignment.Left,
+})
 
 local ppClose = Instance.new("TextButton")
 ppClose.Size = UDim2.new(0, 28, 0, 28)
@@ -419,6 +424,11 @@ tradeTitle.Font = Enum.Font.GothamBlack
 tradeTitle.TextSize = 14
 tradeTitle.TextXAlignment = Enum.TextXAlignment.Left
 tradeTitle.Parent = tradeUI
+local applyFriendsTradeTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(tradeTitle, {
+	Position = UDim2.new(0, 12, 0, 6),
+	Size = UDim2.new(1, -40, 0, 32),
+	TextXAlignment = Enum.TextXAlignment.Left,
+})
 
 local tradeClose = Instance.new("TextButton")
 tradeClose.Size = UDim2.new(0, 28, 0, 28)
@@ -591,6 +601,7 @@ local function applyTradeLayout()
 		theirOfferFrame.Size = UDim2.new(0.5, -14, 1, -178)
 		MobileWindowLayout.RestoreDesktopWindow(tradeUI, { draggable = true })
 	end
+	applyFriendsTradeTitleLayout()
 end
 
 local function setTradeVisible(v)
@@ -926,15 +937,15 @@ local function applyPanelScale(pnl)
 			MobileWindowLayout.GetNpcFullscreenBoundsConfig(PANEL_DESIGN_W, PANEL_DESIGN_H, { mobileDraggable = true })
 		)
 		pnl.Draggable = true
-		return
+	else
+		local scale = getPanelScale()
+		local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
+		pnl.Size = UDim2.new(0, w, 0, h)
+		pnl.Position = UDim2.new(0.5, -w/2, 0.5, -h/2)
+		sg.IgnoreGuiInset = false
+		MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
 	end
-
-	local scale = getPanelScale()
-	local w, h = PANEL_DESIGN_W * scale, PANEL_DESIGN_H * scale
-	pnl.Size = UDim2.new(0, w, 0, h)
-	pnl.Position = UDim2.new(0.5, -w/2, 0.5, -h/2)
-	sg.IgnoreGuiInset = false
-	MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
+	applyFriendsListTitleLayout()
 end
 
 -- ── FRIENDS PANEL (same sg as profile popup) ──
@@ -952,6 +963,11 @@ titleLbl.Size = UDim2.new(1, -50, 0, 38); titleLbl.Position = UDim2.new(0, 15, 0
 titleLbl.BackgroundTransparency = 1; titleLbl.Text = " Base Access List"
 titleLbl.TextColor3 = C.blue; titleLbl.Font = Enum.Font.GothamBlack; titleLbl.TextSize = 16
 titleLbl.TextXAlignment = Enum.TextXAlignment.Left; titleLbl.Parent = panel
+local applyFriendsListTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(titleLbl, {
+	Position = UDim2.new(0, 15, 0, 0),
+	Size = UDim2.new(1, -50, 0, 38),
+	TextXAlignment = Enum.TextXAlignment.Left,
+})
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 30, 0, 30); closeBtn.Position = UDim2.new(1, -36, 0, 4)
@@ -1168,6 +1184,9 @@ MobileWindowLayout.BindViewportUpdate(function()
 		applyResponsiveContentLayout()
 	else
 		sg.IgnoreGuiInset = false
+	end
+	if profilePopup.Visible then
+		applyFriendsProfileTitleLayout()
 	end
 end)
 

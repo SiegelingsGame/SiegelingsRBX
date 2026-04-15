@@ -224,7 +224,8 @@ local function buildSpawnCFrame()
 	local rayOrigin = Vector3.new(baseXZ.X, (spawnRef and spawnRef:IsA("BasePart") and spawnRef.Position.Y or baseXZ.Y) + 60, baseXZ.Z)
 	local rayResult = Workspace:Raycast(rayOrigin, Vector3.new(0, -220, 0))
 	local groundY = rayResult and rayResult.Position.Y or baseXZ.Y
-	local pos = Vector3.new(baseXZ.X, groundY + 2.5, baseXZ.Z)
+	local groundOfs = tonumber(cfg.GroundOffsetStuds) or 2.5
+	local pos = Vector3.new(baseXZ.X, groundY + groundOfs, baseXZ.Z)
 
 	local baseCF = CFrame.new(pos)
 	-- Match Broker rotation exactly when Broker exists (no custom trader look-at rotation).

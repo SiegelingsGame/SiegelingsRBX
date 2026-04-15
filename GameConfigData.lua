@@ -140,26 +140,17 @@ GameConfig.GameplayMusic = {
         DesertSky   = "Sieglings_DesertBiome",
         ElectricSky = "Sieglings_ElectricBiome",
         WaterSky    = "Sieglings_OceanBiome",
+        CaveSky     = "Sieglings_CaveBiome", -- fourth outer baseplate (Terrain.CaveBaseplate); same priority as other outer biomes
         -- ForestSky = "Sieglings_ForestBiome",  -- uncomment when track is added
-    },
-
-    -- Cave biome: positional override (not skybox-based).
-    -- Plays when the player is above CaveBaseplate within CaveVerticalRange studs.
-    -- Path: workspace.Terrain.CaveBaseplate
-    CaveBiome = {
-        TrackName      = "Sieglings_CaveBiome",
-        BaseplateParent = "Terrain",
-        BaseplateName   = "CaveBaseplate",
-        VerticalRange   = 700,  -- studs above the baseplate top surface
     },
 
     -- Main arena (workspace.Arena → BlueTeam/RedTeam BattlePoint*, optional ArenaCenter): battle theme within this radius (studs)
     -- Use ~half the arena width if music only triggers at the edges (default 80).
-    ArenaBattleMusicRadius = 80,
+    ArenaBattleMusicRadius = 50,
 
     -- Sky names from BiomeSkyboxClient outer baseplates. While CurrentSkyName matches one of these,
     -- that biome's music wins over ArenaBattleMusicRadius (so outer maps don't bleed arena BGM).
-    OuterBiomeSkies = { "DesertSky", "ElectricSky", "WaterSky" },
+    OuterBiomeSkies = { "DesertSky", "ElectricSky", "WaterSky", "CaveSky" },
 
     -- Volume & pacing
     Volume        = 0.80,   -- target volume for the active track
@@ -185,6 +176,7 @@ GameConfig.BiomeZone = {
 		{ path = { "Terrain", "DesertBaseplate" }, sky = "DesertSky" },
 		{ path = { "Terrain", "ElectricBaseplate" }, sky = "ElectricSky" },
 		{ path = { "Terrain", "OceanBaseplate" }, sky = "WaterSky" },
+		{ path = { "Terrain", "CaveBaseplate" }, sky = "CaveSky" },
 	},
 	HubParts = {
 		{ "HubArea", "HubGround" },
@@ -195,10 +187,6 @@ GameConfig.BiomeZone = {
 		{ from = "CaveRoad", to = "WetRoad", sky = "FireSky" },
 		{ from = "WetRoad", to = "DesertRoad", sky = "IceSky" },
 		{ from = "DesertRoad", to = "ElectricRoad", sky = "WindSky" },
-	},
-	Cave = {
-		BaseplatePath = { "Terrain", "CaveBaseplate" },
-		VerticalRange = 700,
 	},
 }
 
@@ -214,12 +202,16 @@ GameConfig.Cooking = {
 	CookNPC = {
 		TemplateName = "CookNPC",
 		InstanceName = "CookNPC",
-		-- World XZ offset from The Broker (studs). Curator/Siege use ±X; this uses +Z to sit with the hub group.
+		-- World XZ offset from The Broker (studs). Curator/Siege use ±X; this uses +Z to sit with the hub group..
 		OffsetFromBrokerStuds = Vector3.new(0, 0, 22),
 		FallbackOffsetFromSpawnStuds = Vector3.new(0, 0, 22),
 		OffsetFromArenaCenterStuds = Vector3.new(0, 0, 8),
+		-- Studs added above the downward raycast hit when placing the model (hub ground snap).
+		GroundOffsetStuds = 4.5,
 		ExtraRotationDegrees = { pitch = 90, yaw = 0, roll = 0 },
 		PromptObjectText = "Campfire Chef",
+		-- Shown on BillboardGui above the NPC (matches other hub NPCs like The Broker).
+		OverheadSubtitle = "Cooking & recipes",
 	},
 	MaxStackPerIngredientId = 999,
 	MaxTotalIngredientCount = 2500,
@@ -268,7 +260,7 @@ GameConfig.Cooking = {
 
 -- Spawning (SpawnPoints should stay full; common creatures prioritized)
 -- Reduced from 200 to 150 for performance (night bonus +100 still applies)
-GameConfig.MaxWorldCreatures   = 600
+GameConfig.MaxWorldCreatures   = 1000
 GameConfig.SpawnIntervalMin    = 0.5   -- faster spawns so SpawnPoints stay full
 GameConfig.SpawnIntervalMax    = 1.5
 GameConfig.SpawnsPerCycle      = 4     -- spawn this many per cycle when under 50% capacity (else 1-2)
@@ -347,7 +339,7 @@ GameConfig.DungeonSpawnRadius   = 250  -- distance from center to spawn dungeons
 GameConfig.ArenaPresenceBuff    = 0.10 -- +10% stats when owner stands on arena
 
 -- Arena / Battle
-GameConfig.ArenaRoundInterval  = 60
+GameConfig.ArenaRoundInterval  = 120
 GameConfig.MaxBattleTeamSize   = 9      -- total grid slots (3x3 layout)
 GameConfig.MaxBattleTeamCreatures = 5   -- max creatures allowed on team (enforced by AssignToBattle)
 GameConfig.MinBattleTeamSize   = 1
@@ -384,23 +376,23 @@ GameConfig.MobileMenuIgnoreLegacyMenuHeightTweaksWhenFilling = true
 -- WaterGym (OceanBiome): touch ArenaBase for [E] Summon Gym; requires battle team; pay entry fee; fight 5 high-level Water/Ice/Fire.
 
 GameConfig.WaterGymEntryFee       = 500   -- coins to challenge the gym leader
-GameConfig.WaterGymCreatureLevel  = 25    -- level of gym leader's squdad (high level)
+GameConfig.WaterGymCreatureLevel  = 20    -- level of gym leader's squdad (high level)
 GameConfig.WaterGymPromptRange    = 30    -- studs; ProximityPrompt on ArenaBase
 GameConfig.WaterGymWinReward      = 5000   -- coins if player wins
 GameConfig.WaterGymWinXP          = 75200    -- player XP on gym win
-GameConfig.WaterGymCooldown       = 120   -- seconds; per-player cooldown between gym challenges
+GameConfig.WaterGymCooldown       = 120   -- seconds; per-player cooldown between gym challengess.
 
 -- CaveGym (CaveBiome): Shadow (+ Earth) element squad
 GameConfig.CaveGymEntryFee       = 500
-GameConfig.CaveGymCreatureLevel   = 25
+GameConfig.CaveGymCreatureLevel   = 20
 GameConfig.CaveGymPromptRange    = 30
 GameConfig.CaveGymWinReward      = 5000
 GameConfig.CaveGymWinXP           = 200
 GameConfig.CaveGymCooldown        = 120
 
--- DesertGym (DesertBiome): Fire + Earth element squad
+-- DesertGym (DesertBiome): Fire + Earth element squad.
 GameConfig.DesertGymEntryFee      = 500
-GameConfig.DesertGymCreatureLevel = 25
+GameConfig.DesertGymCreatureLevel = 20
 GameConfig.DesertGymPromptRange   = 30
 GameConfig.DesertGymWinReward     = 5000
 GameConfig.DesertGymWinXP         = 200
@@ -408,13 +400,15 @@ GameConfig.DesertGymCooldown      = 120
 
 -- ElectricGym (ElectricBiome): Lightning element squad
 GameConfig.ElectricGymEntryFee       = 500
-GameConfig.ElectricGymCreatureLevel = 25
+GameConfig.ElectricGymCreatureLevel = 20
 GameConfig.ElectricGymPromptRange   = 30
 GameConfig.ElectricGymWinReward     = 5000
 GameConfig.ElectricGymWinXP         = 200
 GameConfig.ElectricGymCooldown      = 120
 
 -- Zone doors (Ocean, Desert, Electric, Cave): spend 4 inner boss Legendaries at the door to pass; gym keys / sigils still supported in data.
+-- When true: no prompts / unlock UI / remotes; gate parts are made non-collidable so biomes stay walk-through.
+GameConfig.ZoneDoorsDisabled      = false
 GameConfig.ZoneDoorZoneIds        = { "Ocean", "Desert", "Electric", "Cave" }
 GameConfig.ZoneDoorBiomeFolders   = { Ocean = "OceanBiome", Desert = "DesertBiome", Electric = "ElectricBiome", Cave = "CaveBiome" }
 -- First match under workspace.Biomes wins. Include common alternates so gates work if the folder isn't the canonical name.
@@ -430,47 +424,50 @@ GameConfig.ZoneDoorPartNames      = { "ZoneDoor", "ZoneDoorTrigger", "GateTrigge
 GameConfig.ZoneDoorPromptRange    = 28
 -- Extra screen-space offset for the prompt UI (pixels). Use if the anchor is still slightly high/low.
 GameConfig.ZoneDoorPromptUIOffset = Vector2.new(0, 12)
--- Zone door modal (ZoneDoorBoardClient): leave empty for a minimal, gameplay-first UI (sigil tutorial lives in Profile / Codex).
+-- Client: each frame, move the prompt anchor to the door surface point closest to the local player (best for wide colliders).
+GameConfig.ZoneDoorPromptTrackClosestToPlayer = true
+-- Zone door modal (ZoneDoorBoardClient): leave empty for a minimal, gameplay-first UI (sigil tutorial lives in Profile / Codex).s
 GameConfig.ZoneDoorModalSigilsHint = ""
 GameConfig.ZoneDoorModalGateLines = {}
 GameConfig.ZoneDoorProgressionBlurb = ""
--- Per-gate flavor: inviting + challenging; Knight base rental + Gym; tagline = short world billboard.
--- Dual-element lines should match CreatureData.OuterBiomePrimarySecondary (primary + secondary per biome folder)..
+-- After the first exterior gate is open, other gates use an Arena Pass from the Gym in the furthest-open zone (see ZoneDoorZoneIds order)..
+GameConfig.ZoneDoorArenaPassFlavor = "Further exterior gates need an Arena Pass from your latest unlocked biome — win at that zone's Gym to earn one. Passes are spent when you open the next gate."
+-- Per-gate copy for zone-door modal (tagline + features + gym). Keep features to plain zone mechanics.
 GameConfig.ZoneDoorZonePitch = {
 	Ocean = {
 		tagline = "Swimming · underwater exploration",
-		intro = "Sapphire shallows and pressure-dark trenches — the Ocean exterior tempts knights who want more than dry land.",
-		features = "Swim across open water, slip beneath the surface for hidden routes, and chase glimmers in the blue. Currents, breath, and depth are the run — and the wipe timer. The League routes most threats along the surf line and the trench highways (Water), but the reef-haunts and bilge-veins cough up something meaner: Poison lines that punish greedy swaps. Draft for pressure on both lanes or get outscaled.",
-		knightBase = "", -- modal uses tagline only; keep for optional future tooltips
-		gym = "Ocean Gym: earn your stripes against the League's tide-callers — a proper baptism before you claim the coast.",
-		closing = "Come for the swim; stay for what the tide won't show on the map.",
+		intro = "Ocean exterior: open water and underwater routes.",
+		features = "Swim on the surface and dive underwater. Manage breath, follow currents, and use depth to reach hidden paths and pickups.",
+		knightBase = "",
+		gym = "Ocean Gym — defeat the Gym Leader to earn a Biome Pass toward other exterior zones.",
+		closing = "",
 	},
 	Desert = {
 		tagline = "Sandstorms · hidden secrets",
-		intro = "Heat-shimmer horizons and buried roads — the Desert exterior dares you to read the dunes.",
-		features = "Ride the gusts, weather sandstorms that hide and reveal paths, and comb the wastes for secrets tucked under red stone. Nothing here is given; everything feels earned. Out here the roster meta forks hard: Psychic picks stalk the sun-bleached caravan routes (reads, stalls, mind games), while Undead heat haunts the bone-wind hollows where HP trades get ugly fast. Respect both drafts or the dunes eat your opener.",
+		intro = "Desert exterior: open dunes and landmarks.",
+		features = "Cross open sand, push through sandstorms that change visibility and paths, and explore ruins and points of interest for loot.",
 		knightBase = "",
-		gym = "Desert Gym: step into the arena where mirage meets muscle — prove your roster can stand when the sand won't stay still.",
-		closing = "Treasure likes to bury itself. Bring a team worth digging for.",
+		gym = "Desert Gym — win here for a Biome Pass and to unlock progress toward other gates.",
+		closing = "",
 	},
 	Electric = {
 		tagline = "Electro hazards · downtown streets",
-		intro = "Neon cities and live wires — the City exterior hums with voltage and ambition.",
-		features = "Navigate Electro Ball hazards threading the downtown blocks, chase rooftop sightlines, and treat every crossing like a duel with the skyline. Bright, loud, and unforgiving if you stop paying attention. The city’s frontline is pure Lightning tempo — burst windows, frame-perfect trades — while the halo alleys and prism strips favor Light builds that punish blind aggression. Learn the map’s two rhythms or you feed the skyline.",
+		intro = "City exterior: streets, hazards, and vertical space.",
+		features = "Move through city blocks, avoid electro hazards, and use streets and rooftops to navigate fights and objectives.",
 		knightBase = "",
-		gym = "City Gym: the circuit-breaker bout — fast trades, bright bursts, and the League's test for whoever wants to own the night.",
-		closing = "The city doesn't sleep; neither should your strategy.",
+		gym = "City Gym — clear it for a Biome Pass and the League's urban trial.",
+		closing = "",
 	},
 	Cave = {
 		tagline = "Dark caves · deep exploration",
-		intro = "Echoing halls and throat-tight tunnels — the Cave exterior rewards lantern courage and map memory.",
-		features = "Pick through dark passages, pry open side chambers, and trust your ears as much as your eyes. What glitters down here often has teeth. The deep throat is Shadow country — ambush tempo, vanish pressure — but listen for the forge-song: Metal Siegelings claim the iron galleries and chokepoints where one bad resist check ends the run. Bring answers for glass cannons and for plate, or don’t dive.",
+		intro = "Cave exterior: branching tunnels and dark passages.",
+		features = "Explore winding tunnels and side chambers with limited light. Learn the layout, watch for ambushes, and push deeper for rewards.",
 		knightBase = "",
-		gym = "Cave Gym: descend into the League trial where shadow types and tight arenas punish sloppy picks.",
-		closing = "Not every echo answers back. Go find which ones do.",
+		gym = "Cave Gym — beat the leader in tight arenas to earn your Biome Pass.",
+		closing = "",
 	},
 }
--- Header gradient (top, bottom) per exterior zone — thematic flare
+-- Header gradient (top, bottom) per exterior zone — thematic flared.
 GameConfig.ZoneDoorGateAccent = {
 	Ocean = { top = Color3.fromRGB(55, 145, 255), bottom = Color3.fromRGB(18, 55, 120) },
 	Desert = { top = Color3.fromRGB(255, 150, 70), bottom = Color3.fromRGB(140, 55, 25) },
@@ -499,7 +496,7 @@ GameConfig.ZoneDoorTag = {
 }
 -- Gym names shown on zone-door boards (match *GymSystem / WaterGymBattleSystem configs).
 GameConfig.ZoneDoorGymNames = {
-	Ocean = "Ocean Gym",
+	Ocean = "Water Gym",
 	Desert = "Desert Gym",
 	Electric = "City Gym",
 	Cave = "Cave Gym",
@@ -555,7 +552,7 @@ GameConfig.AI_PlayerDamage     = 5      -- damage creatures deal to player compa
 GameConfig.AI_CreatureDamage   = 8      -- damage creatures deal to other creatures
 GameConfig.AI_CreatureProjectileSpeed = 80  -- projectile studs/sec when creatures attack
 
--- Stealing (player E-interact, carry to base; creature walks back to owner if carrier dies)
+-- Stealing (player E-interact, carry to base; creature walks back to owner if carrier dies).
 GameConfig.StealCarrySpeed      = 0.5     -- movement speed multiplier while carrying
 GameConfig.StealHomeRadius      = 30      -- how close to your plot center to "deliver"
 GameConfig.StealInteractRange   = 12     -- range for E to interact and pick up fainted base creature
@@ -859,6 +856,8 @@ GameConfig.BadlandsSpawnShieldDuration  = 30    -- seconds of PvP immunity on en
 -- Broker NPC (Arena Hub): optional extra rotation (degrees) applied after spawn placement.
 -- Use if the mesh still appears flipped after fixing PrimaryPart in Studio (e.g. pitch = -90).
 GameConfig.BrokerNPCExtraRotationDegrees = { pitch = 90, yaw = 0, roll = 0 }
+-- Studs added above downward raycast ground Y before PivotTo (0 = pivot at hit surface).
+GameConfig.BrokerNPCGroundOffsetStuds = 0
 
 -- Arena Hub: Curator Trader — sells six rotating Siegelings (2 Common, 1 Uncommon, 1 Rare, 1 Epic, 1 Legendary).
 -- Priced above egg tiers; each slot can be bought with coins or diamonds (gems).
@@ -867,6 +866,8 @@ GameConfig.ArenaTrader = {
 	StockRefreshSeconds = 6 * 3600, -- full rotation (seconds)
 	-- Horizontal offset from The Broker (studs); Y is resolved with a downward raycast.
 	OffsetFromBrokerStuds = Vector3.new(-26, 0, 0),
+	-- Studs added above the raycast hit when placing TraderNPC (matches Cook / Siege Master tuning).
+	GroundOffsetStuds = 2.5,
 	-- If BrokerNPC is missing, place using HubArea.SpawnLocation + this offset instead.
 	FallbackOffsetFromSpawnStuds = Vector3.new(-26, 0, 16),
 	-- Optional extra rotation for TraderNPC after placement (degrees).
@@ -886,10 +887,12 @@ GameConfig.ArenaTrader = {
 GameConfig.SiegeMasterEnabled = true
 GameConfig.SiegeMaster = {
 	OffsetFromArenaCenterStuds = Vector3.new(-22, 0, -8),
+	-- Studs added above the raycast hit when placing SiegeMasterNPC.
+	GroundOffsetStuds = 4.2,
 	-- Same pitch=90 pattern as Curator / Broker NPC mesh upright (model imports lying flat).
 	ExtraRotationDegrees = { pitch = 90, yaw = 0, roll = 0 },
 	PromptRange = 12,
-	PurchaseRange = 22, -- must be this close to buy siege-only items
+	PurchaseRange = 22, -- must be this close to buy siege-only items.
 }
 
 -- Badlands: Bag

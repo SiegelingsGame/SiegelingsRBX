@@ -28,6 +28,12 @@ A Roblox creature-collection and base-defense game. Players capture creatures in
 - **Remotes:** ReplicatedStorage/Events — created by MainServer; clients use these to call server and receive updates.
 - **Client scripts:** StarterPlayerScripts (LocalScripts) — HUD, capture, inventory/UI, combat, shops, friends, leaderboard, etc.
 
+### Rojo (file sync to Studio)
+
+- **Project:** `default.project.json` at the repo root defines the DataModel tree for [Rojo](https://github.com/rojo-rbx/rojo).
+- **Ingredients menu:** `IngredientsMenuClient.client.lua` syncs to `StarterPlayer.StarterPlayerScripts.IngredientsMenuClient` (LocalScript). Edit the file on disk, save, and Studio updates after you connect Rojo.
+- **Run:** From the repo root, `rojo serve` (install the CLI via `aftman.toml`, or use your own Rojo install). In Roblox Studio, use the Rojo plugin and connect to the default local server so changes apply without manual paste.
+
 **Initialization order (server):**  
 `PlayerDataManager.Init()` → `CreatureAI.Init(LaserDoorSystem)` → `CreatureSpawner.Init(CreatureAI)` → then Capture, Raid, Trade, BasePlacement, FavoriteCreature, Arena, Leaderboard, PvP, AIRaid, Dungeon, WorldCreatureHP, PlayerCombat, BuffShop, Cosmetic, EggShop, LaserDoor, EvolutionCombine, **CombinerRecyclerSystem**; finally `BaseIncomeSystem` (or inline income loop).
 

@@ -148,6 +148,11 @@ titleLabel.Font = Enum.Font.GothamBlack
 titleLabel.TextSize = 18
 titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 titleLabel.Parent = titleBar
+local applyLeaderboardTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(titleLabel, {
+	Position = UDim2.new(0, 14, 0, 0),
+	Size = UDim2.new(1, -50, 1, 0),
+	TextXAlignment = Enum.TextXAlignment.Left,
+})
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 30, 0, 30)
@@ -228,6 +233,7 @@ local function applyResponsiveContentLayout()
 		btn.TextSize = mobile and 14 or 13
 	end
 	myRankLabel.TextSize = mobile and 13 or 12
+	applyLeaderboardTitleLayout()
 end
 
 -- Build tab buttons

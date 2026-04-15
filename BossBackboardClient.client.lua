@@ -96,6 +96,11 @@ title.Font = Enum.Font.GothamBold
 title.TextSize = 14
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = header
+local applyBossBackboardTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(title, {
+	Position = UDim2.new(0, 16, 0, 0),
+	Size = UDim2.new(1, -50, 1, 0),
+	TextXAlignment = Enum.TextXAlignment.Left,
+})
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 32, 0, 32)
@@ -350,6 +355,7 @@ local function toggle()
 			closeBtn.TextSize = 14
 			MobileWindowLayout.RestoreDesktopWindow(main, { draggable = true })
 		end
+		applyBossBackboardTitleLayout()
 		refreshBackboard()
 	else
 		MobileWindowLayout.NotifyMenuClosed()
@@ -404,5 +410,6 @@ MobileWindowLayout.BindViewportUpdate(function()
 			closeBtn.TextSize = 14
 			MobileWindowLayout.RestoreDesktopWindow(main, { draggable = true })
 		end
+		applyBossBackboardTitleLayout()
 	end
 end)

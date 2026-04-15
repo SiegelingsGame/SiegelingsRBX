@@ -39,6 +39,11 @@
 		"dungeon"       = Spawns at DungeonPoints (harder encounters)
 		"boss"          = Spawns at BossPoints (one legendary per biome; outer dual biomes also use BossPoint2)
 
+	NPC-ONLY CREATURES:
+		npcOnly = true     = Creature is reserved for systems like Eleminions and is excluded from
+		                     wild spawns, capture reward pools, eggs, and trader rolls.
+		creatureRole = "Eleminion" = Optional role tag for special NPC-only creatures.
+
 	FLYING (flying field):
 		true = Creature hovers at player height (FlyingHoverHeight) above ground
 		omit = Creature walks on ground, bottom of model on surface
@@ -551,13 +556,6 @@ CreatureData.Creatures = {
 		crawling = true,
 	},
 	{
-		id = "hotty", displayName = "Hotty", rarity = "Uncommon",
-		element = "Fire", class = "Support", behavior = "pack",
-		spawnWeight = 9, baseIncome = 3, captureTime = 1.0, packSize = {2, 3},
-		description = "Hotty's are helpers of the Fire Eleminion",
-		modelName = "Hotty", primaryColor = Color3.fromRGB(255, 160, 80),
-	},
-	{
 		id = "emberfin", displayName = "Emberfin", rarity = "Uncommon",
 		element = "Fire", class = "Assassin", behavior = "aggressive",
 		spawnWeight = 8, baseIncome = 3, captureTime = 1.2,
@@ -583,7 +581,7 @@ CreatureData.Creatures = {
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
 		description = "A majestic stag with antlers of living flame. It heals allies as it runs, but catching it requires persistence.",
 		modelName = "Cindergil", primaryColor = Color3.fromRGB(255, 180, 60),
-		mountable = true, mountOffset = {0, 3, -1.5}, mountScale = 2.0,
+		mountable = true, mountOffset = {0, 3, -1.5}, mountScale = 2.0,modelDisplaySize = 6.0,modelScaleMultiplier = 1.5,
 	},
 	{
 		id = "hotdog", displayName = "Hotdog", rarity = "Rare",
@@ -673,14 +671,6 @@ CreatureData.Creatures = {
 	},
 
 	-- Ice Uncommon (4)
-	{
-		id = "frosty", displayName = "Frosty", rarity = "Uncommon",
-		element = "Ice", class = "Mage", behavior = "lone",
-		spawnWeight = 10, baseIncome = 3, captureTime = 1.0,
-		description = "A ghostly wisp wrapped in a permanent chill. Patrols alone.",
-		modelName = "Frosty", primaryColor = Color3.fromRGB(140, 210, 255),
-
-	},
 	{
 		id = "chilldoe", displayName = "Chilldoe", rarity = "Uncommon",
 		element = "Ice", class = "Bruiser", behavior = "aggressive",
@@ -781,13 +771,6 @@ CreatureData.Creatures = {
 	},
 
 	-- Wind Uncommon (4)
-	{
-		id = "lofty", displayName = "Lofty", rarity = "Uncommon",
-		element = "Wind", class = "Assassin", behavior = "lone",
-		spawnWeight = 10, baseIncome = 3, captureTime = 1.0,
-		description = "A sleek predator that strikes from sudden gusts. Solitary hunter.",
-		modelName = "Lofty", primaryColor = Color3.fromRGB(170, 240, 200),
-	},
 	{
 		id = "gagglestand", displayName = "Gagglestand", rarity = "Uncommon",
 		element = "Wind", class = "Support", behavior = "gentle",
@@ -936,13 +919,6 @@ CreatureData.Creatures = {
 		description = "An ancient stone golem draped in living moss. A true gentle giant.",
 		modelName = "Jackedty", primaryColor = Color3.fromRGB(100, 160, 80),
 		evolvesFrom = "cacty", evolvesTo = "cactyjackedty",modelDisplaySize = 3.0,modelScaleMultiplier = 2.0,
-	},
-	{
-		id = "mossy", displayName = "Mossy", rarity = "Uncommon",
-		element = "Earth", class = "Bruiser", behavior = "gentle",
-		spawnWeight = 9, baseIncome = 3, captureTime = 1.0,
-		description = "A bearlike creature with fists of solid granite. It charges anything that enters its territory.",
-		modelName = "Mossy", primaryColor = Color3.fromRGB(150, 130, 100),
 	},
 	{
 		id = "floraknight", displayName = "Flora Knight", rarity = "Uncommon",
@@ -1905,6 +1881,21 @@ function CreatureData.CreatureHasModel(creature)
 	return mf and (mf:FindFirstChild(creature.modelName) or (creature.displayName and mf:FindFirstChild(creature.displayName)))
 end
 
+function CreatureData.IsNpcOnly(creature)
+	local info = type(creature) == "string" and CreatureData.GetById(creature) or creature
+	return info and info.npcOnly == true or false
+end
+
+function CreatureData.IsEleminion(creature)
+	local info = type(creature) == "string" and CreatureData.GetById(creature) or creature
+	return info and info.creatureRole == "Eleminion" or false
+end
+
+function CreatureData.IsObtainableCreature(creature)
+	local info = type(creature) == "string" and CreatureData.GetById(creature) or creature
+	return info ~= nil and info.npcOnly ~= true
+end
+
 -- Pick a random creature for regular SpawnPoints (weighted by spawnWeight).
 -- preferCommon: when true, Common/Uncommon get 3x weight so SpawnPoints stay abundant with common monsters
 -- onlyWithModels: when true, only consider creatures that have models in CreatureModels
@@ -1913,7 +1904,7 @@ function CreatureData.GetRandomCreatureId(onlyWithModels, preferCommon)
 	local totalWeight = 0
 	local weights = {}
 	for _, creature in ipairs(CreatureData.Creatures) do
-		if not creature.spawnPointType then
+		if creature.npcOnly ~= true and not creature.spawnPointType then
 			if not onlyWithModels or CreatureData.CreatureHasModel(creature) then
 				local w = creature.spawnWeight or 10
 				if preferCommon then
@@ -1928,20 +1919,20 @@ function CreatureData.GetRandomCreatureId(onlyWithModels, preferCommon)
 	end
 	if totalWeight <= 0 then
 		for _, creature in ipairs(CreatureData.Creatures) do
-			if not creature.spawnPointType then return creature.id end
+			if creature.npcOnly ~= true and not creature.spawnPointType then return creature.id end
 		end
 		return CreatureData.Creatures[1].id
 	end
 	local roll = math.random() * totalWeight
 	local cumulative = 0
 	for _, creature in ipairs(CreatureData.Creatures) do
-		if not creature.spawnPointType and (not onlyWithModels or CreatureData.CreatureHasModel(creature)) then
+		if creature.npcOnly ~= true and not creature.spawnPointType and (not onlyWithModels or CreatureData.CreatureHasModel(creature)) then
 			cumulative = cumulative + (weights[creature] or creature.spawnWeight)
 			if roll <= cumulative then return creature.id end
 		end
 	end
 	for _, creature in ipairs(CreatureData.Creatures) do
-		if not creature.spawnPointType and (not onlyWithModels or CreatureData.CreatureHasModel(creature)) then
+		if creature.npcOnly ~= true and not creature.spawnPointType and (not onlyWithModels or CreatureData.CreatureHasModel(creature)) then
 			return creature.id
 		end
 	end
@@ -1960,7 +1951,7 @@ function CreatureData.GetDungeonCreatureId(element, onlyWithModels)
 	local totalWeight = 0
 
 	for _, creature in ipairs(CreatureData.Creatures) do
-		if creature.element == element then
+		if creature.npcOnly ~= true and creature.element == element then
 			local isDungeonType = (creature.spawnPointType == "dungeon")
 			local rarityRank = CreatureData.RarityOrder[creature.rarity] or 0
 			local isRareOrHigher = rarityRank >= CreatureData.RarityOrder["Rare"]
@@ -1992,6 +1983,7 @@ end
 function CreatureData.GetBossCreatureId(element, onlyWithModels)
 	for _, creature in ipairs(CreatureData.Creatures) do
 		if creature.element == element
+			and creature.npcOnly ~= true
 			and creature.rarity == "Legendary"
 			and creature.spawnPointType == "boss" then
 			if not onlyWithModels or CreatureData.CreatureHasModel(creature) then
@@ -2006,10 +1998,10 @@ end
 -- Get all creatures of a specific element.
 -- Useful for event systems that spawn creatures in foreign biomes.
 -- Returns: array of creature tables
-function CreatureData.GetCreaturesByElement(element)
+function CreatureData.GetCreaturesByElement(element, includeNpcOnly)
 	local result = {}
 	for _, creature in ipairs(CreatureData.Creatures) do
-		if creature.element == element then
+		if creature.element == element and (includeNpcOnly == true or creature.npcOnly ~= true) then
 			table.insert(result, creature)
 		end
 	end
@@ -2018,10 +2010,10 @@ end
 
 -- Get all creatures of a specific rarity.
 -- Returns: array of creature tables
-function CreatureData.GetCreaturesByRarity(rarity)
+function CreatureData.GetCreaturesByRarity(rarity, includeNpcOnly)
 	local result = {}
 	for _, creature in ipairs(CreatureData.Creatures) do
-		if creature.rarity == rarity then
+		if creature.rarity == rarity and (includeNpcOnly == true or creature.npcOnly ~= true) then
 			table.insert(result, creature)
 		end
 	end

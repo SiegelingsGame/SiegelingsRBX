@@ -126,14 +126,24 @@ local function getBattlePointMap(plotModel)
 	return map
 end
 
--- Set BattlePoint part colors: black neon when team inactive, green neon when active
+-- Set BattlePoint + BattlePointWall parts (Floor2/BattleTeam): ForceField, transparency 0.
+-- Inactive team: black; active team: white.
 local function setBattlePointColors(plotModel, battleTeamActive)
-	local battlePointMap = getBattlePointMap(plotModel)
-	local color = battleTeamActive and Color3.fromRGB(0, 255, 80) or Color3.fromRGB(15, 15, 15)  -- green neon / black neon
-	for _, part in pairs(battlePointMap) do
-		if part and part:IsA("BasePart") then
-			part.Color = color
-			part.Material = Enum.Material.Neon
+	local color = battleTeamActive and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(0, 0, 0)
+	local floor2 = plotModel:FindFirstChild("Floor2")
+	if not floor2 then return end
+	local battleTeam = floor2:FindFirstChild("BattleTeam")
+	if not battleTeam then return end
+	for _, desc in ipairs(battleTeam:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			local nl = desc.Name:lower()
+			local isBattlePoint = desc.Name:match("^BattlePoint%d+$")
+			local isBattlePointWall = nl:find("battlepointwall", 1, true)
+			if isBattlePoint or isBattlePointWall then
+				desc.Color = color
+				desc.Material = Enum.Material.ForceField
+				desc.Transparency = 0
+			end
 		end
 	end
 end
@@ -170,7 +180,6 @@ local function setPlotInhabitedIsGlassPart(part)
 	if n:find("window") then return true end
 	if n:find("pane") then return true end
 	if n:find("panel") and not n:find("defense") and not n:find("income") and not n:find("battle") then return true end
-	if n:find("battlepointwall") then return true end
 	return false
 end
 
@@ -746,7 +755,6 @@ local function isGlassPart(part)
 	if nameLower:find("window") then return true end
 	if nameLower:find("pane") then return true end
 	if nameLower:find("panel") and not nameLower:find("defense") and not nameLower:find("income") and not nameLower:find("battle") then return true end
-	if nameLower:find("battlepointwall") then return true end
 	return false
 end
 
@@ -778,16 +786,8 @@ local function setFloorVisibility(plotModel, floorNum, visible)
 			if isGlass then glassCount = glassCount + 1 end
 			if visible then
 				if isGlass then
-					-- BattlePointWalls on Floor 2: always 100% transparent
-					local nameLower = desc.Name:lower()
-					local isBattlePointWall = floorNum == 2 and nameLower:find("battlepointwall")
-					local transparency
-					if isBattlePointWall then
-						transparency = 1
-					else
-						local custom = desc:GetAttribute("GlassTransparency")
-						transparency = (type(custom) == "number" and math.clamp(custom, 0, 1)) or GLASS_TRANSPARENCY_VISIBLE
-					end
+					local custom = desc:GetAttribute("GlassTransparency")
+					local transparency = (type(custom) == "number" and math.clamp(custom, 0, 1)) or GLASS_TRANSPARENCY_VISIBLE
 					desc.Transparency = transparency
 					desc.Material = Enum.Material.Glass  -- so Roblox renders actual transparent glass
 				else
@@ -1267,7 +1267,7 @@ function BasePlacementSystem.PlaceCreatures(player)
 			end
 		end
 	end
-	-- BattlePoint colors: green neon when team active, black neon when inactive (only when Floor 2 owned)
+	-- BattlePoint / BattlePointWall: ForceField white when team active, black when inactive (Floor 2 owned)
 	if ownsBattle then
 		setBattlePointColors(plotModel, data.battleTeamEnabled ~= false)
 	end

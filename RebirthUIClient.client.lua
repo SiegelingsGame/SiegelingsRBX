@@ -99,6 +99,11 @@ title.Font = Enum.Font.GothamBlack
 title.TextSize = 17
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = hdr
+local applyRebirthTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(title, {
+	Position = UDim2.new(0, 18, 0, 0),
+	Size = UDim2.new(1, -50, 1, 0),
+	TextXAlignment = Enum.TextXAlignment.Left,
+})
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 30, 0, 30)
@@ -388,6 +393,7 @@ local function applyMainLayout()
 		closeBtn.TextSize = 16
 		confirmBox.Size = UDim2.new(1, -24, 0, 220)
 		confirmBox.Position = UDim2.new(0, 12, 0.5, -110)
+		applyRebirthTitleLayout()
 		return
 	end
 
@@ -403,6 +409,7 @@ local function applyMainLayout()
 	confirmBox.Size = UDim2.new(0, 320, 0, 200)
 	confirmBox.Position = UDim2.new(0.5, -160, 0.5, -100)
 	MobileWindowLayout.RestoreDesktopWindow(main, { draggable = true })
+	applyRebirthTitleLayout()
 end
 
 local function openUI()

@@ -12,6 +12,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
 local Notify = require(ReplicatedStorage.Modules.NotificationManager)
+local MobileWindowLayout = require(ReplicatedStorage.Modules:WaitForChild("MobileWindowLayout"))
 
 local LOG = "[CombinerRecyclerClient]"
 
@@ -106,6 +107,11 @@ local function buildPanel(name, titleText, actionText, onAction, validateSelecti
 	title.TextSize = 16
 	title.TextXAlignment = Enum.TextXAlignment.Left
 	title.Parent = frame
+	local applyCombinerTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(title, {
+		Position = UDim2.new(0, 12, 0, 8),
+		Size = UDim2.new(1, -80, 0, 36),
+		TextXAlignment = Enum.TextXAlignment.Left,
+	})
 
 	local closeBtn = Instance.new("TextButton")
 	closeBtn.Size = UDim2.new(0, 56, 0, 28)
@@ -382,17 +388,19 @@ local function buildPanel(name, titleText, actionText, onAction, validateSelecti
 	end)
 
 	-- Don't attach refreshList to frame (Roblox Instances can't store arbitrary functions)
-	return frame, refreshList
+	return frame, refreshList, applyCombinerTitleLayout
 end
 
 -- Combine panel: 3 same id + same variant
 local combinePanel = nil
 local combineRefreshList = nil
+local combineTitleLayout = nil
 local recyclePanel = nil
 local recycleRefreshList = nil
+local recycleTitleLayout = nil
 
 if openCombiner and combineCreatures and combineResult then
-	combinePanel, combineRefreshList = buildPanel(
+	combinePanel, combineRefreshList, combineTitleLayout = buildPanel(
 		"CombinePanel",
 		"Combiner — 3 same creature + variant → 1 next tier",
 		"Combine (3 selected)",
@@ -450,7 +458,7 @@ end
 -- Recycler panel: 3+ same creature → 1 tier higher
 if openRecycler and recycleDuplicates and recycleResult then
 	local minRecycle = GameConfig.RecyclerDuplicateCount or 3
-	recyclePanel, recycleRefreshList = buildPanel(
+	recyclePanel, recycleRefreshList, recycleTitleLayout = buildPanel(
 		"RecyclerPanel",
 		"Recycler — " .. minRecycle .. "+ same creature → 1 rarity tier higher",
 		"Recycle for higher-tier creature",
@@ -504,5 +512,14 @@ if openRecycler and recycleDuplicates and recycleResult then
 		end
 	end)
 end
+
+MobileWindowLayout.BindViewportUpdate(function()
+	if combinePanel and combinePanel.Visible and combineTitleLayout then
+		combineTitleLayout()
+	end
+	if recyclePanel and recyclePanel.Visible and recycleTitleLayout then
+		recycleTitleLayout()
+	end
+end)
 
 print("[CombinerRecyclerClient] Loaded (MCombiner / MRecycler UI)")

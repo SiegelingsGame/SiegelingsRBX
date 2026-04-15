@@ -1,23 +1,31 @@
 -- ZoneDoorBoardClient.client.lua
--- World tag on each ZoneDoor + modal: spend 4 inner boss Legendaries to open this gate (player-only pass-through).
+-- World tag on each ZoneDoor + modal: first exterior gate — 4 inner boss Legendaries; further gates — Arena Pass from latest unlocked biome's Gym.
 
 local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
 local GameConfig = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("GameConfig"))
+if GameConfig.ZoneDoorsDisabled == true then
+	return
+end
 local CreatureData = require(ReplicatedStorage.Modules:WaitForChild("CreatureData"))
+local MobileWindowLayout = require(ReplicatedStorage.Modules:WaitForChild("MobileWindowLayout"))
 
 local Events = ReplicatedStorage:WaitForChild("Events", 20)
 if not Events then return end
 
 local getInventory = Events:WaitForChild("GetInventory", 60)
 local spendLegendariesForZoneDoor = Events:FindFirstChild("SpendLegendariesForZoneDoor")
+local unlockDoorWithKey = Events:FindFirstChild("UnlockDoorWithKey")
 local sigilEarned = Events:FindFirstChild("SigilEarned")
+local ZONE_IDS = GameConfig.ZoneDoorZoneIds or { "Ocean", "Desert", "Electric", "Cave" }
+local GYM_NAMES = GameConfig.ZoneDoorGymNames or {}
 
 local INFO = GameConfig.ZoneDoorInfoBoard or {}
 local TAG = GameConfig.ZoneDoorTag or {}
@@ -65,6 +73,30 @@ local function zoneDisplayName(zoneId)
 	return ZONE_TITLES[zoneId] or zoneId
 end
 
+local function getLastUnlockedExteriorZoneFromData(data)
+	if not data or not data.doorsUnlocked then
+		return nil
+	end
+	local last = nil
+	for _, zid in ipairs(ZONE_IDS) do
+		if truthy(data.doorsUnlocked[zid]) then
+			last = zid
+		end
+	end
+	return last
+end
+
+local function gymNameForZone(zoneId)
+	if not zoneId then
+		return "Gym"
+	end
+	local n = GYM_NAMES[zoneId]
+	if type(n) == "string" and #n > 0 then
+		return n
+	end
+	return zoneDisplayName(zoneId) .. " Gym"
+end
+
 local function getRequiredBossIdSet()
 	local set = {}
 	for _, el in ipairs(ELEMENTAL_ELEMENTS) do
@@ -74,6 +106,27 @@ local function getRequiredBossIdSet()
 		end
 	end
 	return set
+end
+
+-- Slot i matches SLOT_ELEMENT_ORDER[i] (Fire, Ice, Wind, Earth). Place by creature element, not fill order.
+local function slotIndexForGateElement(element)
+	if type(element) ~= "string" then
+		return nil
+	end
+	for i, el in ipairs(SLOT_ELEMENT_ORDER) do
+		if el == element then
+			return i
+		end
+	end
+	return nil
+end
+
+-- Inventory uids may be numbers or strings from replication; always key/compare as string.
+local function uidKey(uid)
+	if uid == nil or uid == "" then
+		return nil
+	end
+	return tostring(uid)
 end
 
 local function fetchInventory(force)
@@ -119,17 +172,24 @@ local function buildModalGateText()
 	return table.concat(lines, "\n\n")
 end
 
--- One short mood line per zone (colors + slots do the teaching).
+-- Tagline + features + gym (intro / outpost / progression blurb stay out of the modal).
 local function buildZonePitchText(zoneId)
 	local pitch = GameConfig.ZoneDoorZonePitch and GameConfig.ZoneDoorZonePitch[zoneId]
 	if type(pitch) ~= "table" then
 		return ""
 	end
+	local parts = {}
 	local tag = type(pitch.tagline) == "string" and pitch.tagline or ""
-	if tag == "" then
-		return ""
+	if tag ~= "" then
+		table.insert(parts, string.format("%s — %s", zoneDisplayName(zoneId), tag))
 	end
-	return string.format("%s — %s", zoneDisplayName(zoneId), tag)
+	if type(pitch.features) == "string" and pitch.features ~= "" then
+		table.insert(parts, pitch.features)
+	end
+	if type(pitch.gym) == "string" and pitch.gym ~= "" then
+		table.insert(parts, pitch.gym)
+	end
+	return table.concat(parts, "\n\n")
 end
 
 local function zoneTagline(zoneId)
@@ -300,6 +360,82 @@ local function createOrRefreshTag(part, zoneId)
 	updateTagText(card, zoneId)
 end
 
+-- ProximityPrompt is parented to ZoneDoorPromptAnchor (see ZoneDoorSystem). Track anchors and move them to the
+-- surface point closest to the local player so the bubble sits on the near face of wide doors.
+local trackedZoneDoorPromptAnchors = {}
+
+local function registerZoneDoorPromptAnchor(att)
+	if not att or not att:IsA("Attachment") or att.Name ~= "ZoneDoorPromptAnchor" then
+		return
+	end
+	local part = att.Parent
+	if not part or not part:IsA("BasePart") then
+		return
+	end
+	local zid = part:GetAttribute("ZoneDoorZoneId")
+	if type(zid) ~= "string" or zid == "" then
+		return
+	end
+	if trackedZoneDoorPromptAnchors[att] then
+		return
+	end
+	trackedZoneDoorPromptAnchors[att] = true
+end
+
+local function unregisterZoneDoorPromptAnchor(att)
+	trackedZoneDoorPromptAnchors[att] = nil
+end
+
+local function tryRegisterZoneDoorPromptAnchorInst(inst)
+	if not inst:IsA("Attachment") or inst.Name ~= "ZoneDoorPromptAnchor" then
+		return
+	end
+	registerZoneDoorPromptAnchor(inst)
+end
+
+local function updateZoneDoorPromptAnchorsToClosest()
+	if GameConfig.ZoneDoorPromptTrackClosestToPlayer == false then
+		return
+	end
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if not hrp then
+		return
+	end
+	local pPos = hrp.Position
+	for att in pairs(trackedZoneDoorPromptAnchors) do
+		if not att.Parent then
+			unregisterZoneDoorPromptAnchor(att)
+		else
+			local part = att.Parent
+			if not part:IsA("BasePart") then
+				unregisterZoneDoorPromptAnchor(att)
+			else
+				local zid = part:GetAttribute("ZoneDoorZoneId")
+				if type(zid) ~= "string" or zid == "" then
+					unregisterZoneDoorPromptAnchor(att)
+				else
+					local prompt = att:FindFirstChild("ZoneDoorPrompt")
+					local maxDist = 80
+					if prompt and prompt:IsA("ProximityPrompt") then
+						maxDist = prompt.MaxActivationDistance + 8
+					end
+					if (pPos - part.Position).Magnitude <= maxDist + part.Size.Magnitude * 0.5 then
+						local okSurf, surfWorld = pcall(function()
+							return part:GetClosestPointOnSurface(pPos)
+						end)
+						if okSurf and typeof(surfWorld) == "Vector3" then
+							att.Position = part.CFrame:PointToObjectSpace(surfWorld)
+						end
+					end
+				end
+			end
+		end
+	end
+end
+
+RunService.RenderStepped:Connect(updateZoneDoorPromptAnchorsToClosest)
+
 local function tryRegisterZoneDoorPart(inst)
 	if not inst:IsA("BasePart") then
 		return
@@ -319,6 +455,10 @@ local function tryRegisterZoneDoorPart(inst)
 		return
 	end
 	createOrRefreshTag(inst, zid)
+	local att = inst:FindFirstChild("ZoneDoorPromptAnchor")
+	if att and att:IsA("Attachment") then
+		registerZoneDoorPromptAnchor(att)
+	end
 end
 
 -- ── Modal (responsive + Sigils lore + elemental theming) ────────────────────
@@ -403,6 +543,11 @@ modalTitle.TextWrapped = true
 modalTitle.TextYAlignment = Enum.TextYAlignment.Center
 modalTitle.Text = "Zone gate"
 modalTitle.Parent = header
+local applyZoneDoorTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(modalTitle, {
+	Position = UDim2.new(0, 12, 0, 0),
+	Size = UDim2.new(1, -88, 1, 0),
+	TextXAlignment = Enum.TextXAlignment.Left,
+})
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Name = "Close"
@@ -618,6 +763,7 @@ listLayout.Padding = UDim.new(0, 5)
 listLayout.Parent = creatureList
 
 local currentZoneId = ""
+local modalMode = "legendary" -- "legendary" | "arena"
 local slots = { nil, nil, nil, nil }
 local slotButtons = {}
 
@@ -675,6 +821,7 @@ local function refreshModalLayout()
 		bodyPad.PaddingLeft = UDim.new(0, 10)
 		bodyPad.PaddingRight = UDim.new(0, 10)
 	end
+	applyZoneDoorTitleLayout()
 end
 
 local viewportConn
@@ -706,6 +853,7 @@ end
 
 local openModal
 local openModalRefresh
+local openModalRefreshArena
 
 local function refreshSlotButtons()
 	for _, b in ipairs(slotButtons) do
@@ -783,15 +931,17 @@ local function fillCreatureList()
 		empty.Parent = creatureList
 		return
 	end
+	-- Must not use ipairs(slots): it stops at the first nil index, so a gap (e.g. Wind empty, Earth filled) would skip later slots.
 	local used = {}
-	for _, u in ipairs(slots) do
-		if u then
-			used[u] = true
+	for si = 1, 4 do
+		local k = uidKey(slots[si])
+		if k then
+			used[k] = true
 		end
 	end
 	local any = false
 	for _, e in ipairs(data.inventory) do
-		if e and e.id and req[e.id] and not used[e.uid] then
+		if e and e.id and req[e.id] and not used[uidKey(e.uid)] then
 			any = true
 			local row = Instance.new("TextButton")
 			row.Size = UDim2.new(1, 0, 0, 34)
@@ -813,14 +963,20 @@ local function fillCreatureList()
 			rs.Thickness = 1.5
 			rs.Transparency = 0.45
 			rs.Parent = row
-			local uid = e.uid
+			local uid = uidKey(e.uid)
 			row.MouseButton1Click:Connect(function()
-				for si = 1, 4 do
-					if not slots[si] then
-						slots[si] = uid
-						break
+				local cre = CreatureData.GetById and CreatureData.GetById(e.id)
+				local elem = cre and cre.element
+				local si = slotIndexForGateElement(elem)
+				if not si or not uid then
+					return
+				end
+				for j = 1, 4 do
+					if uidKey(slots[j]) == uid then
+						slots[j] = nil
 					end
 				end
+				slots[si] = uid
 				openModalRefresh()
 			end)
 		end
@@ -839,8 +995,44 @@ local function fillCreatureList()
 	end
 end
 
+openModalRefreshArena = function()
+	if currentZoneId == "" or modalMode ~= "arena" then
+		return
+	end
+	local data = fetchInventory(true)
+	local doors = data and data.doorsUnlocked or {}
+	if truthy(doors[currentZoneId]) then
+		openModal(currentZoneId)
+		return
+	end
+	local passZone = getLastUnlockedExteriorZoneFromData(data)
+	local keys = data and data.zoneKeysFromGyms or {}
+	local hasPass = passZone and truthy(keys[passZone])
+	local srcName = gymNameForZone(passZone)
+	if hasPass then
+		statusLbl.TextColor3 = COL.ok
+		statusLbl.Text = "You have an Arena Pass from "
+			.. srcName
+			.. ". Use it to open this gate."
+	else
+		statusLbl.TextColor3 = COL.textSec
+		statusLbl.Text = "Win at "
+			.. srcName
+			.. " to earn an Arena Pass for the next exterior gate."
+	end
+	acceptBtn.Visible = hasPass
+	acceptBtn.Text = "Use Arena Pass"
+	acceptBtn.Active = hasPass
+	acceptBtn.AutoButtonColor = hasPass
+	acceptBtn.BackgroundTransparency = hasPass and 0 or 0.5
+end
+
 openModalRefresh = function()
 	if currentZoneId == "" then
+		return
+	end
+	if modalMode == "arena" then
+		openModalRefreshArena()
 		return
 	end
 	local data = fetchInventory(true)
@@ -852,8 +1044,8 @@ openModalRefresh = function()
 	refreshSlotButtons()
 	fillCreatureList()
 	local filled = 0
-	for _, u in ipairs(slots) do
-		if u then
+	for si = 1, 4 do
+		if slots[si] then
 			filled = filled + 1
 		end
 	end
@@ -864,6 +1056,7 @@ end
 
 openModal = function(zoneId)
 	currentZoneId = zoneId
+	modalMode = "legendary"
 	slots = { nil, nil, nil, nil }
 	local disp = zoneDisplayName(zoneId)
 	modalTitle.Text = disp .. " — Zone gate"
@@ -900,6 +1093,37 @@ openModal = function(zoneId)
 		creatureList.Visible = false
 		acceptBtn.Visible = false
 	else
+		local passZone = getLastUnlockedExteriorZoneFromData(data)
+		if passZone ~= nil then
+			modalMode = "arena"
+			modalTitle.Text = disp .. " — Arena Pass gate"
+			local passFlavor = GameConfig.ZoneDoorArenaPassFlavor
+			if type(passFlavor) == "string" and #passFlavor > 0 then
+				flavorLbl.Text = passFlavor
+				flavorLbl.Visible = true
+			else
+				flavorLbl.Visible = false
+			end
+			local srcName = gymNameForZone(passZone)
+			gateBodyLbl.Text = "Requires an Arena Pass from "
+				.. srcName
+				.. " (your latest unlocked exterior biome). Each pass opens one more gate."
+			gateBodyLbl.Visible = true
+			if zonePitchLbl then
+				zonePitchLbl.Text = pitchTxt
+				zonePitchLbl.Visible = pitchTxt ~= ""
+			end
+			pickHeader.Visible = false
+			divider.Visible = true
+			elementStripFrame.Visible = false
+			slotsFrame.Visible = false
+			creatureList.Visible = false
+			acceptBtn.Visible = true
+			openModalRefreshArena()
+			modalGui.Enabled = true
+			return
+		end
+
 		statusLbl.TextColor3 = COL.textSec
 		statusLbl.Text = "Offer one legendary boss per element — then open the gate."
 		flavorLbl.Visible = lore ~= ""
@@ -911,8 +1135,10 @@ openModal = function(zoneId)
 		elementStripFrame.Visible = true
 		slotsFrame.Visible = true
 		pickHeader.Visible = true
+		pickHeader.Text = "Your legendaries"
 		creatureList.Visible = true
 		acceptBtn.Visible = true
+		acceptBtn.Text = "Open the gate"
 		openModalRefresh()
 	end
 
@@ -920,16 +1146,34 @@ openModal = function(zoneId)
 end
 
 acceptBtn.MouseButton1Click:Connect(function()
+	if currentZoneId == "" then
+		return
+	end
+	if modalMode == "arena" then
+		if not unlockDoorWithKey or not unlockDoorWithKey:IsA("RemoteFunction") then
+			return
+		end
+		local ok, errMsg = unlockDoorWithKey:InvokeServer(currentZoneId)
+		if ok then
+			cacheData = nil
+			cacheTime = 0
+			openModal(currentZoneId)
+		else
+			statusLbl.TextColor3 = Color3.fromRGB(255, 120, 100)
+			statusLbl.Text = tostring(errMsg or "Could not open gate.")
+		end
+		return
+	end
 	if not spendLegendariesForZoneDoor or not spendLegendariesForZoneDoor:IsA("RemoteFunction") then
 		return
 	end
 	local uids = {}
-	for _, u in ipairs(slots) do
-		if u then
-			table.insert(uids, u)
+	for i = 1, 4 do
+		if slots[i] then
+			table.insert(uids, slots[i])
 		end
 	end
-	if #uids ~= 4 or currentZoneId == "" then
+	if #uids ~= 4 then
 		return
 	end
 	local success, errMsg = spendLegendariesForZoneDoor:InvokeServer(currentZoneId, uids)
@@ -984,13 +1228,18 @@ end)
 
 for _, d in ipairs(workspace:GetDescendants()) do
 	tryRegisterZoneDoorPart(d)
+	tryRegisterZoneDoorPromptAnchorInst(d)
 end
 workspace.DescendantAdded:Connect(function(inst)
 	task.defer(function()
 		tryRegisterZoneDoorPart(inst)
+		tryRegisterZoneDoorPromptAnchorInst(inst)
 	end)
 end)
 workspace.DescendantRemoving:Connect(function(inst)
+	if trackedZoneDoorPromptAnchors[inst] then
+		unregisterZoneDoorPromptAnchor(inst)
+	end
 	if inst:IsA("BasePart") and tagsByPart[inst] then
 		destroyTagForPart(inst)
 	end
@@ -1000,5 +1249,16 @@ if sigilEarned and sigilEarned:IsA("RemoteEvent") then
 	sigilEarned.OnClientEvent:Connect(function()
 		cacheData = nil
 		cacheTime = 0
+	end)
+end
+
+local gymArenaReward = Events:FindFirstChild("GymArenaReward")
+if gymArenaReward and gymArenaReward:IsA("RemoteEvent") then
+	gymArenaReward.OnClientEvent:Connect(function()
+		cacheData = nil
+		cacheTime = 0
+		if modalGui.Enabled and currentZoneId ~= "" and modalMode == "arena" then
+			openModalRefreshArena()
+		end
 	end)
 end

@@ -573,6 +573,11 @@ applyLeftClusterGuiInset = function()
 	favOrbBtn.Position = UDim2.new(0, 66, 0, 76 + yAdd)
 	weaponIcon.Position = UDim2.new(0, 12, 0, 136 + yAdd)
 	sprintBtn.Position = UDim2.new(0, 12 + 44 + SPRINT_BUTTON_GAP, 0, MOBILE_SPRINT_Y + yAdd)
+	-- BadlandsClient positions BadBag from this card; inset toggles don't always fire AbsolutePosition.
+	local relayout = playerGui:FindFirstChild("BadlandsRelayoutHud")
+	if relayout and relayout:IsA("BindableEvent") then
+		relayout:Fire()
+	end
 end
 applyLeftClusterGuiInset()
 
@@ -580,6 +585,38 @@ local function updateFavOrb()
 	if not Evt.getInventory then return end
 	local ok, data = pcall(function() return Evt.getInventory:InvokeServer() end)
 	if not ok or not data then return end
+	-- Badlands: main favorite is cleared server-side; show the active bag slot on the card instead.
+	if player:GetAttribute("InBadlands") then
+		local ai = tonumber(badBagState.activeIndex)
+		local slots = badBagState.slots or {}
+		local slot = ai and (slots[ai] or slots[tostring(ai)])
+		if slot and slot.id and not slot.empty then
+			local cr = CreatureData.GetById(slot.id)
+			local displayName = (cr and cr.displayName) or slot.displayName or slot.id or "Creature"
+			lastFavoriteName = displayName
+			lastFavoriteCreatureId = slot.id
+			favOrbBtn.BackgroundColor3 = (cr and cr.primaryColor) or Color3.fromRGB(180, 180, 180)
+			local variant = slot.variant and slot.variant ~= "Normal" and slot.variant or nil
+			local VARIANT_COLORS = CreatureData.VariantColors or { Silver = Color3.fromRGB(192,192,192), Gold = Color3.fromRGB(255,215,0), Legend = Color3.fromRGB(255,100,255) }
+			if variant and VARIANT_COLORS[variant] then
+				favOrbStroke.Color = VARIANT_COLORS[variant]
+			else
+				favOrbStroke.Color = RARITY[cr and cr.rarity or slot.rarity or "Common"] or C.textMut
+			end
+			favOrbStroke.Transparency = 0.2
+			favOrbYLabel.Text = "Active: " .. displayName
+			favOrbYLabel.TextColor3 = Color3.new(1, 1, 1)
+			companionOut = false
+			return
+		end
+		favOrbYLabel.Text = "No active creature"
+		favOrbYLabel.TextColor3 = C.textMut
+		favOrbBtn.BackgroundColor3 = Color3.fromRGB(50, 48, 55)
+		favOrbStroke.Color = C.divider
+		favOrbStroke.Transparency = 0.5
+		companionOut = false
+		return
+	end
 	-- Sync companionOut with world: if our companion model exists, it's out (handles missed CompanionSpawned)
 	local ourCompanionInWorld = false
 	for _, model in ipairs(CollectionService:GetTagged("FavoriteCreature")) do
@@ -635,6 +672,9 @@ end
 -- Y button / ReCard card toggles companion between summoned ↔ recalled WITHOUT clearing favoriteUid.
 -- The creature STAYS as favorite throughout. Only the inventory "Unfavorite" button clears the favorite.
 local function toggleFavorite()
+	if player:GetAttribute("InBadlands") then
+		return
+	end
 	if not Evt.getInventory then return end
 	local ok, data = pcall(function() return Evt.getInventory:InvokeServer() end)
 	if not ok or not data then return end
@@ -791,6 +831,11 @@ title.Size = UDim2.new(1, -50, 1, 0); title.Position = UDim2.new(0, 18, 0, 0)
 title.BackgroundTransparency = 1; title.Text = "SiegelinQ"
 title.TextColor3 = C.accent; title.Font = Enum.Font.GothamBlack
 title.TextSize = 17; title.TextXAlignment = Enum.TextXAlignment.Left; title.Parent = hdr
+local applyInventoryHeaderTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(title, {
+	Position = UDim2.new(0, 18, 0, 0),
+	Size = UDim2.new(1, -50, 1, 0),
+	TextXAlignment = Enum.TextXAlignment.Left,
+})
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 30, 0, 30); closeBtn.Position = UDim2.new(1, -38, 0, 9)
@@ -846,14 +891,17 @@ end
 local invTab = mkTab("Inv", "SIEGELINGS", 0, 1/4)
 local battleTab = mkTab("Battle", "BATTLE", 1/4, 1/4)
 local raidTab = mkTab("Bag", "BAG", 2/4, 1/4)
-local badBagTab = mkTab("BadBag", "CAUGHT", 3/4, 1/4)
+local badBagTab = mkTab("BadBag", "BADBAG", 3/4, 1/4)
 badBagTab.Visible = false  -- hidden until Badlands
 
 local tabButtons = { invTab, battleTab, raidTab, badBagTab }
 
 local function updateTabVisibility()
 	local inBL = player:GetAttribute("InBadlands") == true
-	raidTab.Text = inBL and "BADBAG" or "BAG"
+	raidTab.Text = "BAG"
+	if inBL then
+		badBagTab.Text = "BADBAG"
+	end
 	badBagTab.Visible = inBL
 	if inBL then
 		invTab.Size = UDim2.new(1/4, -4, 1, 0); invTab.Position = UDim2.new(0, 0, 0, 0)
@@ -2460,6 +2508,7 @@ refreshBattle = function()
 						themedLighting = true,
 						playIdleAnimation = true,
 						interactable = false,
+						viewportCornerRadius = UDim.new(1, 0),
 					})
 					slotViewer:SetCreature(ce.id)
 				else
@@ -3001,21 +3050,43 @@ refreshBattle = function()
 end
 
 -- Bag tab: server-persisted decor slots + ingredient bank (same data as Furnish UI / ingredients menu).
-local function formatDecorLine(slotKey, data)
+-- Structured row data for gamified bag cards (decor).
+local function getDecorRowModel(slotKey, data)
 	local floorStr, idxStr = string.match(tostring(slotKey), "^(%d+)_(%d+)$")
 	local floorNum = tonumber(floorStr)
 	local slotIdx = tonumber(idxStr)
 	local loc = (floorNum and slotIdx) and ("Floor " .. floorNum .. " · Decor " .. slotIdx)
 		or tostring(slotKey):gsub("_", " · ")
-	if type(data) ~= "table" then return loc end
+	local fallback = {
+		title = loc,
+		subtitle = "",
+		tag = "Slot",
+		iconColor = Color3.fromRGB(88, 92, 108),
+		decorSlot = slotIdx or 0,
+	}
+	if type(data) ~= "table" then
+		return fallback
+	end
 	if data.kind == "statue" and data.creatureId then
 		local cr = CreatureData.GetById(data.creatureId)
-		return "Statue — " .. (cr and cr.displayName or data.creatureId) .. " · " .. loc
+		return {
+			title = cr and cr.displayName or data.creatureId,
+			subtitle = loc,
+			tag = "Statue",
+			iconColor = (cr and cr.primaryColor) or Color3.fromRGB(160, 120, 200),
+			decorSlot = slotIdx or 0,
+		}
 	elseif data.kind == "furniture" and data.furnitureId then
 		local fe = FurnitureCatalog and FurnitureCatalog.GetById and FurnitureCatalog.GetById(data.furnitureId)
-		return (fe and fe.displayName or data.furnitureId) .. " · " .. loc
+		return {
+			title = (fe and fe.displayName) or data.furnitureId,
+			subtitle = loc,
+			tag = (fe and fe.category) or "Furniture",
+			iconColor = Color3.fromRGB(118, 96, 72),
+			decorSlot = slotIdx or 0,
+		}
 	end
-	return loc
+	return fallback
 end
 
 local function buildBagPanel(parent, decorSlots, ingredientBank)
@@ -3031,104 +3102,375 @@ local function buildBagPanel(parent, decorSlots, ingredientBank)
 
 	local list = Instance.new("UIListLayout")
 	list.SortOrder = Enum.SortOrder.LayoutOrder
-	list.Padding = UDim.new(0, 10)
+	list.Padding = UDim.new(0, 12)
 	list.Parent = container
 
+	-- Hero header: chest badge + gradient title + framed blurb
+	local hero = Instance.new("Frame")
+	hero.Size = UDim2.new(1, 0, 0, 0)
+	hero.AutomaticSize = Enum.AutomaticSize.Y
+	hero.BackgroundColor3 = C.card
+	hero.BackgroundTransparency = 0.08
+	hero.BorderSizePixel = 0
+	hero.LayoutOrder = 0
+	hero.Parent = container
+	Instance.new("UICorner", hero).CornerRadius = UDim.new(0, 12)
+	local heroStroke = Instance.new("UIStroke", hero)
+	heroStroke.Color = C.accent
+	heroStroke.Thickness = 1
+	heroStroke.Transparency = 0.55
+	local heroPad = Instance.new("UIPadding", hero)
+	heroPad.PaddingLeft = UDim.new(0, 12)
+	heroPad.PaddingRight = UDim.new(0, 12)
+	heroPad.PaddingTop = UDim.new(0, 12)
+	heroPad.PaddingBottom = UDim.new(0, 12)
+
+	local heroRow = Instance.new("Frame")
+	heroRow.Size = UDim2.new(1, 0, 0, 0)
+	heroRow.AutomaticSize = Enum.AutomaticSize.Y
+	heroRow.BackgroundTransparency = 1
+	heroRow.Parent = hero
+
+	local heroLayout = Instance.new("UIListLayout")
+	heroLayout.FillDirection = Enum.FillDirection.Horizontal
+	heroLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	heroLayout.Padding = UDim.new(0, 10)
+	heroLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+	heroLayout.Parent = heroRow
+
+	local badge = Instance.new("Frame")
+	badge.Size = UDim2.new(0, 44, 0, 44)
+	badge.LayoutOrder = 0
+	badge.BackgroundColor3 = C.accent
+	badge.BorderSizePixel = 0
+	badge.Parent = heroRow
+	Instance.new("UICorner", badge).CornerRadius = UDim.new(0, 12)
+	local badgeGrad = Instance.new("UIGradient", badge)
+	badgeGrad.Rotation = 135
+	badgeGrad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 150, 80)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 85, 120)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(200, 90, 255)),
+	})
+	local badgeIcon = Instance.new("TextLabel")
+	badgeIcon.Size = UDim2.new(1, 0, 1, 0)
+	badgeIcon.BackgroundTransparency = 1
+	badgeIcon.Text = "B"
+	badgeIcon.TextColor3 = Color3.new(1, 1, 1)
+	badgeIcon.Font = Enum.Font.GothamBlack
+	badgeIcon.TextSize = 22
+	badgeIcon.Parent = badge
+
+	local heroTextCol = Instance.new("Frame")
+	heroTextCol.Size = UDim2.new(1, -54, 0, 0)
+	heroTextCol.AutomaticSize = Enum.AutomaticSize.Y
+	heroTextCol.BackgroundTransparency = 1
+	heroTextCol.LayoutOrder = 1
+	heroTextCol.Parent = heroRow
+
+	local textStack = Instance.new("UIListLayout")
+	textStack.SortOrder = Enum.SortOrder.LayoutOrder
+	textStack.Padding = UDim.new(0, 4)
+	textStack.Parent = heroTextCol
+
 	local title = Instance.new("TextLabel")
-	title.Size = UDim2.new(1, 0, 0, 22)
+	title.Size = UDim2.new(1, 0, 0, 26)
 	title.BackgroundTransparency = 1
-	title.Text = inBL and "BADBAG" or "BAG"
-	title.TextColor3 = C.textSec
-	title.Font = Enum.Font.GothamBold
-	title.TextSize = 12
+	title.Text = "BAG"
+	title.TextColor3 = Color3.new(1, 1, 1)
+	title.Font = Enum.Font.GothamBlack
+	title.TextSize = 20
 	title.TextXAlignment = Enum.TextXAlignment.Left
 	title.LayoutOrder = 0
-	title.Parent = container
+	title.Parent = heroTextCol
+	local titleGrad = Instance.new("UIGradient", title)
+	titleGrad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 220, 160)),
+		ColorSequenceKeypoint.new(0.45, Color3.fromRGB(255, 120, 90)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 60, 140)),
+	})
 
 	local intro = Instance.new("TextLabel")
 	intro.Size = UDim2.new(1, 0, 0, 0)
 	intro.AutomaticSize = Enum.AutomaticSize.Y
 	intro.BackgroundTransparency = 1
 	intro.Text = inBL
-		and "Badlands gear will list here as we add item types. Your ingredient bank and base decor still apply to your account."
-		or "Base decorations (furnish menu) and ingredients you collect are saved to your profile. Tools like fishing poles can be added later."
-	intro.TextColor3 = C.textMut
+		and "Badlands gear will appear here as we add item types. Your ingredient bank and home decor stay on your account."
+		or "Profile stash: base decor from Furnish and gathered ingredients. More tool slots later."
+	intro.TextColor3 = C.textSec
 	intro.Font = Enum.Font.GothamMedium
 	intro.TextSize = 11
 	intro.TextWrapped = true
 	intro.TextXAlignment = Enum.TextXAlignment.Left
 	intro.LayoutOrder = 1
-	intro.Parent = container
+	intro.Parent = heroTextCol
 
-	local function mkListSection(headerText, emptyText, lines, layoutOrder)
+	local function rowHover(frame, baseColor)
+		frame.MouseEnter:Connect(function()
+			TweenService:Create(frame, TweenInfo.new(0.12), {
+				BackgroundColor3 = Color3.new(
+					math.clamp(baseColor.R + 0.05, 0, 1),
+					math.clamp(baseColor.G + 0.05, 0, 1),
+					math.clamp(baseColor.B + 0.05, 0, 1)
+				),
+			}):Play()
+		end)
+		frame.MouseLeave:Connect(function()
+			TweenService:Create(frame, TweenInfo.new(0.12), { BackgroundColor3 = baseColor }):Play()
+		end)
+	end
+
+	local function mkSectionHeader(headerText)
+		local wrap = Instance.new("Frame")
+		wrap.Size = UDim2.new(1, 0, 0, 22)
+		wrap.BackgroundTransparency = 1
+
+		local accentBar = Instance.new("Frame")
+		accentBar.Size = UDim2.new(0, 4, 0, 16)
+		accentBar.Position = UDim2.new(0, 0, 0.5, -8)
+		accentBar.BackgroundColor3 = C.accent
+		accentBar.BorderSizePixel = 0
+		accentBar.Parent = wrap
+		Instance.new("UICorner", accentBar).CornerRadius = UDim.new(1, 0)
+
+		local h = Instance.new("TextLabel")
+		h.Size = UDim2.new(1, -12, 1, 0)
+		h.Position = UDim2.new(0, 10, 0, 0)
+		h.BackgroundTransparency = 1
+		h.Text = string.upper(headerText)
+		h.TextColor3 = C.accent
+		h.Font = Enum.Font.GothamBold
+		h.TextSize = 12
+		h.TextXAlignment = Enum.TextXAlignment.Left
+		h.Parent = wrap
+		return wrap
+	end
+
+	local function mkSectionBox(layoutOrder)
 		local box = Instance.new("Frame")
 		box.Size = UDim2.new(1, 0, 0, 0)
 		box.AutomaticSize = Enum.AutomaticSize.Y
-		box.BackgroundColor3 = C.card
+		box.BackgroundColor3 = C.bgLight
 		box.BorderSizePixel = 0
 		box.LayoutOrder = layoutOrder
 		box.Parent = container
-		Instance.new("UICorner", box).CornerRadius = UDim.new(0, 8)
+		Instance.new("UICorner", box).CornerRadius = UDim.new(0, 10)
+		local bStroke = Instance.new("UIStroke", box)
+		bStroke.Color = C.divider
+		bStroke.Thickness = 1
+		bStroke.Transparency = 0.35
 		local pad = Instance.new("UIPadding", box)
 		pad.PaddingLeft = UDim.new(0, 10)
 		pad.PaddingRight = UDim.new(0, 10)
-		pad.PaddingTop = UDim.new(0, 10)
+		pad.PaddingTop = UDim.new(0, 8)
 		pad.PaddingBottom = UDim.new(0, 10)
-
 		local inner = Instance.new("UIListLayout")
 		inner.SortOrder = Enum.SortOrder.LayoutOrder
-		inner.Padding = UDim.new(0, 6)
+		inner.Padding = UDim.new(0, 8)
 		inner.Parent = box
-
-		local h = Instance.new("TextLabel")
-		h.Size = UDim2.new(1, 0, 0, 18)
-		h.BackgroundTransparency = 1
-		h.Text = headerText
-		h.TextColor3 = C.accent
-		h.Font = Enum.Font.GothamBold
-		h.TextSize = 11
-		h.TextXAlignment = Enum.TextXAlignment.Left
-		h.LayoutOrder = 0
-		h.Parent = box
-
-		if not lines or #lines == 0 then
-			local e = Instance.new("TextLabel")
-			e.Size = UDim2.new(1, 0, 0, 0)
-			e.AutomaticSize = Enum.AutomaticSize.Y
-			e.BackgroundTransparency = 1
-			e.Text = emptyText
-			e.TextColor3 = C.textMut
-			e.Font = Enum.Font.GothamMedium
-			e.TextSize = 10
-			e.TextWrapped = true
-			e.TextXAlignment = Enum.TextXAlignment.Left
-			e.LayoutOrder = 1
-			e.Parent = box
-			return
-		end
-		for i, line in ipairs(lines) do
-			local row = Instance.new("TextLabel")
-			row.Size = UDim2.new(1, 0, 0, 0)
-			row.AutomaticSize = Enum.AutomaticSize.Y
-			row.BackgroundTransparency = 1
-			row.Text = line
-			row.TextColor3 = C.text
-			row.Font = Enum.Font.GothamMedium
-			row.TextSize = 10
-			row.TextWrapped = true
-			row.TextXAlignment = Enum.TextXAlignment.Left
-			row.LayoutOrder = i
-			row.Parent = box
-		end
+		return box
 	end
 
-	local decorLines = {}
-	local keys = {}
-	for k in pairs(decorSlots) do table.insert(keys, tostring(k)) end
-	table.sort(keys)
-	for _, k in ipairs(keys) do
+	local function addDecorCard(parentList, model, index)
+		local baseBg = Color3.fromRGB(34, 36, 48)
+		local row = Instance.new("TextButton")
+		row.Size = UDim2.new(1, 0, 0, 54)
+		row.BackgroundColor3 = baseBg
+		row.AutoButtonColor = false
+		row.Text = ""
+		row.LayoutOrder = index
+		row.Parent = parentList
+		Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
+		rowHover(row, baseBg)
+
+		local icon = Instance.new("Frame")
+		icon.Size = UDim2.new(0, 40, 0, 40)
+		icon.Position = UDim2.new(0, 7, 0.5, -20)
+		icon.BackgroundColor3 = model.iconColor
+		icon.BorderSizePixel = 0
+		icon.Parent = row
+		Instance.new("UICorner", icon).CornerRadius = UDim.new(0, 8)
+		local iconShine = Instance.new("UIGradient", icon)
+		iconShine.Rotation = 90
+		iconShine.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.35),
+			NumberSequenceKeypoint.new(1, 0.6),
+		})
+
+		local tag = Instance.new("TextLabel")
+		tag.Size = UDim2.new(0, 0, 0, 14)
+		tag.AutomaticSize = Enum.AutomaticSize.X
+		tag.Position = UDim2.new(0, 54, 0, 8)
+		tag.BackgroundColor3 = C.divider
+		tag.BackgroundTransparency = 0.3
+		tag.Text = " " .. model.tag .. " "
+		tag.TextColor3 = C.textSec
+		tag.Font = Enum.Font.GothamBold
+		tag.TextSize = 9
+		tag.Parent = row
+		Instance.new("UICorner", tag).CornerRadius = UDim.new(0, 4)
+
+		local nameLbl = Instance.new("TextLabel")
+		nameLbl.Size = UDim2.new(1, -160, 0, 16)
+		nameLbl.Position = UDim2.new(0, 54, 0, 26)
+		nameLbl.BackgroundTransparency = 1
+		nameLbl.Text = model.title
+		nameLbl.TextColor3 = C.text
+		nameLbl.Font = Enum.Font.GothamBold
+		nameLbl.TextSize = 12
+		nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+		nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+		nameLbl.Parent = row
+
+		if model.subtitle ~= "" then
+			local sub = Instance.new("TextLabel")
+			sub.Size = UDim2.new(1, -160, 0, 12)
+			sub.Position = UDim2.new(0, 54, 0, 38)
+			sub.BackgroundTransparency = 1
+			sub.Text = model.subtitle
+			sub.TextColor3 = C.textMut
+			sub.Font = Enum.Font.GothamMedium
+			sub.TextSize = 9
+			sub.TextXAlignment = Enum.TextXAlignment.Left
+			sub.TextTruncate = Enum.TextTruncate.AtEnd
+			sub.Parent = row
+		end
+
+		local decorPill = Instance.new("Frame")
+		decorPill.Size = UDim2.new(0, 52, 0, 22)
+		decorPill.Position = UDim2.new(1, -58, 0.5, -11)
+		decorPill.BackgroundColor3 = Color3.fromRGB(45, 48, 62)
+		decorPill.BorderSizePixel = 0
+		decorPill.Parent = row
+		Instance.new("UICorner", decorPill).CornerRadius = UDim.new(1, 0)
+		local decorStroke = Instance.new("UIStroke", decorPill)
+		decorStroke.Color = C.accent
+		decorStroke.Thickness = 1
+		decorStroke.Transparency = 0.5
+		local decorNum = Instance.new("TextLabel")
+		decorNum.Size = UDim2.new(1, 0, 1, 0)
+		decorNum.BackgroundTransparency = 1
+		decorNum.Text = tostring(model.decorSlot)
+		decorNum.TextColor3 = C.favorite
+		decorNum.Font = Enum.Font.GothamBlack
+		decorNum.TextSize = 14
+		decorNum.Parent = decorPill
+		local decorLbl = Instance.new("TextLabel")
+		decorLbl.Size = UDim2.new(0, 52, 0, 10)
+		decorLbl.Position = UDim2.new(1, -58, 0, 8)
+		decorLbl.BackgroundTransparency = 1
+		decorLbl.Text = "DECOR"
+		decorLbl.TextColor3 = C.textMut
+		decorLbl.Font = Enum.Font.GothamBold
+		decorLbl.TextSize = 7
+		decorLbl.Parent = row
+	end
+
+	local function addIngredientCard(parentList, def, qty, index)
+		local rarityName = (def and def.rarity) or "Common"
+		local rCol = RARITY[rarityName] or C.textSec
+		local affClr = C.textMut
+		if def then
+			if def.affinityType == "element" and def.affinity then
+				affClr = ELEMENT_COLOR[def.affinity] or affClr
+			elseif def.affinityType == "class" and def.affinity then
+				affClr = CLASS_COLOR[def.affinity] or affClr
+			end
+		end
+		local baseBg = Color3.fromRGB(32, 34, 46)
+		local row = Instance.new("TextButton")
+		row.Size = UDim2.new(1, 0, 0, 56)
+		row.BackgroundColor3 = baseBg
+		row.AutoButtonColor = false
+		row.Text = ""
+		row.LayoutOrder = index
+		row.Parent = parentList
+		Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
+		rowHover(row, baseBg)
+
+		local rBar = Instance.new("Frame")
+		rBar.Size = UDim2.new(0, 4, 0, 40)
+		rBar.Position = UDim2.new(0, 6, 0.5, -20)
+		rBar.BackgroundColor3 = rCol
+		rBar.BorderSizePixel = 0
+		rBar.Parent = row
+		Instance.new("UICorner", rBar).CornerRadius = UDim.new(1, 0)
+
+		local affSw = Instance.new("Frame")
+		affSw.Size = UDim2.new(0, 36, 0, 36)
+		affSw.Position = UDim2.new(0, 16, 0.5, -18)
+		affSw.BackgroundColor3 = affClr
+		affSw.BorderSizePixel = 0
+		affSw.Parent = row
+		Instance.new("UICorner", affSw).CornerRadius = UDim.new(0, 8)
+		local affInner = Instance.new("Frame")
+		affInner.Size = UDim2.new(1, -6, 1, -6)
+		affInner.Position = UDim2.new(0, 3, 0, 3)
+		affInner.BackgroundColor3 = Color3.fromRGB(20, 22, 30)
+		affInner.BackgroundTransparency = 0.25
+		affInner.BorderSizePixel = 0
+		affInner.Parent = affSw
+		Instance.new("UICorner", affInner).CornerRadius = UDim.new(0, 6)
+		local affDot = Instance.new("Frame")
+		affDot.Size = UDim2.new(0, 14, 0, 14)
+		affDot.Position = UDim2.new(0.5, -7, 0.5, -7)
+		affDot.BackgroundColor3 = affClr
+		affDot.BorderSizePixel = 0
+		affDot.Parent = affInner
+		Instance.new("UICorner", affDot).CornerRadius = UDim.new(1, 0)
+
+		local nameLbl = Instance.new("TextLabel")
+		nameLbl.Size = UDim2.new(1, -120, 0, 18)
+		nameLbl.Position = UDim2.new(0, 58, 0, 10)
+		nameLbl.BackgroundTransparency = 1
+		nameLbl.Text = (def and def.displayName) or "?"
+		nameLbl.TextColor3 = C.text
+		nameLbl.Font = Enum.Font.GothamBold
+		nameLbl.TextSize = 12
+		nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+		nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+		nameLbl.Parent = row
+
+		local rareLbl = Instance.new("TextLabel")
+		rareLbl.Size = UDim2.new(1, -120, 0, 12)
+		rareLbl.Position = UDim2.new(0, 58, 0, 30)
+		rareLbl.BackgroundTransparency = 1
+		rareLbl.Text = rarityName .. (def and def.region and (" · " .. def.region) or "")
+		rareLbl.TextColor3 = rCol
+		rareLbl.Font = Enum.Font.GothamMedium
+		rareLbl.TextSize = 9
+		rareLbl.TextXAlignment = Enum.TextXAlignment.Left
+		rareLbl.TextTruncate = Enum.TextTruncate.AtEnd
+		rareLbl.Parent = row
+
+		local qtyPill = Instance.new("Frame")
+		qtyPill.Size = UDim2.new(0, 44, 0, 28)
+		qtyPill.Position = UDim2.new(1, -50, 0.5, -14)
+		qtyPill.BackgroundColor3 = Color3.fromRGB(55, 42, 28)
+		qtyPill.BorderSizePixel = 0
+		qtyPill.Parent = row
+		Instance.new("UICorner", qtyPill).CornerRadius = UDim.new(0, 8)
+		local qStroke = Instance.new("UIStroke", qtyPill)
+		qStroke.Color = C.favorite
+		qStroke.Thickness = 1
+		qStroke.Transparency = 0.4
+		local qtyLbl = Instance.new("TextLabel")
+		qtyLbl.Size = UDim2.new(1, 0, 1, 0)
+		qtyLbl.BackgroundTransparency = 1
+		qtyLbl.Text = "×" .. tostring(qty)
+		qtyLbl.TextColor3 = C.favorite
+		qtyLbl.Font = Enum.Font.GothamBlack
+		qtyLbl.TextSize = 15
+		qtyLbl.Parent = qtyPill
+	end
+
+	local decorKeys = {}
+	for k in pairs(decorSlots) do table.insert(decorKeys, tostring(k)) end
+	table.sort(decorKeys)
+	local decorModels = {}
+	for _, k in ipairs(decorKeys) do
 		local data = decorSlots[k]
-		if data then table.insert(decorLines, formatDecorLine(k, data)) end
+		if data then table.insert(decorModels, getDecorRowModel(k, data)) end
 	end
 
 	local ingRows = {}
@@ -3143,15 +3485,55 @@ local function buildBagPanel(parent, decorSlots, ingredientBank)
 		local sb = (nb and nb.displayName) or b.id
 		return sa:lower() < sb:lower()
 	end)
-	local ingLines = {}
-	for _, row in ipairs(ingRows) do
-		local def = IngredientData and IngredientData.GetById and IngredientData.GetById(row.id)
-		local name = (def and def.displayName) or row.id
-		table.insert(ingLines, name .. " × " .. tostring(row.qty))
+
+	-- Section: Base decorations
+	local decorBox = mkSectionBox(2)
+	local dh = mkSectionHeader("Base decorations")
+	dh.Parent = decorBox
+	dh.LayoutOrder = 0
+	if #decorModels == 0 then
+		local empty = Instance.new("TextLabel")
+		empty.Size = UDim2.new(1, 0, 0, 0)
+		empty.AutomaticSize = Enum.AutomaticSize.Y
+		empty.BackgroundTransparency = 1
+		empty.Text = "No statues or furniture placed yet.\nUse Furnish on a Decor point at your base."
+		empty.TextColor3 = C.textMut
+		empty.Font = Enum.Font.GothamMedium
+		empty.TextSize = 10
+		empty.TextWrapped = true
+		empty.TextXAlignment = Enum.TextXAlignment.Left
+		empty.LayoutOrder = 1
+		empty.Parent = decorBox
+	else
+		for i, m in ipairs(decorModels) do
+			addDecorCard(decorBox, m, i)
+		end
 	end
 
-	mkListSection("Base decorations", "No statues or furniture placed yet. Use Furnish on a Decor point at your base.", decorLines, 2)
-	mkListSection("Ingredients", "No ingredients in your bank yet. Pick them up in the world or use the Ingredients menu.", ingLines, 3)
+	-- Section: Ingredients
+	local ingBox = mkSectionBox(3)
+	local ih = mkSectionHeader("Ingredients")
+	ih.Parent = ingBox
+	ih.LayoutOrder = 0
+	if #ingRows == 0 then
+		local empty = Instance.new("TextLabel")
+		empty.Size = UDim2.new(1, 0, 0, 0)
+		empty.AutomaticSize = Enum.AutomaticSize.Y
+		empty.BackgroundTransparency = 1
+		empty.Text = "No ingredients in your bank yet.\nPick them up in the world or use the Ingredients menu."
+		empty.TextColor3 = C.textMut
+		empty.Font = Enum.Font.GothamMedium
+		empty.TextSize = 10
+		empty.TextWrapped = true
+		empty.TextXAlignment = Enum.TextXAlignment.Left
+		empty.LayoutOrder = 1
+		empty.Parent = ingBox
+	else
+		for i, row in ipairs(ingRows) do
+			local def = IngredientData and IngredientData.GetById and IngredientData.GetById(row.id)
+			addIngredientCard(ingBox, def, row.qty, i)
+		end
+	end
 
 	return container
 end
@@ -3317,7 +3699,9 @@ refreshBadBag = function()
 	bagSub.Parent = hdrFrame
 
 	local slots = badBagState.slots or {}
-	if #slots == 0 then
+	local bagCap = tonumber(badBagState.capacity) or 0
+	local slotCount = math.max(bagCap, #slots)
+	if slotCount == 0 then
 		local emptyLbl = Instance.new("TextLabel")
 		emptyLbl.Size = UDim2.new(1, 0, 0, 60)
 		emptyLbl.BackgroundTransparency = 1
@@ -3331,11 +3715,12 @@ refreshBadBag = function()
 		return
 	end
 
-	for slotIndex, slot in ipairs(slots) do
+	for slotIndex = 1, slotCount do
+		local slot = slots[slotIndex] or slots[tostring(slotIndex)]
 		local occupied = slot and not slot.empty and slot.id ~= nil
 		local isFav = slot and slot.active
 
-		local card = Instance.new("Frame")
+		local card = Instance.new(occupied and "TextButton" or "Frame")
 		card.Name = "BagSlot_" .. slotIndex
 		card.Size = UDim2.new(1, 0, 0, 62)
 		card.BackgroundColor3 = isFav and Color3.fromRGB(30, 38, 28) or (occupied and C.bgLight or C.card)
@@ -3343,6 +3728,15 @@ refreshBadBag = function()
 		card.BorderSizePixel = 0
 		card.LayoutOrder = slotIndex
 		card.Parent = content
+		if occupied then
+			card.AutoButtonColor = false
+			card.Text = ""
+			card.MouseButton1Click:Connect(function()
+				if Evt.badlandsBagSwitch then
+					Evt.badlandsBagSwitch:FireServer(slotIndex)
+				end
+			end)
+		end
 		Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
 
 		local cStroke = Instance.new("UIStroke", card)
@@ -3477,7 +3871,20 @@ refreshBag = function()
 	end
 	if Evt.getIngredientBank and Evt.getIngredientBank:IsA("RemoteFunction") then
 		local ok, r = pcall(function() return Evt.getIngredientBank:InvokeServer() end)
-		if ok and type(r) == "table" then ingredientBank = r end
+		-- nil = profile not loaded yet (same as Ingredients menu); {} = empty bank
+		if ok and type(r) == "table" then
+			ingredientBank = r
+		elseif ok and r == nil then
+			task.defer(function()
+				if activeTab ~= "bag" then
+					return
+				end
+				local ok2, r2 = pcall(function() return Evt.getIngredientBank:InvokeServer() end)
+				if ok2 and type(r2) == "table" then
+					refreshBag()
+				end
+			end)
+		end
 	end
 	buildBagPanel(content, decorSlots, ingredientBank)
 	restoreScroll()
@@ -3835,6 +4242,7 @@ local function applyMainFrameLayout()
 	else
 		MobileWindowLayout.RestoreDesktopWindow(main, { draggable = true })
 	end
+	applyInventoryHeaderTitleLayout()
 end
 -- defaultTab: "inventory" (I / HUD Inventory button) or "battle" (B / B button) or "badbag" (Badlands)
 local function openUI(defaultTab)
@@ -3852,6 +4260,7 @@ local function openUI(defaultTab)
 		MobileWindowLayout.RestoreDesktopWindow(main, { draggable = true })
 	end
 	isVis = true; main.Visible = true
+	applyInventoryHeaderTitleLayout()
 	MobileWindowLayout.NotifyMenuOpened()
 	task.defer(updateFavOrb)
 	task.delay(0.5, updateFavOrb)
@@ -3983,6 +4392,7 @@ end)
 player:GetAttributeChangedSignal("InBadlands"):Connect(function()
 	updateTabVisibility()
 	local inBL = player:GetAttribute("InBadlands") == true
+	task.defer(updateFavOrb)
 	-- Hide/show Battle Menu + weapon swap buttons (BadlandsClient shows BadBag in same spot)
 	if toggleBtn then toggleBtn.Visible = not inBL end
 	if weaponIcon then weaponIcon.Visible = not inBL end
@@ -4143,6 +4553,7 @@ if Evt.badlandsBagUpdate then
 			activeIndex = bag.activeIndex,
 			slots = bag.slots or {},
 		}
+		task.defer(updateFavOrb)
 		if isVis and activeTab == "badbag" and refreshBadBag then
 			refreshBadBag()
 		end

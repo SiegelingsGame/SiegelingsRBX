@@ -1697,7 +1697,6 @@ local function startRound()
 	battleInProgress = true
 	workspace:SetAttribute("ArenaBattleInProgress", true)
 	setArenaFighterAttributes(king and king.Name or nil, challenger and challenger.Name or "AI Challenger")
-	setBattleMusicForPlayers(king, challenger)
 
 	-- Clear arena of any leftover models from previous round
 	clearArena()

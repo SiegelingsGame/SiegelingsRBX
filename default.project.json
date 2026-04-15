@@ -10,6 +10,7 @@
         "CreatureAnimation": { "$path": "CreatureAnimation.lua" },
         "CreatureData": { "$path": "CreatureData.lua" },
         "CreatureModelLoader": { "$path": "CreatureModelLoader.lua" },
+        "EleminionData": { "$path": "EleminionData.lua" },
         "GameConfig": { "$path": "GameConfig.lua" },
         "GameConfigData": { "$path": "GameConfigData.lua" },
         "BiomeZone": { "$path": "BiomeZone.lua" },
@@ -170,6 +171,9 @@
       "ArenaTraderSystem": {
         "$path": "ArenaTraderSystem.lua"
       },
+      "EleminionSystem": {
+        "$path": "EleminionSystem.lua"
+      },
       "DecorSystem": {
         "$path": "DecorSystem.lua"
       },
@@ -293,6 +297,9 @@
         },
         "ArenaTraderClient": {
           "$path": "ArenaTraderClient.client.lua"
+        },
+        "EleminionClient": {
+          "$path": "EleminionClient.client.lua"
         },
         "BadlandsClient": {
           "$path": "BadlandsClient.client.lua"

@@ -227,6 +227,11 @@ title.Font = Enum.Font.GothamBlack
 title.TextSize = 17
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = hdr
+local applyProfileHeaderTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(title, {
+	Position = UDim2.new(0, 18, 0, 0),
+	Size = UDim2.new(1, -50, 1, 0),
+	TextXAlignment = Enum.TextXAlignment.Left,
+})
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 30, 0, 30)
@@ -2858,6 +2863,7 @@ local function applyMobileScale()
 		closeBtn.Position = UDim2.new(1, -44, 0, 6)
 		closeBtn.TextSize = 15
 		sidebarTitle.Text = "DETAILS"
+		applyProfileHeaderTitleLayout()
 		return
 	end
 	main.Size = UDim2.new(0, w, 0, h)
@@ -2870,6 +2876,7 @@ local function applyMobileScale()
 	closeBtn.Position = UDim2.new(1, -38, 0, 9)
 	closeBtn.TextSize = 13
 	MobileWindowLayout.RestoreDesktopWindow(main, { draggable = true })
+	applyProfileHeaderTitleLayout()
 end
 
 local function openUI(tabName)

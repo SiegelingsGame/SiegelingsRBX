@@ -34,6 +34,13 @@ local function getCook()
 	return GameConfig.Cooking or {}
 end
 
+local function parsePlayerCraftingMix(player)
+	local cook = getCook()
+	local maxMix = tonumber(cook.MaxMixIngredients) or 4
+	local raw = PlayerDataManager.GetCraftingMix(player)
+	return IngredientData.ParseCraftingMixRaw(raw, maxMix)
+end
+
 local function pushBankUpdate(player)
 	local events = ReplicatedStorage:FindFirstChild("Events")
 	local ev = events and events:FindFirstChild("IngredientBankChanged")
@@ -186,7 +193,8 @@ local function buildCookNPCSpawnCFrame()
 	local rayOrigin = Vector3.new(baseXZ.X, rayY + 70, baseXZ.Z)
 	local rayResult = Workspace:Raycast(rayOrigin, Vector3.new(0, -260, 0))
 	local groundY = rayResult and rayResult.Position.Y or baseXZ.Y
-	local pos = Vector3.new(baseXZ.X, groundY + 2.5, baseXZ.Z)
+	local groundOfs = tonumber(cfg.GroundOffsetStuds) or 2.5
+	local pos = Vector3.new(baseXZ.X, groundY + groundOfs, baseXZ.Z)
 
 	local baseCF = CFrame.new(pos)
 	if brokerCF then
@@ -221,6 +229,44 @@ local function ensureCookNPCPromptAndTags(npc, cookRoot, cfg)
 	prompt.HoldDuration = 0
 	prompt.RequiresLineOfSight = false
 	prompt.KeyboardKeyCode = Enum.KeyCode.E
+
+	local adorneeForTag = attach
+	if npc:IsA("Model") and npc.PrimaryPart then
+		adorneeForTag = npc.PrimaryPart
+	end
+	if not npc:FindFirstChild("CookNPCNameTag", true) then
+		local bb = Instance.new("BillboardGui")
+		bb.Name = "CookNPCNameTag"
+		bb.Adornee = adorneeForTag
+		bb.Size = UDim2.new(0, 240, 0, 56)
+		bb.StudsOffset = Vector3.new(0, 4.4, 0)
+		bb.AlwaysOnTop = false
+		bb.MaxDistance = 60
+		bb.LightInfluence = 1
+		bb.Parent = npc
+
+		local titleLabel = Instance.new("TextLabel")
+		titleLabel.Name = "Title"
+		titleLabel.Size = UDim2.new(1, 0, 0.52, 0)
+		titleLabel.Position = UDim2.new(0, 0, 0, 0)
+		titleLabel.BackgroundTransparency = 1
+		titleLabel.Text = cfg.PromptObjectText or "Campfire Chef"
+		titleLabel.TextColor3 = Color3.fromRGB(100, 220, 210)
+		titleLabel.Font = Enum.Font.GothamBlack
+		titleLabel.TextScaled = true
+		titleLabel.Parent = bb
+
+		local subLabel = Instance.new("TextLabel")
+		subLabel.Name = "Subtitle"
+		subLabel.Size = UDim2.new(1, 0, 0.42, 0)
+		subLabel.Position = UDim2.new(0, 0, 0.56, 0)
+		subLabel.BackgroundTransparency = 1
+		subLabel.Text = (type(cfg.OverheadSubtitle) == "string" and cfg.OverheadSubtitle) or "Cooking & recipes"
+		subLabel.TextColor3 = Color3.fromRGB(150, 165, 180)
+		subLabel.Font = Enum.Font.GothamMedium
+		subLabel.TextScaled = true
+		subLabel.Parent = bb
+	end
 
 	if npc:IsA("Model") then
 		CollectionService:AddTag(npc, TAG_COOK_NPC)
@@ -342,12 +388,18 @@ function IngredientSpawnSystem.GetRecipePattern(player)
 	end
 	local cook = getCook()
 	local mini = cook.Minigame or {}
-	local mix = IngredientData.NormalizeMix(PlayerDataManager.GetCraftingMix(player))
-	local craftResult, err = IngredientData.ComputeCraft(mix, cook)
+	local flat, slots = parsePlayerCraftingMix(player)
+	local craftResult, err = IngredientData.ComputeCraft(flat, cook, slots)
 	if not craftResult then
 		return false, err or "Invalid mix"
 	end
-	local seed = tostring(player.UserId) .. ":" .. tostring(math.floor(os.clock() * 1000))
+	local maxMix = tonumber(cook.MaxMixIngredients) or 4
+	local slotMask = IngredientData.SlotOccupancyMask(slots, maxMix)
+	local seed = tostring(player.UserId)
+		.. ":"
+		.. tostring(math.floor(os.clock() * 1000))
+		.. ":m"
+		.. tostring(slotMask)
 	local pattern = IngredientData.GetPatternForResult(craftResult, seed)
 	if not pattern then
 		return false, "No recipe pattern configured"
@@ -386,8 +438,17 @@ function IngredientSpawnSystem.ServerCollectPickup(player, pickupUid)
 	end
 	local ok, err = PlayerDataManager.AddIngredient(player, rec.ingredientId, 1)
 	if not ok then return false, err or "Full" end
+	local worldPos = rec.part.Position
+	local ingId = rec.ingredientId
+	local ingDef = IngredientData.GetById(ingId)
+	local displayName = ingDef and ingDef.displayName or ingId
 	removePickup(pickupUid)
 	pushBankUpdate(player)
+	local ev = ReplicatedStorage:FindFirstChild("Events")
+	local pickupFx = ev and ev:FindFirstChild("IngredientPickupCollected")
+	if pickupFx then
+		pickupFx:FireClient(player, worldPos, ingId, displayName)
+	end
 	return true
 end
 
@@ -402,8 +463,8 @@ function IngredientSpawnSystem.ServerCraft(player)
 	if lastCraftTick[uid] and (now - lastCraftTick[uid]) < cd then
 		return false, nil, nil, "Wait a moment."
 	end
-	local mix = IngredientData.NormalizeMix(PlayerDataManager.GetCraftingMix(player))
-	local result, err = IngredientData.ComputeCraft(mix, cook)
+	local flat, slots = parsePlayerCraftingMix(player)
+	local result, err = IngredientData.ComputeCraft(flat, cook, slots)
 	if not result then
 		return false, nil, nil, err or "Invalid mix"
 	end
@@ -430,7 +491,8 @@ function IngredientSpawnSystem.ServerCraft(player)
 	local ev = ReplicatedStorage:FindFirstChild("Events")
 	local n = ev and ev:FindFirstChild("ShowNotification")
 	if n then
-		n:FireClient(player, "Cooked: " .. tostring(result.displayName), "info", "cooking")
+		local msg = IngredientData.FormatCookingNotification(result, nil)
+		n:FireClient(player, msg, "info", "cooking")
 	end
 	return true, result.displayName, result.buffId, nil
 end
@@ -458,8 +520,8 @@ function IngredientSpawnSystem.ServerCraftWithQuality(player, payload)
 		return false, nil, nil, "Recipe expired. Start again."
 	end
 
-	local mix = IngredientData.NormalizeMix(PlayerDataManager.GetCraftingMix(player))
-	local result, err = IngredientData.ComputeCraft(mix, cook)
+	local flat, slots = parsePlayerCraftingMix(player)
+	local result, err = IngredientData.ComputeCraft(flat, cook, slots)
 	if not result then
 		return false, nil, nil, err or "Invalid mix"
 	end
@@ -521,7 +583,8 @@ function IngredientSpawnSystem.ServerCraftWithQuality(player, payload)
 	local ev = ReplicatedStorage:FindFirstChild("Events")
 	local n = ev and ev:FindFirstChild("ShowNotification")
 	if n then
-		n:FireClient(player, ("Cooked: %s [%s]"):format(tostring(result.displayName), tostring(grade)), "info", "cooking")
+		local msg = IngredientData.FormatCookingNotification(result, grade)
+		n:FireClient(player, msg, "info", "cooking")
 	end
 	return true, result.displayName, result.buffId, nil, {
 		qualityGrade = grade,

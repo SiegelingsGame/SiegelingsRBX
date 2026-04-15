@@ -88,7 +88,8 @@ local function buildSpawnCFrame()
 	local rayOrigin = Vector3.new(baseXZ.X, rayY + 70, baseXZ.Z)
 	local rayResult = Workspace:Raycast(rayOrigin, Vector3.new(0, -260, 0))
 	local groundY = rayResult and rayResult.Position.Y or baseXZ.Y
-	local pos = Vector3.new(baseXZ.X, groundY + 2.5, baseXZ.Z)
+	local groundOfs = tonumber(cfg.GroundOffsetStuds) or 2.5
+	local pos = Vector3.new(baseXZ.X, groundY + groundOfs, baseXZ.Z)
 
 	local baseCF = CFrame.new(pos)
 	if brokerCF then

@@ -14,6 +14,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 
 
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+local IngredientData = require(ReplicatedStorage.Modules:WaitForChild("IngredientData"))
 local Notify = require(ReplicatedStorage.Modules.NotificationManager)
 
 local Events = ReplicatedStorage:WaitForChild("Events", 15)
@@ -74,6 +75,12 @@ local BUFF_EMOJIS = {
 	food_earth_siegeling = emoji(0x1FAA8),
 	food_wind_siegeling = emoji(0x1F32A),
 	food_water_siegeling = emoji(0x1F4A7),
+	-- Campfire craft buffs (unique icons; ids stay internal)
+	craft_neutral_attack = emoji(0x1F52A),
+	craft_neutral_speed = emoji(0x1F3C3),
+	craft_neutral_health = emoji(0x1F372),
+	craft_siegeling_element = emoji(0x1F525),
+	craft_siegeling_class = emoji(0x2694, 0xFE0F),
 }
 
 local buffConfigById = {}
@@ -85,7 +92,13 @@ local currentShopMode = "default"
 
 local function getBuffDisplayName(buffId)
 	local config = buffConfigById[buffId]
-	return (config and config.name) or buffId
+	if config and config.name then
+		return config.name
+	end
+	if IngredientData and IngredientData.GetCraftBuffTypeTitle then
+		return IngredientData.GetCraftBuffTypeTitle(buffId)
+	end
+	return tostring(buffId)
 end
 
 local function getBuffEmoji(buffId)
@@ -278,6 +291,22 @@ local function applyResponsiveContentLayout()
 	closeBtn.TextSize = mobile and 16 or 14
 	scroll.Size = mobile and UDim2.new(1, -12, 1, -60) or UDim2.new(1, -20, 1, -55)
 	scroll.Position = mobile and UDim2.new(0, 6, 0, 50) or UDim2.new(0, 10, 0, 48)
+	-- Fullscreen / phone: center title + currency so they are not hidden under Roblox CoreGui.
+	if mobile then
+		titleLbl.TextXAlignment = Enum.TextXAlignment.Center
+		titleLbl.Position = UDim2.new(0, 8, 0, 2)
+		titleLbl.Size = UDim2.new(1, -16, 0, 22)
+		currLbl.TextXAlignment = Enum.TextXAlignment.Center
+		currLbl.Position = UDim2.new(0, 8, 0, 24)
+		currLbl.Size = UDim2.new(1, -16, 0, 16)
+	else
+		titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+		titleLbl.Size = UDim2.new(0.7, 0, 1, 0)
+		titleLbl.Position = UDim2.new(0, 15, 0, 0)
+		currLbl.TextXAlignment = Enum.TextXAlignment.Right
+		currLbl.Size = UDim2.new(0.45, -48, 1, 0)
+		currLbl.Position = UDim2.new(0.55, 0, 0, 0)
+	end
 end
 
 local layout = Instance.new("UIListLayout")

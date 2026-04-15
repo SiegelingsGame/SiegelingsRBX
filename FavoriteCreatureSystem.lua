@@ -275,7 +275,7 @@ local COMPANION_STAND_UP_ANGLES = {
 	skydon = {-180, 0, 0},
 	applehead = {-90, 0, 0},
 	emberfin = {-90, 0, 0},
-	cozycub = {-90, 0, 0},
+	cozycub = {-180, 0, 0},
 	lumina = {-180, 0, 0},
 	squirtle = {-90, 0, 0},
 	gymstone = {-180, 0, 0},
@@ -966,6 +966,14 @@ end
 
 -- -- COMPANION BEHAVIOR --
 
+-- Open world: follow behind the player. Badlands: lead in front (clear sightlines; avoids "pet behind" in PvP).
+local function getCompanionFollowOffsetSign(player)
+	if player and player:GetAttribute("InBadlands") == true then
+		return 1
+	end
+	return -1
+end
+
 local function startCompanionBehavior(player, model, creatureId)
 	local info = CreatureData.GetById(creatureId)
 	local rarityInfo = CreatureData.Rarities[info.rarity]
@@ -1073,9 +1081,10 @@ local function startCompanionBehavior(player, model, creatureId)
 				end
 			end
 			local targetPos
+			local followSign = getCompanionFollowOffsetSign(player)
 			if isWaterFollowing then
 				-- Clamp companion Y to water volume bounds so they stay within the water volume
-				local behind = root.Position - root.CFrame.LookVector * GameConfig.CompanionFollowDist
+				local behind = root.Position + root.CFrame.LookVector * (GameConfig.CompanionFollowDist * followSign)
 				local maxY = root.Position.Y + (GameConfig.WaterCompanionMaxSurfaceOffset or 1.5)
 				if waterVolumePart then
 					local topY = waterVolumePart.Position.Y + waterVolumePart.Size.Y * 0.5
@@ -1085,7 +1094,7 @@ local function startCompanionBehavior(player, model, creatureId)
 				end
 				targetPos = Vector3.new(behind.X, math.min(behind.Y, maxY), behind.Z)
 			else
-				local followXZ = root.Position + root.CFrame.LookVector * -GameConfig.CompanionFollowDist
+				local followXZ = root.Position + root.CFrame.LookVector * (GameConfig.CompanionFollowDist * followSign)
 				local groundYAtTarget = getGroundY(Vector3.new(followXZ.X, root.Position.Y, followXZ.Z), { character })
 				local desiredY = CreatureData.IsFlying(creatureId)
 					and (groundYAtTarget + (GameConfig.FlyingHoverHeight or 5))
@@ -1502,11 +1511,12 @@ function FavoriteCreatureSystem.SpawnCompanion(player)
 	end
 	local model = createCompanionModel(entry.id, player, entry)
 	if not model then spawnLocks[userId] = nil; return end
-	-- Spawn behind player. Water + in water volume: 3D behind, clamped to volume bounds; else ground/flying height
+	local spawnFollowSign = getCompanionFollowOffsetSign(player)
+	-- Spawn behind (open world) or in front (Badlands). Water + in water volume: 3D offset, clamped; else ground/flying height
 	local bodyPart = model.PrimaryPart or CreatureModelLoader.GetBodyPart(model) or model:FindFirstChild("Body")
 	local spawnPos
 	if (isPlayerInOceanSpawn or isPlayerInWaterBlockSpawn) and CreatureData.IsWaterType(entry.id) then
-		local behind = root.Position - root.CFrame.LookVector * GameConfig.CompanionFollowDist
+		local behind = root.Position + root.CFrame.LookVector * (GameConfig.CompanionFollowDist * spawnFollowSign)
 		local maxY = root.Position.Y + (GameConfig.WaterCompanionMaxSurfaceOffset or 1.5)
 		-- Get the water volume part (Ocean or WaterBlock) for Y-clamping
 		local waterPart = nil
@@ -1524,7 +1534,7 @@ function FavoriteCreatureSystem.SpawnCompanion(player)
 		end
 		spawnPos = Vector3.new(behind.X, math.min(behind.Y, maxY), behind.Z)
 	else
-		local followXZ = root.Position + root.CFrame.LookVector * -GameConfig.CompanionFollowDist
+		local followXZ = root.Position + root.CFrame.LookVector * (GameConfig.CompanionFollowDist * spawnFollowSign)
 		local groundY = getGroundY(Vector3.new(followXZ.X, root.Position.Y, followXZ.Z), { character })
 		local desiredY = CreatureData.IsFlying(entry.id)
 			and (groundY + (GameConfig.FlyingHoverHeight or 5))
@@ -1651,11 +1661,12 @@ function FavoriteCreatureSystem.TeleportCompanionWithPlayer(player)
 	if not root then return end
 	local entry = PlayerDataManager.GetFavorite(player)
 	if not entry then return end
+	local tpSign = getCompanionFollowOffsetSign(player)
 	local isPlayerInOceanTeleport = CreatureAI and CreatureAI.IsPositionInOcean and CreatureAI.IsPositionInOcean(root.Position)
 	local bodyPart = c.model.PrimaryPart or CreatureModelLoader.GetBodyPart(c.model) or c.model:FindFirstChild("Body")
 	local spawnPos
 	if isPlayerInOceanTeleport and CreatureData.IsWaterType(entry.id) then
-		local behind = root.Position - root.CFrame.LookVector * GameConfig.CompanionFollowDist
+		local behind = root.Position + root.CFrame.LookVector * (GameConfig.CompanionFollowDist * tpSign)
 		local maxY = root.Position.Y + (GameConfig.WaterCompanionMaxSurfaceOffset or 1.5)
 		local ocean = CreatureAI and CreatureAI.GetOceanPart and CreatureAI.GetOceanPart()
 		if ocean then
@@ -1666,7 +1677,7 @@ function FavoriteCreatureSystem.TeleportCompanionWithPlayer(player)
 		end
 		spawnPos = Vector3.new(behind.X, math.min(behind.Y, maxY), behind.Z)
 	else
-		local followXZ = root.Position + root.CFrame.LookVector * -GameConfig.CompanionFollowDist
+		local followXZ = root.Position + root.CFrame.LookVector * (GameConfig.CompanionFollowDist * tpSign)
 		local groundY = getGroundY(Vector3.new(followXZ.X, root.Position.Y, followXZ.Z), { character })
 		local desiredY = CreatureData.IsFlying(entry.id)
 			and (groundY + (GameConfig.FlyingHoverHeight or 5))
@@ -1801,6 +1812,9 @@ function FavoriteCreatureSystem.Init(playerDataMgr, creatureSpawnerRef, creature
 	Players.PlayerAdded:Connect(function(player)
 		player.CharacterAdded:Connect(function()
 			task.wait(2)
+			if player:GetAttribute("InBadlands") then
+				return
+			end
 			if activeCompanions[player.UserId] then
 				FavoriteCreatureSystem.SpawnCompanion(player)
 			else
@@ -1872,9 +1886,13 @@ function FavoriteCreatureSystem.Init(playerDataMgr, creatureSpawnerRef, creature
 				local inWater = isPlayerInWater(player)
 				if not inWater then
 					companionRecalledDueToWater[userId] = nil
-					local entry = PlayerDataManager.GetFavorite(player)
-					if entry and not FavoriteCreatureSystem.IsOnCooldown(player) then
-						FavoriteCreatureSystem.SpawnCompanion(player)
+					if player:GetAttribute("InBadlands") then
+						-- no inventory companion respawn in Badlands
+					else
+						local entry = PlayerDataManager.GetFavorite(player)
+						if entry and not FavoriteCreatureSystem.IsOnCooldown(player) then
+							FavoriteCreatureSystem.SpawnCompanion(player)
+						end
 					end
 				end
 			end

@@ -107,8 +107,8 @@ function CaptureSystem.TryCapture(player, creatureModel)
 		return false, "Must defeat creature first! Use your companion to faint it."
 	end
 
+	-- Any capture while in The Badlands uses the run bag (not main inventory / income UI).
 	local isBadlandsCapture = player:GetAttribute("InBadlands") == true
-		and creatureModel:GetAttribute("BadlandsCreature") == true
 
 	if isBadlandsCapture and player:GetAttribute("BadlandsLoading") then
 		return false, "Still loading into The Badlands..."
@@ -121,6 +121,9 @@ function CaptureSystem.TryCapture(player, creatureModel)
 	if not creatureId then return false, "Unknown creature" end
 	local creatureInfo = CreatureData.GetById(creatureId)
 	if not creatureInfo then return false, "Invalid creature data" end
+	if CreatureData.IsNpcOnly and CreatureData.IsNpcOnly(creatureInfo) then
+		return false, "Eleminions cannot be captured."
+	end
 
 	local data = nil
 	if not isBadlandsCapture then
@@ -204,10 +207,14 @@ function CaptureSystem.TryCapture(player, creatureModel)
 
 		local successEvent = events and events:FindFirstChild("CaptureSuccess")
 		if successEvent then
-			successEvent:FireClient(player, creatureId, bagInfo and bagInfo.uid or "", 0, {
+			local bid = (bagInfo and bagInfo.creatureId) or creatureId
+			successEvent:FireClient(player, bid, bagInfo and bagInfo.uid or "", 0, {
 				badlands = true,
+				badlandsPending = bagInfo and bagInfo.badlandsPending == true,
+				bagFull = bagInfo and bagInfo.bagFull == true,
 				bagCount = bagInfo and bagInfo.bagCount or 0,
 				bagMax = bagInfo and bagInfo.bagMax or 0,
+				bag = bagInfo and bagInfo.bag,
 				activeSlot = bagInfo and bagInfo.activeIndex or nil,
 			}, captureSessionId)
 		end

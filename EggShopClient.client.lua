@@ -178,6 +178,21 @@ local function applyResponsiveContentLayout()
 	cardLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	cardLayout.VerticalAlignment = Enum.VerticalAlignment.Top
 	cardLayout.Padding = mobile and UDim.new(0, 6) or UDim.new(0, 10)
+	if mobile then
+		titleLbl.TextXAlignment = Enum.TextXAlignment.Center
+		titleLbl.Position = UDim2.new(0, 8, 0, 2)
+		titleLbl.Size = UDim2.new(1, -16, 0, 22)
+		currLbl.TextXAlignment = Enum.TextXAlignment.Center
+		currLbl.Position = UDim2.new(0, 8, 0, 24)
+		currLbl.Size = UDim2.new(1, -16, 0, 16)
+	else
+		titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+		titleLbl.Size = UDim2.new(0.5, 0, 1, 0)
+		titleLbl.Position = UDim2.new(0, 15, 0, 0)
+		currLbl.TextXAlignment = Enum.TextXAlignment.Right
+		currLbl.Size = UDim2.new(0.45, -48, 1, 0)
+		currLbl.Position = UDim2.new(0.55, 0, 0, 0)
+	end
 end
 
 local hatching = false

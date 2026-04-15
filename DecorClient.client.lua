@@ -73,6 +73,11 @@ title.Font = Enum.Font.GothamBlack
 title.TextSize = 15
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = main
+local applyDecorTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(title, {
+	Position = UDim2.new(0, 12, 0, 6),
+	Size = UDim2.new(1, -80, 0, 28),
+	TextXAlignment = Enum.TextXAlignment.Left,
+})
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 28, 0, 28)
@@ -177,6 +182,7 @@ local function applyLayout()
 		main.Position = UDim2.new(0.5, 0, 0.5, 0)
 		MobileWindowLayout.RestoreDesktopWindow(main, { draggable = true })
 	end
+	applyDecorTitleLayout()
 end
 
 local function setTabVisual()

@@ -1,6 +1,6 @@
 -- BiomeZone.lua - ReplicatedStorage/Modules/BiomeZone
--- Server-safe biome region for ingredients (matches BiomeSkyboxClient logic + Cave).
--- Returns sky names for 7 regions or "Cave", or nil for hub/roads/default.
+-- Server-safe biome region for ingredients (matches BiomeSkyboxClient: outer baseplates, hub, roads, inner wedges).
+-- Returns sky names (e.g. DesertSky, CaveSky) or nil for hub/roads/default.
 
 local Workspace = game:GetService("Workspace")
 
@@ -23,8 +23,6 @@ local cached = {
 	hubCenter = nil,
 	innerWedges = nil,
 	innerMaxRadius = nil,
-	cavePart = nil,
-	caveVerticalRange = nil,
 	resolved = false,
 }
 
@@ -95,14 +93,6 @@ local function ensureResolved()
 		{ from = "WetRoad", to = "DesertRoad", sky = "IceSky" },
 		{ from = "DesertRoad", to = "ElectricRoad", sky = "WindSky" },
 	}
-
-	local caveCfg = cfg.Cave or {}
-	local cavePath = caveCfg.BaseplatePath or { "Terrain", "CaveBaseplate" }
-	local cavePart = resolvePath(cavePath)
-	if cavePart and cavePart:IsA("BasePart") then
-		cached.cavePart = cavePart
-	end
-	cached.caveVerticalRange = tonumber(caveCfg.VerticalRange) or 700
 end
 
 local function isOverPart(position, part, verticalBuffer)
@@ -145,30 +135,11 @@ local function isAngleBetween(a, fromAngle, toAngle)
 	return test >= 0 or test <= sweep
 end
 
---- Over CaveBaseplate: XZ on part and within VerticalRange above top surface (world Y).
-local function isInCaveRegion(position)
-	local part = cached.cavePart
-	if not part then
-		return false
-	end
-	if not isOverPartXZ(position, part) then
-		return false
-	end
-	local cf = part.CFrame
-	local size = part.Size
-	local localPos = cf:PointToObjectSpace(position)
-	local halfY = size.Y / 2
-	local topLocalY = halfY
-	local worldTopY = cf:PointToWorldSpace(Vector3.new(0, topLocalY, 0)).Y
-	local maxY = worldTopY + cached.caveVerticalRange
-	return position.Y <= maxY and position.Y >= worldTopY - halfY * 2
-end
-
 function BiomeZone.InvalidateCache()
 	cached.resolved = false
 end
 
---- @return string|nil  DesertSky, ElectricSky, WaterSky, EarthSky, FireSky, IceSky, WindSky, Cave, or nil
+--- @return string|nil  DesertSky, ElectricSky, WaterSky, CaveSky, EarthSky, FireSky, IceSky, WindSky, or nil
 function BiomeZone.GetIngredientRegion(position)
 	ensureResolved()
 	if typeof(position) ~= "Vector3" then
@@ -179,10 +150,6 @@ function BiomeZone.GetIngredientRegion(position)
 		if isOverPart(position, zone.part, VERTICAL_BUFFER) then
 			return zone.sky
 		end
-	end
-
-	if isInCaveRegion(position) then
-		return "Cave"
 	end
 
 	for _, part in ipairs(cached.hubParts) do
@@ -248,9 +215,6 @@ end
 --- @return Vector3|nil
 function BiomeZone.GetRandomSurfacePositionForRegion(regionName)
 	ensureResolved()
-	if regionName == "Cave" and cached.cavePart then
-		return rayDownToGround(randomXZOnPartTop(cached.cavePart))
-	end
 	for _, zone in ipairs(cached.outerZones) do
 		if zone.sky == regionName then
 			return rayDownToGround(randomXZOnPartTop(zone.part))

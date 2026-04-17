@@ -19,33 +19,107 @@ local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "HUD"; screenGui.ResetOnSpawn = false
 screenGui.DisplayOrder = 2; screenGui.Parent = playerGui
 
--- Top HUD: slightly smaller; coins and per-minute in one tight row (width cut to end at "0/min")
+-- Top HUD: coins, gems, and per-minute in one tight row.
+-- Uses AutomaticSize + UIPadding (same pattern as InvStatsBar below) so the
+-- frame shrink-wraps text width — no manual re-sizing when numbers change.
+local COIN_PAD_H = 12
+local COIN_PAD_V = 4
+
 local coinFrame = Instance.new("Frame")
-coinFrame.Size = UDim2.new(0, 174, 0, 30)
+coinFrame.Name = "CoinFrame"
+coinFrame.AutomaticSize = Enum.AutomaticSize.XY
+coinFrame.Size = UDim2.fromOffset(0, 0)
 coinFrame.Position = UDim2.new(0, 12, 0, 10)
 coinFrame.BackgroundColor3 = Color3.fromRGB(20, 22, 35)
 coinFrame.BackgroundTransparency = 0.25
-coinFrame.BorderSizePixel = 0; coinFrame.Parent = screenGui
+coinFrame.BorderSizePixel = 0
+coinFrame.Parent = screenGui
 Instance.new("UICorner", coinFrame).CornerRadius = UDim.new(0, 8)
 
+local coinPad = Instance.new("UIPadding")
+coinPad.PaddingLeft = UDim.new(0, COIN_PAD_H)
+coinPad.PaddingRight = UDim.new(0, COIN_PAD_H)
+coinPad.PaddingTop = UDim.new(0, COIN_PAD_V)
+coinPad.PaddingBottom = UDim.new(0, COIN_PAD_V)
+coinPad.Parent = coinFrame
+
+-- Single RichText label containing Coins (gold), Gems (cyan), and income/min (green).
+-- Parent frame auto-sizes to fit. Updated via setCoinBarText() from refreshData
+-- and the CoinsUpdate / GemsUpdate / IncomeReceived remote events.
 local coinLabel = Instance.new("TextLabel")
 coinLabel.Name = "CoinLabel"
-coinLabel.Size = UDim2.new(0, 105, 1, 0)
-coinLabel.Position = UDim2.new(0, 8, 0, 0)
-coinLabel.BackgroundTransparency = 1; coinLabel.Text = "Coins: 0"
-coinLabel.TextColor3 = Color3.fromRGB(255, 200, 50)
-coinLabel.Font = Enum.Font.GothamBold; coinLabel.TextSize = 14
-coinLabel.TextXAlignment = Enum.TextXAlignment.Left; coinLabel.Parent = coinFrame
+coinLabel.AutomaticSize = Enum.AutomaticSize.XY
+coinLabel.Size = UDim2.fromOffset(0, 0)
+coinLabel.BackgroundTransparency = 1
+coinLabel.RichText = true
+-- Initial placeholder; replaced by setCoinBarText() once state is populated.
+-- Numbers use formatAbbrev (K/M/B/T) for thousands-and-up compact display.
+coinLabel.Text = '<font color="rgb(255,200,50)">Coins: 0</font>  <font color="rgb(90,210,240)">Gems: 0</font>  <font color="rgb(50,220,120)">0/min</font>'
+coinLabel.TextColor3 = Color3.fromRGB(230, 230, 230)
+coinLabel.Font = Enum.Font.GothamBold
+coinLabel.TextSize = 14
+coinLabel.TextXAlignment = Enum.TextXAlignment.Left
+coinLabel.TextYAlignment = Enum.TextYAlignment.Center
+coinLabel.Parent = coinFrame
 
--- Per-minute right next to coins (small gap)
-local coinIncomeLbl = Instance.new("TextLabel")
-coinIncomeLbl.Name = "CoinIncomeLabel"
-coinIncomeLbl.Size = UDim2.new(0, 50, 1, 0)
-coinIncomeLbl.Position = UDim2.new(0, 116, 0, 0)
-coinIncomeLbl.BackgroundTransparency = 1; coinIncomeLbl.Text = "0/min"
-coinIncomeLbl.TextColor3 = Color3.fromRGB(50, 220, 120)
-coinIncomeLbl.Font = Enum.Font.GothamMedium; coinIncomeLbl.TextSize = 12
-coinIncomeLbl.TextXAlignment = Enum.TextXAlignment.Left; coinIncomeLbl.Parent = coinFrame
+-- Cached current values so any single remote event (CoinsUpdate/GemsUpdate/
+-- IncomeReceived) can update just its own segment without clobbering the others.
+local coinBarState = { coins = 0, gems = 0, ipm = 0 }
+
+-- Abbreviate large numbers for HUD display:
+--   999 -> "999", 1000 -> "1K", 1450 -> "1.45K", 10550 -> "10.55K",
+--   100990 -> "100.99K", 1_000_000 -> "1M", 5_230_000 -> "5.23M", 1e9 -> "1B", 1e12 -> "1T".
+-- Uses 2-decimal precision truncated (not rounded) so displayed value never
+-- overstates the balance (e.g. 1999 shows "1.99K", not "2K").
+local function formatAbbrev(n)
+	n = tonumber(n) or 0
+	local neg = n < 0
+	n = math.abs(n)
+	local function trunc2(x)
+		return math.floor(x * 100) / 100
+	end
+	-- Strip trailing zeros after the decimal: "1.00" -> "1", "1.50" -> "1.5", "1.45" -> "1.45"
+	local function fmt(x, suffix)
+		local v = trunc2(x)
+		local s
+		if v == math.floor(v) then
+			s = tostring(math.floor(v))
+		else
+			s = string.format("%.2f", v):gsub("0+$", ""):gsub("%.$", "")
+		end
+		return s .. suffix
+	end
+	local out
+	if n >= 1e12 then      out = fmt(n / 1e12, "T")
+	elseif n >= 1e9 then   out = fmt(n / 1e9,  "B")
+	elseif n >= 1e6 then   out = fmt(n / 1e6,  "M")
+	elseif n >= 1e3 then   out = fmt(n / 1e3,  "K")
+	else                    out = tostring(math.floor(n))
+	end
+	return neg and ("-" .. out) or out
+end
+
+local function setCoinBarText()
+	coinLabel.Text = string.format(
+		'<font color="rgb(255,200,50)">Coins: %s</font>  <font color="rgb(90,210,240)">Gems: %s</font>  <font color="rgb(50,220,120)">%s/min</font>',
+		formatAbbrev(coinBarState.coins),
+		formatAbbrev(coinBarState.gems),
+		formatAbbrev(coinBarState.ipm)
+	)
+end
+
+-- Back-compat shim: older code paths still assign to coinIncomeLbl.Text.
+-- Redirects the write through coinBarState so the combined label stays in sync.
+local coinIncomeLbl = setmetatable({}, {
+	__newindex = function(_, k, v)
+		if k == "Text" then
+			local n = tonumber(tostring(v):match("(-?%d+)")) or 0
+			coinBarState.ipm = n
+			setCoinBarText()
+		end
+	end,
+	__index = function() return "" end,
+})
 
 -- One label; frame shrink-wraps text width + padding (updates when numbers change)
 local INV_STATS_PAD_H = 12
@@ -322,11 +396,12 @@ local function refreshData()
 	if not gi then return end
 	local ok, data = pcall(function() return gi:InvokeServer() end)
 	if not ok or not data then return end
-	-- Coins (defensive: data.coins can be nil)
-	coinLabel.Text = "Coins: " .. tostring(data.coins or 0)
-	-- Income per min
-	local ipm = computeIncomePerMin(data)
-	coinIncomeLbl.Text = tostring(ipm) .. "/min"
+	-- Coins / Gems / Income per min — update cached state then refresh the
+	-- combined RichText label in one write (avoids mid-frame flicker).
+	coinBarState.coins = tonumber(data.coins) or 0
+	coinBarState.gems = tonumber(data.gems) or coinBarState.gems or 0
+	coinBarState.ipm = computeIncomePerMin(data)
+	setCoinBarText()
 	-- Creature count (defensive: data.inventory can be nil)
 	local invCount = data.inventory and #data.inventory or 0
 	local invMax = GameConfig.MaxInventorySize or 50
@@ -351,13 +426,26 @@ end
 
 if IncomeReceived then
 	IncomeReceived.OnClientEvent:Connect(function(amount, newBalance)
-		coinLabel.Text = "Coins: " .. tostring(newBalance)
+		coinBarState.coins = tonumber(newBalance) or coinBarState.coins
+		setCoinBarText()
 		Notify.FloatingText("+" .. amount .. " coins", Color3.fromRGB(255, 184, 0))
 	end)
 end
 
 if CoinsUpdate then
-	CoinsUpdate.OnClientEvent:Connect(function(balance) coinLabel.Text = "Coins: " .. tostring(balance) end)
+	CoinsUpdate.OnClientEvent:Connect(function(balance)
+		coinBarState.coins = tonumber(balance) or 0
+		setCoinBarText()
+	end)
+end
+
+-- GemsUpdate: live gem balance from server (purchase, trade, achievement, etc.)
+local GemsUpdate = safeGet("GemsUpdate")
+if GemsUpdate then
+	GemsUpdate.OnClientEvent:Connect(function(balance)
+		coinBarState.gems = tonumber(balance) or 0
+		setCoinBarText()
+	end)
 end
 
 if CaptureSuccess then
@@ -475,7 +563,8 @@ task.spawn(function()
 	for i = 1, 10 do
 		task.wait(1)
 		refreshData()
-		if coinLabel.Text and coinLabel.Text ~= "Coins: 0" then break end
+		-- Break once we've loaded a non-zero balance (RichText now — compare cached state, not label text).
+		if coinBarState.coins > 0 or coinBarState.gems > 0 then break end
 	end
 end)
 task.spawn(function()

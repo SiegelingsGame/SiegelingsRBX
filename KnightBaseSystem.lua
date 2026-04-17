@@ -119,6 +119,86 @@ local function notifyClient(player, message, level)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
+-- TELEPORT PART POSITION LOCK
+-- The four zone-entrance teleport pads (CaveTele / DesertTele / ElectricTele /
+-- OceanTele) live under plot.Floor3 so they travel with the plot for ownership
+-- + streaming reasons. But their TeleportPart2 landing targets are world-fixed:
+-- they teleport players to zone-entry coordinates baked relative to the hub.
+-- When PivotTo moves the plot, the TeleportPart2 parts would translate too,
+-- and the player ends up off-map.
+--
+-- Strategy: before any PivotTo on the plot model, snapshot the world CFrame of
+-- every BasePart beneath those four Tele folders. After the PivotTo, restore
+-- each part's CFrame. That way the plot shell moves freely while the teleport
+-- targets stay exactly where they were placed in the world.
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+local LOCKED_TELE_FOLDER_NAMES = {
+	CaveTele     = true,
+	DesertTele   = true,
+	ElectricTele = true,
+	OceanTele    = true,
+}
+
+--- Collect only the TeleportPart2 parts (and their BasePart descendants) under
+--- the four Tele folders in plot.Floor3. TeleportPart1 and any other siblings
+--- are intentionally excluded — they live relative to the plot and must move
+--- with it. Only the biome-entrance landing targets (TeleportPart2 + nested)
+--- are world-fixed.
+--- @param plotModel Model — the player's plot model
+--- @return BasePart[] — flat list of parts to world-lock across a PivotTo
+local function collectLockedTeleParts(plotModel)
+	local out = {}
+	if not plotModel then return out end
+	local floor3 = plotModel:FindFirstChild("Floor3")
+	if not floor3 then return out end
+	for _, teleFolder in ipairs(floor3:GetChildren()) do
+		if LOCKED_TELE_FOLDER_NAMES[teleFolder.Name] then
+			for _, child in ipairs(teleFolder:GetChildren()) do
+				if child.Name == "TeleportPart2" then
+					if child:IsA("BasePart") then
+						table.insert(out, child)
+					end
+					-- Include every BasePart nested inside TeleportPart2
+					-- (decorations, detail parts, etc.) so the whole landing
+					-- pad stays pinned in world space.
+					for _, d in ipairs(child:GetDescendants()) do
+						if d:IsA("BasePart") then
+							table.insert(out, d)
+						end
+					end
+				end
+			end
+		end
+	end
+	return out
+end
+
+--- Snapshot world CFrames for the parts returned by collectLockedTeleParts.
+--- @param parts BasePart[]
+--- @return { [BasePart]: CFrame }
+local function snapshotTelePartCFrames(parts)
+	local snap = {}
+	for _, p in ipairs(parts) do
+		if p.Parent then
+			snap[p] = p.CFrame
+		end
+	end
+	return snap
+end
+
+--- Restore each part to its saved CFrame (reverses translation caused by PivotTo).
+--- @param snap { [BasePart]: CFrame }
+local function restoreTelePartCFrames(snap)
+	if not snap then return end
+	for part, cf in pairs(snap) do
+		if part and part.Parent then
+			part.CFrame = cf
+		end
+	end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
 -- PLACEHOLDER SIGN (temporary billboard at original plot location during rental)
 -- When a base is physically PivotTo'd to a knight base, the SignPart moves with
 -- it, leaving nothing at the home location. This creates a temporary sign so
@@ -247,8 +327,14 @@ returnToHome = function(player, skipTeleport)
 	local plotModel = findPlotModel(data)
 
 	if plotModel and rental.originalPivot then
+		-- Lock Floor3 teleport pads to their world positions so the PivotTo does
+		-- not drag TeleportPart2 and friends off their intended zone-entry spots.
+		local teleSnap = snapshotTelePartCFrames(collectLockedTeleParts(plotModel))
+
 		-- PivotTo back to original home position
 		plotModel:PivotTo(rental.originalPivot)
+
+		restoreTelePartCFrames(teleSnap)
 
 		-- Clear the rental attribute so shield works again
 		plotModel:SetAttribute("KnightBaseRental", nil)
@@ -408,7 +494,16 @@ local function moveBaseToSlot(player, biome, slotIndex)
 
 	-- Compute translation offset: align plot's PlotCenter with knight base PlotCenter
 	local offset = knightCenter.CFrame.Position - plotCenter.Position
+
+	-- Lock Floor3 teleport pads to their world positions so the PivotTo does
+	-- not drag TeleportPart2 and friends along with the plot. These parts
+	-- teleport players to zone-entry points that are anchored in world space,
+	-- not relative to the plot — without this, renters end up off the map.
+	local teleSnap = snapshotTelePartCFrames(collectLockedTeleParts(plotModel))
+
 	plotModel:PivotTo(originalPivot + offset)
+
+	restoreTelePartCFrames(teleSnap)
 
 	-- Set attribute so LaserDoorSystem blocks shield activation
 	-- FIX #35: LaserDoorSystem checks this attribute before activating shield

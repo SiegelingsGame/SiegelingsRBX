@@ -1381,6 +1381,10 @@ local function extractPlayer(userId)
 	if PlayerDataManager and PlayerDataManager.HasSigil and PlayerDataManager.AddSigil then
 		if not PlayerDataManager.HasSigil(ps.player, siegeLordZone) then
 			PlayerDataManager.AddSigil(ps.player, siegeLordZone)
+			-- Persist immediately: extraction is a milestone moment; don't rely on 120s auto-save.
+			if PlayerDataManager.SavePlayer then
+				pcall(function() PlayerDataManager.SavePlayer(ps.player) end)
+			end
 			local sigilEvt = eventsFolder and eventsFolder:FindFirstChild("SigilEarned")
 			if sigilEvt then
 				sigilEvt:FireClient(ps.player, siegeLordZone)

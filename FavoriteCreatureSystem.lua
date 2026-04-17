@@ -254,7 +254,7 @@ local COMPANION_STAND_UP_ANGLES = {
 	frostag = {-180, 0, 0},
 	droxyl = {-180, 0, 0},
 	hydroxyl = {-180, 0, 0},
-	cacty = {-90, 0, 0},
+	cacty = {-180, 0, 0},
 	jackedty = {-180, 0, 0},
 	cactyjackedty = {-180, 180, 0},
 	sundile = {-180, 0, 0},
@@ -266,7 +266,7 @@ local COMPANION_STAND_UP_ANGLES = {
 	pylook = {0, 90, -180},
 	pyleer = {0, 180, -180},
 	pylme = {-180, 0, 0},
-	squirebuddy = {-180, 0, 0},
+	squirebud = {-180, 0, 0},
 	generoot = {-180, 0, 0},
 	floraknight = {-180, 0, 0},
 	pursula = {-180, 0, 0},
@@ -281,6 +281,12 @@ local COMPANION_STAND_UP_ANGLES = {
 	gymstone = {-180, 0, 0},
 	glaciemperor = {0,0,0},
 	pylord = {-180,0,0},
+	sleaf = {-180, 0, 0},
+	dracosleaf = {-180, 0, 0},
+	sleafwyrm = {-180, 0, 0},
+	falcoat = {-180, 0, 0},
+	falcool = {-180, 0, 0},
+	peatbeak = {-180,0,0}
 }
 
 local function needsFacingCorrection(model)

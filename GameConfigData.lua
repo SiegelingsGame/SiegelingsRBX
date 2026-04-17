@@ -40,7 +40,7 @@ GameConfig.StartingCoins       = 1000
 GameConfig.IncomeTickSeconds   = 10
 GameConfig.MaxInventorySize    = 50
 GameConfig.EggCost             = 50
-GameConfig.MaxIncomeSlots      = 6   -- matches IncomePoints on plot
+GameConfig.MaxIncomeSlots      = 6   -- matches IncomePoints on plot.
 GameConfig.MaxDefenseSlots     = 6   -- matches DefensePoints on plot (auto-detected too)
 
 -- Leveling (creature levels; max level depends on evolution stage)
@@ -68,10 +68,10 @@ GameConfig.CreatureRenameGemCost = 5
 GameConfig.PlayerMaxLevel         = 100
 GameConfig.PlayerBaseXP           = 100    -- XP for player level 2
 GameConfig.PlayerXPScaling        = 1.4    -- each level needs 1.4x more
-GameConfig.PlayerXP_Capture       = 15     -- XP for capturing a creature
+GameConfig.PlayerXP_Capture       = 10     -- XP for capturing a creature
 GameConfig.PlayerXP_ArenaWin      = 50     -- XP for winning arena battle
 GameConfig.PlayerXP_ArenaKill     = 10     -- XP per arena kill
-GameConfig.PlayerXP_IncomeTick    = 2      -- XP per income tick (if income > 0)
+GameConfig.PlayerXP_IncomeTick    = 1      -- XP per income tick (if income > 0)
 GameConfig.PlayerXP_RaidWin       = 30     -- XP for successful raid
 GameConfig.PlayerXP_DungeonKill   = 20     -- XP for killing a dungeon creature
 GameConfig.PlayerXP_BossKill      = 100    -- XP for killing a boss creature
@@ -79,6 +79,9 @@ GameConfig.PlayerXP_BossKill      = 100    -- XP for killing a boss creature
 -- Achievement tier rewards (chain tier I–V; single-step achievements use tier 1)
 GameConfig.AchievementGemsByTier = { 5, 12, 24, 45, 80 }
 GameConfig.AchievementXPByTier = { 35, 75, 140, 230, 350 }
+-- Coin (gold) reward scaling by achievement tier (I..V). Previously missing,
+-- so achievements never paid out gold even though notifications implied they should.
+GameConfig.AchievementCoinsByTier = { 150, 400, 900, 1800, 3500 }
 
 -- Base Floors
 GameConfig.Floor2Cost             = 500   -- coins to buy Floor 2
@@ -687,13 +690,13 @@ GameConfig.RebirthLevels = {
 	-- Level 2: 15k gold, 5 commons (Fire)
 	{ gold = 15000, team = { "firsky", "pylook", "sundile", "draco", "smoldervine" } },
 	-- Level 3: 40k gold, mix common + uncommon
-	{ gold = 40000, team = { "emberpup", "raydile", "hotty", "sootfang", "fawny" } },
+	{ gold = 40000, team = { "emberpup", "raydile", "emberfin", "sootfang", "fawny" } },
 	-- Level 4: 100k gold
-	{ gold = 100000, team = { "frostfly", "icewee", "snowdrift", "frosty", "chilldoe" } },
+	{ gold = 100000, team = { "frostfly", "icewee", "snowdrift", "falcoat", "chilldoe" } },
 	-- Level 5: 250k gold
-	{ gold = 250000, team = { "ragguette", "blinky", "zephyrpup", "cloudhare", "lofty" } },
+	{ gold = 250000, team = { "ragguette", "blinky", "zephyrpup", "cloudhare", "cloudwisp" } },
 	-- Level 6: 500k gold
-	{ gold = 500000, team = { "applehead", "papap", "squirebud", "jackedty", "mossy" } },
+	{ gold = 500000, team = { "applehead", "papap", "squirebud", "jackedty", "bonoblade" } },
 	-- Level 7: 1M gold
 	{ gold = 1000000, team = { "gloomrat", "duskmoth", "shadeblob", "nightfang", "hexweaver" } },
 	-- Level 8: 2.5M gold
@@ -789,32 +792,33 @@ GameConfig.CosmeticItems = {
 	{id = "name_coral",     slot = "nameColor", name = "Coral Name",   coinCost = 200,  gemCost = 0},
 }
 
--- Base Exterior Shop (purchase theme; equipping applies theme to walls, stairs, etc.)
--- Full themes: Haunted House, Retro Arcadebnh
--- Color themes: single-color for backwall, front left/right walls, stairs (all floors)nuj
+-- Base Exterior Shop (purchase theme; equipping applies theme or foundation color styling)
+-- Full themes: Haunted House, Retro Arcade
+-- Color themes: single-color for base foundations (plot center, ramp, stairs, floors)
 GameConfig.BaseExteriorItems = {
 	-- Full themes (500 coins each)
 	{id = "HauntedHouse", name = "Haunted House", desc = "Spooky base with walls, stairs & lanterns", coinCost = 500, gemCost = 0},
 	{id = "RetroArcade",   name = "Retro Arcade",   desc = "Neon lights & arcade vibes on all walls & stairs", coinCost = 500, gemCost = 0},
-	-- Color themes (500 coins each) - entire base: backwall, front left/right walls, stairs
-	{id = "exterior_red",    name = "Red Base",    desc = "Backwall, walls & stairs in red",   coinCost = 500, gemCost = 0, color = Color3.fromRGB(200, 60, 60)},
-	{id = "exterior_blue",   name = "Blue Base",   desc = "Backwall, walls & stairs in blue",  coinCost = 500, gemCost = 0, color = Color3.fromRGB(60, 100, 200)},
-	{id = "exterior_green",  name = "Green Base",  desc = "Backwall, walls & stairs in green", coinCost = 500, gemCost = 0, color = Color3.fromRGB(60, 180, 80)},
-	{id = "exterior_yellow", name = "Yellow Base", desc = "Backwall, walls & stairs in yellow",coinCost = 500, gemCost = 0, color = Color3.fromRGB(220, 200, 60)},
-	{id = "exterior_purple", name = "Purple Base", desc = "Backwall, walls & stairs in purple",coinCost = 500, gemCost = 0, color = Color3.fromRGB(140, 80, 200)},
-	{id = "exterior_orange", name = "Orange Base", desc = "Backwall, walls & stairs in orange",coinCost = 500, gemCost = 0, color = Color3.fromRGB(230, 140, 50)},
+	-- Color themes (500 coins each) - base foundations only
+	{id = "exterior_red",    name = "Red Base",    desc = "Base foundations in red",    coinCost = 500, gemCost = 0, color = Color3.fromRGB(200, 60, 60)},
+	{id = "exterior_blue",   name = "Blue Base",   desc = "Base foundations in blue",   coinCost = 500, gemCost = 0, color = Color3.fromRGB(60, 100, 200)},
+	{id = "exterior_green",  name = "Green Base",  desc = "Base foundations in green",  coinCost = 500, gemCost = 0, color = Color3.fromRGB(60, 180, 80)},
+	{id = "exterior_yellow", name = "Yellow Base", desc = "Base foundations in yellow", coinCost = 500, gemCost = 0, color = Color3.fromRGB(220, 200, 60)},
+	{id = "exterior_purple", name = "Purple Base", desc = "Base foundations in purple", coinCost = 500, gemCost = 0, color = Color3.fromRGB(140, 80, 200)},
+	{id = "exterior_orange", name = "Orange Base", desc = "Base foundations in orange", coinCost = 500, gemCost = 0, color = Color3.fromRGB(230, 140, 50)},
 }
 
--- Base Color Shop (walls, stairs, points — not glass; teleporters, combiner, recycler keep asset colors)
+-- Base Color Shop (base foundations only; teleporters, combiner, recycler keep asset colors)
 -- Each item: id, name, color (Color3), coinCost, gemCost
 GameConfig.BaseColorItems = {
-	{id = "base_red",    name = "Red",    color = Color3.fromRGB(200, 60, 60),   coinCost = 300, gemCost = 0},
-	{id = "base_blue",   name = "Blue",   color = Color3.fromRGB(60, 100, 200),  coinCost = 300, gemCost = 0},
-	{id = "base_green",  name = "Green",  color = Color3.fromRGB(60, 180, 80),   coinCost = 300, gemCost = 0},
-	{id = "base_yellow", name = "Yellow", color = Color3.fromRGB(220, 200, 60),  coinCost = 300, gemCost = 0},
-	{id = "base_purple", name = "Purple", color = Color3.fromRGB(140, 80, 200),  coinCost = 300, gemCost = 0},
-	{id = "base_orange", name = "Orange", color = Color3.fromRGB(230, 140, 50),  coinCost = 300, gemCost = 0},
+	{id = "base_red",    name = "Red Foundations",    color = Color3.fromRGB(200, 60, 60),   coinCost = 300, gemCost = 0},
+	{id = "base_blue",   name = "Blue Foundations",   color = Color3.fromRGB(60, 100, 200),  coinCost = 300, gemCost = 0},
+	{id = "base_green",  name = "Green Foundations",  color = Color3.fromRGB(60, 180, 80),   coinCost = 300, gemCost = 0},
+	{id = "base_yellow", name = "Yellow Foundations", color = Color3.fromRGB(220, 200, 60),  coinCost = 300, gemCost = 0},
+	{id = "base_purple", name = "Purple Foundations", color = Color3.fromRGB(140, 80, 200),  coinCost = 300, gemCost = 0},
+	{id = "base_orange", name = "Orange Foundations", color = Color3.fromRGB(230, 140, 50),  coinCost = 300, gemCost = 0},
 }
+
 
 -- Base decor / furnishing — creature statue placement costs (gold sink, scales by rarity)
 GameConfig.DecorPointsPerFloor4  = 6       -- legacy hint; see DecorMaxSlotIndexPerFloor

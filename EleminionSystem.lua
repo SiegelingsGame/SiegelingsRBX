@@ -2,6 +2,7 @@
 -- Spawns Eleminion NPCs at biome EPoints / EleminionPoints and handles affinity quest progress.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
@@ -22,8 +23,11 @@ local playerXpEvent
 local playerLevelEvent
 
 local eleminionNpcs = {}
+local eleminionNpcStates = {}
 local promptConnections = {}
 local warnedMissingPoints = {}
+
+warn("[EleminionSystem] Module loaded")
 
 local function normalizeName(value)
 	return string.lower((tostring(value or "")):gsub("[%s%p_]+", ""))
@@ -127,6 +131,16 @@ local function getNpcGroundOffset()
 	return (type(cfg) == "table" and tonumber(cfg.GroundOffsetStuds)) or 0.2
 end
 
+local function getAttentionRange()
+	local cfg = GameConfig.Eleminion
+	return (type(cfg) == "table" and tonumber(cfg.AttentionRange)) or 50
+end
+
+local function getFacingUpdateInterval()
+	local cfg = GameConfig.Eleminion
+	return (type(cfg) == "table" and tonumber(cfg.FacingUpdateInterval)) or 0.15
+end
+
 local function notify(player, message, level)
 	if showNotificationEvent and player and message and message ~= "" then
 		showNotificationEvent:FireClient(player, message, level or "info")
@@ -143,6 +157,108 @@ local function disconnectPromptForModel(model)
 				connection:Disconnect()
 			end
 			promptConnections[prompt] = nil
+		end
+	end
+end
+
+local function getCharacterRoot(player)
+	if not player then
+		return nil
+	end
+	local character = player.Character
+	if not character then
+		return nil
+	end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health <= 0 then
+		return nil
+	end
+	return character:FindFirstChild("HumanoidRootPart")
+end
+
+local function getNearestPlayerRoot(origin, maxDistance)
+	local nearestRoot
+	local nearestDistance = maxDistance
+	for _, player in ipairs(Players:GetPlayers()) do
+		local root = getCharacterRoot(player)
+		if root then
+			local flat = (root.Position - origin) * Vector3.new(1, 0, 1)
+			local distance = flat.Magnitude
+			if distance <= nearestDistance then
+				nearestDistance = distance
+				nearestRoot = root
+			end
+		end
+	end
+	return nearestRoot, nearestDistance
+end
+
+local function getPreferredTargetRoot(npcState, origin)
+	if not npcState then
+		return nil
+	end
+
+	local maxDistance = npcState.attentionRange or getAttentionRange()
+	local lastInteractorUserId = npcState.lastInteractorUserId
+	if typeof(lastInteractorUserId) == "number" then
+		local preferredPlayer = Players:GetPlayerByUserId(lastInteractorUserId)
+		local preferredRoot = getCharacterRoot(preferredPlayer)
+		if preferredRoot then
+			local flat = (preferredRoot.Position - origin) * Vector3.new(1, 0, 1)
+			if flat.Magnitude <= maxDistance then
+				return preferredRoot
+			end
+		end
+	end
+
+	return getNearestPlayerRoot(origin, maxDistance)
+end
+
+local function applyFacingPivot(npcState, pivot)
+	if not npcState or not npcState.model or not npcState.model.Parent or not pivot then
+		return
+	end
+
+	local currentPivot = npcState.model:GetPivot()
+	if (currentPivot.Position - pivot.Position).Magnitude <= 1e-3
+		and currentPivot.LookVector:Dot(pivot.LookVector) > 0.999 then
+		return
+	end
+
+	npcState.model:PivotTo(pivot)
+end
+
+local function updateNpcFacing(npcState)
+	if not npcState or not npcState.model or not npcState.model.Parent then
+		return
+	end
+
+	local currentPivot = npcState.model:GetPivot()
+	local origin = currentPivot.Position
+	local targetRoot = getPreferredTargetRoot(npcState, origin)
+	if targetRoot then
+		local flatDirection = (targetRoot.Position - origin) * Vector3.new(1, 0, 1)
+		if flatDirection.Magnitude > 0.05 then
+			local desiredPivot = CFrame.lookAt(origin, origin + flatDirection.Unit) * npcState.rotationOffset
+			applyFacingPivot(npcState, desiredPivot)
+			npcState.currentFacing = "player"
+			return
+		end
+	end
+
+	if npcState.currentFacing ~= "base" and npcState.basePivot then
+		applyFacingPivot(npcState, npcState.basePivot)
+		npcState.currentFacing = "base"
+	end
+end
+
+local function updateAllNpcFacing()
+	for element, npcState in pairs(eleminionNpcStates) do
+		if not npcState or not npcState.model or not npcState.model.Parent then
+			eleminionNpcStates[element] = nil
+			eleminionNpcs[element] = nil
+		else
+			updateNpcFacing(npcState)
 		end
 	end
 end
@@ -361,6 +477,7 @@ function EleminionSystem.GetStatusPayload(player, element)
 	if not def then
 		return nil
 	end
+	local npcInfo = EleminionData.GetNpcProfile(def)
 
 	local sync = syncActiveQuestProgress(player, element)
 	if not sync then
@@ -388,6 +505,8 @@ function EleminionSystem.GetStatusPayload(player, element)
 		subtitle = def.subtitle,
 		biomeLabel = def.biomeLabel,
 		npcCreatureId = def.npcCreatureId,
+		npcDisplayName = npcInfo and npcInfo.displayName or nil,
+		npcModelName = npcInfo and npcInfo.modelName or nil,
 		affinity = affinity,
 		maxAffinity = maxAffinity,
 		affinityPercent = (maxAffinity > 0) and math.clamp(affinity / maxAffinity, 0, 1) or 0,
@@ -661,8 +780,9 @@ local function createFallbackNpc(def, info)
 end
 
 local function spawnNpc(def, point)
-	local info = CreatureData.GetById(def.npcCreatureId)
+	local info = EleminionData.GetNpcProfile(def)
 	if not info then
+		warn("[EleminionSystem] Missing NPC profile for " .. tostring(def.element))
 		return nil
 	end
 
@@ -671,18 +791,42 @@ local function spawnNpc(def, point)
 		disconnectPromptForModel(existing)
 		existing:Destroy()
 	end
+	eleminionNpcStates[def.element] = nil
 
 	local model = Instance.new("Model")
 	model.Name = info.displayName .. "EleminionNPC"
 	model:SetAttribute("EleminionElement", def.element)
-	model:SetAttribute("EleminionId", def.npcCreatureId)
+	model:SetAttribute("EleminionId", info.id or def.npcCreatureId)
 
 	local body = nil
-	local templateOptions = { targetSize = 6, creatureId = def.npcCreatureId }
+	local templateOptions = { targetSize = info.targetSize or 6 }
+	local hasTemplate = CreatureModelLoader.HasTemplate(info.modelName, info.displayName)
+	if not hasTemplate then
+		warn(string.format(
+			"[EleminionSystem] No CreatureModels template found for %s (modelName=%s, displayName=%s)",
+			tostring(def.element),
+			tostring(info.modelName),
+			tostring(info.displayName)
+		))
+	end
 	body = select(1, CreatureModelLoader.LoadAndIntegrate(model, info.modelName, info.displayName, point.Position + Vector3.new(0, 4, 0), templateOptions))
 	if not body then
+		warn(string.format(
+			"[EleminionSystem] Falling back to placeholder NPC for %s (modelName=%s, displayName=%s)",
+			tostring(def.element),
+			tostring(info.modelName),
+			tostring(info.displayName)
+		))
 		model:Destroy()
 		model, body = createFallbackNpc(def, info)
+		model:SetAttribute("EleminionUsingFallback", true)
+	else
+		model:SetAttribute("EleminionUsingFallback", false)
+		print(string.format(
+			"[EleminionSystem] Loaded NPC model for %s using template %s",
+			tostring(def.element),
+			tostring(model:GetAttribute("TemplateName") or info.modelName)
+		))
 	end
 
 	for _, desc in ipairs(model:GetDescendants()) do
@@ -695,6 +839,7 @@ local function spawnNpc(def, point)
 		model.PrimaryPart = body
 	end
 
+	local rotationOffset = CreatureData.GetModelRotationOffset(info, "world", false)
 	local placementOffset = CreatureData.GetModelPlacementOffset(info)
 	local baseY = point.Position.Y + point.Size.Y * 0.5 + getNpcGroundOffset()
 	local pivot = CFrame.new(
@@ -702,7 +847,7 @@ local function spawnNpc(def, point)
 		baseY + placementOffset.Y,
 		point.Position.Z + placementOffset.Z
 	) * (point.CFrame - point.Position)
-	model:PivotTo(pivot * CreatureData.GetModelRotationOffset(info, "world", false))
+	model:PivotTo(pivot * rotationOffset)
 
 	local bottomY = getModelBottomY(model)
 	if bottomY then
@@ -718,7 +863,7 @@ local function spawnNpc(def, point)
 	billboard.Adornee = promptParent
 	billboard.Size = UDim2.new(0, 240, 0, 64)
 	billboard.StudsOffset = Vector3.new(0, CreatureModelLoader.GetBillboardStudsOffsetForTopOfModel(model, promptParent), 0)
-	billboard.MaxDistance = 80
+	billboard.MaxDistance = getAttentionRange()
 	billboard.Parent = model
 
 	local titleLabel = Instance.new("TextLabel")
@@ -751,17 +896,36 @@ local function spawnNpc(def, point)
 	prompt.Parent = promptParent
 
 	local highlight = Instance.new("Highlight")
+	highlight.Name = "EleminionHighlight"
+	highlight.Enabled = false
+	highlight.DepthMode = Enum.HighlightDepthMode.Occluded
 	highlight.FillColor = getElementColor(def.element)
 	highlight.FillTransparency = 0.7
 	highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
 	highlight.OutlineTransparency = 0.2
+	highlight:SetAttribute("NpcHighlightDistance", getAttentionRange())
 	highlight.Parent = model
 
+	model:SetAttribute("NpcHighlightDistance", getAttentionRange())
 	model.Parent = Workspace
 	eleminionNpcs[def.element] = model
+	eleminionNpcStates[def.element] = {
+		element = def.element,
+		model = model,
+		basePivot = model:GetPivot(),
+		rotationOffset = rotationOffset,
+		attentionRange = getAttentionRange(),
+		lastInteractorUserId = nil,
+		currentFacing = "base",
+	}
 
 	if not promptConnections[prompt] then
 		promptConnections[prompt] = prompt.Triggered:Connect(function(player)
+			local npcState = eleminionNpcStates[def.element]
+			if npcState then
+				npcState.lastInteractorUserId = player.UserId
+				updateNpcFacing(npcState)
+			end
 			if openUiEvent then
 				openUiEvent:FireClient(player, def.element)
 			end
@@ -798,13 +962,16 @@ local function ensureAllNpcs()
 end
 
 function EleminionSystem.Init(playerDataManager)
+	warn("[EleminionSystem] Init called")
 	PlayerDataManager = playerDataManager
 	if PlayerDataManager and PlayerDataManager.BindEleminionObserver then
 		PlayerDataManager.BindEleminionObserver(EleminionSystem)
+		warn("[EleminionSystem] Bound to PlayerDataManager observer")
 	end
 
 	if not isEnabled() then
 		print("[EleminionSystem] Disabled via GameConfig.EleminionsEnabled")
+		warn("[EleminionSystem] Disabled via GameConfig.EleminionsEnabled")
 		return
 	end
 
@@ -813,6 +980,7 @@ function EleminionSystem.Init(playerDataManager)
 		warn("[EleminionSystem] Events folder not found")
 		return
 	end
+	warn("[EleminionSystem] Events folder found")
 
 	openUiEvent = eventsFolder:FindFirstChild("OpenEleminionUI")
 	statusUpdateEvent = eventsFolder:FindFirstChild("EleminionStatusUpdated")
@@ -849,8 +1017,15 @@ function EleminionSystem.Init(playerDataManager)
 			ensureAllNpcs()
 		end
 	end)
+	task.spawn(function()
+		while true do
+			task.wait(getFacingUpdateInterval())
+			updateAllNpcFacing()
+		end
+	end)
 
 	print("[EleminionSystem] Initialized")
+	warn("[EleminionSystem] Initialized")
 end
 
 return EleminionSystem

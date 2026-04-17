@@ -10,14 +10,19 @@ local function defaultRewardData(tierIndex, titleEarned)
 	local tier = math.clamp(tonumber(tierIndex) or 1, 1, 5)
 	local gemsTable = GameConfig.AchievementGemsByTier or { 5, 12, 24, 45, 80 }
 	local xpTable = GameConfig.AchievementXPByTier or { 35, 75, 140, 230, 350 }
+	local coinsTable = GameConfig.AchievementCoinsByTier or { 150, 400, 900, 1800, 3500 }
 	local gems = gemsTable[tier] or gemsTable[#gemsTable]
 	local xp = xpTable[tier] or xpTable[#xpTable]
+	-- Coins (gold) promoted from the old `future` placeholder to a real reward.
+	-- grantAchievementRewards now reads this field and credits the player.
+	local coins = coinsTable[tier] or coinsTable[#coinsTable]
 	return {
 		type = "title",
 		title = titleEarned,
 		gems = gems,
 		xp = xp,
-		future = { coins = 0, cosmetics = {} },
+		coins = coins,
+		future = { cosmetics = {} },
 	}
 end
 

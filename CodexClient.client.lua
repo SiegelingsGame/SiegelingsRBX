@@ -36,6 +36,7 @@ end
 -- Controller state
 local currentCreatureId = nil
 local currentMode = "DETAILS" -- "GUIDE" | "LORE" | "DETAILS" | "VISUAL"
+local guideViewMode = "OVERVIEW" -- "OVERVIEW" | "ADVANCED"
 local visualScrollPosition = 0
 local seenCreatureIds = {} -- [id] = true (ever opened in codex)
 local ownedCreatureIds = {} -- [id] = true (from GetInventory)
@@ -496,98 +497,141 @@ Instance.new("UICorner", visualCodexBtn).CornerRadius = UDim.new(0, 6)
 
 -- Build a scrollable book with chapter quick-links. Returns { scrollFrame, sectionOffsets } and fills scrollOffsets when layout is ready.
 local function buildBookView(parent, sections, isLore)
-	local row = Instance.new("Frame")
-	row.Size = UDim2.new(1, 0, 1, 0)
-	row.BackgroundTransparency = 1
-	row.Parent = parent
-	local rowLayout = Instance.new("UIListLayout")
-	rowLayout.FillDirection = Enum.FillDirection.Horizontal
-	rowLayout.VerticalAlignment = Enum.VerticalAlignment.Top
-	rowLayout.Padding = UDim.new(0, 6)
-	rowLayout.Parent = row
+	local container = Instance.new("Frame")
+	container.Size = UDim2.new(1, 0, 1, 0)
+	container.BackgroundTransparency = 1
+	container.Parent = parent
 
-	-- Chapter list (left)
 	local listFrame = Instance.new("Frame")
-	listFrame.Size = UDim2.new(0, 98, 1, 0)
+	listFrame.Size = UDim2.new(1, 0, 0, 62)
 	listFrame.BackgroundColor3 = C.card
 	listFrame.BorderSizePixel = 0
-	listFrame.Parent = row
-	Instance.new("UICorner", listFrame).CornerRadius = UDim.new(0, 6)
+	listFrame.Parent = container
+	Instance.new("UICorner", listFrame).CornerRadius = UDim.new(0, 8)
+
+	local listLabel = Instance.new("TextLabel")
+	listLabel.Size = UDim2.new(1, -12, 0, 18)
+	listLabel.Position = UDim2.new(0, 6, 0, 6)
+	listLabel.BackgroundTransparency = 1
+	listLabel.Text = isLore and "Lore chapters" or "Advanced guide"
+	listLabel.TextColor3 = C.text
+	listLabel.Font = Enum.Font.GothamBold
+	listLabel.TextSize = 11
+	listLabel.TextXAlignment = Enum.TextXAlignment.Left
+	listLabel.Parent = listFrame
+
 	local listScroll = Instance.new("ScrollingFrame")
-	listScroll.Size = UDim2.new(1, -4, 1, -8)
-	listScroll.Position = UDim2.new(0, 2, 0, 4)
+	listScroll.Size = UDim2.new(1, -12, 0, 28)
+	listScroll.Position = UDim2.new(0, 6, 0, 28)
 	listScroll.BackgroundTransparency = 1
 	listScroll.BorderSizePixel = 0
 	listScroll.ScrollBarThickness = 4
 	listScroll.ScrollBarImageColor3 = C.muted
 	listScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-	listScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	listScroll.AutomaticCanvasSize = Enum.AutomaticSize.X
+	listScroll.ScrollingDirection = Enum.ScrollingDirection.X
 	listScroll.Parent = listFrame
+
 	local listLayout = Instance.new("UIListLayout")
-	listLayout.Padding = UDim.new(0, 2)
+	listLayout.FillDirection = Enum.FillDirection.Horizontal
+	listLayout.Padding = UDim.new(0, 6)
 	listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	listLayout.VerticalAlignment = Enum.VerticalAlignment.Center
 	listLayout.Parent = listScroll
 
-	-- Main scroll (right)
+	local listPad = Instance.new("UIPadding", listScroll)
+	listPad.PaddingRight = UDim.new(0, 6)
+
 	local scroll = Instance.new("ScrollingFrame")
-	scroll.Size = UDim2.new(1, -104, 1, 0)
+	scroll.Size = UDim2.new(1, 0, 1, -70)
+	scroll.Position = UDim2.new(0, 0, 0, 70)
 	scroll.BackgroundTransparency = 1
 	scroll.BorderSizePixel = 0
 	scroll.ScrollBarThickness = 6
 	scroll.ScrollBarImageColor3 = C.muted
 	scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-	scroll.Parent = row
+	scroll.Parent = container
+
 	local content = Instance.new("Frame")
-	content.Size = UDim2.new(1, -8, 0, 0)
+	content.Size = UDim2.new(1, -6, 0, 0)
 	content.BackgroundTransparency = 1
 	content.AutomaticSize = Enum.AutomaticSize.Y
 	content.Parent = scroll
+
 	local contentLayout = Instance.new("UIListLayout")
-	contentLayout.Padding = UDim.new(0, 12)
+	contentLayout.Padding = UDim.new(0, 10)
 	contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
 	contentLayout.Parent = content
+
 	local contentPad = Instance.new("UIPadding", content)
-	contentPad.PaddingLeft = UDim.new(0, 6)
+	contentPad.PaddingLeft = UDim.new(0, 2)
 	contentPad.PaddingRight = UDim.new(0, 6)
-	contentPad.PaddingTop = UDim.new(0, 6)
+	contentPad.PaddingTop = UDim.new(0, 2)
 	contentPad.PaddingBottom = UDim.new(0, 12)
 
 	local sectionFrames = {}
 	local sectionOffsets = {}
 	for i, sec in ipairs(sections) do
 		local btn = Instance.new("TextButton")
-		btn.Size = UDim2.new(1, -4, 0, 22)
+		btn.Size = UDim2.new(0, 128, 0, 28)
 		btn.LayoutOrder = i
 		btn.Text = sec.title
 		btn.Font = Enum.Font.GothamBold
-		btn.TextSize = 9
-		btn.TextColor3 = C.textSec
+		btn.TextSize = 10
+		btn.TextColor3 = C.text
 		btn.BackgroundColor3 = Color3.fromRGB(30, 34, 48)
 		btn.BorderSizePixel = 0
-		btn.TextXAlignment = Enum.TextXAlignment.Left
+		btn.TextXAlignment = Enum.TextXAlignment.Center
 		btn.Parent = listScroll
 		Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
 		btn.TextTruncate = Enum.TextTruncate.AtEnd
 
 		local secFrame = Instance.new("Frame")
 		secFrame.Size = UDim2.new(1, 0, 0, 0)
-		secFrame.BackgroundTransparency = 1
+		secFrame.BackgroundColor3 = C.card
+		secFrame.BorderSizePixel = 0
 		secFrame.LayoutOrder = i
 		secFrame.AutomaticSize = Enum.AutomaticSize.Y
 		secFrame.Parent = content
+		Instance.new("UICorner", secFrame).CornerRadius = UDim.new(0, 8)
+
+		local secLayout = Instance.new("UIListLayout")
+		secLayout.Padding = UDim.new(0, 6)
+		secLayout.SortOrder = Enum.SortOrder.LayoutOrder
+		secLayout.Parent = secFrame
+
+		local secPad = Instance.new("UIPadding", secFrame)
+		secPad.PaddingLeft = UDim.new(0, 12)
+		secPad.PaddingRight = UDim.new(0, 12)
+		secPad.PaddingTop = UDim.new(0, 10)
+		secPad.PaddingBottom = UDim.new(0, 12)
+
+		local secTitle = Instance.new("TextLabel")
+		secTitle.Size = UDim2.new(1, 0, 0, 0)
+		secTitle.BackgroundTransparency = 1
+		secTitle.AutomaticSize = Enum.AutomaticSize.Y
+		secTitle.Text = sec.title
+		secTitle.TextColor3 = C.text
+		secTitle.Font = Enum.Font.GothamBold
+		secTitle.TextSize = isLore and 13 or 14
+		secTitle.TextWrapped = true
+		secTitle.TextXAlignment = Enum.TextXAlignment.Left
+		secTitle.TextYAlignment = Enum.TextYAlignment.Top
+		secTitle.Parent = secFrame
+
 		local secLbl = Instance.new("TextLabel")
 		secLbl.Size = UDim2.new(1, 0, 0, 0)
 		secLbl.BackgroundTransparency = 1
 		secLbl.Text = sec.text
 		secLbl.TextColor3 = C.textSec
 		secLbl.Font = Enum.Font.SourceSans
-		secLbl.TextSize = isLore and 12 or 12
+		secLbl.TextSize = isLore and 14 or 16
 		secLbl.TextXAlignment = Enum.TextXAlignment.Left
 		secLbl.TextYAlignment = Enum.TextYAlignment.Top
 		secLbl.TextWrapped = true
 		secLbl.AutomaticSize = Enum.AutomaticSize.Y
-		secLbl.LineHeight = 1.25
+		secLbl.LineHeight = 1.15
 		secLbl.Parent = secFrame
 		table.insert(sectionFrames, secFrame)
 
@@ -620,7 +664,7 @@ local GUIDE_SECTIONS = {
 [W][A][S][D] Move  [E] Target  [F] Attack  [Q] SiegelinQ  [G] Shop  [V] Friends  [X] Leaders  [P] Profile  [Z] Rebirth  [H] Home Recall  [B] Battle tab  [Y] Toggle favorite
 
 HOW TO PLAY
-1. CAPTURE — Find Siegelings in the world. Press [E] to target. Attack with [F] (and your companion) until the creature faints. Click the fainted creature to capture (costs gold; rarer = more cost).
+1. CAPTURE — Find Siegelings in the world. Tap to target. Attack with [F] (and your companion) until the creature faints. Click the fainted creature to capture (costs gold; rarer = more cost).
 2. COMPANION — Set one creature as your Favorite in SiegelinQ. That Siegeling follows you and fights by your side.
 3. BASE — Assign creatures to Income (coins), Defense (raids), Battle (arena/PvP). Unlock Floor 2 for battle grid; up to five Siegelings in 3×3 formation.
 4. ARENA — Team battles for fame and rewards.
@@ -729,6 +773,276 @@ FOUR HOUSES — Emberward (Fire), Frostholm (Ice), Cinderthorn (Earth), Zephyran
 COUNCIL OF SIEGELORDS — Ruling body of the finest knights. The Sire sits at its head.]] },
 }
 guideScroll, guideSectionOffsets = buildBookView(guideContent, GUIDE_SECTIONS, false)
+if guideScroll.Parent then
+	guideScroll.Parent.Visible = false
+end
+
+local guideModeBar = Instance.new("Frame")
+guideModeBar.Size = UDim2.new(1, 0, 0, 32)
+guideModeBar.BackgroundTransparency = 1
+guideModeBar.Parent = guideContent
+
+local guideOverviewTab = Instance.new("TextButton")
+guideOverviewTab.Size = UDim2.new(0.5, -3, 1, 0)
+guideOverviewTab.Position = UDim2.new(0, 0, 0, 0)
+guideOverviewTab.Text = "One Page"
+guideOverviewTab.Font = Enum.Font.GothamBold
+guideOverviewTab.TextSize = 11
+guideOverviewTab.BorderSizePixel = 0
+guideOverviewTab.Parent = guideModeBar
+Instance.new("UICorner", guideOverviewTab).CornerRadius = UDim.new(0, 6)
+
+local guideAdvancedTab = Instance.new("TextButton")
+guideAdvancedTab.Size = UDim2.new(0.5, -3, 1, 0)
+guideAdvancedTab.Position = UDim2.new(0.5, 3, 0, 0)
+guideAdvancedTab.Text = "Advanced"
+guideAdvancedTab.Font = Enum.Font.GothamBold
+guideAdvancedTab.TextSize = 11
+guideAdvancedTab.BorderSizePixel = 0
+guideAdvancedTab.Parent = guideModeBar
+Instance.new("UICorner", guideAdvancedTab).CornerRadius = UDim.new(0, 6)
+
+local guideOverviewContent = Instance.new("Frame")
+guideOverviewContent.Name = "GuideOverviewContent"
+guideOverviewContent.Size = UDim2.new(1, 0, 1, -40)
+guideOverviewContent.Position = UDim2.new(0, 0, 0, 40)
+guideOverviewContent.BackgroundTransparency = 1
+guideOverviewContent.Parent = guideContent
+
+local guideAdvancedContent = Instance.new("Frame")
+guideAdvancedContent.Name = "GuideAdvancedContent"
+guideAdvancedContent.Size = UDim2.new(1, 0, 1, -40)
+guideAdvancedContent.Position = UDim2.new(0, 0, 0, 40)
+guideAdvancedContent.BackgroundTransparency = 1
+guideAdvancedContent.Visible = false
+guideAdvancedContent.Parent = guideContent
+
+local GUIDE_OVERVIEW_CARDS = {
+	{
+		title = "Game On 1 Page",
+		text = [[Your mission is to build an awesome team of Siegelings.
+
+Catch wild Siegelings, grow your dream team, protect your base, and win big battles. There is always a new creature to find or a stronger team to build.]],
+		color = Color3.fromRGB(30, 44, 70),
+		titleColor = C.white,
+		bodyColor = Color3.fromRGB(224, 232, 245),
+		isHero = true,
+	},
+	{
+		title = "Catch, Train, Repeat",
+		text = [[1. Find a wild Siegeling.
+2. Press [E] or Tap to target and [F] to attack.
+3. When it faints, click it to capture it.
+4. Open SiegelinQ and pick a Favorite so it follows you.
+5. Keep catching better Siegelings and upgrading your team.]],
+		color = Color3.fromRGB(22, 26, 38),
+	},
+	{
+		title = "Why Your Base Matters",
+		text = [[Income team = makes coins.
+Defense team = guards your home during raids.
+Battle team = fights in Arena and PvP.
+
+Good teams make everything easier.]],
+		color = Color3.fromRGB(22, 26, 38),
+	},
+	{
+		title = "The Fun Stuff",
+		text = [[Battle in the Arena, duel other players, explore risky places, defend your base, and combine matching Siegelings into stronger ones.]],
+		color = Color3.fromRGB(22, 26, 38),
+	},
+	{
+		title = "Buttons You Will Use Most",
+		text = [[Move: [W][A][S][D]
+Target: [E]
+Attack: [F]
+Creature menu: [Q]
+Shop: [G]
+Go home: [H]
+Profile: [P]],
+		color = Color3.fromRGB(22, 26, 38),
+	},
+}
+
+local GUIDE_ADVANCED_SECTIONS = {
+	{
+		title = "1. Your Big Goal",
+		text = [[Build a stronger and stronger team of Siegelings.
+
+You are not trying to do one tiny mission and stop. The fun is catching new creatures, growing your favorites, defending your base, and winning tougher battles over time.]],
+	},
+	{
+		title = "2. Catching a Siegeling",
+		text = [[Walk up to a wild Siegeling.
+Press [E] to target it.
+Press [F] to attack until it faints.
+Click the fainted Siegeling to capture it.
+
+Rare Siegelings cost more gold to capture, so save up for the cool ones.]],
+	},
+	{
+		title = "3. Your Favorite Buddy",
+		text = [[Open SiegelinQ with [Q].
+Pick one Siegeling as your Favorite.
+
+That Favorite follows you around and helps you fight. If you want a different helper, just change your Favorite.]],
+	},
+	{
+		title = "4. Jobs At Your Base",
+		text = [[Your Siegelings can help in three ways:
+
+Income - makes coins over time.
+Defense - protects your base during raids.
+Battle Team - fights in Arena and PvP.
+
+Unlock Floor 2 when you want to place your battle team on the grid.]],
+	},
+	{
+		title = "5. Where Fights Happen",
+		text = [[Arena = team battles for rewards.
+PvP = fight another player.
+Raids = attack or defend a base.
+Dungeons and risky areas = tougher enemies and better rewards.
+
+If a place feels hard, it probably means you need a stronger team first.]],
+	},
+	{
+		title = "6. Getting Stronger",
+		text = [[You can power up your collection over time.
+
+Use the Combiner at your base:
+3 Normal = 1 Silver
+3 Silver = 1 Gold
+3 Gold = 1 Legend
+
+Better Siegelings make your battles and base defense much stronger.]],
+	},
+	{
+		title = "7. Quick Controls",
+		text = [[[W][A][S][D] Move
+[E] Target
+[F] Attack
+[Q] SiegelinQ
+[G] Shop
+[H] Home Recall
+[P] Profile
+[B] Battle tab]],
+	},
+}
+
+local function buildGuideOverview(parent, cards)
+	local scroll = Instance.new("ScrollingFrame")
+	scroll.Size = UDim2.new(1, 0, 1, 0)
+	scroll.BackgroundTransparency = 1
+	scroll.BorderSizePixel = 0
+	scroll.ScrollBarThickness = 6
+	scroll.ScrollBarImageColor3 = C.muted
+	scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	scroll.Parent = parent
+
+	local content = Instance.new("Frame")
+	content.Size = UDim2.new(1, -6, 0, 0)
+	content.BackgroundTransparency = 1
+	content.AutomaticSize = Enum.AutomaticSize.Y
+	content.Parent = scroll
+
+	local contentLayout = Instance.new("UIListLayout")
+	contentLayout.Padding = UDim.new(0, 10)
+	contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	contentLayout.Parent = content
+
+	local contentPad = Instance.new("UIPadding", content)
+	contentPad.PaddingLeft = UDim.new(0, 2)
+	contentPad.PaddingRight = UDim.new(0, 6)
+	contentPad.PaddingTop = UDim.new(0, 2)
+	contentPad.PaddingBottom = UDim.new(0, 12)
+
+	for i, card in ipairs(cards) do
+		local cardFrame = Instance.new("Frame")
+		cardFrame.Size = UDim2.new(1, 0, 0, 0)
+		cardFrame.AutomaticSize = Enum.AutomaticSize.Y
+		cardFrame.LayoutOrder = i
+		cardFrame.BackgroundColor3 = card.color or C.card
+		cardFrame.BorderSizePixel = 0
+		cardFrame.Parent = content
+		Instance.new("UICorner", cardFrame).CornerRadius = UDim.new(0, 10)
+
+		local cardLayout = Instance.new("UIListLayout")
+		cardLayout.Padding = UDim.new(0, 6)
+		cardLayout.SortOrder = Enum.SortOrder.LayoutOrder
+		cardLayout.Parent = cardFrame
+
+		local cardPad = Instance.new("UIPadding", cardFrame)
+		cardPad.PaddingLeft = UDim.new(0, 12)
+		cardPad.PaddingRight = UDim.new(0, 12)
+		cardPad.PaddingTop = UDim.new(0, 10)
+		cardPad.PaddingBottom = UDim.new(0, 12)
+
+		local title = Instance.new("TextLabel")
+		title.Size = UDim2.new(1, 0, 0, 0)
+		title.BackgroundTransparency = 1
+		title.AutomaticSize = Enum.AutomaticSize.Y
+		title.Text = card.title
+		title.TextColor3 = card.titleColor or C.text
+		title.Font = Enum.Font.GothamBold
+		title.TextSize = card.isHero and 18 or 14
+		title.TextWrapped = true
+		title.TextXAlignment = Enum.TextXAlignment.Left
+		title.TextYAlignment = Enum.TextYAlignment.Top
+		title.Parent = cardFrame
+
+		local body = Instance.new("TextLabel")
+		body.Size = UDim2.new(1, 0, 0, 0)
+		body.BackgroundTransparency = 1
+		body.AutomaticSize = Enum.AutomaticSize.Y
+		body.Text = card.text
+		body.TextColor3 = card.bodyColor or C.textSec
+		body.Font = Enum.Font.SourceSans
+		body.TextSize = card.isHero and 18 or 16
+		body.TextWrapped = true
+		body.TextXAlignment = Enum.TextXAlignment.Left
+		body.TextYAlignment = Enum.TextYAlignment.Top
+		body.LineHeight = 1.1
+		body.Parent = cardFrame
+	end
+
+	return scroll
+end
+
+local guideOverviewScroll = buildGuideOverview(guideOverviewContent, GUIDE_OVERVIEW_CARDS)
+local guideAdvancedScroll = buildBookView(guideAdvancedContent, GUIDE_ADVANCED_SECTIONS, false)
+
+local function applyGuideViewStyle()
+	local activeBg = Color3.fromRGB(50, 90, 140)
+	local inactiveBg = C.card
+	guideOverviewTab.BackgroundColor3 = guideViewMode == "OVERVIEW" and activeBg or inactiveBg
+	guideOverviewTab.TextColor3 = guideViewMode == "OVERVIEW" and C.white or C.textSec
+	guideAdvancedTab.BackgroundColor3 = guideViewMode == "ADVANCED" and activeBg or inactiveBg
+	guideAdvancedTab.TextColor3 = guideViewMode == "ADVANCED" and C.white or C.textSec
+end
+
+local function setGuideViewMode(mode)
+	guideViewMode = mode
+	guideOverviewContent.Visible = mode == "OVERVIEW"
+	guideAdvancedContent.Visible = mode == "ADVANCED"
+	applyGuideViewStyle()
+	if mode == "OVERVIEW" then
+		guideOverviewScroll.CanvasPosition = Vector2.new(0, 0)
+	else
+		guideAdvancedScroll.CanvasPosition = Vector2.new(0, 0)
+	end
+end
+
+guideOverviewTab.MouseButton1Click:Connect(function()
+	setGuideViewMode("OVERVIEW")
+end)
+
+guideAdvancedTab.MouseButton1Click:Connect(function()
+	setGuideViewMode("ADVANCED")
+end)
+
+setGuideViewMode("OVERVIEW")
 
 -- Lore content (visible when mode == LORE)
 local loreContent = Instance.new("Frame")
@@ -1008,7 +1322,7 @@ local function switchToGuide()
 	detailsContent.Visible = false
 	visualContent.Visible = false
 	applyTabStyle()
-	guideScroll.CanvasPosition = Vector2.new(0, 0)
+	setGuideViewMode("OVERVIEW")
 end
 
 local function switchToLore()

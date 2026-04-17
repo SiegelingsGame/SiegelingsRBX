@@ -152,7 +152,7 @@ makeFunc("BuyCosmetic"); makeFunc("EquipCosmetic")
 -- Base Exterior Shop (purchase/equip theme; equip rebuilds plot with theme generator)
 local buyExterior = makeFunc("BuyExterior")
 local equipExterior = makeFunc("EquipExterior")
--- Base Color Shop (walls, stairs, points, combiner, recycler)
+-- Base Color Shop (foundation colors)
 local buyBaseColor = makeFunc("BuyBaseColor")
 local equipBaseColor = makeFunc("EquipBaseColor")
 
@@ -417,6 +417,7 @@ do
 	if ok then
 		EleminionSystem = result
 		print("[MainServer] EleminionSystem require OK")
+		warn("[MainServer] EleminionSystem require OK")
 	else
 		warn("[MainServer] EleminionSystem require FAILED: " .. tostring(result))
 	end
@@ -712,7 +713,14 @@ if EleminionSystem then
 	local ok, err = pcall(function()
 		EleminionSystem.Init(PlayerDataManager)
 	end)
-	if ok then print("[MainServer] EleminionSystem OK") else warn("[MainServer] EleminionSystem failed: " .. tostring(err)) end
+	if ok then
+		print("[MainServer] EleminionSystem OK")
+		warn("[MainServer] EleminionSystem OK")
+	else
+		warn("[MainServer] EleminionSystem failed: " .. tostring(err))
+	end
+else
+	warn("[MainServer] EleminionSystem missing - Init skipped")
 end
 if DecorSystem then
 	local ok, err = pcall(function() DecorSystem.Init(PlayerDataManager) end)
@@ -847,6 +855,99 @@ local function refreshAllPlotSigns()
 			setPlotSignState(plotModel, activeOwnersByPlotId[tonumber(plotId)])
 		end
 	end
+end
+
+local PLOT_RUNTIME_TAGS = {
+	BaseDefenseCreature = true,
+	BaseIncomeCreature = true,
+	BaseBattleCreature = true,
+	DecorStatue = true,
+	DecorFurniture = true,
+}
+
+local function getPlotIdFromModel(plotModel)
+	if not plotModel then
+		return nil
+	end
+	local plotId = plotModel.Name:match("^Plot(%d+)$") or plotModel.Name:match("^Part(%d+)$")
+	return tonumber(plotId)
+end
+
+local function findPlotModelForPlayer(plr, preferredPlotId)
+	local plotsFolder = Workspace:FindFirstChild("BasePlots")
+	if not plotsFolder then
+		return nil, nil
+	end
+
+	if preferredPlotId and preferredPlotId > 0 then
+		local direct = plotsFolder:FindFirstChild("Plot" .. preferredPlotId)
+			or plotsFolder:FindFirstChild("Part" .. preferredPlotId)
+		if direct then
+			return direct, preferredPlotId
+		end
+	end
+
+	for _, plotModel in ipairs(plotsFolder:GetChildren()) do
+		local ownerUserId = tonumber(plotModel:GetAttribute("OwnerUserId"))
+		if ownerUserId == plr.UserId then
+			return plotModel, getPlotIdFromModel(plotModel)
+		end
+	end
+
+	return nil, preferredPlotId
+end
+
+local function clearTaggedPlotObjects(plotModel)
+	if not plotModel then
+		return
+	end
+
+	local toDestroy = {}
+	for _, desc in ipairs(plotModel:GetDescendants()) do
+		for tagName in pairs(PLOT_RUNTIME_TAGS) do
+			if CollectionService:HasTag(desc, tagName) then
+				table.insert(toDestroy, desc)
+				break
+			end
+		end
+	end
+
+	for _, inst in ipairs(toDestroy) do
+		if inst and inst.Parent then
+			if inst:IsA("Model") and CreatureAI and CreatureAI.UnregisterCreature then
+				pcall(function() CreatureAI.UnregisterCreature(inst) end)
+			end
+			inst:Destroy()
+		end
+	end
+end
+
+local function resetPlotWorldState(plotModel)
+	if not plotModel then
+		return
+	end
+
+	clearTaggedPlotObjects(plotModel)
+
+	if LaserDoorSystem and LaserDoorSystem.RemoveForPlot then
+		pcall(function() LaserDoorSystem.RemoveForPlot(plotModel) end)
+	end
+
+	if BaseExteriorSystem then
+		if BaseExteriorSystem.ApplyThemeToPlot then
+			pcall(function() BaseExteriorSystem.ApplyThemeToPlot(plotModel, nil) end)
+		end
+		if BaseExteriorSystem.ApplyBaseColorToPlot then
+			pcall(function() BaseExteriorSystem.ApplyBaseColorToPlot(plotModel, nil) end)
+		end
+	end
+
+	setPlotSignState(plotModel, nil)
+	plotModel:SetAttribute("OwnerUserId", nil)
+	plotModel:SetAttribute("GymBattleInProgress", nil)
+	plotModel:SetAttribute("GymOwnerUserId", nil)
+	plotModel:SetAttribute("GymChallengerUserId", nil)
+	plotModel:SetAttribute("KnightBaseRental", nil)
 end
 
 local function setupPlotForPlayer(plr)
@@ -1381,37 +1482,18 @@ Players.PlayerAdded:Connect(function(plr)
 end)
 
 -- FIX #24: Clean up base plots when players leave (dome removal, sign reset, floor hiding)
--- BasePlacementSystem.PlayerRemoving handles orb cleanup + RefreshAllPlotVisibility.
--- This handler covers MainServer-owned state: dome, sign, companion.
+-- World cleanup here is intentionally cache-agnostic so plots still reset even if
+-- PlayerDataManager has already released/cleared the player's session data.
 Players.PlayerRemoving:Connect(function(plr)
 	-- FIX #35: Return knight base rental BEFORE clearing plot data (needs plotId + PlotCenter)
 	if KnightBaseSystem and KnightBaseSystem.IsPlayerRenting and KnightBaseSystem.IsPlayerRenting(plr) then
 		pcall(function() KnightBaseSystem.Cleanup(plr) end)
 	end
 
-	-- Grab plot info BEFORE PlayerDataManager clears it (PDM also listens to PlayerRemoving)
 	local d = PlayerDataManager.GetData(plr)
 	local plotId = d and d.plotId
-	local plotModel = nil
-	if plotId and plotId > 0 then
-		local plotsFolder = Workspace:FindFirstChild("BasePlots")
-		if plotsFolder then
-			plotModel = plotsFolder:FindFirstChild("Plot" .. plotId)
-				or plotsFolder:FindFirstChild("Part" .. plotId)
-		end
-	end
-
-	-- Remove dome shield
-	if plotModel and LaserDoorSystem and LaserDoorSystem.RemoveForPlot then
-		pcall(function() LaserDoorSystem.RemoveForPlot(plotModel) end)
-	end
-
-	-- Hide the plot sign when no active player owns this base.
-	if plotModel then
-		setPlotSignState(plotModel, nil)
-		-- Clear OwnerUserId attribute so client doesn't think this is still owned
-		plotModel:SetAttribute("OwnerUserId", nil)
-	end
+	local plotModel, resolvedPlotId = findPlotModelForPlayer(plr, plotId)
+	resetPlotWorldState(plotModel)
 
 	-- Despawn companion (FavoriteCreatureSystem handles its own cleanup via PlayerRemoving,
 	-- but ensure it runs before plot data is gone)
@@ -1426,7 +1508,14 @@ Players.PlayerRemoving:Connect(function(plr)
 	joinClockByUserId[plr.UserId] = nil
 	criticalReadyByUserId[plr.UserId] = nil
 
-	print("[MainServer] Cleaned up plot for " .. plr.Name .. " (Plot " .. tostring(plotId) .. ")")
+	task.defer(function()
+		if BasePlacementSystem and BasePlacementSystem.RefreshAllPlotVisibility then
+			pcall(function() BasePlacementSystem.RefreshAllPlotVisibility() end)
+		end
+		pcall(refreshAllPlotSigns)
+	end)
+
+	print("[MainServer] Cleaned up plot for " .. plr.Name .. " (Plot " .. tostring(resolvedPlotId or plotId) .. ")")
 end)
 
 -- Handle players already in game (Studio test / fast join)
@@ -1658,6 +1747,22 @@ local function savePlayerCustomization(plr)
 	end)
 end
 
+local function applyPlotCosmetics(plr, plot)
+	if not plot or not BaseExteriorSystem then
+		return
+	end
+
+	local exterior = PlayerDataManager.GetExterior(plr)
+	local baseColor = PlayerDataManager.GetBaseColor(plr)
+
+	if BaseExteriorSystem.ApplyThemeToPlot then
+		BaseExteriorSystem.ApplyThemeToPlot(plot, exterior and exterior.equipped)
+	end
+	if BaseExteriorSystem.ApplyBaseColorToPlot then
+		BaseExteriorSystem.ApplyBaseColorToPlot(plot, baseColor and baseColor.equipped)
+	end
+end
+
 buyExterior.OnServerInvoke = function(plr, exteriorId, currency)
 	local config = getExteriorConfig(exteriorId)
 	if not config then return false, "Invalid exterior" end
@@ -1689,15 +1794,10 @@ equipExterior.OnServerInvoke = function(plr, exteriorId)
 	PlayerDataManager.SetEquippedBaseColor(plr, nil)
 	PlayerDataManager.SetEquippedExterior(plr, exteriorId)
 	savePlayerCustomization(plr)
-	-- Skin existing plot (recolor + exterior shell); never delete or move the plot
-	if not BaseExteriorSystem or not BaseExteriorSystem.ApplyThemeToPlot then return true, exteriorId and "Theme applied!" or "Unequipped" end
+	if not BaseExteriorSystem then return true, exteriorId and "Theme applied!" or "Unequipped" end
 	local plot = BaseExteriorSystem.GetPlotForPlayer(plr)
 	if not plot then return true, exteriorId and "Equipped (no plot to theme)" or "Unequipped" end
-	BaseExteriorSystem.ApplyThemeToPlot(plot, exteriorId)
-	if BaseExteriorSystem.ApplyBaseColorToPlot then
-		local bc = PlayerDataManager.GetBaseColor(plr)
-		BaseExteriorSystem.ApplyBaseColorToPlot(plot, bc and bc.equipped)
-	end
+	applyPlotCosmetics(plr, plot)
 	return true, exteriorId and "Theme applied!" or "Theme removed"
 end
 
@@ -1742,13 +1842,7 @@ equipBaseColor.OnServerInvoke = function(plr, colorId)
 	savePlayerCustomization(plr)
 	local plot = BaseExteriorSystem and BaseExteriorSystem.GetPlotForPlayer and BaseExteriorSystem.GetPlotForPlayer(plr)
 	if plot and BaseExteriorSystem then
-		-- Clear any custom theme (removes shell, resets parts) then apply base color
-		if BaseExteriorSystem.ApplyThemeToPlot then
-			BaseExteriorSystem.ApplyThemeToPlot(plot, nil)
-		end
-		if BaseExteriorSystem.ApplyBaseColorToPlot then
-			BaseExteriorSystem.ApplyBaseColorToPlot(plot, colorId)
-		end
+		applyPlotCosmetics(plr, plot)
 	end
 	return true, colorId and "Base color applied!" or "Color removed"
 end

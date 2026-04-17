@@ -60,9 +60,9 @@ local BATTLE_SKY_NAME = (type(biomeCfg.BattleSkyName) == "string" and biomeCfg.B
 --- Timeout (seconds) for WaitForChild calls during setup
 local WAIT_TIMEOUT = 15
 
---- Maximum XZ distance (studs) from hub center that inner-wedge detection applies...
+--- Maximum XZ distance (studs) from hub center that inner-wedge detection applies.
 --- Beyond this radius the player is in an outer biome zone, not an inner wedge.
---- Set this to roughly the distance from hub center to the nearest outer baseplate edge.
+--- Set this to roughly the distance from hub center to the nearest outer baseplate edge..
 local INNER_WEDGE_MAX_RADIUS = 1200
 
 -- ══════════════════════════════════════════════════════════════════════════════

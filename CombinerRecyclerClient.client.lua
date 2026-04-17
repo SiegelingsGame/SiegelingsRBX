@@ -96,6 +96,7 @@ local function buildPanel(name, titleText, actionText, onAction, validateSelecti
 	frame.Draggable = true
 	frame.Parent = sg
 	Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
+	MobileWindowLayout.RestoreDesktopWindow(frame, { draggable = true })
 
 	local title = Instance.new("TextLabel")
 	title.Size = UDim2.new(1, -80, 0, 36)
@@ -433,6 +434,7 @@ if openCombiner and combineCreatures and combineResult then
 	openCombiner.OnClientEvent:Connect(function()
 		print(LOG .. " OpenCombiner received")
 		if combinePanel and combineRefreshList then
+			MobileWindowLayout.RestoreDesktopWindow(combinePanel, { draggable = true })
 			combinePanel.Visible = true
 			combineRefreshList()
 			task.delay(0.6, function()
@@ -491,6 +493,7 @@ if openRecycler and recycleDuplicates and recycleResult then
 	openRecycler.OnClientEvent:Connect(function()
 		print(LOG .. " OpenRecycler received")
 		if recyclePanel and recycleRefreshList then
+			MobileWindowLayout.RestoreDesktopWindow(recyclePanel, { draggable = true })
 			recyclePanel.Visible = true
 			recycleRefreshList()
 			task.delay(0.6, function()
@@ -515,9 +518,11 @@ end
 
 MobileWindowLayout.BindViewportUpdate(function()
 	if combinePanel and combinePanel.Visible and combineTitleLayout then
+		MobileWindowLayout.RestoreDesktopWindow(combinePanel, { draggable = true })
 		combineTitleLayout()
 	end
 	if recyclePanel and recyclePanel.Visible and recycleTitleLayout then
+		MobileWindowLayout.RestoreDesktopWindow(recyclePanel, { draggable = true })
 		recycleTitleLayout()
 	end
 end)

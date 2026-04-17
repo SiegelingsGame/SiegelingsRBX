@@ -533,8 +533,11 @@ function ArenaTraderSystem.Init(pdm)
 	local buyFn = eventsFolder and eventsFolder:FindFirstChild("BuyArenaTraderCreature")
 	if buyFn and buyFn:IsA("RemoteFunction") then
 		buyFn.OnServerInvoke = function(player, slotIndex, paymentType, creatureId, stockId)
-			local ok, msg = tryPurchase(player, slotIndex, paymentType, creatureId, stockId)
-			return ok, msg
+			-- FIX: Must return the fresh stock payload (3rd return from tryPurchase). Dropping it
+			-- caused the client to close the UI instead of re-rendering with the refilled slot,
+			-- so the Curator appeared to "forget" about restocking after a purchase.
+			local ok, msg, newStock = tryPurchase(player, slotIndex, paymentType, creatureId, stockId)
+			return ok, msg, newStock
 		end
 	end
 

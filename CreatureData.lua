@@ -135,10 +135,10 @@ CreatureData.VariantColors = {
 }
 
 -- Starter creatures the player can choose on first join (4 starters, one per element)
-CreatureData.Starters = { "cacty", "pursula", "sundile", "ceeponee" }
+CreatureData.Starters = { "cacty", "pursula", "sundile", "fawny" }
 
 -- Zone preferences by element (creatures spawn in zone with SpawnPoints/DungeonPoint/BossPoint)
--- Psychic+Undead=Desert, Shadow+Metal=Cave, Electric+Light=Electric, Poison+Water=Ocean; rest unchanged
+-- Psychic+Undead=Desert, Shadow+Metal=Cave, Electric+Light=Electric, Poison+Water=Ocean; rest unchanged.
 CreatureData.ZonePreference = {
 	Fire      = "volcanic",
 	Ice       = "frozen",
@@ -704,7 +704,7 @@ CreatureData.Creatures = {
 		description = "An ancient ice fowl. Nearly impervious to physical blows. Peaceful unless provoked.",
 		modelName = "peatbeak", primaryColor = Color3.fromRGB(80, 160, 240),
 		evolvesFrom = "falcoat",
-		modelDisplaySize = 9.0,modelScaleMultiplier = 1.5,
+		modelDisplaySize = 9.0,modelScaleMultiplier = 1.5,flying=true
 	},
 	{
 		id = "lumina", displayName = "Lumina", rarity = "Rare",
@@ -991,7 +991,7 @@ CreatureData.Creatures = {
 		evolvesFrom = "sleafwyrm", flying = true,
 	},
 
-	-- Earth Legendary (1)
+	-- Earth Legendary (1).
 	{
 		id = "gymstone", displayName = "Gymstone", rarity = "Legendary",
 		element = "Earth", class = "Guardian", behavior = "gentle",

@@ -345,13 +345,13 @@ local function qtyInMixForIngredient(ingredientId)
 	return t
 end
 
---- In cook mode, bank rows show how many of each id are still free to place (bank total minus qty already in the mix).
+--- Bank rows always show the raw bank total, matching the Bag tab in Inventory so both UIs agree on
+--- "how many the player has". The qty currently placed in the mix is surfaced separately via the
+--- inMixN label on each row. Previously, in cook mode the row subtracted qtyInMix from the shown
+--- count — so ingredients already placed in the mix appeared to vanish from the cooking NPC UI
+--- while still showing in the Bag (the reported mismatch).
 local function bankCountShownForRow(id, rawBankN)
-	local n = tonumber(rawBankN) or 0
-	if not cookMode then
-		return n
-	end
-	return math.max(0, n - qtyInMixForIngredient(id))
+	return tonumber(rawBankN) or 0
 end
 
 local function rebuildBankList()
@@ -877,11 +877,7 @@ local function applyIngredientsMenuLayout()
 		end
 	end
 	if MobileWindowLayout.NpcMenuUsesFullscreenBounds(ING_DESIGN_W, ING_DESIGN_H) then
-		local bounds = MobileWindowLayout.GetBounds(MobileWindowLayout.GetNpcFullscreenBoundsConfig(ING_DESIGN_W, ING_DESIGN_H))
-		mainFrame.AnchorPoint = Vector2.new(0, 0)
-		mainFrame.Position = UDim2.fromOffset(math.floor(bounds.left), math.floor(bounds.top))
-		mainFrame.Size = UDim2.fromOffset(math.floor(bounds.width), math.floor(bounds.height))
-		mainFrame.Draggable = false
+		MobileWindowLayout.ApplyWindow(mainFrame, MobileWindowLayout.GetNpcFullscreenBoundsConfig(ING_DESIGN_W, ING_DESIGN_H))
 	else
 		if cookMode then
 			mainFrame.Size = UDim2.fromOffset(720, 540)
@@ -890,7 +886,7 @@ local function applyIngredientsMenuLayout()
 		end
 		mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 		mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
-		mainFrame.Draggable = true
+		MobileWindowLayout.RestoreDesktopWindow(mainFrame, { draggable = true })
 	end
 	if bodyFrame and bankColumn then
 		applyBodyLayout()

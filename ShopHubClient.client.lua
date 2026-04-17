@@ -37,6 +37,8 @@ panel.Position = UDim2.new(0.5, 0, 0.5, 0)
 panel.BackgroundColor3 = Color3.fromRGB(20, 24, 38)
 panel.BorderSizePixel = 0
 panel.Visible = false
+panel.Active = true
+panel.Draggable = true
 panel.Parent = ui
 Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 12)
 
@@ -124,6 +126,7 @@ local function applyPanelScale(frame)
 	frame.AnchorPoint = Vector2.new(0.5, 0.5)
 	frame.Position = UDim2.new(0.5, 0, 0.5, 0)
 	frame.Size = UDim2.new(0, SHOP_HUB_DESIGN_W, 0, SHOP_HUB_DESIGN_H)
+	MobileWindowLayout.RestoreDesktopWindow(frame, { draggable = true })
 end
 
 local function applyResponsiveContentLayout()

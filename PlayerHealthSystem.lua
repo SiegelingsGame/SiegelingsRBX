@@ -19,6 +19,36 @@ local lastHealthLossTime = {}
 local REGEN_TICK = 0.1  -- how often to apply healing once the quiet period has passed
 local lastRegenTick = 0
 
+local function removeDefaultSpawnForceField(character)
+	if not character then
+		return
+	end
+
+	local function tryRemove(inst)
+		if inst
+			and inst.Parent == character
+			and inst:IsA("ForceField")
+			and inst.Name == "ForceField" then
+			inst:Destroy()
+		end
+	end
+
+	for _, child in ipairs(character:GetChildren()) do
+		tryRemove(child)
+	end
+
+	-- Default spawn protection can appear a frame late; only strip the plain Roblox ForceField.
+	local conn
+	conn = character.ChildAdded:Connect(function(child)
+		tryRemove(child)
+	end)
+	task.delay(3, function()
+		if conn then
+			conn:Disconnect()
+		end
+	end)
+end
+
 local function setupPlayerHealth(player, humanoid)
 	PlayerDataManager.ApplyWorldStatsToCharacter(player, humanoid)
 	-- If player data is not in cache yet, sync is a no-op — use plain config + rebirth until join finishes.
@@ -36,10 +66,12 @@ local function setupPlayerHealth(player, humanoid)
 		humanoid.HealthRegenerationEnabled = false
 	end)
 
+	removeDefaultSpawnForceField(humanoid.Parent)
+
 	-- Any net decrease (TakeDamage, drowning server path, hazards) resets the quiet timer.
-	local lastHP = maxHP
+	local lastHP = humanoid.Health
 	humanoid.HealthChanged:Connect(function(newHP)
-		if newHP < lastHP then
+		if type(lastHP) == "number" and newHP < lastHP then
 			lastHealthLossTime[player.UserId] = tick()
 		end
 		lastHP = newHP

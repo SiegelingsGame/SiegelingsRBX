@@ -1169,7 +1169,7 @@ local function mkBadgeIcon(parent, iconId, tint, locked)
 	return ring
 end
 
---- Diamonds + player XP granted on first unlock (from server `rewardData` or config).
+--- Gold + diamonds + player XP granted on first unlock (from server `rewardData` or config).
 local function getAchievementRewardLine(entry)
 	local rd = type(entry) == "table" and entry.rewardData
 	if type(rd) ~= "table" then
@@ -1177,10 +1177,15 @@ local function getAchievementRewardLine(entry)
 	end
 	local gems = math.floor(tonumber(rd.gems) or 0)
 	local xp = math.floor(tonumber(rd.xp) or 0)
-	if gems <= 0 and xp <= 0 then
+	local coins = math.floor(tonumber(rd.coins) or 0)
+	if gems <= 0 and xp <= 0 and coins <= 0 then
 		return ""
 	end
 	local parts = {}
+	-- Show gold first so it matches the order the player sees in the HUD (gold left of diamonds).
+	if coins > 0 then
+		table.insert(parts, "+" .. tostring(coins) .. " gold")
+	end
 	if gems > 0 then
 		table.insert(parts, "+" .. tostring(gems) .. " diamonds")
 	end

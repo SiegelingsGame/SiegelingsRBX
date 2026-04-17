@@ -51,6 +51,7 @@ local PANEL_DESIGN_W = 440
 local PANEL_DESIGN_H = 480
 local PANEL_SCALE_MIN = 0.52
 local PANEL_SCALE_MAX = 1
+local sg
 
 local function getViewportSize()
 	local camera = workspace.CurrentCamera
@@ -94,7 +95,7 @@ local function applyPanelScale(pnl)
 end
 
 -- -- SCREEN GUI --
-local sg = Instance.new("ScreenGui")
+sg = Instance.new("ScreenGui")
 sg.Name = "CosmeticShopGUI"; sg.ResetOnSpawn = false; sg.DisplayOrder = 31; sg.Parent = playerGui
 
 -- Main panel (size/position set on open via applyPanelScale; draggable)
@@ -528,112 +529,156 @@ local function buildItems()
 			end
 		end
 	elseif activeTab == "baseColor" then
-		-- Base Colors tab: walls, stairs, points, combiner, recycler
-		local items = (GameConfig.BaseColorItems or {})
-		for _, item in ipairs(items) do
+		local function addSectionHeader(titleText, subtitleText)
 			order = order + 1
-			local owned = playerBaseColor.owned and playerBaseColor.owned[item.id] == true
-			local equipped = playerBaseColor.equipped == item.id
+			local header = Instance.new("Frame")
+			header.Size = UDim2.new(1, 0, 0, 38)
+			header.LayoutOrder = order
+			header.BackgroundTransparency = 1
+			header.Parent = scroll
 
-			local card = Instance.new("Frame")
-			card.Size = UDim2.new(1, 0, 0, 58); card.LayoutOrder = order
-			card.BackgroundColor3 = equipped and Color3.fromRGB(20, 35, 50) or (owned and C.cardOwned or C.card)
-			card.BorderSizePixel = 0; card.Parent = scroll
-			Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
-			if equipped then
-				local eqStroke = Instance.new("UIStroke", card)
-				if isMobilePortrait() then
-					eqStroke.Color = C.equippedRingPortrait
-					eqStroke.Thickness = 2
-				else
-					eqStroke.Color = C.equipped
-					eqStroke.Thickness = 1.5
+			local title = Instance.new("TextLabel")
+			title.Size = UDim2.new(1, 0, 0, 18)
+			title.Position = UDim2.new(0, 2, 0, 0)
+			title.BackgroundTransparency = 1
+			title.Text = titleText
+			title.TextColor3 = C.white
+			title.Font = Enum.Font.GothamBold
+			title.TextSize = 14
+			title.TextXAlignment = Enum.TextXAlignment.Left
+			title.Parent = header
+
+			local subtitle = Instance.new("TextLabel")
+			subtitle.Size = UDim2.new(1, 0, 0, 16)
+			subtitle.Position = UDim2.new(0, 2, 0, 18)
+			subtitle.BackgroundTransparency = 1
+			subtitle.Text = subtitleText
+			subtitle.TextColor3 = C.muted
+			subtitle.Font = Enum.Font.GothamMedium
+			subtitle.TextSize = 9
+			subtitle.TextXAlignment = Enum.TextXAlignment.Left
+			subtitle.Parent = header
+		end
+
+		local function addColorSection(items, state, buyRemote, equipRemote, sectionTitle, sectionSubtitle, equipToast, removeToast)
+			if not items or #items == 0 then return end
+			addSectionHeader(sectionTitle, sectionSubtitle)
+
+			for _, item in ipairs(items) do
+				order = order + 1
+				local owned = state.owned and state.owned[item.id] == true
+				local equipped = state.equipped == item.id
+
+				local card = Instance.new("Frame")
+				card.Size = UDim2.new(1, 0, 0, 58); card.LayoutOrder = order
+				card.BackgroundColor3 = equipped and Color3.fromRGB(20, 35, 50) or (owned and C.cardOwned or C.card)
+				card.BorderSizePixel = 0; card.Parent = scroll
+				Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
+				if equipped then
+					local eqStroke = Instance.new("UIStroke", card)
+					if isMobilePortrait() then
+						eqStroke.Color = C.equippedRingPortrait
+						eqStroke.Thickness = 2
+					else
+						eqStroke.Color = C.equipped
+						eqStroke.Thickness = 1.5
+					end
 				end
-			end
 
-			-- Color swatch
-			local swatch = Instance.new("Frame")
-			swatch.Size = UDim2.new(0, 32, 0, 32); swatch.Position = UDim2.new(0, 12, 0, 13)
-			swatch.BackgroundColor3 = item.color or Color3.new(0.5, 0.5, 0.5)
-			swatch.BorderSizePixel = 0; swatch.Parent = card
-			Instance.new("UICorner", swatch).CornerRadius = UDim.new(0, 6)
-			local swStroke = Instance.new("UIStroke", swatch)
-			swStroke.Color = Color3.new(0.3, 0.3, 0.35); swStroke.Thickness = 1
+				local swatch = Instance.new("Frame")
+				swatch.Size = UDim2.new(0, 32, 0, 32); swatch.Position = UDim2.new(0, 12, 0, 13)
+				swatch.BackgroundColor3 = item.color or Color3.new(0.5, 0.5, 0.5)
+				swatch.BorderSizePixel = 0; swatch.Parent = card
+				Instance.new("UICorner", swatch).CornerRadius = UDim.new(0, 6)
+				local swStroke = Instance.new("UIStroke", swatch)
+				swStroke.Color = Color3.new(0.3, 0.3, 0.35); swStroke.Thickness = 1
 
-			local name = Instance.new("TextLabel")
-			name.Size = UDim2.new(0.5, -55, 0, 20); name.Position = UDim2.new(0, 52, 0, 6)
-			name.BackgroundTransparency = 1; name.Text = item.name
-			name.TextColor3 = C.white; name.Font = Enum.Font.GothamBold; name.TextSize = 13
-			name.TextXAlignment = Enum.TextXAlignment.Left; name.Parent = card
+				local name = Instance.new("TextLabel")
+				name.Size = UDim2.new(0.5, -55, 0, 20); name.Position = UDim2.new(0, 52, 0, 6)
+				name.BackgroundTransparency = 1; name.Text = item.name
+				name.TextColor3 = C.white; name.Font = Enum.Font.GothamBold; name.TextSize = 13
+				name.TextXAlignment = Enum.TextXAlignment.Left; name.Parent = card
 
-			local status = Instance.new("TextLabel")
-			status.Size = UDim2.new(0.5, -55, 0, 14); status.Position = UDim2.new(0, 52, 0, 26)
-			status.BackgroundTransparency = 1
-			status.Text = equipped and "EQUIPPED" or (owned and "OWNED" or "")
-			status.TextColor3 = equipped and C.equipped or C.green
-			status.Font = Enum.Font.GothamMedium; status.TextSize = 9
-			status.TextXAlignment = Enum.TextXAlignment.Left; status.Parent = card
+				local status = Instance.new("TextLabel")
+				status.Size = UDim2.new(0.5, -55, 0, 14); status.Position = UDim2.new(0, 52, 0, 26)
+				status.BackgroundTransparency = 1
+				status.Text = equipped and "EQUIPPED" or (owned and "OWNED" or "")
+				status.TextColor3 = equipped and C.equipped or C.green
+				status.Font = Enum.Font.GothamMedium; status.TextSize = 9
+				status.TextXAlignment = Enum.TextXAlignment.Left; status.Parent = card
 
-			local btn = Instance.new("TextButton")
-			btn.Size = UDim2.new(0, 90, 0, 30); btn.Position = UDim2.new(1, -100, 0.5, -15)
-			btn.BorderSizePixel = 0; btn.Font = Enum.Font.GothamBold; btn.TextSize = 11
-			btn.Parent = card
-			Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+				local btn = Instance.new("TextButton")
+				btn.Size = UDim2.new(0, 90, 0, 30); btn.Position = UDim2.new(1, -100, 0.5, -15)
+				btn.BorderSizePixel = 0; btn.Font = Enum.Font.GothamBold; btn.TextSize = 11
+				btn.Parent = card
+				Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
-			if equipped then
-				btn.Text = "Unequip"; btn.TextColor3 = C.muted
-				btn.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
-				btn.MouseButton1Click:Connect(function()
-					if equipBaseColor then
-						local ok, msg = equipBaseColor:InvokeServer(nil)
-						if ok then
-							playerBaseColor.equipped = nil
-							buildItems()
-							Notify.Toast("Restored default gray base", C.muted, 2)
+				if equipped then
+					btn.Text = "Unequip"; btn.TextColor3 = C.muted
+					btn.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+					btn.MouseButton1Click:Connect(function()
+						if equipRemote then
+							local ok, msg = equipRemote:InvokeServer(nil)
+							if ok then
+								refreshData(); buildItems()
+								Notify.Toast(removeToast, C.muted, 2)
+							else
+								Notify.Toast(msg or "Unequip failed", C.red, 3)
+							end
 						end
-					end
-				end)
-			elseif owned then
-				btn.Text = "Equip"; btn.TextColor3 = C.equipped
-				btn.BackgroundColor3 = Color3.fromRGB(25, 50, 70)
-				btn.MouseButton1Click:Connect(function()
-					if equipBaseColor then
-						local ok, msg = equipBaseColor:InvokeServer(item.id)
-						if ok then
-							playerBaseColor.equipped = item.id
-							buildItems()
-							Notify.Toast("Equipped " .. item.name .. " base color", C.equipped, 3)
-						else
-							Notify.Toast(msg or "Equip failed", C.red, 3)
+					end)
+				elseif owned then
+					btn.Text = "Equip"; btn.TextColor3 = C.equipped
+					btn.BackgroundColor3 = Color3.fromRGB(25, 50, 70)
+					btn.MouseButton1Click:Connect(function()
+						if equipRemote then
+							local ok, msg = equipRemote:InvokeServer(item.id)
+							if ok then
+								refreshData(); buildItems()
+								Notify.Toast("Equipped " .. item.name .. " " .. equipToast, C.equipped, 3)
+							else
+								Notify.Toast(msg or "Equip failed", C.red, 3)
+							end
 						end
-					end
-				end)
-			else
-				local priceText, priceCurr
-				if (item.coinCost or 0) > 0 then
-					priceText = "" .. (item.coinCost or 0); priceCurr = "coins"
-					btn.BackgroundColor3 = Color3.fromRGB(50, 45, 20)
-					btn.TextColor3 = C.coin
+					end)
 				else
-					priceText = "" .. (item.gemCost or 0); priceCurr = "gems"
-					btn.BackgroundColor3 = Color3.fromRGB(35, 25, 60)
-					btn.TextColor3 = C.gem
-				end
-				btn.Text = priceText
-				btn.MouseButton1Click:Connect(function()
-					if buyBaseColor then
-						local pcallOk, a, b = pcall(function() return buyBaseColor:InvokeServer(item.id, priceCurr) end)
-						local success, retMsg = pcallOk and a or false, (pcallOk and b or tostring(a)) or "nil"
-						if success then
-							Notify.Toast("Purchased " .. item.name .. "!", C.green, 3)
-							refreshData(); buildItems()
-						else
-							Notify.Toast(tostring(retMsg) ~= "nil" and tostring(retMsg) or "Purchase failed", C.red, 3)
-						end
+					local priceText, priceCurr
+					if (item.coinCost or 0) > 0 then
+						priceText = "" .. (item.coinCost or 0); priceCurr = "coins"
+						btn.BackgroundColor3 = Color3.fromRGB(50, 45, 20)
+						btn.TextColor3 = C.coin
+					else
+						priceText = "" .. (item.gemCost or 0); priceCurr = "gems"
+						btn.BackgroundColor3 = Color3.fromRGB(35, 25, 60)
+						btn.TextColor3 = C.gem
 					end
-				end)
+					btn.Text = priceText
+					btn.MouseButton1Click:Connect(function()
+						if buyRemote then
+							local pcallOk, a, b = pcall(function() return buyRemote:InvokeServer(item.id, priceCurr) end)
+							local success, retMsg = pcallOk and a or false, (pcallOk and b or tostring(a)) or "nil"
+							if success then
+								Notify.Toast("Purchased " .. item.name .. "!", C.green, 3)
+								refreshData(); buildItems()
+							else
+								Notify.Toast(tostring(retMsg) ~= "nil" and tostring(retMsg) or "Purchase failed", C.red, 3)
+							end
+						end
+					end)
+				end
 			end
 		end
+
+		addColorSection(
+			GameConfig.BaseColorItems or {},
+			playerBaseColor,
+			buyBaseColor,
+			equipBaseColor,
+			"Base Foundations",
+			"Plot center, ramp, stairs, and floors",
+			"foundations",
+			"Restored default gray foundations"
+		)
 	else
 		-- Cosmetics: trails, auras, nameColor
 		for _, item in ipairs(GameConfig.CosmeticItems or {}) do

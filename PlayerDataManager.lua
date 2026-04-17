@@ -92,7 +92,7 @@ local function getDefaultData()
 		activeBuffs  = {},  -- {buffId = {expiresAt = tick, ...}, ...}
 		cosmetics    = {owned = {}, equipped = {}},  -- {owned = {id1=true, ...}, equipped = {trail="", aura=""}}
 		exterior     = {owned = {}, equipped = nil}, -- nil equipped = standard gray base
-		baseColor    = {owned = {}, equipped = nil}, -- {owned = {id1=true, ...}, equipped = "base_red" or nil}
+		baseColor    = {owned = {}, equipped = nil}, -- foundation colors: floors, ramp, stairs, plot center
 		playerLevel  = 1,
 		playerXP     = 0,
 		ownedFloors  = {1},  -- array of floor numbers owned; starts with Floor 1
@@ -1972,6 +1972,9 @@ function PlayerDataManager.OnPlayerLeave(player)
 		if d.plotId and d.plotId > 0 and claimedPlotIds[d.plotId] == player.UserId then
 			claimedPlotIds[d.plotId] = nil
 		end
+		-- Plot assignment is session-only. Clearing it here prevents stale ownership
+		-- from being persisted and keeps rejoin/setup logic deterministic.
+		d.plotId = 0
 		saveToStore(player.UserId, d)
 		playerCache[player.UserId] = nil
 	end

@@ -483,28 +483,25 @@ local function createShellPart(name, size, cframe, parent, color, material)
 	return p
 end
 
---- Check if part should get base color (walls, stairs, floors, points — not glass, teleporters, combiner, recycler).
+--- Check if part should get base color (plot center, ramps, stairs, floors; not glass or special machines).
 --- Floor decks: e.g. Folder "Floor2" → Part "Floor2" (same as theme isFloorPart; case-insensitive "floor" match).
 local function shouldApplyBaseColor(part)
 	if isGlassPart(part) then return false end
 	if shouldSkipCosmeticRecolor(part) then return false end
 	local n = part.Name
 	local nl = string.lower(n)
-	if nl:find("wall", 1, true) then return true end
+	if nl == "plotcenter" then return true end
+	if nl:find("ramp", 1, true) then return true end
 	if nl:find("stair", 1, true) then return true end
 	if nl:find("floor", 1, true) then return true end
-	if n:match("^DefensePoint") then return true end
-	if n:match("^IncomePoint") then return true end
-	if n:match("^BattlePoint") then return true end
 	return false
 end
 
---- Reset parts to default grey when unequipping. onlyBaseColorParts = true resets walls/stairs/points only (not teleporter/combiner/recycler).
-local function applyDefaultToPlot(plotModel, onlyBaseColorParts)
+local function applyDefaultToFilteredParts(plotModel, filterFn)
 	for _, desc in ipairs(plotModel:GetDescendants()) do
 		if desc:IsA("BasePart") and not isGlassPart(desc) then
 			if shouldSkipCosmeticRecolor(desc) then continue end
-			if onlyBaseColorParts and not shouldApplyBaseColor(desc) then continue end
+			if filterFn and not filterFn(desc) then continue end
 			desc.Color = DEFAULT_GREY
 			desc.Material = DEFAULT_MATERIAL
 			desc.Transparency = 0
@@ -512,8 +509,13 @@ local function applyDefaultToPlot(plotModel, onlyBaseColorParts)
 	end
 end
 
+--- Reset parts to default grey when unequipping. onlyBaseColorParts = true resets foundations only.
+local function applyDefaultToPlot(plotModel, onlyBaseColorParts)
+	applyDefaultToFilteredParts(plotModel, onlyBaseColorParts and shouldApplyBaseColor or nil)
+end
+
 --- Apply theme as skin: recolor non-glass parts and add ExteriorShell (door + window frames). Does not delete plot.
---- For color-only themes (BaseExteriorItems with .color): apply color to walls & stairs only, no shell.
+--- For color-only themes (BaseExteriorItems with .color): apply color to base foundations only, no shell.
 function BaseExteriorSystem.ApplyThemeToPlot(plotModel, themeId)
 	if not plotModel or not plotModel.Parent then return false end
 
@@ -536,6 +538,9 @@ function BaseExteriorSystem.ApplyThemeToPlot(plotModel, themeId)
 	local isPlainColor = themeId:match("^exterior_")
 	for _, desc in ipairs(plotModel:GetDescendants()) do
 		if desc:IsA("BasePart") and not isGlassPart(desc) and not shouldSkipCosmeticRecolor(desc) then
+			if isPlainColor and not shouldApplyBaseColor(desc) then
+				continue
+			end
 			local style = getThemeStyle(desc.Name, palette)
 			if style and style.Color then desc.Color = style.Color end
 			if style and style.Material then
@@ -604,7 +609,7 @@ function BaseExteriorSystem.ApplyThemeToPlot(plotModel, themeId)
 	return true
 end
 
---- Apply base color to walls, stairs, points. Does not affect glass, teleporters, combiner, or recycler.
+--- Apply base foundation color to plot center, ramp, stairs, and floors.
 --- Pass nil to reset those parts to default grey.
 --- FIX: Floor 4 gym BattlePoints always get distinct team colors that never match the base color.
 

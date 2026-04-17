@@ -79,7 +79,11 @@ local BATTLE_THEME_NAME = config.BattleThemeName  or "Sieglings_BattleTheme"
 -- If a biome track doesn't exist in SoundService, the Main Theme is used as fallback.
 -- To add a new biome track: place the Sound in SoundService and add a line here.
 -- ═══════════════════════════════════════════════════════════════════════════════
-local SKY_TO_TRACK = config.SkyToTrack or {
+-- FIX: CaveSky was documented in the header but never mapped here, so entering the Cave
+-- outer baseplate fell through to the main theme instead of playing Sieglings_CaveBiome.
+-- Defaults now include CaveSky, AND we merge any missing default keys into config-provided
+-- mappings so a partial override (common source of this bug) can't silently drop Cave.
+local DEFAULT_SKY_TO_TRACK = {
 	FireSky     = "Sieglings_FireBiome",
 	IceSky      = "Sieglings_SnowBiome",
 	WindSky     = "Sieglings_WindBiome",
@@ -87,7 +91,15 @@ local SKY_TO_TRACK = config.SkyToTrack or {
 	DesertSky   = "Sieglings_DesertBiome",
 	ElectricSky = "Sieglings_ElectricBiome",
 	WaterSky    = "Sieglings_OceanBiome",
+	CaveSky     = "Sieglings_CaveBiome",
 }
+local SKY_TO_TRACK = {}
+if type(config.SkyToTrack) == "table" then
+	for k, v in pairs(config.SkyToTrack) do SKY_TO_TRACK[k] = v end
+end
+for k, v in pairs(DEFAULT_SKY_TO_TRACK) do
+	if SKY_TO_TRACK[k] == nil then SKY_TO_TRACK[k] = v end
+end
 
 -- Sky names that match BiomeSkyboxClient outer baseplates (Desert / Electric / Ocean / Cave).
 -- While the player is in one of these zones, biome BGM wins over main-arena proximity battle music.
@@ -101,11 +113,13 @@ do
 			end
 		end
 	end
-	if next(OUTER_BIOME_SKY) == nil then
-		OUTER_BIOME_SKY.DesertSky = true
-		OUTER_BIOME_SKY.ElectricSky = true
-		OUTER_BIOME_SKY.WaterSky = true
-	end
+	-- FIX: Always ensure the four outer baseplates are registered even if
+	-- config.OuterBiomeSkies is partial — previously Cave was missing from the
+	-- fallback list, so an incomplete override demoted Cave to inner-biome routing.
+	OUTER_BIOME_SKY.DesertSky = true
+	OUTER_BIOME_SKY.ElectricSky = true
+	OUTER_BIOME_SKY.WaterSky = true
+	OUTER_BIOME_SKY.CaveSky = true
 end
 
 -- Main Siegelord arena: battle theme when near team BattlePoints (see GameConfig.GameplayMusic.ArenaBattleMusicRadius).

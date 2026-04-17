@@ -69,7 +69,7 @@ profileSg.Parent = playerGui
 
 local profilePopup = Instance.new("Frame")
 profilePopup.Size = UDim2.new(0, 360, 0, 440)
-profilePopup.Position = UDim2.new(0.62, -180, 0.5, -220)
+profilePopup.Position = UDim2.new(0.5, -180, 0.5, -220)
 profilePopup.BackgroundColor3 = C.bg
 profilePopup.BackgroundTransparency = 0.03
 profilePopup.BorderSizePixel = 0
@@ -207,6 +207,7 @@ end
 local function openProfileForUserId(userId)
 	currentProfileUserId = userId
 	profilePopup:SetAttribute("ProfileUserId", userId)
+	MobileWindowLayout.RestoreDesktopWindow(profilePopup, { draggable = true })
 	profilePopup.Visible = true
 	for _, ch in ipairs(profileScroll:GetChildren()) do
 		if not ch:IsA("UIListLayout") then ch:Destroy() end
@@ -929,6 +930,8 @@ local function getPanelScale()
 	return math.clamp(scale, PANEL_SCALE_MIN, PANEL_SCALE_MAX)
 end
 
+local applyFriendsListTitleLayout
+
 local function applyPanelScale(pnl)
 	MobileWindowLayout.SyncNpcMenuScreenGui(sg, PANEL_DESIGN_W, PANEL_DESIGN_H)
 	if MobileWindowLayout.NpcMenuUsesFullscreenBounds(PANEL_DESIGN_W, PANEL_DESIGN_H) then
@@ -945,7 +948,9 @@ local function applyPanelScale(pnl)
 		sg.IgnoreGuiInset = false
 		MobileWindowLayout.RestoreDesktopWindow(pnl, { draggable = true })
 	end
-	applyFriendsListTitleLayout()
+	if applyFriendsListTitleLayout then
+		applyFriendsListTitleLayout()
+	end
 end
 
 -- ── FRIENDS PANEL (same sg as profile popup) ──
@@ -963,7 +968,7 @@ titleLbl.Size = UDim2.new(1, -50, 0, 38); titleLbl.Position = UDim2.new(0, 15, 0
 titleLbl.BackgroundTransparency = 1; titleLbl.Text = " Base Access List"
 titleLbl.TextColor3 = C.blue; titleLbl.Font = Enum.Font.GothamBlack; titleLbl.TextSize = 16
 titleLbl.TextXAlignment = Enum.TextXAlignment.Left; titleLbl.Parent = panel
-local applyFriendsListTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(titleLbl, {
+applyFriendsListTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(titleLbl, {
 	Position = UDim2.new(0, 15, 0, 0),
 	Size = UDim2.new(1, -50, 0, 38),
 	TextXAlignment = Enum.TextXAlignment.Left,
@@ -1186,6 +1191,7 @@ MobileWindowLayout.BindViewportUpdate(function()
 		sg.IgnoreGuiInset = false
 	end
 	if profilePopup.Visible then
+		MobileWindowLayout.RestoreDesktopWindow(profilePopup, { draggable = true })
 		applyFriendsProfileTitleLayout()
 	end
 end)

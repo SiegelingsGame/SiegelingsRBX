@@ -258,52 +258,65 @@ local function renderQuestCard(payload, questPayload, accent)
 	statusChip.Parent = topRow
 	Instance.new("UICorner", statusChip).CornerRadius = UDim.new(0, 7)
 
-	makeTextLabel(card, {
-		AutomaticSize = Enum.AutomaticSize.Y,
-		Size = UDim2.new(1, 0, 0, 0),
-		Font = Enum.Font.Gotham,
-		TextSize = 13,
-		TextColor3 = C.muted,
-		TextWrapped = true,
-		TextYAlignment = Enum.TextYAlignment.Top,
-		Text = questPayload.description or "",
-	})
-
-	makeTextLabel(card, {
-		AutomaticSize = Enum.AutomaticSize.Y,
-		Size = UDim2.new(1, 0, 0, 0),
-		Font = Enum.Font.GothamMedium,
-		TextSize = 12,
-		TextColor3 = C.gold,
-		TextWrapped = true,
-		TextYAlignment = Enum.TextYAlignment.Top,
-		Text = questPayload.rewardsText or "",
-	})
-
-	for _, objective in ipairs(questPayload.objectives or {}) do
-		local objectiveRow = Instance.new("Frame")
-		objectiveRow.BackgroundTransparency = 1
-		objectiveRow.Size = UDim2.new(1, 0, 0, 20)
-		objectiveRow.Parent = card
-
-		makeTextLabel(objectiveRow, {
-			Size = UDim2.new(1, -88, 1, 0),
+	if questPayload.status == "locked" then
+		makeTextLabel(card, {
+			AutomaticSize = Enum.AutomaticSize.Y,
+			Size = UDim2.new(1, 0, 0, 0),
 			Font = Enum.Font.GothamMedium,
 			TextSize = 12,
-			TextColor3 = objective.complete and C.green or C.white,
-			Text = (objective.complete and "[Done] " or "[ ] ") .. (objective.label or ""),
+			TextColor3 = C.muted,
+			TextWrapped = true,
+			TextYAlignment = Enum.TextYAlignment.Top,
+			Text = "Finish the previous quest to reveal this Eleminion trial.",
+		})
+	else
+		makeTextLabel(card, {
+			AutomaticSize = Enum.AutomaticSize.Y,
+			Size = UDim2.new(1, 0, 0, 0),
+			Font = Enum.Font.Gotham,
+			TextSize = 13,
+			TextColor3 = C.muted,
+			TextWrapped = true,
+			TextYAlignment = Enum.TextYAlignment.Top,
+			Text = questPayload.description or "",
 		})
 
-		makeTextLabel(objectiveRow, {
-			AnchorPoint = Vector2.new(1, 0),
-			Position = UDim2.new(1, 0, 0, 0),
-			Size = UDim2.new(0, 82, 1, 0),
-			Font = Enum.Font.GothamBold,
+		makeTextLabel(card, {
+			AutomaticSize = Enum.AutomaticSize.Y,
+			Size = UDim2.new(1, 0, 0, 0),
+			Font = Enum.Font.GothamMedium,
 			TextSize = 12,
-			TextColor3 = objective.complete and C.green or C.muted,
-			TextXAlignment = Enum.TextXAlignment.Right,
-			Text = objective.progressText or "",
+			TextColor3 = C.gold,
+			TextWrapped = true,
+			TextYAlignment = Enum.TextYAlignment.Top,
+			Text = questPayload.rewardsText or "",
 		})
+
+		for _, objective in ipairs(questPayload.objectives or {}) do
+			local objectiveRow = Instance.new("Frame")
+			objectiveRow.BackgroundTransparency = 1
+			objectiveRow.Size = UDim2.new(1, 0, 0, 20)
+			objectiveRow.Parent = card
+
+			makeTextLabel(objectiveRow, {
+				Size = UDim2.new(1, -88, 1, 0),
+				Font = Enum.Font.GothamMedium,
+				TextSize = 12,
+				TextColor3 = objective.complete and C.green or C.white,
+				Text = (objective.complete and "[Done] " or "[ ] ") .. (objective.label or ""),
+			})
+
+			makeTextLabel(objectiveRow, {
+				AnchorPoint = Vector2.new(1, 0),
+				Position = UDim2.new(1, 0, 0, 0),
+				Size = UDim2.new(0, 82, 1, 0),
+				Font = Enum.Font.GothamBold,
+				TextSize = 12,
+				TextColor3 = objective.complete and C.green or C.muted,
+				TextXAlignment = Enum.TextXAlignment.Right,
+				Text = objective.progressText or "",
+			})
+		end
 	end
 end
 

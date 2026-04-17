@@ -888,7 +888,7 @@ local function mkTab(name, text, px, w)
 	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 7)
 	return b
 end
-local invTab = mkTab("Inv", "SIEGELINGS", 0, 1/4)
+local invTab = mkTab("Inv", "SIEGELINGS", 0, 1/4)123
 local battleTab = mkTab("Battle", "BATTLE", 1/4, 1/4)
 local raidTab = mkTab("Bag", "BAG", 2/4, 1/4)
 local badBagTab = mkTab("BadBag", "BADBAG", 3/4, 1/4)

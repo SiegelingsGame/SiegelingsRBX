@@ -86,14 +86,14 @@ GameConfig.AchievementCoinsByTier = { 150, 400, 900, 1800, 3500 }
 -- Base Floors
 GameConfig.Floor2Cost             = 500   -- coins to buy Floor 2
 GameConfig.Floor2LevelReq         = 5      -- player level required
-GameConfig.Floor3Cost             = 500  -- coins to buy Floor 3
+GameConfig.Floor3Cost             = 5000  -- coins to buy Floor 3
 GameConfig.Floor3LevelReq         = 10     -- player level required
-GameConfig.Floor4Cost             = 500 -- coins to buy Floor 4 (Siegelord Arena)
+GameConfig.Floor4Cost             = 25000 -- coins to buy Floor 4 (Siegelord Arena)
 GameConfig.Floor4LevelReq         = 25    -- player level required for Floor 4...
 
 -- Evolution & Combine (monster duplication / variant tiers)
-GameConfig.EvolutionMinLevel      = 1      -- level required for 1st evolution (base form).
-GameConfig.EvolutionMinLevel2     = 1      -- level required for 2nd evolution (evolved form)
+GameConfig.EvolutionMinLevel      = 10      -- level required for 1st evolution (base form).
+GameConfig.EvolutionMinLevel2     = 25      -- level required for 2nd evolution (evolved form)
 GameConfig.CombineCost            = 100      -- gold cost to combine 3 into next variant (0 = free)
 GameConfig.RecyclerDuplicateCount = 3      -- min same-creature duplicates to trade for 1 egg (1 rarity tier higher)
 -- Egg hatch time (minutes) by creature level inside the egg: level 1→20min, 2→30, 3→60, 4→120, 5→600, 6+→300
@@ -757,22 +757,22 @@ GameConfig.BuffShopItems = {
 -- Cosmetic Shop
 GameConfig.CosmeticItems = {
 	-- Trails
-	{id = "trail_fire",     slot = "trail", name = "Fire Trail",      coinCost = 300,  gemCost = 0},
-	{id = "trail_ice",      slot = "trail", name = "Ice Trail",       coinCost = 300,  gemCost = 0},
-	{id = "trail_rainbow",  slot = "trail", name = "Rainbow Trail",   coinCost = 0,    gemCost = 10},
-	{id = "trail_shadow",   slot = "trail", name = "Shadow Trail",    coinCost = 0,    gemCost = 8},
-	{id = "trail_nature",   slot = "trail", name = "Nature Trail",    coinCost = 350,  gemCost = 0},
-	{id = "trail_poison",   slot = "trail", name = "Poison Trail",    coinCost = 0,    gemCost = 9},
-	{id = "trail_void",     slot = "trail", name = "Void Trail",      coinCost = 0,    gemCost = 11},
-	{id = "trail_sunset",   slot = "trail", name = "Sunset Trail",    coinCost = 350,  gemCost = 0},
-	{id = "trail_candy",    slot = "trail", name = "Candy Trail",     coinCost = 0,    gemCost = 8},
-	{id = "trail_galaxy",   slot = "trail", name = "Galaxy Trail",     coinCost = 0,    gemCost = 12},
+	{id = "trail_fire",     slot = "trail", name = "Fire Trail",      coinCost = 300,  gemCost = 50},
+	{id = "trail_ice",      slot = "trail", name = "Ice Trail",       coinCost = 300,  gemCost = 50},
+	{id = "trail_rainbow",  slot = "trail", name = "Rainbow Trail",   coinCost = 0,    gemCost = 50},
+	{id = "trail_shadow",   slot = "trail", name = "Shadow Trail",    coinCost = 0,    gemCost = 50},
+	{id = "trail_nature",   slot = "trail", name = "Nature Trail",    coinCost = 350,  gemCost = 50},
+	{id = "trail_poison",   slot = "trail", name = "Poison Trail",    coinCost = 0,    gemCost = 50},
+	{id = "trail_void",     slot = "trail", name = "Void Trail",      coinCost = 0,    gemCost = 50},
+	{id = "trail_sunset",   slot = "trail", name = "Sunset Trail",    coinCost = 350,  gemCost = 50},
+	{id = "trail_candy",    slot = "trail", name = "Candy Trail",     coinCost = 0,    gemCost = 50},
+	{id = "trail_galaxy",   slot = "trail", name = "Galaxy Trail",     coinCost = 0,    gemCost = 50},
 	-- Auras
 	{id = "aura_flame",     slot = "aura",  name = "Flame Aura",      coinCost = 500,  gemCost = 0},
 	{id = "aura_electric",  slot = "aura",  name = "⚡ Electric Aura", coinCost = 500,  gemCost = 0},
-	{id = "aura_divine",    slot = "aura",  name = "✨ Divine Aura",   coinCost = 0,    gemCost = 15},
+	{id = "aura_divine",    slot = "aura",  name = "✨ Divine Aura",   coinCost = 0,    gemCost = 100},
 	{id = "aura_nature",    slot = "aura",  name = "Nature Aura",      coinCost = 500,  gemCost = 0},
-	{id = "aura_void",      slot = "aura",  name = "Void Aura",       coinCost = 0,    gemCost = 14},
+	{id = "aura_void",      slot = "aura",  name = "Void Aura",       coinCost = 0,    gemCost = 100},
 	{id = "aura_ice",       slot = "aura",  name = "Ice Aura",        coinCost = 500,  gemCost = 0},
 	{id = "aura_poison",    slot = "aura",  name = "Poison Aura",     coinCost = 0,    gemCost = 10},
 	{id = "aura_sakura",    slot = "aura",  name = "Sakura Aura",     coinCost = 0,    gemCost = 12},

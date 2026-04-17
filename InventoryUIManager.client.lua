@@ -1,5 +1,5 @@
 -- InventoryUIManager.lua - StarterPlayer.StarterPlayerScripts (LocalScript)
--- Inventory, Battle Formation, and Bag (misc items) UI.
+-- Inventory, Battle Formation, and Bag (misc items) UI...
 -- Toggle with 'B' key or on-screen button.
 
 local Players = game:GetService("Players")
@@ -11,6 +11,37 @@ local UserInputService = game:GetService("UserInputService")
 local GuiService = game:GetService("GuiService")
 local MobileWindowLayout = require(ReplicatedStorage.Modules:WaitForChild("MobileWindowLayout"))
 local CollectionService = game:GetService("CollectionService")
+local HttpService = game:GetService("HttpService")
+
+-- #region agent log
+local function _agentLog(hypothesisId, location, message, data)
+	local payload
+	local okEnc = pcall(function()
+		payload = HttpService:JSONEncode({
+			sessionId = "0954a4",
+			hypothesisId = hypothesisId,
+			location = location,
+			message = message,
+			data = data or {},
+			timestamp = math.floor(tick() * 1000),
+			runId = "pre-fix",
+		})
+	end)
+	if not okEnc or not payload then return end
+	local dataEnc = ""
+	pcall(function() dataEnc = HttpService:JSONEncode(data or {}) end)
+	warn("[AGENT0954] " .. tostring(hypothesisId) .. " | " .. tostring(location) .. " | " .. tostring(message) .. " | " .. dataEnc)
+	pcall(function()
+		HttpService:PostAsync(
+			"http://127.0.0.1:7882/ingest/0e60cc12-9e09-414c-83d4-0479f687e09e",
+			payload,
+			Enum.HttpContentType.ApplicationJson,
+			false,
+			{ ["X-Debug-Session-Id"] = "0954a4" }
+		)
+	end)
+end
+-- #endregion
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -70,7 +101,10 @@ local invViewerInUse = {}
 local invCardByUid = {}
 
 local Events = ReplicatedStorage:WaitForChild("Events", 15)
-if not Events then warn("[UI] Events missing") return end
+if not Events then
+	_agentLog("H1", "InventoryUIManager:Events", "events_missing_early_return", {})
+	warn("[UI] Events missing") return end
+_agentLog("H1", "InventoryUIManager:Events", "events_ok", {})
 
 local function safeGet(n, t)
 	local o = Events:WaitForChild(n, t or 8)
@@ -408,6 +442,10 @@ local function syncInventoryScreenGuiInset()
 	end
 end
 
+-- Left-cluster action row Y (Battle Menu, favorite card, weapon, sprint). Merge refactor must define this;
+-- otherwise nil arithmetic here prevents the whole SieglinQ / InventoryUI script from loading.
+local ACTION_BUTTONS_TOP = 76
+
 -- B toggle button: shield-shaped, "Battle" / "Menu" on two lines. Under smaller HUD (~76px).
 local toggleBtn = Instance.new("TextButton")
 toggleBtn.Name = "BattleMenuToggle"
@@ -567,11 +605,11 @@ ensureBindable("SprintStateChanged").Event:Connect(setSprintButtonActive)
 
 applyLeftClusterGuiInset = function()
 	-- HUDClient uses inset-relative coords; this gui sometimes uses IgnoreGuiInset for fullscreen panel
-	-- layout. Then Y=76 is from the physical top, which sits on top of the coin/assignment bars.
+	-- layout. Then Y=ACTION_BUTTONS_TOP is from the physical top, which sits on top of the coin/assignment bars.
 	local yAdd = sg.IgnoreGuiInset and GuiService:GetGuiInset().Y or 0
-	toggleBtn.Position = UDim2.new(0, 12, 0, 76 + yAdd)
-	favOrbBtn.Position = UDim2.new(0, 66, 0, 76 + yAdd)
-	weaponIcon.Position = UDim2.new(0, 12, 0, 136 + yAdd)
+	toggleBtn.Position = UDim2.new(0, 12, 0, ACTION_BUTTONS_TOP + yAdd)
+	favOrbBtn.Position = UDim2.new(0, 66, 0, ACTION_BUTTONS_TOP + yAdd)
+	weaponIcon.Position = UDim2.new(0, 12, 0, ACTION_BUTTONS_TOP + 54 + 6 + yAdd)
 	sprintBtn.Position = UDim2.new(0, 12 + 44 + SPRINT_BUTTON_GAP, 0, MOBILE_SPRINT_Y + yAdd)
 	-- BadlandsClient positions BadBag from this card; inset toggles don't always fire AbsolutePosition.
 	local relayout = playerGui:FindFirstChild("BadlandsRelayoutHud")
@@ -888,7 +926,7 @@ local function mkTab(name, text, px, w)
 	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 7)
 	return b
 end
-local invTab = mkTab("Inv", "SIEGELINGS", 0, 1/4)123
+local invTab = mkTab("Inv", "SIEGELINGS", 0, 1/4)
 local battleTab = mkTab("Battle", "BATTLE", 1/4, 1/4)
 local raidTab = mkTab("Bag", "BAG", 2/4, 1/4)
 local badBagTab = mkTab("BadBag", "BADBAG", 3/4, 1/4)
@@ -4195,6 +4233,11 @@ local function syncVisibleStateFromGui()
 		guiOk = (sg and sg.Parent and main and main.Parent == sg)
 		if not guiOk then
 			isVis = false
+			_agentLog("H2", "syncVisibleStateFromGui", "gui_not_ready_after_recovery", {
+				sgHasParent = sg and sg.Parent ~= nil,
+				mainHasParent = main and main.Parent ~= nil,
+				mainIsSgChild = main and main.Parent == sg,
+			})
 			return false
 		end
 	end
@@ -4246,7 +4289,10 @@ local function applyMainFrameLayout()
 end
 -- defaultTab: "inventory" (I / HUD Inventory button) or "battle" (B / B button) or "badbag" (Badlands)
 local function openUI(defaultTab)
-	if not syncVisibleStateFromGui() then return end
+	if not syncVisibleStateFromGui() then
+		_agentLog("H2", "openUI", "blocked_by_sync", { defaultTab = defaultTab or "inventory" })
+		return
+	end
 	defaultTab = defaultTab or "inventory"
 	updateTabVisibility()
 	syncInventoryScreenGuiInset()
@@ -4281,6 +4327,14 @@ local function openUI(defaultTab)
 	if not tabOk then
 		warn("[InventoryUI] openUI tab refresh error: " .. tostring(tabErr))
 	end
+	_agentLog("H3", "openUI", "after_open", {
+		defaultTab = defaultTab,
+		tabOk = tabOk,
+		tabErr = tabErr and tostring(tabErr) or nil,
+		mainVisible = main and main.Visible,
+		mainSize = main and tostring(main.Size),
+		isVis = isVis,
+	})
 end
 local function closeUI()
 	if not syncVisibleStateFromGui() then return end
@@ -4323,8 +4377,12 @@ UserInputService.InputBegan:Connect(function(input)
 	end
 	if input.KeyCode == Enum.KeyCode.Q then
 		-- If HUDButtonBar already handled this exact Q press first, ignore direct fallback to avoid open->close flip.
-		if (tick() - lastHUDInventoryToggleTick) < 0.12 then return end
+		if (tick() - lastHUDInventoryToggleTick) < 0.12 then
+			_agentLog("H5", "InputBegan:Q", "skipped_recent_hud_toggle", { dt = tick() - lastHUDInventoryToggleTick })
+			return
+		end
 		lastQKeyTick = tick()
+		_agentLog("H5", "InputBegan:Q", "direct_q_path", { isVis = isVis, inBadlands = player:GetAttribute("InBadlands") == true })
 		if player:GetAttribute("InBadlands") then
 			if isVis then closeUI() else openUI("badbag") end
 		else
@@ -4351,13 +4409,19 @@ local function getHUDToggle()
 end
 local function onHUDToggle(menuName)
 	if not syncVisibleStateFromGui() then
+		_agentLog("H2", "onHUDToggle", "sync_failed", { menuName = tostring(menuName) })
 		warn("[InventoryUI] onHUDToggle syncVisibleStateFromGui failed for:", menuName)
 		return
 	end
 	if menuName == "InventoryUI" then
 		lastHUDInventoryToggleTick = tick()
+		local dtQ = tick() - lastQKeyTick
+		_agentLog("H4", "onHUDToggle", "inventory_menu", { dtSinceDirectQ = dtQ })
 		-- Skip if Q key was just handled directly (prevents double-toggle from keyboard path)
-		if (tick() - lastQKeyTick) < 0.15 then return end
+		if dtQ < 0.15 then
+			_agentLog("H4", "onHUDToggle", "skipped_double_handler", { dtSinceDirectQ = dtQ })
+			return
+		end
 		if player:GetAttribute("InBadlands") then
 			if isVis then closeUI() else openUI("badbag") end
 		else
@@ -4577,4 +4641,5 @@ end
 -- No auto-refresh loop: inventory only refreshes on tab/button press or when
 -- CaptureSuccess/RaidEnd adds a monster. Avoids scroll reset on mobile.
 task.defer(syncInventoryScreenGuiInset)
+_agentLog("H1", "InventoryUIManager", "script_loaded_handlers", { inventoryUiParent = sg and sg.Parent and sg.Parent.Name })
 print("[InventoryUI] Script fully loaded — all handlers registered")

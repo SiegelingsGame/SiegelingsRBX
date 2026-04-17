@@ -412,7 +412,7 @@ end
 local toggleBtn = Instance.new("TextButton")
 toggleBtn.Name = "BattleMenuToggle"
 toggleBtn.Size = UDim2.new(0, 46, 0, 54)
-toggleBtn.Position = UDim2.new(0, 12, 0, 76)
+toggleBtn.Position = UDim2.new(0, 12, 0, ACTION_BUTTONS_TOP)
 toggleBtn.AnchorPoint = Vector2.new(0, 0)
 toggleBtn.BackgroundColor3 = C.accent
 toggleBtn.Text = "Battle\nMenu"
@@ -434,7 +434,7 @@ toggleStroke.Transparency = 0.5
 local favOrbBtn = Instance.new("TextButton")
 favOrbBtn.Name = "FavoriteSummonCard"
 favOrbBtn.Size = UDim2.new(0, 50, 0, 72)
-favOrbBtn.Position = UDim2.new(0, 66, 0, 76)
+favOrbBtn.Position = UDim2.new(0, 66, 0, ACTION_BUTTONS_TOP)
 favOrbBtn.AnchorPoint = Vector2.new(0, 0)
 favOrbBtn.BackgroundColor3 = Color3.fromRGB(50, 48, 55)
 favOrbBtn.Text = ""
@@ -467,8 +467,8 @@ local TRIANGLE_MELEE = "\u{25B2}"   -- ▲ (click to switch to Melee)
 local TRIANGLE_RANGED = "\u{25BC}"  -- ▼ (click to switch to Ranged)
 local weaponIcon = Instance.new("TextButton")
 weaponIcon.Size = UDim2.new(0, 44, 0, 44)
--- Under Battle Menu button: toggleBtn is at (12, 76), height 54 → bottom at 130; place weapon 6px below
-weaponIcon.Position = UDim2.new(0, 12, 0, 136)
+-- Under Battle Menu button: toggleBtn is at (12, ACTION_BUTTONS_TOP), height 54 → place weapon 6px below
+weaponIcon.Position = UDim2.new(0, 12, 0, ACTION_BUTTONS_TOP + 54 + 6)
 weaponIcon.AnchorPoint = Vector2.new(0, 0)
 weaponIcon.BackgroundColor3 = Color3.fromRGB(28, 30, 42)
 weaponIcon.BorderSizePixel = 0
@@ -521,7 +521,7 @@ weaponIcon.Activated:Connect(fireWeaponToggle)
 -- Sprint button: next to Melee/Ranged (right of weaponIcon).
 -- Mobile only: tap to toggle sprint. Desktop uses hold-Shift (no sprint button).
 local SPRINT_BUTTON_GAP = 6
-local MOBILE_SPRINT_Y = 144 -- move sprint button down a bit for touch comfort
+local MOBILE_SPRINT_Y = ACTION_BUTTONS_TOP + 54 + 6 + 8 -- below weapon icon row with padding
 local showMobileSprintButton = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 local sprintBtn = Instance.new("TextButton")
 sprintBtn.Name = "SprintButton"

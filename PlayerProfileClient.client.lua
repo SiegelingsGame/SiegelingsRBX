@@ -39,6 +39,9 @@ if not Events then warn("[Profile] Events missing") return end
 local getProfile   = Events:WaitForChild("GetProfile", 8)
 local buyFloor     = Events:WaitForChild("BuyFloor", 8)
 local playerLevelUp = Events:WaitForChild("PlayerLevelUp", 8)
+local CoinsUpdate   = Events:FindFirstChild("CoinsUpdate")
+local GemsUpdate    = Events:FindFirstChild("GemsUpdate")
+local IncomeReceived = Events:FindFirstChild("IncomeReceived")
 
 -- Remote references (sigils)
 local getInventory = Events:FindFirstChild("GetInventory")
@@ -115,8 +118,33 @@ local SIDEBAR_DESIGN_W = 200
 local PANEL_SCALE_MIN  = 0.55
 local PANEL_SCALE_MAX  = 1
 local TAB_BAR_HEIGHT   = 36
-local HEADER_HEIGHT    = 48
+local HEADER_HEIGHT    = 56
 local MOBILE_BREAKPOINT = 620
+-- Tab bar uses 4 equal columns; Sigils + Rebirth = middle 50% — align name + XP with that span
+local PROFILE_HDR_MID_X = 1 / 4
+local PROFILE_HDR_MID_W = 2 / 4
+
+local function rgbToHex(c)
+	return string.format("#%02x%02x%02x", math.floor(c.R * 255 + 0.5), math.floor(c.G * 255 + 0.5), math.floor(c.B * 255 + 0.5))
+end
+
+local function escapeRichText(s)
+	s = tostring(s or "")
+	s = s:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;")
+	return s
+end
+
+--- Highest unlocked floor title for header (matches floor list copy).
+local function siegeRankTitleFromMaxFloor(maxFloor)
+	if maxFloor >= 4 then
+		return "Siegelord"
+	elseif maxFloor >= 3 then
+		return "Siege Knight"
+	elseif maxFloor >= 2 then
+		return "Siege Squire"
+	end
+	return ""
+end
 
 local function isMobileLayout()
 	local cam = workspace.CurrentCamera
@@ -233,6 +261,80 @@ local applyProfileHeaderTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(t
 	TextXAlignment = Enum.TextXAlignment.Left,
 })
 
+-- Profile tab only: siege title + name (centered in Sigils–Rebirth span), level badge, XP bar in same span
+local profileHdrCluster = Instance.new("Frame")
+profileHdrCluster.Name = "ProfileHeaderCluster"
+profileHdrCluster.BackgroundTransparency = 1
+profileHdrCluster.Visible = false
+profileHdrCluster.ZIndex = 1
+profileHdrCluster.Size = UDim2.new(1, 0, 1, 0)
+profileHdrCluster.Position = UDim2.new(0, 0, 0, 0)
+profileHdrCluster.Parent = hdr
+
+local profileNameStrip = Instance.new("Frame")
+profileNameStrip.Name = "NameStrip"
+profileNameStrip.BackgroundTransparency = 1
+profileNameStrip.Position = UDim2.new(PROFILE_HDR_MID_X, 0, 0, 5)
+profileNameStrip.Size = UDim2.new(PROFILE_HDR_MID_W, 0, 0, 22)
+profileNameStrip.Parent = profileHdrCluster
+
+local profileNameRich = Instance.new("TextLabel")
+profileNameRich.Name = "NameRich"
+profileNameRich.Size = UDim2.new(1, -8, 1, 0)
+profileNameRich.Position = UDim2.new(0, 4, 0, 0)
+profileNameRich.BackgroundTransparency = 1
+profileNameRich.Font = Enum.Font.GothamBold
+profileNameRich.TextSize = 15
+profileNameRich.TextXAlignment = Enum.TextXAlignment.Center
+profileNameRich.TextYAlignment = Enum.TextYAlignment.Center
+profileNameRich.RichText = true
+profileNameRich.TextTruncate = Enum.TextTruncate.AtEnd
+profileNameRich.Parent = profileNameStrip
+
+local profileLvlBadge = Instance.new("TextLabel")
+profileLvlBadge.Name = "LvlBadge"
+profileLvlBadge.Size = UDim2.new(0, 88, 0, 22)
+profileLvlBadge.Position = UDim2.new(1, -90, 0, 6)
+profileLvlBadge.BackgroundColor3 = C.xpBar
+profileLvlBadge.BackgroundTransparency = 0.15
+profileLvlBadge.BorderSizePixel = 0
+profileLvlBadge.Text = "LEVEL 1"
+profileLvlBadge.TextColor3 = Color3.new(1, 1, 1)
+profileLvlBadge.Font = Enum.Font.GothamBlack
+profileLvlBadge.TextSize = 11
+profileLvlBadge.ZIndex = 2
+profileLvlBadge.Parent = profileHdrCluster
+Instance.new("UICorner", profileLvlBadge).CornerRadius = UDim.new(0, 6)
+
+local profileXpBg = Instance.new("Frame")
+profileXpBg.Name = "XpBg"
+profileXpBg.Position = UDim2.new(PROFILE_HDR_MID_X, 0, 0, 30)
+profileXpBg.Size = UDim2.new(PROFILE_HDR_MID_W, 0, 0, 14)
+profileXpBg.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+profileXpBg.BorderSizePixel = 0
+profileXpBg.ZIndex = 1
+profileXpBg.Parent = profileHdrCluster
+Instance.new("UICorner", profileXpBg).CornerRadius = UDim.new(0, 5)
+
+local profileXpFill = Instance.new("Frame")
+profileXpFill.Name = "XpFill"
+profileXpFill.Size = UDim2.new(0.5, 0, 1, 0)
+profileXpFill.BackgroundColor3 = C.xpBar
+profileXpFill.BorderSizePixel = 0
+profileXpFill.Parent = profileXpBg
+Instance.new("UICorner", profileXpFill).CornerRadius = UDim.new(0, 5)
+
+local profileXpLbl = Instance.new("TextLabel")
+profileXpLbl.Name = "XpLbl"
+profileXpLbl.Size = UDim2.new(1, 0, 1, 0)
+profileXpLbl.BackgroundTransparency = 1
+profileXpLbl.Text = "0 / 100 XP"
+profileXpLbl.TextColor3 = Color3.new(1, 1, 1)
+profileXpLbl.Font = Enum.Font.GothamBold
+profileXpLbl.TextSize = 10
+profileXpLbl.ZIndex = 2
+profileXpLbl.Parent = profileXpBg
+
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 30, 0, 30)
 closeBtn.Position = UDim2.new(1, -38, 0, 9)
@@ -243,6 +345,7 @@ closeBtn.Font = Enum.Font.GothamBold
 closeBtn.TextSize = 13
 closeBtn.BorderSizePixel = 0
 closeBtn.Parent = hdr
+closeBtn.ZIndex = 5
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 8)
 
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -567,17 +670,23 @@ local function switchTab(tabName)
 		t.underline.Visible = isActive
 	end
 
-	-- Update header title per tab
+	-- Header: Profile uses identity row; other tabs use title label
 	if tabName == "Profile" then
-		title.Text = "PLAYER PROFILE"
-		title.TextColor3 = C.accent
+		title.Visible = false
+		profileHdrCluster.Visible = true
 	elseif tabName == "Sigils" then
+		title.Visible = true
+		profileHdrCluster.Visible = false
 		title.Text = "COUNCIL OF HOUSES — SIGILS"
 		title.TextColor3 = C.sigilAccent
 	elseif tabName == "Rebirth" then
+		title.Visible = true
+		profileHdrCluster.Visible = false
 		title.Text = "PILOT REBIRTH"
 		title.TextColor3 = C.rebirthAccent
 	elseif tabName == "Achievements" then
+		title.Visible = true
+		profileHdrCluster.Visible = false
 		title.Text = "ACHIEVEMENTS"
 		title.TextColor3 = C.achieveAccent
 	end
@@ -640,6 +749,7 @@ local function mkStatRow(parent, label, value, color, order)
 	lbl.Parent = row
 
 	local val = Instance.new("TextLabel")
+	val.Name = "StatValue"
 	val.Size = UDim2.new(0.4, -12, 1, 0)
 	val.Position = UDim2.new(0.6, 0, 0, 0)
 	val.BackgroundTransparency = 1
@@ -649,14 +759,98 @@ local function mkStatRow(parent, label, value, color, order)
 	val.TextSize = 12
 	val.TextXAlignment = Enum.TextXAlignment.Right
 	val.Parent = row
-	return row
+	return row, val
+end
+
+-- Live economy row refs (avoid full profile rebuild on every coin tick)
+local profileCoinsValueLbl = nil
+local profileGemsValueLbl = nil
+
+local function clearProfileEconomyRefs()
+	profileCoinsValueLbl = nil
+	profileGemsValueLbl = nil
+end
+
+local function updateProfileEconomyDisplay(coins, gems)
+	if profileCoinsValueLbl and coins ~= nil then
+		profileCoinsValueLbl.Text = tostring(coins)
+	end
+	if profileGemsValueLbl and gems ~= nil then
+		profileGemsValueLbl.Text = tostring(gems)
+	end
+end
+
+local function mkSectionFrame(parent, layoutOrder)
+	local wrap = Instance.new("Frame")
+	wrap.BackgroundTransparency = 1
+	wrap.Size = UDim2.new(1, 0, 0, 0)
+	wrap.AutomaticSize = Enum.AutomaticSize.Y
+	wrap.LayoutOrder = layoutOrder
+	wrap.Parent = parent
+	local list = Instance.new("UIListLayout")
+	list.Padding = UDim.new(0, 6)
+	list.SortOrder = Enum.SortOrder.LayoutOrder
+	list.Parent = wrap
+	return wrap
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- Profile tab refresh
 -- ══════════════════════════════════════════════════════════════════════════════
 
+local function applyProfileSidebarLayout()
+	if activeTab ~= "Profile" or not profileTab.Visible then
+		return
+	end
+	local mobile = isMobileLayout()
+	rightSidebar.Visible = not mobile
+	sidebarTitle.Visible = rightSidebar.Visible
+	local w, h, sbWidth = getScaledDims()
+	if profileUsesFullscreenBounds() then
+		if mobile then
+			leftCol.Size = UDim2.new(1, -28, 1, -8)
+		else
+			leftCol.Size = UDim2.new(1, -sbWidth - 10, 1, -8)
+			rightSidebar.Size = UDim2.new(0, sbWidth, 1, -8)
+		end
+	else
+		if mobile then
+			leftCol.Size = UDim2.new(1, -28, 1, -8)
+		else
+			leftCol.Size = UDim2.new(1, -sbWidth - 40, 1, -8)
+			rightSidebar.Size = UDim2.new(0, sbWidth, 1, -8)
+		end
+	end
+end
+
+local function updateProfileIdentityHeader(data)
+	if not data then
+		return
+	end
+	local lvl = data.playerLevel or 1
+	local xp = data.playerXP or 0
+	local xpNeeded = data.xpNeeded or 100
+	local ownedFloors = data.ownedFloors or { 1 }
+	local maxF = 1
+	for _, f in ipairs(ownedFloors) do
+		maxF = math.max(maxF, f)
+	end
+	local rank = siegeRankTitleFromMaxFloor(maxF)
+	local nm = escapeRichText(player.Name)
+	local accentHex = rgbToHex(C.accent)
+	if rank ~= "" then
+		profileNameRich.Text = ('<font color="%s">%s</font> <font color="#f0f0f5">%s</font>'):format(accentHex, escapeRichText(rank), nm)
+	else
+		profileNameRich.Text = '<font color="#f0f0f5">' .. nm .. "</font>"
+	end
+	profileLvlBadge.Text = "LEVEL " .. tostring(lvl)
+	local xpRatio = xpNeeded > 0 and math.clamp(xp / xpNeeded, 0, 1) or 0
+	profileXpFill.Size = UDim2.new(xpRatio, 0, 1, 0)
+	profileXpLbl.Text = xp .. " / " .. xpNeeded .. " XP"
+end
+
 function refreshProfile()
+	clearProfileEconomyRefs()
 	-- Clear left column
 	for _, ch in ipairs(leftCol:GetChildren()) do
 		if not ch:IsA("UIListLayout") then ch:Destroy() end
@@ -665,88 +859,83 @@ function refreshProfile()
 	for _, ch in ipairs(sidebarContent:GetChildren()) do
 		if not ch:IsA("UIListLayout") then ch:Destroy() end
 	end
-	sidebarTitle.Text = isMobileLayout() and "DETAILS" or "BASE FLOORS"
+	sidebarTitle.Text = "BASE FLOORS"
 
 	if not getProfile then return end
 	local ok, data = pcall(function() return getProfile:InvokeServer() end)
 	if not ok or not data then
-		mkSection(leftCol, "Loading...", 0)
+		mkSection(leftCol, "Loading...", 100)
 		return
 	end
 
 	local lvl = data.playerLevel or 1
-	local xp = data.playerXP or 0
-	local xpNeeded = data.xpNeeded or 100
+	updateProfileIdentityHeader(data)
 	local isMobile = isMobileLayout()
 
-	-- Name + level + XP (goes in sidebar on mobile)
-	local barParent = isMobile and sidebarContent or leftCol
+	-- Economy (coin/gem value labels kept for live Updates without full rebuild)
+	local economyBlock = mkSectionFrame(leftCol, 100)
+	mkSection(economyBlock, "ECONOMY", 10)
+	do
+		local _, coinsVal = mkStatRow(economyBlock, "Coins", tostring(data.coins or 0), C.gold, 11)
+		local _, gemsVal = mkStatRow(economyBlock, "Gems", tostring(data.gems or 0), C.blue, 12)
+		profileCoinsValueLbl = coinsVal
+		profileGemsValueLbl = gemsVal
+	end
 
-	local nameFrame = Instance.new("Frame")
-	nameFrame.Size = UDim2.new(1, 0, 0, 50)
-	nameFrame.BackgroundColor3 = C.card
-	nameFrame.BorderSizePixel = 0
-	nameFrame.LayoutOrder = 0
-	nameFrame.Parent = barParent
-	Instance.new("UICorner", nameFrame).CornerRadius = UDim.new(0, 10)
+	-- Lifetime / progression (not pilot combat — avoids mixing with ATK/DEF/HP rows)
+	local statBlock = mkSectionFrame(leftCol, 200)
+	mkSection(statBlock, "PROGRESS", 10)
+	mkStatRow(statBlock, "Monsters Owned", tostring(data.monstersOwned or 0), C.text, 11)
+	mkStatRow(statBlock, "Total Captured", tostring(data.totalCaptured or 0), C.green, 12)
+	mkStatRow(statBlock, "Arena Wins", tostring(data.arenaWins or 0), C.gold, 13)
+	mkStatRow(statBlock, "Max Win Streak", tostring(data.arenaMaxStreak or 0), Color3.fromRGB(255, 130, 50), 14)
+	mkStatRow(statBlock, "Total Income Earned", tostring(data.totalIncome or 0), C.gold, 15)
 
-	local nameLbl = Instance.new("TextLabel")
-	nameLbl.Size = UDim2.new(0.6, 0, 0, 24)
-	nameLbl.Position = UDim2.new(0, 14, 0, 5)
-	nameLbl.BackgroundTransparency = 1
-	nameLbl.Text = player.Name
-	nameLbl.TextColor3 = C.text
-	nameLbl.Font = Enum.Font.GothamBlack
-	nameLbl.TextSize = 16
-	nameLbl.TextXAlignment = Enum.TextXAlignment.Left
-	nameLbl.Parent = nameFrame
+	-- Base Floors
+	local ownedFloors = data.ownedFloors or { 1 }
+	local function ownsFloor(n)
+		for _, f in ipairs(ownedFloors) do if f == n then return true end end
+		return false
+	end
 
-	local lvlBadge = Instance.new("TextLabel")
-	lvlBadge.Size = UDim2.new(0, 80, 0, 24)
-	lvlBadge.Position = UDim2.new(1, -90, 0, 5)
-	lvlBadge.BackgroundColor3 = C.xpBar
-	lvlBadge.BackgroundTransparency = 0.2
-	lvlBadge.BorderSizePixel = 0
-	lvlBadge.Text = "LEVEL " .. lvl
-	lvlBadge.TextColor3 = Color3.new(1, 1, 1)
-	lvlBadge.Font = Enum.Font.GothamBlack
-	lvlBadge.TextSize = 12
-	lvlBadge.Parent = nameFrame
-	Instance.new("UICorner", lvlBadge).CornerRadius = UDim.new(0, 6)
-
-	local xpBg = Instance.new("Frame")
-	xpBg.Size = UDim2.new(1, -28, 0, 10)
-	xpBg.Position = UDim2.new(0, 14, 0, 34)
-	xpBg.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
-	xpBg.BorderSizePixel = 0
-	xpBg.Parent = nameFrame
-	Instance.new("UICorner", xpBg).CornerRadius = UDim.new(0, 4)
-
-	local xpRatio = xpNeeded > 0 and math.clamp(xp / xpNeeded, 0, 1) or 0
-	local xpFill = Instance.new("Frame")
-	xpFill.Size = UDim2.new(xpRatio, 0, 1, 0)
-	xpFill.BackgroundColor3 = C.xpBar
-	xpFill.BorderSizePixel = 0
-	xpFill.Parent = xpBg
-	Instance.new("UICorner", xpFill).CornerRadius = UDim.new(0, 4)
-
-	local xpLbl = Instance.new("TextLabel")
-	xpLbl.Size = UDim2.new(1, 0, 1, 0)
-	xpLbl.BackgroundTransparency = 1
-	xpLbl.Text = xp .. " / " .. xpNeeded .. " XP"
-	xpLbl.TextColor3 = Color3.new(1, 1, 1)
-	xpLbl.Font = Enum.Font.GothamBold
-	xpLbl.TextSize = 8
-	xpLbl.Parent = xpBg
-
+	-- Pilot combat — own section before base floors (scroll order); never a sibling between floor rows.
 	local pc = data.pilotCombat
 	if pc then
 		local pct = math.floor((pc.statGainPerLevel or 0.08) * 100 + 0.5)
-		mkSection(leftCol, "PILOT COMBAT (SCALES WITH LEVEL)", 1)
-		mkStatRow(leftCol, "ATK", tostring(pc.attack), Color3.fromRGB(255, 100, 80), 2)
-		mkStatRow(leftCol, "DEF", tostring(pc.defense), Color3.fromRGB(80, 150, 255), 3)
-		mkStatRow(leftCol, "Health (max)", tostring(pc.maxHealth), Color3.fromRGB(90, 220, 120), 4)
-		mkStatRow(leftCol, "Speed (walk / sprint)", ("%d / %d studs/s"):format(pc.walkSpeed, pc.sprintSpeed), C.text, 5)
+		local pilotCard = Instance.new("Frame")
+		pilotCard.BackgroundColor3 = C.bgLight
+		pilotCard.BorderSizePixel = 0
+		pilotCard.Size = UDim2.new(1, 0, 0, 0)
+		pilotCard.AutomaticSize = Enum.AutomaticSize.Y
+		pilotCard.LayoutOrder = 250
+		pilotCard.Parent = leftCol
+		pilotCard.Name = "PilotCombatSection"
+		Instance.new("UICorner", pilotCard).CornerRadius = UDim.new(0, 8)
+		local pStroke = Instance.new("UIStroke")
+		pStroke.Color = C.divider
+		pStroke.Thickness = 1
+		pStroke.Parent = pilotCard
+		local pad = Instance.new("UIPadding")
+		pad.PaddingTop = UDim.new(0, 8)
+		pad.PaddingBottom = UDim.new(0, 10)
+		pad.PaddingLeft = UDim.new(0, 10)
+		pad.PaddingRight = UDim.new(0, 10)
+		pad.Parent = pilotCard
+		local pilotInner = Instance.new("Frame")
+		pilotInner.BackgroundTransparency = 1
+		pilotInner.Size = UDim2.new(1, 0, 0, 0)
+		pilotInner.AutomaticSize = Enum.AutomaticSize.Y
+		pilotInner.Parent = pilotCard
+		local pilList = Instance.new("UIListLayout")
+		pilList.SortOrder = Enum.SortOrder.LayoutOrder
+		pilList.Padding = UDim.new(0, 6)
+		pilList.Parent = pilotInner
+
+		mkSection(pilotInner, "PILOT COMBAT STATS", 10)
+		mkStatRow(pilotInner, "ATK", tostring(pc.attack), Color3.fromRGB(255, 100, 80), 11)
+		mkStatRow(pilotInner, "DEF", tostring(pc.defense), Color3.fromRGB(80, 150, 255), 12)
+		mkStatRow(pilotInner, "Health (max)", tostring(pc.maxHealth), Color3.fromRGB(90, 220, 120), 13)
+		mkStatRow(pilotInner, "Speed (walk / sprint)", ("%d / %d studs/s"):format(pc.walkSpeed, pc.sprintSpeed), C.text, 14)
 		local pilotNote = Instance.new("TextLabel")
 		pilotNote.Size = UDim2.new(1, 0, 0, 0)
 		pilotNote.AutomaticSize = Enum.AutomaticSize.Y
@@ -756,8 +945,8 @@ function refreshProfile()
 		pilotNote.TextSize = 9
 		pilotNote.TextColor3 = C.textSec
 		pilotNote.TextWrapped = true
-		pilotNote.LayoutOrder = 6
-		pilotNote.Parent = leftCol
+		pilotNote.LayoutOrder = 15
+		pilotNote.Parent = pilotInner
 		local multPct = math.floor(((pc.levelMult or 1) - 1) * 100 + 0.5)
 		local note = ("Each player level adds +%d%% to your pilot combat stats (same rule as creature level scaling). Right now your level multiplier is +%d%% vs. level 1. Rebirth further boosts damage and max health. This growth is what keeps you viable in the Badlands when you enter without your Siegeling."):format(pct, multPct)
 		if pc.inBadlands and (pc.badlandsAttack > 0 or pc.badlandsDefense > 0 or pc.badlandsHealth > 0 or pc.badlandsMove > 0) then
@@ -766,27 +955,11 @@ function refreshProfile()
 		pilotNote.Text = note
 	end
 
-	-- Economy + Stats
-	mkSection(leftCol, "ECONOMY", 10)
-	mkStatRow(leftCol, "Coins", tostring(data.coins or 0), C.gold, 11)
-	mkStatRow(leftCol, "Gems", tostring(data.gems or 0), C.blue, 12)
-
-	mkSection(leftCol, "STATS", 20)
-	mkStatRow(leftCol, "Monsters Owned", tostring(data.monstersOwned or 0), C.text, 21)
-	mkStatRow(leftCol, "Total Captured", tostring(data.totalCaptured or 0), C.green, 22)
-	mkStatRow(leftCol, "Arena Wins", tostring(data.arenaWins or 0), C.gold, 23)
-	mkStatRow(leftCol, "Max Win Streak", tostring(data.arenaMaxStreak or 0), Color3.fromRGB(255, 130, 50), 24)
-	mkStatRow(leftCol, "Total Income Earned", tostring(data.totalIncome or 0), C.gold, 25)
-
-	-- Base Floors
-	local ownedFloors = data.ownedFloors or { 1 }
-	local function ownsFloor(n)
-		for _, f in ipairs(ownedFloors) do if f == n then return true end end
-		return false
+	-- Mobile: floors in their own section after pilot. Desktop: right sidebar only.
+	local floorsParent = isMobile and mkSectionFrame(leftCol, 300) or sidebarContent
+	if isMobile then
+		mkSection(floorsParent, "BASE FLOORS", 10)
 	end
-
-	local floorsParent = isMobile and leftCol or sidebarContent
-	if isMobile then mkSection(leftCol, "BASE FLOORS", 40) end
 
 	local unlockHint = Instance.new("TextLabel")
 	unlockHint.Size = UDim2.new(1, 0, 0, 0)
@@ -797,8 +970,21 @@ function refreshProfile()
 	unlockHint.Font = Enum.Font.GothamMedium
 	unlockHint.TextSize = 9
 	unlockHint.TextWrapped = true
-	unlockHint.LayoutOrder = 0
+	unlockHint.LayoutOrder = 11
 	unlockHint.Parent = floorsParent
+
+	-- All floor tier rows live in one container so nothing can appear between them.
+	local floorRowsHost = Instance.new("Frame")
+	floorRowsHost.Name = "FloorRows"
+	floorRowsHost.BackgroundTransparency = 1
+	floorRowsHost.Size = UDim2.new(1, 0, 0, 0)
+	floorRowsHost.AutomaticSize = Enum.AutomaticSize.Y
+	floorRowsHost.LayoutOrder = 12
+	floorRowsHost.Parent = floorsParent
+	local floorRowsLayout = Instance.new("UIListLayout")
+	floorRowsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	floorRowsLayout.Padding = UDim.new(0, 6)
+	floorRowsLayout.Parent = floorRowsHost
 
 	-- Titles match progression; benefits explain gameplay unlocks per row below.
 	local FLOOR_DISPLAY_NAMES = {
@@ -830,7 +1016,7 @@ function refreshProfile()
 		floorRow.BackgroundColor3 = C.card
 		floorRow.BorderSizePixel = 0
 		floorRow.LayoutOrder = i
-		floorRow.Parent = floorsParent
+		floorRow.Parent = floorRowsHost
 		Instance.new("UICorner", floorRow).CornerRadius = UDim.new(0, 7)
 
 		local fName = Instance.new("TextLabel")
@@ -934,6 +1120,31 @@ function refreshProfile()
 			end
 		end
 	end
+
+	applyProfileSidebarLayout()
+end
+
+-- Coin/gem balance events update only the economy row text (avoid rebuilding the whole Profile tab every tick)
+if CoinsUpdate then
+	CoinsUpdate.OnClientEvent:Connect(function(balance)
+		if isVis and activeTab == "Profile" then
+			updateProfileEconomyDisplay(tonumber(balance) or 0, nil)
+		end
+	end)
+end
+if GemsUpdate then
+	GemsUpdate.OnClientEvent:Connect(function(balance)
+		if isVis and activeTab == "Profile" then
+			updateProfileEconomyDisplay(nil, tonumber(balance) or 0)
+		end
+	end)
+end
+if IncomeReceived then
+	IncomeReceived.OnClientEvent:Connect(function(_amount, newBalance)
+		if isVis and activeTab == "Profile" then
+			updateProfileEconomyDisplay(tonumber(newBalance) or 0, nil)
+		end
+	end)
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -1660,6 +1871,25 @@ local function getAchievementEntryState(entry)
 		return "In Progress", current, required
 	end
 	return "Locked", current, required
+end
+
+local function getLastCompletedChainEntry(chainEntries)
+	local last = nil
+	for _, entry in ipairs(chainEntries) do
+		if getAchievementEntryState(entry) == "Completed" then
+			last = entry
+		end
+	end
+	return last
+end
+
+local function getFirstInProgressChainEntry(chainEntries)
+	for _, entry in ipairs(chainEntries) do
+		if getAchievementEntryState(entry) == "In Progress" then
+			return entry
+		end
+	end
+	return nil
 end
 
 local function achievementMatchesFilter(chainEntries)
@@ -2525,8 +2755,17 @@ function refreshAchievements()
 				end
 
 				subcategoryOrder += 1
-				-- Show only the player's next target tier, full-size within the block.
-				local entryToShow = chainData.summary.nextEntry or chainData.entries[#chainData.entries]
+				-- Snapshot tier for the list: Completed = last claimed tier only (no in-progress card).
+				-- In Progress = the tier currently being worked; All/Locked/etc. = next chain target.
+				local entryToShow
+				if achievementViewFilter == "Completed" then
+					entryToShow = getLastCompletedChainEntry(chainData.entries)
+				elseif achievementViewFilter == "In Progress" then
+					entryToShow = getFirstInProgressChainEntry(chainData.entries)
+						or chainData.summary.nextEntry
+				else
+					entryToShow = chainData.summary.nextEntry or chainData.entries[#chainData.entries]
+				end
 				local gridHeight = tierCellHeight
 
 				local chainFrame = Instance.new("Frame")
@@ -2579,7 +2818,9 @@ function refreshAchievements()
 				chainTitle.Parent = chainFrame
 
 				local nextTextValue = "All titles claimed."
-				if chainData.summary.nextEntry then
+				if achievementViewFilter == "Completed" and entryToShow then
+					nextTextValue = tostring(entryToShow.description or "")
+				elseif chainData.summary.nextEntry then
 					nextTextValue = tostring(chainData.summary.nextEntry.description or "")
 				end
 				local chainDetail = Instance.new("TextLabel")
@@ -2867,8 +3108,8 @@ local function applyMobileScale()
 		closeBtn.Size = UDim2.new(0, 36, 0, 36)
 		closeBtn.Position = UDim2.new(1, -44, 0, 6)
 		closeBtn.TextSize = 15
-		sidebarTitle.Text = "DETAILS"
 		applyProfileHeaderTitleLayout()
+		applyProfileSidebarLayout()
 		return
 	end
 	main.Size = UDim2.new(0, w, 0, h)
@@ -2882,6 +3123,7 @@ local function applyMobileScale()
 	closeBtn.TextSize = 13
 	MobileWindowLayout.RestoreDesktopWindow(main, { draggable = true })
 	applyProfileHeaderTitleLayout()
+	applyProfileSidebarLayout()
 end
 
 local function openUI(tabName)
@@ -2985,10 +3227,10 @@ if sigilEarned and sigilEarned:IsA("RemoteEvent") then
 	end)
 end
 
--- Auto-refresh profile tab while open
+-- Occasional full resync while Profile is open (coin/gems use economy row updates above)
 task.spawn(function()
 	while true do
-		task.wait(10)
+		task.wait(90)
 		if isVis and activeTab == "Profile" then refreshProfile() end
 	end
 end)

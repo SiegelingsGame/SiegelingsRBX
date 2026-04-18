@@ -609,25 +609,30 @@ function BaseExteriorSystem.ApplyThemeToPlot(plotModel, themeId)
 	return true
 end
 
---- Apply base foundation color to plot center, ramp, stairs, and floors.
---- Pass nil to reset those parts to default grey.
---- FIX: Floor 4 gym BattlePoints always get distinct team colors that never match the base color.
+--- Base Plots palette: tint IncomePoint* / DefensePoint* pads only (stack with Base theme from ApplyThemeToPlot).
+--- Pass nil to reset those pads to default grey. Optional config.defensePointColor for defense pads; else a darker tint of color.
 
--- Per-base-color gym team overrides (blue/red that contrast with the base color)
-local BASE_COLOR_GYM_TEAMS = {
-	base_red    = { blue = Color3.fromRGB(60, 140, 220), red = Color3.fromRGB(60, 200, 100) },
-	base_blue   = { blue = Color3.fromRGB(220, 180, 50), red = Color3.fromRGB(200, 60, 60) },
-	base_green  = { blue = Color3.fromRGB(60, 140, 220), red = Color3.fromRGB(200, 60, 60) },
-	base_yellow = { blue = Color3.fromRGB(60, 140, 220), red = Color3.fromRGB(200, 60, 60) },
-	base_purple = { blue = Color3.fromRGB(60, 140, 220), red = Color3.fromRGB(200, 60, 60) },
-	base_orange = { blue = Color3.fromRGB(60, 140, 220), red = Color3.fromRGB(200, 60, 60) },
-}
+local function shouldApplyBaseSlotPadColor(part)
+	if isGlassPart(part) then return false end
+	if shouldSkipCosmeticRecolor(part) then return false end
+	local n = part.Name
+	if string.sub(n, 1, 11) == "IncomePoint" then return true end
+	if string.sub(n, 1, 12) == "DefensePoint" then return true end
+	return false
+end
+
+local function deriveDefensePadColor(main)
+	return Color3.new(
+		math.clamp(main.R * 0.82, 0, 1),
+		math.clamp(main.G * 0.82, 0, 1),
+		math.clamp(main.B * 0.82, 0, 1)
+	)
+end
 
 function BaseExteriorSystem.ApplyBaseColorToPlot(plotModel, colorId)
 	if not plotModel or not plotModel.Parent then return false end
 	if not colorId or colorId == "" then
-		applyDefaultToPlot(plotModel, true)
-		applyGymTeamColors(plotModel, DEFAULT_GYM_BLUE, DEFAULT_GYM_RED)
+		applyDefaultToFilteredParts(plotModel, shouldApplyBaseSlotPadColor)
 		return true
 	end
 
@@ -640,21 +645,20 @@ function BaseExteriorSystem.ApplyBaseColorToPlot(plotModel, colorId)
 	end
 	if not config then return false end
 
-	local color = config.color
-	-- Use SmoothPlastic so the color is visible; some materials (e.g. Brick/Himmelblau) can obscure Color
-	for _, desc in ipairs(plotModel:GetDescendants()) do
-		if desc:IsA("BasePart") and shouldApplyBaseColor(desc) then
-			desc.Color = color
-			desc.Material = Enum.Material.SmoothPlastic
-		end
-	end
+	local incomeCol = config.color
+	local defenseCol = config.defensePointColor or deriveDefensePadColor(incomeCol)
 
-	-- FIX: Override Floor 4 gym BattlePoints with distinct team colors (never match base color)
-	local gymOverride = BASE_COLOR_GYM_TEAMS[colorId]
-	if gymOverride then
-		applyGymTeamColors(plotModel, gymOverride.blue, gymOverride.red)
-	else
-		applyGymTeamColors(plotModel, DEFAULT_GYM_BLUE, DEFAULT_GYM_RED)
+	for _, desc in ipairs(plotModel:GetDescendants()) do
+		if desc:IsA("BasePart") and shouldApplyBaseSlotPadColor(desc) then
+			local n = desc.Name
+			if string.sub(n, 1, 11) == "IncomePoint" then
+				desc.Color = incomeCol
+				desc.Material = Enum.Material.SmoothPlastic
+			elseif string.sub(n, 1, 12) == "DefensePoint" then
+				desc.Color = defenseCol
+				desc.Material = Enum.Material.SmoothPlastic
+			end
+		end
 	end
 	return true
 end

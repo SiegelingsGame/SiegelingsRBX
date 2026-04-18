@@ -33,7 +33,7 @@ GameConfig.DebugDoubleSpeed = false             -- true = player WalkSpeed is 32
 GameConfig.QuickSpawnDebugMode = false         -- true = bypass loading gate (skip Events/LoadingReady wait) for fast testing
 GameConfig.CombinerRecyclerPromptAllPlots = true -- true = add E prompts to Combiner/Recycler on ALL plots (for testing; set false for release)
 GameConfig.DebugBrokerGoldOnly = false             -- true = The Broker only asks for 100 gold coins instead of a creature sacrifice (for testing)
-GameConfig.DebugBrokerCacty = true                -- true = The Broker always asks for a Lv1 Common Earth Cacty (for testing)
+GameConfig.DebugBrokerCacty = false                -- true = The Broker always asks for a Lv1 Common Earth Cacty (for testing)
 
 -- Economy
 GameConfig.StartingCoins       = 1000
@@ -79,8 +79,8 @@ GameConfig.PlayerXP_BossKill      = 100    -- XP for killing a boss creature
 -- Achievement tier rewards (chain tier I–V; single-step achievements use tier 1)
 GameConfig.AchievementGemsByTier = { 5, 12, 24, 45, 80 }
 GameConfig.AchievementXPByTier = { 35, 75, 140, 230, 350 }
--- Coin (gold) reward scaling by achievement tier (I..V). Previously missing,
--- so achievements never paid out gold even though notifications implied they should.
+-- Coin (gold) reward scaling by abchievement tier (I..V). Previously missing,
+-- so achievements never paidc out gold even though notifications implied they should.
 GameConfig.AchievementCoinsByTier = { 150, 400, 900, 1800, 3500 }
 
 -- Base Floors
@@ -674,7 +674,7 @@ GameConfig.PlayerMeleeRange     = 10
 GameConfig.PlayerMeleeCooldown  = 1.2
 GameConfig.PlayerMeleeRadius    = 8     -- AOE radius for melee swing
 
--- Pilot Rebirth System
+-- Pilot Rebirth Systemk
 -- Each level: gold cost + a specific TEAM of 5 creatures (by id). Player must own each creature
 -- at MAX LEVEL (base=10, evolved=25, final=50). Team list is updatable here; order is slot 1..5.
 -- Rewards scale: passive gold per tick, world damage multiplier, max health bonus (cumulative).
@@ -686,9 +686,9 @@ GameConfig.RebirthMaxLevel             = 10   -- max rebirth level (config lengt
 -- Each creature must be owned and at max level for that form. Update team arrays to change requirements.
 GameConfig.RebirthLevels = {
 	-- Level 1: 5k gold, team of 5 commons (starters) max leveled
-	{ gold = 5000,  team = { "cacty", "breezee", "pylme", "sundile", "ceeponee" } },
+	{ gold = 5000,  team = { "cacty", "breezee", "fawny", "sundile"} },
 	-- Level 2: 15k gold, 5 commons (Fire)
-	{ gold = 15000, team = { "firsky", "pylook", "sundile", "draco", "smoldervine" } },
+	{ gold = 15000, team = { "firsky", "pylook", "sundile", "draco"} },
 	-- Level 3: 40k gold, mix common + uncommon
 	{ gold = 40000, team = { "emberpup", "raydile", "emberfin", "sootfang", "fawny" } },
 	-- Level 4: 100k gold
@@ -794,7 +794,7 @@ GameConfig.CosmeticItems = {
 
 -- Base Exterior Shop (purchase theme; equipping applies theme or foundation color styling)
 -- Full themes: Haunted House, Retro Arcade
--- Color themes: single-color for base foundations (plot center, ramp, stairs, floors)
+-- Color themes: foundation paint only (style). Slot pad colors are under Drip Shop → Base Plots (BaseColorItems).
 GameConfig.BaseExteriorItems = {
 	-- Full themes (500 coins each)
 	{id = "HauntedHouse", name = "Haunted House", desc = "Spooky base with walls, stairs & lanterns", coinCost = 500, gemCost = 0},
@@ -808,15 +808,15 @@ GameConfig.BaseExteriorItems = {
 	{id = "exterior_orange", name = "Orange Base", desc = "Base foundations in orange", coinCost = 500, gemCost = 0, color = Color3.fromRGB(230, 140, 50)},
 }
 
--- Base Color Shop (base foundations only; teleporters, combiner, recycler keep asset colors)
--- Each item: id, name, color (Color3), coinCost, gemCost
+-- Base Color Shop (Drip Shop → Base Plots) — tints IncomePoint* / DefensePoint* pads only (see ApplyBaseColorToPlot)
+-- Optional defensePointColor: if omitted, a slightly darker variant of color is used for defense pads.
 GameConfig.BaseColorItems = {
-	{id = "base_red",    name = "Red Foundations",    color = Color3.fromRGB(200, 60, 60),   coinCost = 300, gemCost = 0},
-	{id = "base_blue",   name = "Blue Foundations",   color = Color3.fromRGB(60, 100, 200),  coinCost = 300, gemCost = 0},
-	{id = "base_green",  name = "Green Foundations",  color = Color3.fromRGB(60, 180, 80),   coinCost = 300, gemCost = 0},
-	{id = "base_yellow", name = "Yellow Foundations", color = Color3.fromRGB(220, 200, 60),  coinCost = 300, gemCost = 0},
-	{id = "base_purple", name = "Purple Foundations", color = Color3.fromRGB(140, 80, 200),  coinCost = 300, gemCost = 0},
-	{id = "base_orange", name = "Orange Foundations", color = Color3.fromRGB(230, 140, 50),  coinCost = 300, gemCost = 0},
+	{id = "base_red",    name = "Red Pads",    color = Color3.fromRGB(200, 60, 60),   defensePointColor = Color3.fromRGB(160, 45, 50),   coinCost = 300, gemCost = 0},
+	{id = "base_blue",   name = "Blue Pads",   color = Color3.fromRGB(60, 100, 200),  defensePointColor = Color3.fromRGB(45, 75, 170),  coinCost = 300, gemCost = 0},
+	{id = "base_green",  name = "Green Pads",  color = Color3.fromRGB(60, 180, 80),   defensePointColor = Color3.fromRGB(45, 140, 60),   coinCost = 300, gemCost = 0},
+	{id = "base_yellow", name = "Yellow Pads", color = Color3.fromRGB(220, 200, 60),  defensePointColor = Color3.fromRGB(180, 155, 45), coinCost = 300, gemCost = 0},
+	{id = "base_purple", name = "Purple Pads", color = Color3.fromRGB(140, 80, 200),  defensePointColor = Color3.fromRGB(110, 55, 165), coinCost = 300, gemCost = 0},
+	{id = "base_orange", name = "Orange Pads", color = Color3.fromRGB(230, 140, 50),  defensePointColor = Color3.fromRGB(195, 105, 40), coinCost = 300, gemCost = 0},
 }
 
 
@@ -878,7 +878,7 @@ GameConfig.ArenaTrader = {
 	-- Keep this at pitch=90 to stand the current Trader model upright.
 	ExtraRotationDegrees = { pitch = 90, yaw = 0, roll = 0 },
 	-- Per-rarity prices (direct known creature — much higher than mystery eggs).
-	CoinPrice = { Common = 1000, Uncommon = 5000, Rare = 25000, Epic = 50000, Legendary = 100000 },
+	CoinPrice = { Common = 1500, Uncommon = 7500, Rare = 45000, Epic = 75000, Legendary = 110000 },
 	GemPrice = { Common = 500, Uncommon = 1000, Rare = 2500, Epic = 5000, Legendary = 10000 },
 	-- Curator stock variants are restricted to Silver/Gold only.
 	VariantWeights = { Silver = 50, Gold = 50 },
@@ -990,7 +990,7 @@ GameConfig.EggShopItems = {
 		name = "Common Egg",
 		icon = "egg_white",
 		desc = "Common, Uncommon, or Rare",
-		coinCost = 150,
+		coinCost = 1000,
 		robuxCost = 25,
 		productId = 0, -- set to Developer Product ID for Robux; 0 = not configured
 		pool = {
@@ -1004,7 +1004,7 @@ GameConfig.EggShopItems = {
 		name = "Rare Egg",
 		icon = "egg_blue",
 		desc = "Uncommon or Rare",
-		coinCost = 800,
+		coinCost = 10000,
 		robuxCost = 75,
 		productId = 0,
 		pool = {
@@ -1017,7 +1017,7 @@ GameConfig.EggShopItems = {
 		name = "Mythic Egg",
 		icon = "egg_purple",
 		desc = "Rare or Mythic",
-		coinCost = 3500,
+		coinCost = 25000,
 		robuxCost = 199,
 		productId = 0,
 		pool = {
@@ -1030,7 +1030,7 @@ GameConfig.EggShopItems = {
 		name = "Legendary Egg",
 		icon = "egg_gold",
 		desc = "Rare, Mythic, or Legendary",
-		coinCost = 12000,
+		coinCost = 50000,
 		robuxCost = 499,
 		productId = 0,
 		pool = {
@@ -1044,7 +1044,7 @@ GameConfig.EggShopItems = {
 		name = "God Egg",
 		icon = "egg_rainbow",
 		desc = "Mythic or Legendary only",
-		coinCost = 50000,
+		coinCost = 100000,
 		robuxCost = 999,
 		productId = 0,
 		pool = {

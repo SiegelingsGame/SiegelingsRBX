@@ -92,7 +92,7 @@ local function getDefaultData()
 		activeBuffs  = {},  -- {buffId = {expiresAt = tick, ...}, ...}
 		cosmetics    = {owned = {}, equipped = {}},  -- {owned = {id1=true, ...}, equipped = {trail="", aura=""}}
 		exterior     = {owned = {}, equipped = nil}, -- nil equipped = standard gray base
-		baseColor    = {owned = {}, equipped = nil}, -- foundation colors: floors, ramp, stairs, plot center
+		baseColor    = {owned = {}, equipped = nil}, -- Base Plots: IncomePoint / DefensePoint pad tints (see ApplyBaseColorToPlot)
 		playerLevel  = 1,
 		playerXP     = 0,
 		ownedFloors  = {1},  -- array of floor numbers owned; starts with Floor 1

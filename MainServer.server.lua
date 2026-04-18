@@ -1758,8 +1758,10 @@ local function applyPlotCosmetics(plr, plot)
 	if BaseExteriorSystem.ApplyThemeToPlot then
 		BaseExteriorSystem.ApplyThemeToPlot(plot, exterior and exterior.equipped)
 	end
-	if BaseExteriorSystem.ApplyBaseColorToPlot then
-		BaseExteriorSystem.ApplyBaseColorToPlot(plot, baseColor and baseColor.equipped)
+	-- Pad tints only when a Base Plots palette is equipped; otherwise pads stay as themed by ApplyTheme above
+	local bcEquipped = baseColor and baseColor.equipped
+	if BaseExteriorSystem.ApplyBaseColorToPlot and bcEquipped and bcEquipped ~= "" then
+		BaseExteriorSystem.ApplyBaseColorToPlot(plot, bcEquipped)
 	end
 end
 
@@ -1790,8 +1792,6 @@ equipExterior.OnServerInvoke = function(plr, exteriorId)
 	if exteriorId then
 		if not PlayerDataManager.OwnsExterior(plr, exteriorId) then return false, "Not owned" end
 	end
-	-- Link with Colors tab: equipping any exterior clears base color so both UIs stay in sync
-	PlayerDataManager.SetEquippedBaseColor(plr, nil)
 	PlayerDataManager.SetEquippedExterior(plr, exteriorId)
 	savePlayerCustomization(plr)
 	if not BaseExteriorSystem then return true, exteriorId and "Theme applied!" or "Unequipped" end
@@ -1836,8 +1836,6 @@ equipBaseColor.OnServerInvoke = function(plr, colorId)
 	if colorId then
 		if not PlayerDataManager.OwnsBaseColor(plr, colorId) then return false, "Not owned" end
 	end
-	-- Link with Base tab: equipping a color clears exterior so both UIs stay in sync
-	PlayerDataManager.SetEquippedExterior(plr, nil)
 	PlayerDataManager.SetEquippedBaseColor(plr, colorId)
 	savePlayerCustomization(plr)
 	local plot = BaseExteriorSystem and BaseExteriorSystem.GetPlotForPlayer and BaseExteriorSystem.GetPlotForPlayer(plr)

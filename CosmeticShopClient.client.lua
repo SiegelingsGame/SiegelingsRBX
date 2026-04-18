@@ -206,7 +206,7 @@ tabListLayout.VerticalAlignment = Enum.VerticalAlignment.Center
 tabListLayout.Parent = tabList
 
 local tabs = {"trail", "aura", "nameColor", "exterior", "baseColor"}
-local tabLabels = {trail = "Trails", aura = "Auras", nameColor = "Names", exterior = "Base", baseColor = "Colors"}
+local tabLabels = {trail = "Trails", aura = "Auras", nameColor = "Names", exterior = "Base", baseColor = "Base Plots"}
 local activeTab = "trail"
 local tabButtons = {}
 
@@ -389,6 +389,18 @@ local playerCosmetics = {owned = {}, equipped = {}}
 local playerExterior = {owned = {}, equipped = nil}
 local playerBaseColor = {owned = {}, equipped = nil}
 
+local function previewDefensePadColor(item)
+	if item.defensePointColor then
+		return item.defensePointColor
+	end
+	local c = item.color or Color3.new(0.5, 0.5, 0.5)
+	return Color3.new(
+		math.clamp(c.R * 0.82, 0, 1),
+		math.clamp(c.G * 0.82, 0, 1),
+		math.clamp(c.B * 0.82, 0, 1)
+	)
+end
+
 local function refreshData()
 	if not getInventory then return end
 	local ok, data = pcall(function() return getInventory:InvokeServer() end)
@@ -413,8 +425,45 @@ local function buildItems()
 
 	local order = 0
 
+	local function addSectionHeader(titleText, subtitleText)
+		order = order + 1
+		local header = Instance.new("Frame")
+		header.Size = UDim2.new(1, 0, 0, 44)
+		header.LayoutOrder = order
+		header.BackgroundTransparency = 1
+		header.Parent = scroll
+
+		local title = Instance.new("TextLabel")
+		title.Size = UDim2.new(1, 0, 0, 18)
+		title.Position = UDim2.new(0, 2, 0, 0)
+		title.BackgroundTransparency = 1
+		title.Text = titleText
+		title.TextColor3 = C.white
+		title.Font = Enum.Font.GothamBold
+		title.TextSize = 14
+		title.TextXAlignment = Enum.TextXAlignment.Left
+		title.Parent = header
+
+		local subtitle = Instance.new("TextLabel")
+		subtitle.Size = UDim2.new(1, -6, 0, 26)
+		subtitle.Position = UDim2.new(0, 2, 0, 18)
+		subtitle.BackgroundTransparency = 1
+		subtitle.Text = subtitleText
+		subtitle.TextColor3 = C.muted
+		subtitle.Font = Enum.Font.GothamMedium
+		subtitle.TextSize = 9
+		subtitle.TextXAlignment = Enum.TextXAlignment.Left
+		subtitle.TextWrapped = true
+		subtitle.TextYAlignment = Enum.TextYAlignment.Top
+		subtitle.Parent = header
+	end
+
 	-- Base Exteriors tab: use GameConfig.BaseExteriorItems
 	if activeTab == "exterior" then
+		addSectionHeader(
+			"Look & themes",
+			"Change walls, stairs, floors, and shells. Tint income & defense pads on Base Plots."
+		)
 		local items = (GameConfig.BaseExteriorItems or {})
 		for _, item in ipairs(items) do
 			order = order + 1
@@ -529,38 +578,7 @@ local function buildItems()
 			end
 		end
 	elseif activeTab == "baseColor" then
-		local function addSectionHeader(titleText, subtitleText)
-			order = order + 1
-			local header = Instance.new("Frame")
-			header.Size = UDim2.new(1, 0, 0, 38)
-			header.LayoutOrder = order
-			header.BackgroundTransparency = 1
-			header.Parent = scroll
-
-			local title = Instance.new("TextLabel")
-			title.Size = UDim2.new(1, 0, 0, 18)
-			title.Position = UDim2.new(0, 2, 0, 0)
-			title.BackgroundTransparency = 1
-			title.Text = titleText
-			title.TextColor3 = C.white
-			title.Font = Enum.Font.GothamBold
-			title.TextSize = 14
-			title.TextXAlignment = Enum.TextXAlignment.Left
-			title.Parent = header
-
-			local subtitle = Instance.new("TextLabel")
-			subtitle.Size = UDim2.new(1, 0, 0, 16)
-			subtitle.Position = UDim2.new(0, 2, 0, 18)
-			subtitle.BackgroundTransparency = 1
-			subtitle.Text = subtitleText
-			subtitle.TextColor3 = C.muted
-			subtitle.Font = Enum.Font.GothamMedium
-			subtitle.TextSize = 9
-			subtitle.TextXAlignment = Enum.TextXAlignment.Left
-			subtitle.Parent = header
-		end
-
-		local function addColorSection(items, state, buyRemote, equipRemote, sectionTitle, sectionSubtitle, equipToast, removeToast)
+		local function addColorSection(items, state, buyRemote, equipRemote, sectionTitle, sectionSubtitle, removeToast)
 			if not items or #items == 0 then return end
 			addSectionHeader(sectionTitle, sectionSubtitle)
 
@@ -585,22 +603,40 @@ local function buildItems()
 					end
 				end
 
-				local swatch = Instance.new("Frame")
-				swatch.Size = UDim2.new(0, 32, 0, 32); swatch.Position = UDim2.new(0, 12, 0, 13)
-				swatch.BackgroundColor3 = item.color or Color3.new(0.5, 0.5, 0.5)
-				swatch.BorderSizePixel = 0; swatch.Parent = card
-				Instance.new("UICorner", swatch).CornerRadius = UDim.new(0, 6)
-				local swStroke = Instance.new("UIStroke", swatch)
-				swStroke.Color = Color3.new(0.3, 0.3, 0.35); swStroke.Thickness = 1
+				local swatchInc = Instance.new("Frame")
+				swatchInc.Size = UDim2.new(0, 28, 0, 28); swatchInc.Position = UDim2.new(0, 10, 0, 15)
+				swatchInc.BackgroundColor3 = item.color or Color3.new(0.5, 0.5, 0.5)
+				swatchInc.BorderSizePixel = 0; swatchInc.Parent = card
+				Instance.new("UICorner", swatchInc).CornerRadius = UDim.new(0, 6)
+				local swI = Instance.new("UIStroke", swatchInc)
+				swI.Color = Color3.new(0.3, 0.3, 0.35); swI.Thickness = 1
+
+				local swatchDef = Instance.new("Frame")
+				swatchDef.Size = UDim2.new(0, 28, 0, 28); swatchDef.Position = UDim2.new(0, 42, 0, 15)
+				swatchDef.BackgroundColor3 = previewDefensePadColor(item)
+				swatchDef.BorderSizePixel = 0; swatchDef.Parent = card
+				Instance.new("UICorner", swatchDef).CornerRadius = UDim.new(0, 6)
+				local swD = Instance.new("UIStroke", swatchDef)
+				swD.Color = Color3.new(0.3, 0.3, 0.35); swD.Thickness = 1
 
 				local name = Instance.new("TextLabel")
-				name.Size = UDim2.new(0.5, -55, 0, 20); name.Position = UDim2.new(0, 52, 0, 6)
+				name.Size = UDim2.new(0.5, -82, 0, 20); name.Position = UDim2.new(0, 80, 0, 6)
 				name.BackgroundTransparency = 1; name.Text = item.name
 				name.TextColor3 = C.white; name.Font = Enum.Font.GothamBold; name.TextSize = 13
 				name.TextXAlignment = Enum.TextXAlignment.Left; name.Parent = card
 
+				local padDesc = Instance.new("TextLabel")
+				padDesc.Size = UDim2.new(0.52, -82, 0, 14); padDesc.Position = UDim2.new(0, 80, 0, 26)
+				padDesc.BackgroundTransparency = 1
+				padDesc.Text = "Income pads (left) · Defense pads (right)"
+				padDesc.TextColor3 = C.muted
+				padDesc.Font = Enum.Font.GothamMedium
+				padDesc.TextSize = 9
+				padDesc.TextXAlignment = Enum.TextXAlignment.Left
+				padDesc.Parent = card
+
 				local status = Instance.new("TextLabel")
-				status.Size = UDim2.new(0.5, -55, 0, 14); status.Position = UDim2.new(0, 52, 0, 26)
+				status.Size = UDim2.new(0.5, -82, 0, 14); status.Position = UDim2.new(0, 80, 0, 40)
 				status.BackgroundTransparency = 1
 				status.Text = equipped and "EQUIPPED" or (owned and "OWNED" or "")
 				status.TextColor3 = equipped and C.equipped or C.green
@@ -635,7 +671,7 @@ local function buildItems()
 							local ok, msg = equipRemote:InvokeServer(item.id)
 							if ok then
 								refreshData(); buildItems()
-								Notify.Toast("Equipped " .. item.name .. " " .. equipToast, C.equipped, 3)
+								Notify.Toast("Equipped " .. item.name, C.equipped, 3)
 							else
 								Notify.Toast(msg or "Equip failed", C.red, 3)
 							end
@@ -674,10 +710,9 @@ local function buildItems()
 			playerBaseColor,
 			buyBaseColor,
 			equipBaseColor,
-			"Base Foundations",
-			"Plot center, ramp, stairs, and floors",
-			"foundations",
-			"Restored default gray foundations"
+			"Placement pads",
+			"Tint IncomePoint and DefensePoint pads. Stacks with Base themes — equip both for full style.",
+			"Placement pads restored to default gray"
 		)
 	else
 		-- Cosmetics: trails, auras, nameColor

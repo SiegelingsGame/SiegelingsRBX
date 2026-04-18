@@ -1482,7 +1482,7 @@ CreatureData.Creatures = {
 		element = "Undead", class = "Mage", behavior = "lone",
 		spawnWeight = 10, baseIncome = 3, captureTime = 1.1,
 		description = "Uncommon step on the Undead stand-in evolve path.",
-		modelName = "livingwood", primaryColor = Color3.fromRGB(135, 115, 155),
+		modelName = "Livingwood", primaryColor = Color3.fromRGB(135, 115, 155),
 		evolvesFrom = "spookyweed",
 	},
 	{
@@ -1491,7 +1491,7 @@ CreatureData.Creatures = {
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
 		description = "Rare capstone of the Undead stand-in line.",
 		modelName = "Golor", primaryColor = Color3.fromRGB(100, 85, 120),
-		spawnPointType = "dungeon",modelDisplaySize = 8, modelScaleMultiplier = 2.0,
+		spawnPointType = "dungeon",modelDisplaySize = 5, modelScaleMultiplier = 2.0,
 	},
 	{
 		id = "sheenx", displayName = "Sheenx", rarity = "Epic",
@@ -1499,7 +1499,7 @@ CreatureData.Creatures = {
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
 		description = "Rare capstone of the Undead stand-in line.",
 		modelName = "Sheenx", primaryColor = Color3.fromRGB(100, 85, 120),
-		spawnPointType = "dungeon",modelDisplaySize = 12, modelScaleMultiplier = 2.0,
+		spawnPointType = "dungeon",modelDisplaySize = 7, modelScaleMultiplier = 2.0,
 	},
 }
 

@@ -1,4 +1,4 @@
--- Last updated: 2026-03-21 00:34
+-- Last updated: 2026-04-18 15:00
 -- CaptureClient.lua - StarterPlayer.StarterPlayerScripts (LocalScript)
 -- Click fainted creatures to capture (costs gold).
 -- Press E to target world creatures. Select target from bar to attack (player + companion).
@@ -65,6 +65,120 @@ local stealInteractRequest = eventsFolder:FindFirstChild("StealInteractRequest")
 local homeRecallStart = eventsFolder:FindFirstChild("HomeRecallStart")
 local homeRecallEnd = eventsFolder:FindFirstChild("HomeRecallEnd")
 local homeRecallCancel = eventsFolder:FindFirstChild("HomeRecallCancel")
+local stealVictimMark = eventsFolder:WaitForChild("StealVictimMarkThief", 25)
+local stealVictimClear = eventsFolder:WaitForChild("StealVictimClearMark", 25)
+
+local stealVictimHighlightInst = nil
+local stealVictimBillboardInst = nil
+local stealVictimCharAddedConn = nil
+
+local function clearStealVictimWorldVisuals()
+	if stealVictimHighlightInst then
+		stealVictimHighlightInst:Destroy()
+		stealVictimHighlightInst = nil
+	end
+	if stealVictimBillboardInst then
+		stealVictimBillboardInst:Destroy()
+		stealVictimBillboardInst = nil
+	end
+	if stealVictimCharAddedConn then
+		stealVictimCharAddedConn:Disconnect()
+		stealVictimCharAddedConn = nil
+	end
+end
+
+local function clearStealVictimGuiState()
+	clearStealVictimWorldVisuals()
+	local folder = playerGui:FindFirstChild("StealVictimState")
+	if folder then
+		folder:Destroy()
+	end
+end
+
+local function attachStealVictimToCharacter(character, creatureLabelText)
+	clearStealVictimWorldVisuals()
+	if not character or not character.Parent then
+		return
+	end
+	local hl = Instance.new("Highlight")
+	hl.Name = "StealVictimMarkHL"
+	hl.FillColor = Color3.fromRGB(220, 45, 45)
+	hl.OutlineColor = Color3.fromRGB(255, 120, 120)
+	hl.FillTransparency = 0.55
+	hl.OutlineTransparency = 0.35
+	hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	hl.Parent = character
+	stealVictimHighlightInst = hl
+
+	local root = character:WaitForChild("HumanoidRootPart", 6)
+	if not root then
+		return
+	end
+	local bb = Instance.new("BillboardGui")
+	bb.Name = "StealVictimPrompt"
+	bb.Size = UDim2.new(0, 360, 0, 56)
+	bb.StudsOffsetWorldSpace = Vector3.new(0, 4.2, 0)
+	bb.AlwaysOnTop = true
+	bb.MaxDistance = 140
+	local tl = Instance.new("TextLabel")
+	tl.Size = UDim2.new(1, -12, 1, -12)
+	tl.Position = UDim2.new(0, 6, 0, 6)
+	tl.BackgroundTransparency = 0.25
+	tl.BackgroundColor3 = Color3.fromRGB(45, 12, 12)
+	tl.TextColor3 = Color3.fromRGB(255, 235, 230)
+	tl.TextStrokeTransparency = 0.5
+	tl.Font = Enum.Font.GothamBold
+	tl.TextSize = 17
+	tl.TextWrapped = true
+	tl.Text = "Target to Free (" .. (creatureLabelText or "Siegeling") .. ")"
+	tl.Parent = bb
+	bb.Parent = root
+	stealVictimBillboardInst = bb
+end
+
+local function bindStealVictimToThief(thiefUserId, creatureLabel)
+	local thief = Players:GetPlayerByUserId(thiefUserId)
+	if not thief then
+		return
+	end
+	local function onChar(char)
+		if char then
+			task.defer(function()
+				attachStealVictimToCharacter(char, creatureLabel)
+			end)
+		end
+	end
+	if thief.Character then
+		onChar(thief.Character)
+	end
+	if stealVictimCharAddedConn then
+		stealVictimCharAddedConn:Disconnect()
+	end
+	stealVictimCharAddedConn = thief.CharacterAdded:Connect(onChar)
+end
+
+if stealVictimMark then
+	stealVictimMark.OnClientEvent:Connect(function(thiefUserId, creatureLabel)
+		clearStealVictimGuiState()
+		local folder = Instance.new("Folder")
+		folder.Name = "StealVictimState"
+		folder.Parent = playerGui
+		local nv = Instance.new("NumberValue")
+		nv.Name = "ThiefUserId"
+		nv.Value = tonumber(thiefUserId) or 0
+		nv.Parent = folder
+		local sv = Instance.new("StringValue")
+		sv.Name = "CreatureLabel"
+		sv.Value = tostring(creatureLabel or "")
+		sv.Parent = folder
+		bindStealVictimToThief(tonumber(thiefUserId) or 0, creatureLabel)
+	end)
+end
+if stealVictimClear then
+	stealVictimClear.OnClientEvent:Connect(function()
+		clearStealVictimGuiState()
+	end)
+end
 
 -- ── Viewport bubble helper ─────────────────────────────────────────────────
 -- Creates a small ViewportFrame with a Camera that frames a creature model.
@@ -422,6 +536,22 @@ task.spawn(function()
 						tipAction.Text = "Friendly | [E] Manage"
 						tipAction.TextColor3 = Color3.fromRGB(100, 220, 120)
 					elseif isFainted then
+						if CollectionService:HasTag(model, "FaintedBaseCreature") then
+							local ow = model:GetAttribute("OwnerUserId")
+							if ow and ow ~= player.UserId then
+								tipAction.Text = "FAINTED — [E] or click to steal (carry to your base)"
+								tipAction.TextColor3 = Color3.fromRGB(255, 120, 90)
+							else
+								local baseCost = CreatureData.GetCaptureCost(cid)
+								local cost = CaptureCostUtil.ApplyDecorStatueDiscount(baseCost, cid, decorBonusMap)
+								local tip = "FAINTED - Click to capture (" .. cost .. " gold)"
+								if cost < baseCost then
+									tip = tip .. "  [statue bonus]"
+								end
+								tipAction.Text = tip
+								tipAction.TextColor3 = Color3.fromRGB(255, 200, 0)
+							end
+						else
 						local baseCost = CreatureData.GetCaptureCost(cid)
 						local cost = CaptureCostUtil.ApplyDecorStatueDiscount(baseCost, cid, decorBonusMap)
 						local tip = "FAINTED - Click to capture (" .. cost .. " gold)"
@@ -430,6 +560,7 @@ task.spawn(function()
 						end
 						tipAction.Text = tip
 						tipAction.TextColor3 = Color3.fromRGB(255, 200, 0)
+						end
 					else
 						tipAction.Text = "[E] to target | Must faint to capture"
 						tipAction.TextColor3 = Color3.fromRGB(150, 155, 170)
@@ -465,6 +596,30 @@ end
 
 local function isPlayerInCaptureRange(rootPos, creatureModel)
 	return getDistanceToModel(rootPos, creatureModel) <= GameConfig.CaptureRange
+end
+
+-- Enemy base creatures use the steal flow (E / click), not gold capture — they are not WorldCreature-tagged.
+local function tryStealEnemyFaintedBase(rootPos, creatureModel)
+	if not stealInteractRequest or not creatureModel or not creatureModel.Parent then return false end
+	if not creatureModel:GetAttribute("Fainted") then return false end
+	if not CollectionService:HasTag(creatureModel, "FaintedBaseCreature") then return false end
+	local ownerId = creatureModel:GetAttribute("OwnerUserId")
+	if not ownerId or ownerId == player.UserId then return false end
+	local stealRange = GameConfig.StealInteractRange or 12
+	if getDistanceToModel(rootPos, creatureModel) > stealRange then return false end
+	stealInteractRequest:FireServer(creatureModel)
+	showNotif("Picking up... Return to your base to claim it!", Color3.fromRGB(255, 220, 100), 2)
+	return true
+end
+
+local function stealEnemyBaseTooFar(rootPos, creatureModel)
+	if not creatureModel or not creatureModel.Parent then return false end
+	if not creatureModel:GetAttribute("Fainted") then return false end
+	if not CollectionService:HasTag(creatureModel, "FaintedBaseCreature") then return false end
+	local ownerId = creatureModel:GetAttribute("OwnerUserId")
+	if not ownerId or ownerId == player.UserId then return false end
+	local stealRange = GameConfig.StealInteractRange or 12
+	return getDistanceToModel(rootPos, creatureModel) > stealRange
 end
 
 -- Helper: find the nearest fainted creature to a world position (within clickRadius)
@@ -592,7 +747,14 @@ local function onTapOrClick(inputObject, gameProcessed)
 	-- If we clicked a creature model, check if it's fainted
 	if creatureModel and creatureModel:GetAttribute("CreatureId") then
 		if creatureModel:GetAttribute("Fainted") then
-			-- Direct hit on fainted creature Ã¢â‚¬â€ use bbox so tall creatures can be captured from underneath
+			if tryStealEnemyFaintedBase(rootPos, creatureModel) then
+				return
+			end
+			if stealEnemyBaseTooFar(rootPos, creatureModel) then
+				showNotif("Too far away to steal!", Color3.fromRGB(255, 100, 80), 1.5)
+				return
+			end
+			-- Direct hit on fainted world creature — use bbox so tall creatures can be captured from underneath
 			if isPlayerInCaptureRange(rootPos, creatureModel) then
 				if DEBUG_CAPTURE_LOGS then
 					print(string.format("[DEBUG-CAPTURE] Click path=direct hit pending=%s wouldFire=%s", tostring(captureRequestPending), tostring(not captureRequestPending)))
@@ -904,6 +1066,37 @@ local function collectInRangeCreatures(rootPos)
 		end
 	end
 
+	-- Victim: player carrying your stolen Siegeling (server marks thief for you only)
+	do
+		local gs = playerGui:FindFirstChild("StealVictimState")
+		local tidVal = gs and gs:FindFirstChild("ThiefUserId")
+		local lblVal = gs and gs:FindFirstChild("CreatureLabel")
+		local tid = tidVal and tonumber(tidVal.Value)
+		if tid and tid > 0 then
+			local thiefPlr = Players:GetPlayerByUserId(tid)
+			local char = thiefPlr and thiefPlr.Character
+			if char and char.Parent and not seen[char] then
+				local hum = char:FindFirstChildOfClass("Humanoid")
+				local hrp = char:FindFirstChild("HumanoidRootPart")
+				if hum and hum.Health > 0 and hrp then
+					local d = getDistToCreature(rootPos, char)
+					if d <= scanRange then
+						seen[char] = true
+						table.insert(list, {
+							model = char,
+							dist = d,
+							creatureId = "__STEAL_THIEF__",
+							uniqueId = "pvpthief_" .. tostring(tid),
+							isStealThiefTarget = true,
+							stolenCreatureLabel = (lblVal and lblVal.Value) or "",
+							displayName = thiefPlr.Name,
+						})
+					end
+				end
+			end
+		end
+	end
+
 	-- Sort by distance (closest first); refreshTargetBar will take up to MAX_TARGET_ICONS.
 	table.sort(list, function(a, b)
 		return a.dist < b.dist
@@ -1013,8 +1206,9 @@ local function refreshTargetBar()
 				local arrow = cell:FindFirstChild("SelectedArrow")
 				local m = entry.model
 				local isSelected = (m == selectedTargetModel)
+				local defaultStroke = entry.isStealThiefTarget and Color3.fromRGB(120, 45, 55) or Color3.fromRGB(80, 80, 100)
 				if stroke then
-					stroke.Color = isSelected and Color3.fromRGB(255, 220, 80) or Color3.fromRGB(80, 80, 100)
+					stroke.Color = isSelected and Color3.fromRGB(255, 220, 80) or defaultStroke
 					stroke.Thickness = isSelected and 4 or 2
 				end
 				if isSelected and not arrow then
@@ -1046,11 +1240,18 @@ local function refreshTargetBar()
 	end
 	for i, entry in ipairs(displayList) do
 		local m = entry.model
-		local cid = m:GetAttribute("CreatureId")
-		local info = cid and CreatureData.GetById(cid)
-		local displayName = info and info.displayName or "?"
-		local elemInfo = info and CreatureData.Elements[info.element]
-		local color = (elemInfo and elemInfo.color) or (info and CreatureData.Rarities[info.rarity] and CreatureData.Rarities[info.rarity].color) or Color3.fromRGB(120, 120, 140)
+		local cid = entry.isStealThiefTarget and "__STEAL_THIEF__" or m:GetAttribute("CreatureId")
+		local info = (cid and cid ~= "__STEAL_THIEF__") and CreatureData.GetById(cid) or nil
+		local displayName
+		local color
+		if entry.isStealThiefTarget then
+			displayName = (entry.stolenCreatureLabel and entry.stolenCreatureLabel ~= "") and entry.stolenCreatureLabel or "Siegeling"
+			color = Color3.fromRGB(210, 55, 55)
+		else
+			displayName = info and info.displayName or "?"
+			local elemInfo = info and CreatureData.Elements[info.element]
+			color = (elemInfo and elemInfo.color) or (info and CreatureData.Rarities[info.rarity] and CreatureData.Rarities[info.rarity].color) or Color3.fromRGB(120, 120, 140)
+		end
 
 		local cell = Instance.new("Frame")
 		cell.Size = UDim2.new(0, TARGET_BAR_ICON_CELL_W, 0, TARGET_BAR_HEIGHT - 12)  -- full cell = clickable area
@@ -1075,13 +1276,16 @@ local function refreshTargetBar()
 		local corner = Instance.new("UICorner", btn)
 		corner.CornerRadius = UDim.new(1, 0)  -- perfect circle
 		local stroke = Instance.new("UIStroke", btn)
-		stroke.Color = Color3.fromRGB(80, 80, 100)
+		stroke.Color = entry.isStealThiefTarget and Color3.fromRGB(120, 45, 55) or Color3.fromRGB(80, 80, 100)
 		stroke.Thickness = 2
 
 		-- 3D creature viewport inside the circular bubble (fallback to letter if model can't load)
-		local vf = createCreatureViewport(btn, cid)
+		local vf = nil
+		if not entry.isStealThiefTarget then
+			vf = createCreatureViewport(btn, cid)
+		end
 		if not vf then
-			btn.Text = string.sub(displayName, 1, 1):upper()
+			btn.Text = entry.isStealThiefTarget and "!" or string.sub(displayName, 1, 1):upper()
 		end
 
 		local isSelected = (m == selectedTargetModel)
@@ -1126,7 +1330,12 @@ local function refreshTargetBar()
 			selectedTargetUniqueId = uid
 			updateCombatTargetStore(uid)
 			highlightTarget(targetModel)
-			showNotif(">> Targeting: " .. captureDisplayName .. " (in range)", Color3.fromRGB(255, 200, 50), 2)
+			if captureEntry.isStealThiefTarget then
+				local nm = (captureEntry.stolenCreatureLabel and captureEntry.stolenCreatureLabel ~= "") and captureEntry.stolenCreatureLabel or captureDisplayName
+				showNotif(">> Target to Free (" .. nm .. ")", Color3.fromRGB(255, 90, 75), 2)
+			else
+				showNotif(">> Targeting: " .. captureDisplayName .. " (in range)", Color3.fromRGB(255, 200, 50), 2)
+			end
 			lastInRangeModels = {}
 			refreshTargetBar()
 		end)
@@ -1967,7 +2176,7 @@ local function showAssignPrompt(creatureId, uid, slotInfo)
 		local bagCount = tonumber(slotInfo.bagCount) or 0
 		local bagMax = tonumber(slotInfo.bagMax) or 0
 		showNotif(
-			"Captured " .. info.displayName .. "! Added to Badlands bag (" .. bagCount .. "/" .. bagMax .. ")",
+			"Captured " .. info.displayName .. "! 🔮 Added to Badlands bag (" .. bagCount .. "/" .. bagMax .. ")",
 			rarityColor,
 			3
 		)
@@ -1979,18 +2188,18 @@ local function showAssignPrompt(creatureId, uid, slotInfo)
 
 	-- If both full, just notify storage
 	if not canIncome and not canDefense then
-		showNotif("Captured " .. info.displayName .. "! Added to storage (all slots full)", rarityColor, 3)
+		showNotif("Captured " .. info.displayName .. "! 📦 Added to storage (all slots full)", rarityColor, 3)
 		return
 	end
 
 	-- If only one option, auto-assign
 	if canIncome and not canDefense then
-		showNotif("Captured " .. info.displayName .. "! ? Income (defense full)", rarityColor, 2.5)
+		showNotif("Captured " .. info.displayName .. "! 💰 Income (defense full)", rarityColor, 2.5)
 		if assignCaptured then assignCaptured:FireServer(uid, "income") end
 		return
 	end
 	if canDefense and not canIncome then
-		showNotif("Captured " .. info.displayName .. "! ? Defense (income full)", rarityColor, 2.5)
+		showNotif("Captured " .. info.displayName .. "! 🛡️ Defense (income full)", rarityColor, 2.5)
 		if assignCaptured then assignCaptured:FireServer(uid, "defense") end
 		return
 	end
@@ -2024,8 +2233,8 @@ local function showAssignPrompt(creatureId, uid, slotInfo)
 	subLbl.Font = Enum.Font.GothamMedium; subLbl.TextSize = 11
 	subLbl.TextXAlignment = Enum.TextXAlignment.Left; subLbl.Parent = promptFrame
 
-	local incSlots = slotInfo and (slotInfo.incomeSlots .. "/" .. slotInfo.incomeMax) or "?"
-	local defSlots = slotInfo and (slotInfo.defenseSlots .. "/" .. slotInfo.defenseMax) or "?"
+	local incSlots = slotInfo and (slotInfo.incomeSlots .. "/" .. slotInfo.incomeMax) or "->"
+	local defSlots = slotInfo and (slotInfo.defenseSlots .. "/" .. slotInfo.defenseMax) or "->"
 
 	local dismissed = false
 	local function dismiss()
@@ -2046,7 +2255,7 @@ local function showAssignPrompt(creatureId, uid, slotInfo)
 	Instance.new("UICorner", incBtn).CornerRadius = UDim.new(0, 8)
 	incBtn.MouseButton1Click:Connect(function()
 		if assignCaptured then assignCaptured:FireServer(uid, "income") end
-		showNotif(info.displayName .. " ? Income", Color3.fromRGB(50, 220, 120), 2)
+		showNotif(info.displayName .. " -> 💰 Income", Color3.fromRGB(50, 220, 120), 2)
 		dismiss()
 	end)
 
@@ -2063,7 +2272,7 @@ local function showAssignPrompt(creatureId, uid, slotInfo)
 	Instance.new("UICorner", defBtn).CornerRadius = UDim.new(0, 8)
 	defBtn.MouseButton1Click:Connect(function()
 		if assignCaptured then assignCaptured:FireServer(uid, "defense") end
-		showNotif(info.displayName .. " ? Defense", Color3.fromRGB(220, 60, 70), 2)
+		showNotif(info.displayName .. " -> 🛡️ Defense", Color3.fromRGB(220, 60, 70), 2)
 		dismiss()
 	end)
 
@@ -2079,7 +2288,7 @@ local function showAssignPrompt(creatureId, uid, slotInfo)
 	skipBtn.Parent = promptFrame
 	Instance.new("UICorner", skipBtn).CornerRadius = UDim.new(0, 6)
 	skipBtn.MouseButton1Click:Connect(function()
-		showNotif(info.displayName .. " ? Storage", Color3.fromRGB(140, 145, 160), 2)
+		showNotif(info.displayName .. " -> 📦 Storage", Color3.fromRGB(140, 145, 160), 2)
 		dismiss()
 	end)
 

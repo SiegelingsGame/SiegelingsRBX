@@ -1,4 +1,5 @@
 -- BasePlacementSystem.lua - ServerScriptService (ModuleScript)
+-- Last updated: 2026-04-20 12:00
 -- Places creature orbs on DefensePoints, IncomePoints, AND BattlePoints in each plot.
 -- Supports multi-floor bases where points live inside Floor folders.
 --
@@ -19,14 +20,17 @@
 -- Expected plot structure (multi-floor):
 --   Plot1/
 --     Floor1/
+--       Carpet1/        optional decorative floor — tinted with Base Plots income color (see BaseExteriorSystem)
 --       DefensePoints/  DefensePoint1..6
 --       IncomePoints/   IncomePoint1..6
 --     Floor2/           (invisible until purchased)
+--       Carpet2/        optional decorative floor — tinted with Base Plots defense color
 --       BattleTeam/     BattlePoint1..9 (INSIDE Floor2)
 --       DefensePoints/  DefensePoint7..12
 --       IncomePoints/   IncomePoint7..12
 --       Stairs
 --       [Glass parts: name contains "Glass" or attribute IsGlass = true → stay transparent]
+--       BattlePointWall + Glass / IsGlass = invisible collision (stairs); ForceField walls stay visible.
 --     Floor3/           (invisible until purchased)
 --       DefensePoints/  DefensePoint13..18
 --       IncomePoints/   IncomePoint13..18
@@ -106,6 +110,32 @@ local function getPointsByPrefix(plotModel, prefix)
 	return points
 end
 
+--- Studio folders may be "Floor2", "Floor 2", "Floor02"; used for visibility + slot floor detection.
+local function floorIndexFromFloorFolderName(name)
+	if type(name) ~= "string" then return nil end
+	local n = name:match("^Floor(%d+)$") or name:match("^Floor%s+(%d+)$") or name:match("^Floor0*(%d+)$")
+	return n and tonumber(n) or nil
+end
+
+local function resolveFloorFolder(plotModel, floorNum)
+	if not plotModel or type(floorNum) ~= "number" then return nil end
+	local candidates = {
+		"Floor" .. floorNum,
+		"Floor " .. floorNum,
+		string.format("Floor%02d", floorNum),
+	}
+	for _, name in ipairs(candidates) do
+		local f = plotModel:FindFirstChild(name)
+		if f then return f end
+	end
+	for _, child in ipairs(plotModel:GetChildren()) do
+		if floorIndexFromFloorFolderName(child.Name) == floorNum then
+			return child
+		end
+	end
+	return nil
+end
+
 -- Returns { [index] = part } for BattlePoints (BattlePoint1..9 inside Floor2).
 -- CONTINUITY: Do not reparent/rename; slot index 1-9 maps to BattlePoint1-9.
 -- getBattlePointMap: Only finds BattlePoints inside Floor2/BattleTeam.
@@ -113,7 +143,7 @@ end
 -- exclusively for gym battles — battle creatures must NOT idle there.
 local function getBattlePointMap(plotModel)
 	local map = {}
-	local floor2 = plotModel:FindFirstChild("Floor2")
+	local floor2 = resolveFloorFolder(plotModel, 2)
 	if not floor2 then return map end
 	local battleTeam = floor2:FindFirstChild("BattleTeam")
 	if not battleTeam then return map end
@@ -126,11 +156,23 @@ local function getBattlePointMap(plotModel)
 	return map
 end
 
+-- Glass stair-safety shells around Floor2 BattleTeam (name contains BattlePointWall + Glass / IsGlass).
+-- Fully invisible but collidable — not the team-colored ForceField arena shells.
+local function isGlassBattlePointSafetyWall(desc)
+	if not desc:IsA("BasePart") then return false end
+	local nl = desc.Name:lower()
+	if not nl:find("battlepointwall", 1, true) then return false end
+	if desc:GetAttribute("IsGlass") == true then return true end
+	if nl:find("glass") then return true end
+	if desc.Material == Enum.Material.Glass then return true end
+	return false
+end
+
 -- Set BattlePoint + BattlePointWall parts (Floor2/BattleTeam): ForceField, transparency 0.
--- Inactive team: black; active team: white.
+-- Skips glass safety barriers (fully transparent Glass). Inactive team: black; active team: white.
 local function setBattlePointColors(plotModel, battleTeamActive)
 	local color = battleTeamActive and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(0, 0, 0)
-	local floor2 = plotModel:FindFirstChild("Floor2")
+	local floor2 = resolveFloorFolder(plotModel, 2)
 	if not floor2 then return end
 	local battleTeam = floor2:FindFirstChild("BattleTeam")
 	if not battleTeam then return end
@@ -139,7 +181,11 @@ local function setBattlePointColors(plotModel, battleTeamActive)
 			local nl = desc.Name:lower()
 			local isBattlePoint = desc.Name:match("^BattlePoint%d+$")
 			local isBattlePointWall = nl:find("battlepointwall", 1, true)
-			if isBattlePoint or isBattlePointWall then
+			if isGlassBattlePointSafetyWall(desc) then
+				desc.Material = Enum.Material.Glass
+				desc.Transparency = 1
+				desc.CanCollide = true
+			elseif isBattlePoint or isBattlePointWall then
 				desc.Color = color
 				desc.Material = Enum.Material.ForceField
 				desc.Transparency = 0
@@ -150,8 +196,62 @@ end
 
 local function findPlotModel(plotId)
 	if not PLOTS_FOLDER then return nil end
-	return PLOTS_FOLDER:FindFirstChild("Plot" .. plotId)
-		or PLOTS_FOLDER:FindFirstChild("Part" .. plotId)
+	local id = tonumber(plotId)
+	if not id or id <= 0 then return nil end
+	local variants = {
+		"Plot" .. id,
+		"Part" .. id,
+		string.format("Plot%02d", id),
+		string.format("Part%02d", id),
+		string.format("Plot%03d", id),
+		string.format("Part%03d", id),
+	}
+	for _, name in ipairs(variants) do
+		local m = PLOTS_FOLDER:FindFirstChild(name)
+		if m then return m end
+	end
+	for _, child in ipairs(PLOTS_FOLDER:GetChildren()) do
+		local pid = child.Name:match("^Plot(%d+)$") or child.Name:match("^Part(%d+)$")
+		if tonumber(pid) == id then
+			return child
+		end
+	end
+	return nil
+end
+
+--- When PlayerRemoving runs, PlayerDataManager may have already cleared cache (plotId lost). Use OwnerUserId on plot.
+local function findPlotModelForLeavingPlayer(player)
+	if not PLOTS_FOLDER or not player then return nil end
+	local data = PlayerDataManager.GetData(player)
+	if data and data.plotId and data.plotId > 0 then
+		local pm = findPlotModel(data.plotId)
+		if pm then return pm end
+	end
+	local uid = player.UserId
+	for _, plot in ipairs(PLOTS_FOLDER:GetChildren()) do
+		if tonumber(plot:GetAttribute("OwnerUserId")) == uid then
+			return plot
+		end
+	end
+	return nil
+end
+
+--- Catch creatures reparented or left outside plot hierarchy (same tags + OwnerUserId).
+local function destroyTaggedBaseCreaturesForOwnerUserId(ownerUserId)
+	ownerUserId = tonumber(ownerUserId)
+	if not ownerUserId then return end
+	for _, tag in ipairs({ DEFENSE_TAG, INCOME_TAG, BATTLE_TAG }) do
+		for _, inst in ipairs(CollectionService:GetTagged(tag)) do
+			if inst:IsA("Model") and tonumber(inst:GetAttribute("OwnerUserId")) == ownerUserId then
+				if CreatureAI and CreatureAI.UnregisterCreature then
+					pcall(function() CreatureAI.UnregisterCreature(inst) end)
+				end
+				if inst.Parent then
+					inst:Destroy()
+				end
+			end
+		end
+	end
 end
 
 -- Get plot model and plotId from any descendant part (e.g. PlotCenter, walls)
@@ -193,8 +293,8 @@ end
 local function getFloorAncestorNum(part)
 	local current = part.Parent
 	while current and current ~= workspace do
-		local floorNum = current.Name:match("^Floor(%d+)$")
-		if floorNum then return tonumber(floorNum) end
+		local floorNum = floorIndexFromFloorFolderName(current.Name)
+		if floorNum then return floorNum end
 		current = current.Parent
 	end
 	return nil
@@ -236,18 +336,6 @@ local function setPlotInhabited(plotModel, inhabited)
 	end
 end
 
-function BasePlacementSystem.RefreshAllPlotVisibility()
-	if not PLOTS_FOLDER or not PlayerDataManager or not PlayerDataManager.GetClaimedPlotIds then return end
-	local claimed = PlayerDataManager.GetClaimedPlotIds()
-	for _, plot in ipairs(PLOTS_FOLDER:GetChildren()) do
-		local plotId = plot.Name:match("^Plot(%d+)$") or plot.Name:match("^Part(%d+)$")
-		if plotId then
-			local id = tonumber(plotId)
-			setPlotInhabited(plot, claimed[id] == true)
-		end
-	end
-end
-
 -- ══════════════════════════════════════════════════════════════════════════
 -- FLOOR-GATED POINT DISCOVERY
 -- FIX #1 / FIX #3: Only returns points that live inside OWNED floor folders.
@@ -261,8 +349,8 @@ end
 local function getFloorForPart(part)
 	local current = part.Parent
 	while current do
-		local floorNum = current.Name:match("^Floor(%d+)$")
-		if floorNum then return tonumber(floorNum) end
+		local floorNum = floorIndexFromFloorFolderName(current.Name)
+		if floorNum then return floorNum end
 		current = current.Parent
 	end
 	return nil
@@ -759,9 +847,9 @@ local function isGlassPart(part)
 end
 
 local function setFloorVisibility(plotModel, floorNum, visible)
-	local floorFolder = plotModel:FindFirstChild("Floor" .. floorNum)
+	local floorFolder = resolveFloorFolder(plotModel, floorNum)
 	if not floorFolder then
-		warn("[BasePlacement] Floor" .. floorNum .. " folder not found in " .. plotModel.Name)
+		warn("[BasePlacement] Floor" .. floorNum .. " folder not found in " .. plotModel.Name .. " (expected Floor2, Floor 2, Floor02, etc.)")
 		return
 	end
 	local partCount = 0
@@ -782,10 +870,14 @@ local function setFloorVisibility(plotModel, floorNum, visible)
 			-- IncomePoints survived (they happened to be anchored already).
 			desc.Anchored = true
 			-- Glass panels: keep transparent when floor is visible (Floor 2/3); when hidden, full invisible.
-			local isGlass = isGlassPart(desc)
+			local isSafetyGlassWall = isGlassBattlePointSafetyWall(desc)
+			local isGlass = isGlassPart(desc) or isSafetyGlassWall
 			if isGlass then glassCount = glassCount + 1 end
 			if visible then
-				if isGlass then
+				if isSafetyGlassWall then
+					desc.Transparency = 1
+					desc.Material = Enum.Material.Glass
+				elseif isGlassPart(desc) then
 					local custom = desc:GetAttribute("GlassTransparency")
 					local transparency = (type(custom) == "number" and math.clamp(custom, 0, 1)) or GLASS_TRANSPARENCY_VISIBLE
 					desc.Transparency = transparency
@@ -807,6 +899,49 @@ local function setFloorVisibility(plotModel, floorNum, visible)
 	print("[BasePlacement] setFloorVisibility: " .. plotModel.Name .. " Floor" .. floorNum
 		.. " visible=" .. tostring(visible) .. " | " .. partCount .. " parts total"
 		.. " (inc=" .. incCount .. " def=" .. defCount .. " btl=" .. btlCount .. " glass=" .. glassCount .. ")")
+end
+
+-- normalizedOwnedFloors: output of normalizeOwnedFloorsForPlacement (sorted array including 1)
+local function applyOwnedFloorsVisibility(plotModel, normalizedOwnedFloors)
+	local function ownsFloor(n)
+		for _, f in ipairs(normalizedOwnedFloors) do
+			if f == n then return true end
+		end
+		return false
+	end
+	for _, floorNum in ipairs({ 1, 2, 3, 4 }) do
+		setFloorVisibility(plotModel, floorNum, ownsFloor(floorNum))
+	end
+end
+
+-- Declared AFTER normalizeOwnedFloorsForPlacement + applyOwnedFloorsVisibility so locals resolve (Lua: no forward local refs).
+function BasePlacementSystem.RefreshAllPlotVisibility()
+	if not PLOTS_FOLDER or not PlayerDataManager or not PlayerDataManager.GetClaimedPlotIds then return end
+	local claimed = PlayerDataManager.GetClaimedPlotIds()
+	for _, plot in ipairs(PLOTS_FOLDER:GetChildren()) do
+		local plotId = plot.Name:match("^Plot(%d+)$") or plot.Name:match("^Part(%d+)$")
+		if plotId then
+			local id = tonumber(plotId)
+			setPlotInhabited(plot, claimed[id] == true)
+		end
+	end
+	if PlayerDataManager.GetUserIdForPlot then
+		for _, plot in ipairs(PLOTS_FOLDER:GetChildren()) do
+			local plotId = plot.Name:match("^Plot(%d+)$") or plot.Name:match("^Part(%d+)$")
+			if plotId then
+				local id = tonumber(plotId)
+				if claimed[id] then
+					local userId = PlayerDataManager.GetUserIdForPlot(id)
+					local owner = userId and Players:GetPlayerByUserId(userId)
+					local data = owner and PlayerDataManager.GetData(owner)
+					if data then
+						local normalized = normalizeOwnedFloorsForPlacement(data.ownedFloors)
+						applyOwnedFloorsVisibility(plot, normalized)
+					end
+				end
+			end
+		end
+	end
 end
 
 -- FIX #11: setBattleTeamVisibility REMOVED. BattleTeam is now INSIDE Floor2.
@@ -1124,16 +1259,11 @@ function BasePlacementSystem.PlaceCreatures(player)
 	-- Set floor visibility based on owned floors
 	local ownedFloors = normalizeOwnedFloorsForPlacement(data.ownedFloors)
 	data.ownedFloors = ownedFloors
-	local function ownsFloor(n)
-		for _, f in ipairs(ownedFloors) do if f == n then return true end end
-		return false
+	applyOwnedFloorsVisibility(plotModel, ownedFloors)
+	local ownsBattle = false
+	for _, f in ipairs(ownedFloors) do
+		if f == 2 then ownsBattle = true break end
 	end
-	for _, floorNum in ipairs({1, 2, 3, 4}) do
-		setFloorVisibility(plotModel, floorNum, ownsFloor(floorNum))
-	end
-	-- FIX #11: BattleTeam is INSIDE Floor2, so setFloorVisibility(plotModel, 2, ...)
-	-- already handles BattleTeam visibility. No separate call needed.
-	local ownsBattle = ownsFloor(2)
 
 	-- Apply equipped base exterior theme (colors + shell) so base cosmetic always shows
 	-- Wrapped in pcall so exterior bugs don't block creature placement
@@ -1143,13 +1273,13 @@ function BasePlacementSystem.PlaceCreatures(player)
 			if BES then
 				local ext = data.exterior
 				local equippedExt = ext and ext.equipped
-				-- Default to the standard gray base when no exterior theme is equipped.
+				-- Default: grass foundations + grey trim when no exterior theme is equipped.
 				local themeToApply = (equippedExt and equippedExt ~= "") and equippedExt or nil
 				if BES.ApplyThemeToPlot then BES.ApplyThemeToPlot(plotModel, themeToApply) end
 				local bc = data.baseColor
 				local equippedColor = bc and bc.equipped
-				if equippedColor and equippedColor ~= "" and BES.ApplyBaseColorToPlot then
-					BES.ApplyBaseColorToPlot(plotModel, equippedColor)
+				if BES.ApplyBaseColorToPlot then
+					BES.ApplyBaseColorToPlot(plotModel, (equippedColor and equippedColor ~= "") and equippedColor or nil)
 				end
 			end
 		end)
@@ -1987,12 +2117,24 @@ function BasePlacementSystem.Init(playerDataMgr, creatureAIRef)
 	PlayerDataManager = playerDataMgr
 	if creatureAIRef then CreatureAI = creatureAIRef end
 
-	PLOTS_FOLDER = Workspace:FindFirstChild("BasePlots")
+	do
+		local w = Workspace
+		PLOTS_FOLDER = w:FindFirstChild("BasePlots") or w:FindFirstChild("Plots")
+		if not PLOTS_FOLDER then
+			for _, segName in ipairs({ "World", "Map", "Game", "Lobby", "Hub", "Main", "Terrain" }) do
+				local seg = w:FindFirstChild(segName)
+				if seg then
+					PLOTS_FOLDER = seg:FindFirstChild("BasePlots") or seg:FindFirstChild("Plots")
+					if PLOTS_FOLDER then break end
+				end
+			end
+		end
+	end
 	if not PLOTS_FOLDER then
 		PLOTS_FOLDER = Workspace:WaitForChild("BasePlots", 10)
 	end
 	if not PLOTS_FOLDER then
-		warn("[BasePlacement] No BasePlots folder. Disabled.")
+		warn("[BasePlacement] No BasePlots/Plots folder (workspace or nested). Disabled.")
 		return
 	end
 
@@ -2040,17 +2182,14 @@ function BasePlacementSystem.Init(playerDataMgr, creatureAIRef)
 
 	Players.PlayerRemoving:Connect(function(player)
 		placementLocks[player.UserId] = nil
-		local data = PlayerDataManager.GetData(player)
-		if not data or not data.plotId or data.plotId == 0 then
-			BasePlacementSystem.RefreshAllPlotVisibility()
-			return
-		end
-		local plotModel = findPlotModel(data.plotId)
+		-- Do NOT trust GetData(plotId): OnPlayerLeave may run first and clear cache / plotId.
+		local plotModel = findPlotModelForLeavingPlayer(player)
 		if plotModel then
 			clearTaggedCreatures(plotModel, DEFENSE_TAG)
 			clearTaggedCreatures(plotModel, INCOME_TAG)
 			clearTaggedCreatures(plotModel, BATTLE_TAG)
 		end
+		destroyTaggedBaseCreaturesForOwnerUserId(player.UserId)
 		BasePlacementSystem.RefreshAllPlotVisibility()
 	end)
 

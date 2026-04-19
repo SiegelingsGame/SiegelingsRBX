@@ -18,8 +18,14 @@
 		The spawn functions accept element overrides so an EventSystem
 		could spawn creatures from a different element in any biome.
 		See CreatureData.GetCreaturesByElement() for the data side.
+
+	Regular SpawnPoint coverage:
+		The auto-spawn loop calls fillEmptyRegularSpawnPoints() each cycle so every
+		SpawnPoint / SpawnPoint2 with no creature nearby gets a weighted spawn for
+		that point's element. Random spawns still use global weighted picks with
+		diversity bias (prefer species not already in the world).
 ]]
--- Last updated: 2026-03-27 14:45
+-- Last updated: 2026-04-18 20:20
 
 local CollectionService = game:GetService("CollectionService")
 local HttpService = game:GetService("HttpService")
@@ -586,6 +592,111 @@ local function getNightSpawnVariant(rarity)
 	return math.random() < silverChance and "Silver" or nil
 end
 
+-- How many of each species are currently in the world (for spawn diversity)
+local function getSpawnCountsByCreatureId()
+	local counts = {}
+	for _, data in pairs(activeCreatures) do
+		if data and data.id then
+			counts[data.id] = (counts[data.id] or 0) + 1
+		end
+	end
+	return counts
+end
+
+-- Any world creature whose body is within horizontalRadius (XZ) of center?
+local function isCreatureNearPlanarXZ(center, horizontalRadius)
+	local r2 = horizontalRadius * horizontalRadius
+	for model, _ in pairs(activeCreatures) do
+		if model.Parent then
+			local body = CreatureModelLoader.GetBodyPart(model) or model:FindFirstChild("Body")
+			if body then
+				local dx = body.Position.X - center.X
+				local dz = body.Position.Z - center.Z
+				if dx * dx + dz * dz <= r2 then
+					return true
+				end
+			end
+		end
+	end
+	return false
+end
+
+local function collectRegularSpawnPointEntries()
+	local entries = {}
+	local biomesFolder = workspace:FindFirstChild("Biomes")
+	if not biomesFolder then return entries end
+	for _, biomeFolder in ipairs(biomesFolder:GetChildren()) do
+		if not biomeFolder:IsA("Folder") then continue end
+		local pair = CreatureData.GetOuterBiomeElementPair(biomeFolder.Name)
+		if pair then
+			for _, child in ipairs(biomeFolder:GetChildren()) do
+				if child:IsA("BasePart") and child.Name == "SpawnPoint" then
+					table.insert(entries, { child, pair[1] })
+				elseif child:IsA("BasePart") and child.Name == "SpawnPoint2" then
+					table.insert(entries, { child, pair[2] })
+				end
+			end
+		else
+			local element = CreatureData.GetElementForBiomeFolder(biomeFolder.Name)
+			if element then
+				for _, child in ipairs(biomeFolder:GetChildren()) do
+					if child:IsA("BasePart") and child.Name == "SpawnPoint" then
+						table.insert(entries, { child, element })
+					end
+				end
+			end
+		end
+	end
+	return entries
+end
+
+-- Spawn weighted wild encounters at SpawnPoint / SpawnPoint2 parts that have no creature nearby.
+local function fillEmptyRegularSpawnPoints(maxCount)
+	if maxCount <= 0 then return 0 end
+	local entries = collectRegularSpawnPointEntries()
+	if #entries == 0 then return 0 end
+	local spread = GameConfig.SpawnPointSpread or 25
+	local coverR = GameConfig.SpawnPointCoverageRadius
+	if type(coverR) ~= "number" or coverR <= 0 then
+		coverR = spread * 1.6
+	end
+	local divK = GameConfig.SpawnDiversityStrength or 0.55
+	local onlyWithModels = GameConfig.SpawnOnlyCreaturesWithModels
+	local spawned = 0
+	for i = #entries, 2, -1 do
+		local j = math.random(i)
+		entries[i], entries[j] = entries[j], entries[i]
+	end
+	for idx = 1, #entries do
+		if spawned >= maxCount then break end
+		if #CollectionService:GetTagged(CREATURE_TAG) >= getEffectiveMaxCreatures() then break end
+		local part = entries[idx][1]
+		local element = entries[idx][2]
+		if not element then continue end
+		if isCreatureNearPlanarXZ(part.Position, coverR) then continue end
+		local counts = getSpawnCountsByCreatureId()
+		local creatureId = CreatureData.GetRandomWildCreatureIdForElement(element, onlyWithModels, true, counts, divK)
+		if not creatureId then continue end
+		local info = CreatureData.GetById(creatureId)
+		local variant = info and getNightSpawnVariant(info.rarity) or nil
+		local centerPos = getSpreadPosition(part.Position, spread)
+		if info and info.behavior == "pack" and info.packSize then
+			local packId = CreatureAI and CreatureAI.GeneratePackId() or nil
+			local minC, maxC = info.packSize[1] or 2, info.packSize[2] or 3
+			local n = math.random(minC, maxC)
+			for pi = 1, n do
+				if #CollectionService:GetTagged(CREATURE_TAG) >= getEffectiveMaxCreatures() then break end
+				local pos = pi == 1 and centerPos or getGroupSpawnPosition(centerPos, 12)
+				spawnSingleCreature(creatureId, pos, packId, variant)
+			end
+		else
+			spawnSingleCreature(creatureId, centerPos, nil, variant)
+		end
+		spawned = spawned + 1
+	end
+	return spawned
+end
+
 -- ======================================
 -- REGULAR SPAWN (SpawnPoints)
 -- ======================================
@@ -597,7 +708,9 @@ function CreatureSpawner.SpawnCreature()
 	if currentCount >= getEffectiveMaxCreatures() then return nil end
 
 	local onlyWithModels = GameConfig.SpawnOnlyCreaturesWithModels
-	local creatureId = CreatureData.GetRandomCreatureId(onlyWithModels, true)  -- prefer Common at SpawnPoints
+	local divK = GameConfig.SpawnDiversityStrength or 0.55
+	local counts = getSpawnCountsByCreatureId()
+	local creatureId = CreatureData.GetRandomCreatureId(onlyWithModels, true, counts, divK)
 	local info = CreatureData.GetById(creatureId)
 	if not info then
 		warn("[CreatureSpawner] SpawnCreature: GetById nil for", tostring(creatureId))
@@ -844,6 +957,9 @@ function CreatureSpawner.StartSpawning()
 			if m then burstSpawned = burstSpawned + 1 end
 			task.wait(0.08)
 		end
+		task.wait(0.5)
+		local burstFillMax = tonumber(GameConfig.SpawnPointBurstFillMax) or 64
+		fillEmptyRegularSpawnPoints(math.min(burstFillMax, GameConfig.MaxWorldCreatures or 200))
 	end)
 
 	-- Regular auto-spawn loop: keep SpawnPoints full, prioritize Common
@@ -853,6 +969,8 @@ function CreatureSpawner.StartSpawning()
 			local interval = math.random(GameConfig.SpawnIntervalMin or 0.5, GameConfig.SpawnIntervalMax or 1.5)
 			task.wait(interval)
 			loopCount = loopCount + 1
+			local fillN = tonumber(GameConfig.SpawnPointFillPerCycle) or 12
+			fillEmptyRegularSpawnPoints(fillN)
 			local count = #CollectionService:GetTagged(CREATURE_TAG)
 			local maxC = getEffectiveMaxCreatures()
 			local perCycle = GameConfig.SpawnsPerCycle or 4

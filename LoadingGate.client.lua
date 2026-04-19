@@ -409,10 +409,25 @@ end
 -- ═══════════════════════════════════════════════════════════════════════════════
 local baseVisualReady = quickSpawnDebug
 
+--- Same folder resolution as MainServer.findBasePlotsFolder (plots may not be direct children of workspace).
+local function findBasePlotsFolderClient()
+	local w = workspace
+	local f = w:FindFirstChild("BasePlots") or w:FindFirstChild("Plots")
+	if f then return f end
+	for _, segName in ipairs({ "World", "Map", "Game", "Lobby", "Hub", "Main", "Terrain" }) do
+		local seg = w:FindFirstChild(segName)
+		if seg then
+			f = seg:FindFirstChild("BasePlots") or seg:FindFirstChild("Plots")
+			if f then return f end
+		end
+	end
+	return nil
+end
+
 --- Find the player's assigned base plot on the client.
 --- @return Model|nil — the plot model, or nil if not found yet
 local function findMyPlot()
-	local plotsFolder = workspace:FindFirstChild("BasePlots") or workspace:FindFirstChild("Plots")
+	local plotsFolder = findBasePlotsFolderClient()
 	if not plotsFolder then return nil end
 	for _, plot in ipairs(plotsFolder:GetChildren()) do
 		if plot:GetAttribute("OwnerUserId") == player.UserId then
@@ -437,6 +452,12 @@ local function getPlotCenterWorldPosition(plot)
 		return bp and bp.Position or nil
 	end
 	return nil
+end
+
+local function horizontalDistXZ(a, b)
+	local dx = a.X - b.X
+	local dz = a.Z - b.Z
+	return math.sqrt(dx * dx + dz * dz)
 end
 
 --- Count base creature orbs on a plot (tagged BaseIncomeCreature / BaseDefenseCreature / BaseBattleCreature)
@@ -496,26 +517,37 @@ if not quickSpawnDebug then
 			end
 			print("[LoadingGate] Base creatures visible: " .. countBaseCreatures(plot) .. " on " .. plot.Name)
 
-			-- Server teleports to plot after assign; replication can lag behind plot/creatures.
-			-- Keep the gate up until the character is actually near PlotCenter.
+			-- Server teleports to plot after assign; replication can lag behind plot/creatures/HRP.
+			-- Keep the gate up until the character is actually near PlotCenter (horizontal XZ matches hub vs plot height).
 			local centerPos = getPlotCenterWorldPosition(plot)
 			if centerPos then
 				statusLbl.Text = "Arriving at your base..."
-				local ARRIVE_WAIT_MAX = 20
+				local ARRIVE_WAIT_MAX = GameConfig.LoadingGateArriveMaxWait or 300
 				local AT_BASE_RADIUS = 100 -- studs; teleport is ~5 above PlotCenter
 				local arriveStart = tick()
+				local eventsF = ReplicatedStorage:FindFirstChild("Events") or ReplicatedStorage:WaitForChild("Events", 15)
+				local ensureSpawn = eventsF and eventsF:FindFirstChild("EnsureBaseSpawn")
+				local lastEnsure = 0
+				if ensureSpawn then
+					pcall(function() ensureSpawn:FireServer() end)
+				end
 				while (tick() - arriveStart) < ARRIVE_WAIT_MAX do
 					local char = player.Character
 					local root = char and char:FindFirstChild("HumanoidRootPart")
-					if root and (root.Position - centerPos).Magnitude <= AT_BASE_RADIUS then
+					if root and horizontalDistXZ(root.Position, centerPos) <= AT_BASE_RADIUS then
 						break
+					end
+					local now = tick()
+					if ensureSpawn and now - lastEnsure >= 2.8 then
+						lastEnsure = now
+						pcall(function() ensureSpawn:FireServer() end)
 					end
 					task.wait(0.12)
 				end
 				local char = player.Character
 				local root = char and char:FindFirstChild("HumanoidRootPart")
-				if root and (root.Position - centerPos).Magnitude > AT_BASE_RADIUS then
-					print("[LoadingGate] Character not at plot after " .. ARRIVE_WAIT_MAX .. "s — releasing anyway (deadline may apply)")
+				if root and horizontalDistXZ(root.Position, centerPos) > AT_BASE_RADIUS then
+					warn("[LoadingGate] Character still not at plot after " .. ARRIVE_WAIT_MAX .. "s — releasing anyway (check BasePlots / PlotCenter / server teleport)")
 				end
 			end
 		else
@@ -553,10 +585,8 @@ if not quickSpawnDebug then
 		-- Also try plot center as fallback reference point
 		local plot = findMyPlot()
 		if plot then
-			local plotCenter = plot:FindFirstChild("PlotCenter")
-			if plotCenter and plotCenter:IsA("BasePart") then
-				center = plotCenter.Position
-			end
+			local pc = getPlotCenterWorldPosition(plot)
+			if pc then center = pc end
 		end
 
 		-- Collect meshes, textures, decals, and sounds near the player
@@ -617,9 +647,9 @@ end
 -- ═══════════════════════════════════════════════════════════════════════════════
 local loadingDone = false
 
--- Hard deadline: never hold the gate longer than this (prevents infinite hang)
--- Extra headroom for plot/creature polling + "wait until at base" after server teleport replicates
-local MAX_GATE_SECONDS = quickSpawnDebug and 2 or (GameConfig.LoadingCriticalMaxWait or 18) + 12 + 25
+-- Hard deadline: never hold the gate longer than this (prevents infinite hang).
+-- Must exceed LoadingGateArriveMaxWait + preload/creature polling (see GameConfig).
+local MAX_GATE_SECONDS = quickSpawnDebug and 2 or (GameConfig.LoadingGateAbsoluteMaxSeconds or 330)
 local releaseDeadline = tick() + MAX_GATE_SECONDS
 
 while tick() < releaseDeadline do

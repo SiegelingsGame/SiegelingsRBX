@@ -1,4 +1,5 @@
 -- MainServer.lua - ServerScriptService (Script)
+-- Last updated: 2026-04-20 17:00
 -- THE SINGLE ENTRY POINT. All remote handlers live HERE.
 -- DELETE "EssentialdHandlers" and "BattleTeamSystem" if they exist....
 
@@ -13,12 +14,14 @@ local CollectionService = game:GetService("CollectionService")
 local StarterGui = game:GetService("StarterGui")
 local Workspace = game:GetService("Workspace")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 
 -- Prevent PlayerGud from being cleared odfn death/respawn so Leadesrboard (X), Profile (P),f and HUD button bar shortcuts keep working
 StarterGui.ResetPlayerGuiOnSpawn = false
 
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+local NpcSpawnMarkers = require(ReplicatedStorage.Modules.NpcSpawnMarkers)
 local PlayerWorldStats = require(ReplicatedStorage.Modules:WaitForChild("PlayerWorldStats"))
 
 -- === STEP 1: Create ALL remotes ===
@@ -76,6 +79,7 @@ makeEvent("MountFlyInput")     -- client -> server: targetY (flying mount vertic
 local incomeReceived = makeEvent("IncomeReceived")
 makeEvent("CoinsUpdate")
 makeEvent("GemsUpdate")
+makeEvent("SCoinsUpdate")
 
 -- Capture
 makeEvent("CaptureRequest"); makeEvent("CaptureStart"); makeEvent("CaptureSuccess")
@@ -91,6 +95,9 @@ makeEvent("DungeonSpawned"); makeEvent("DungeonDespawned")
 -- Raid
 makeEvent("RaidRequest"); makeEvent("RaidStart"); makeEvent("RaidEnd")
 makeEvent("CreatureStolen"); makeFunc("GetRaidTargets")
+-- Steal victim UX: highlight thief + hit-to-recover (server-driven mark/clear)
+makeEvent("StealVictimMarkThief") -- FireClient(victim, thiefUserId, creatureLabel)
+makeEvent("StealVictimClearMark") -- FireClient(victim, thiefUserId)
 
 -- Arena
 makeEvent("ArenaAnnounce"); makeEvent("BattleStart"); makeEvent("BattleEnd")
@@ -152,12 +159,13 @@ makeFunc("BuyCosmetic"); makeFunc("EquipCosmetic")
 -- Base Exterior Shop (purchase/equip theme; equip rebuilds plot with theme generator)
 local buyExterior = makeFunc("BuyExterior")
 local equipExterior = makeFunc("EquipExterior")
--- Base Color Shop (walls, stairs, points, combiner, recycler)
+-- Base Color Shop (foundation colors)
 local buyBaseColor = makeFunc("BuyBaseColor")
 local equipBaseColor = makeFunc("EquipBaseColor")
 
 -- Egg Shop
 makeFunc("BuyEgg"); makeEvent("EggResult")
+makeFunc("BuyScoinsPack") -- Shop hub: SCoins packs (Diamonds → SCoins)
 local inspectEgg = makeFunc("InspectEgg")
 makeFunc("BuyArenaTraderCreature") -- slotIndex, paymentType, creatureId, stockId
 
@@ -191,6 +199,8 @@ makeEvent("RecycleResult")   -- server → client (success, newUid or errorMessa
 local sellCreature = makeFunc("SellCreature")
 local buyFloor = makeFunc("BuyFloor")
 local goHome = makeEvent("GoHome")
+-- Client asks server to retry plot teleport when join teleport was skipped (e.g. HRP not ready yet)
+local ensureBaseSpawn = makeEvent("EnsureBaseSpawn")
 makeEvent("HomeRecallStart")  -- server → client: channelTime (show timer)
 makeEvent("HomeRecallEnd")    -- server → client: success (hide timer)
 makeEvent("HomeRecallCancel") -- server → client: interrupted (hide timer)
@@ -335,6 +345,8 @@ pcall(function() CosmeticSystem = require(ServerScriptService.CosmeticSystem) en
 
 local EggShopSystem = nil
 pcall(function() EggShopSystem = require(ServerScriptService.EggShopSystem) end)
+local PremiumCurrencyShop = nil
+pcall(function() PremiumCurrencyShop = require(ServerScriptService.PremiumCurrencyShop) end)
 
 local WorldCreatureHP = nil
 pcall(function() WorldCreatureHP = require(ServerScriptService.WorldCreatureHP) end)
@@ -417,6 +429,7 @@ do
 	if ok then
 		EleminionSystem = result
 		print("[MainServer] EleminionSystem require OK")
+		warn("[MainServer] EleminionSystem require OK")
 	else
 		warn("[MainServer] EleminionSystem require FAILED: " .. tostring(result))
 	end
@@ -571,6 +584,16 @@ if BuffShopSystem then
 	local ok, err = pcall(function() BuffShopSystem.Init(PlayerDataManager) end)
 	if ok then print("[MainServer] BuffShopSystem OK") else warn("[MainServer] BuffShopSystem failed: " .. tostring(err)) end
 end
+-- Hub NPC slots: let HubArea.SpawnLocation settle before resolving BrokerSpawn / CookSpawn / etc. against it.
+do
+	local hub = Workspace:FindFirstChild("HubArea")
+	if hub and hub:FindFirstChild("SpawnLocation") then
+		task.wait(tonumber(GameConfig.HubNpcPlacementDeferSeconds) or 0.12)
+	end
+end
+pcall(function()
+	NpcSpawnMarkers.HideSpawnMarkers()
+end)
 if IngredientSpawnSystem then
 	local ok, err = pcall(function() IngredientSpawnSystem.Init(PlayerDataManager, BuffShopSystem) end)
 	if ok then print("[MainServer] IngredientSpawnSystem OK") else warn("[MainServer] IngredientSpawnSystem failed: " .. tostring(err)) end
@@ -667,6 +690,10 @@ if EggShopSystem then
 	local ok, err = pcall(function() EggShopSystem.Init(PlayerDataManager) end)
 	if ok then print("[MainServer] EggShopSystem OK") else warn("[MainServer] EggShopSystem failed: " .. tostring(err)) end
 end
+if PremiumCurrencyShop then
+	local ok, err = pcall(function() PremiumCurrencyShop.Init(PlayerDataManager, eventsFolder) end)
+	if ok then print("[MainServer] PremiumCurrencyShop OK") else warn("[MainServer] PremiumCurrencyShop failed: " .. tostring(err)) end
+end
 if LaserDoorSystem then
 	local ok, err = pcall(function() LaserDoorSystem.Init(PlayerDataManager) end)
 	if ok then print("[MainServer] LaserDoorSystem OK") else warn("[MainServer] LaserDoorSystem failed: " .. tostring(err)) end
@@ -712,7 +739,14 @@ if EleminionSystem then
 	local ok, err = pcall(function()
 		EleminionSystem.Init(PlayerDataManager)
 	end)
-	if ok then print("[MainServer] EleminionSystem OK") else warn("[MainServer] EleminionSystem failed: " .. tostring(err)) end
+	if ok then
+		print("[MainServer] EleminionSystem OK")
+		warn("[MainServer] EleminionSystem OK")
+	else
+		warn("[MainServer] EleminionSystem failed: " .. tostring(err))
+	end
+else
+	warn("[MainServer] EleminionSystem missing - Init skipped")
 end
 if DecorSystem then
 	local ok, err = pcall(function() DecorSystem.Init(PlayerDataManager) end)
@@ -819,9 +853,9 @@ local function setPlotSignState(plotModel, ownerName)
 	local hasActiveOwner = type(ownerName) == "string" and ownerName ~= ""
 	local signText = hasActiveOwner and (ownerName .. "'s Base") or ""
 
-	for _, guiClassName in ipairs({ "BillboardGui", "SurfaceGui" }) do
-		local gui = signPart:FindFirstChildWhichIsA(guiClassName, true)
-		if gui then
+	-- Update every sign GUI under SignPart (maps may have multiple BillboardGui/SurfaceGui; only updating the first left stale text visible).
+	for _, gui in ipairs(signPart:GetDescendants()) do
+		if gui:IsA("BillboardGui") or gui:IsA("SurfaceGui") then
 			gui.Enabled = hasActiveOwner
 			local lbl = findPlotSignLabel(gui)
 			if lbl then lbl.Text = signText end
@@ -829,8 +863,49 @@ local function setPlotSignState(plotModel, ownerName)
 	end
 end
 
+--- BasePlots may live under Workspace directly or nested (e.g. World/BasePlots); mirror client/FavoriteCreature patterns.
+local function findBasePlotsFolder()
+	local w = Workspace
+	local f = w:FindFirstChild("BasePlots") or w:FindFirstChild("Plots")
+	if f then return f end
+	for _, segName in ipairs({ "World", "Map", "Game", "Lobby", "Hub", "Main", "Terrain" }) do
+		local seg = w:FindFirstChild(segName)
+		if seg then
+			f = seg:FindFirstChild("BasePlots") or seg:FindFirstChild("Plots")
+			if f then return f end
+		end
+	end
+	return nil
+end
+
+--- Resolve Plot3 vs Plot03 vs Part3; scan folder if exact names fail (matches plotId from AssignPlot).
+local function findPlotModelInFolder(plotsFolder, plotId)
+	if not plotsFolder then return nil end
+	local id = tonumber(plotId)
+	if not id or id <= 0 then return nil end
+	local variants = {
+		"Plot" .. id,
+		"Part" .. id,
+		string.format("Plot%02d", id),
+		string.format("Part%02d", id),
+		string.format("Plot%03d", id),
+		string.format("Part%03d", id),
+	}
+	for _, name in ipairs(variants) do
+		local m = plotsFolder:FindFirstChild(name)
+		if m then return m end
+	end
+	for _, child in ipairs(plotsFolder:GetChildren()) do
+		local pid = child.Name:match("^Plot(%d+)$") or child.Name:match("^Part(%d+)$")
+		if tonumber(pid) == id then
+			return child
+		end
+	end
+	return nil
+end
+
 local function refreshAllPlotSigns()
-	local plotsFolder = Workspace:FindFirstChild("BasePlots") or Workspace:WaitForChild("BasePlots", 10)
+	local plotsFolder = findBasePlotsFolder() or Workspace:WaitForChild("BasePlots", 10)
 	if not plotsFolder then return end
 
 	local activeOwnersByPlotId = {}
@@ -849,15 +924,110 @@ local function refreshAllPlotSigns()
 	end
 end
 
+local PLOT_RUNTIME_TAGS = {
+	BaseDefenseCreature = true,
+	BaseIncomeCreature = true,
+	BaseBattleCreature = true,
+	DecorStatue = true,
+	DecorFurniture = true,
+}
+
+local function getPlotIdFromModel(plotModel)
+	if not plotModel then
+		return nil
+	end
+	local plotId = plotModel.Name:match("^Plot(%d+)$") or plotModel.Name:match("^Part(%d+)$")
+	return tonumber(plotId)
+end
+
+local function findPlotModelForPlayer(plr, preferredPlotId)
+	local plotsFolder = findBasePlotsFolder()
+	if not plotsFolder then
+		return nil, nil
+	end
+
+	if preferredPlotId and preferredPlotId > 0 then
+		local direct = findPlotModelInFolder(plotsFolder, preferredPlotId)
+		if direct then
+			return direct, preferredPlotId
+		end
+	end
+
+	for _, plotModel in ipairs(plotsFolder:GetChildren()) do
+		local ownerUserId = tonumber(plotModel:GetAttribute("OwnerUserId"))
+		if ownerUserId == plr.UserId then
+			return plotModel, getPlotIdFromModel(plotModel)
+		end
+	end
+
+	return nil, preferredPlotId
+end
+
+local function clearTaggedPlotObjects(plotModel)
+	if not plotModel then
+		return
+	end
+
+	local toDestroy = {}
+	for _, desc in ipairs(plotModel:GetDescendants()) do
+		for tagName in pairs(PLOT_RUNTIME_TAGS) do
+			if CollectionService:HasTag(desc, tagName) then
+				table.insert(toDestroy, desc)
+				break
+			end
+		end
+	end
+
+	for _, inst in ipairs(toDestroy) do
+		if inst and inst.Parent then
+			if inst:IsA("Model") and CreatureAI and CreatureAI.UnregisterCreature then
+				pcall(function() CreatureAI.UnregisterCreature(inst) end)
+			end
+			inst:Destroy()
+		end
+	end
+end
+
+local function resetPlotWorldState(plotModel)
+	if not plotModel then
+		return
+	end
+
+	clearTaggedPlotObjects(plotModel)
+
+	if LaserDoorSystem and LaserDoorSystem.RemoveForPlot then
+		pcall(function() LaserDoorSystem.RemoveForPlot(plotModel) end)
+	end
+
+	if BaseExteriorSystem then
+		if BaseExteriorSystem.ApplyThemeToPlot then
+			pcall(function() BaseExteriorSystem.ApplyThemeToPlot(plotModel, nil) end)
+		end
+		if BaseExteriorSystem.ApplyBaseColorToPlot then
+			pcall(function() BaseExteriorSystem.ApplyBaseColorToPlot(plotModel, nil) end)
+		end
+		if BaseExteriorSystem.ClearCosmeticOriginSnapshots then
+			pcall(function() BaseExteriorSystem.ClearCosmeticOriginSnapshots(plotModel) end)
+		end
+	end
+
+	setPlotSignState(plotModel, nil)
+	plotModel:SetAttribute("OwnerUserId", nil)
+	plotModel:SetAttribute("GymBattleInProgress", nil)
+	plotModel:SetAttribute("GymOwnerUserId", nil)
+	plotModel:SetAttribute("GymChallengerUserId", nil)
+	plotModel:SetAttribute("KnightBaseRental", nil)
+end
+
 local function setupPlotForPlayer(plr)
 	local ok, err = pcall(function()
 		local d = PlayerDataManager.GetData(plr)
 		if not d or not d.plotId or d.plotId == 0 then return end
 
-		local plotsFolder = workspace:FindFirstChild("BasePlots")
+		local plotsFolder = findBasePlotsFolder()
 		if not plotsFolder then return end
 
-		local pm = plotsFolder:FindFirstChild("Plot" .. d.plotId) or plotsFolder:FindFirstChild("Part" .. d.plotId)
+		local pm = findPlotModelInFolder(plotsFolder, d.plotId)
 		if not pm then return end
 
 		-- Set OwnerUserId so client can identify own plot (BaseInteractionClient findOwnPlot)
@@ -956,25 +1126,127 @@ local function checkDespawnCompanion(plr)
 	end
 end
 
--- Teleport player to their base PlotCenter; also teleports companion with them
-local function teleportToBase(plr)
-	local d = PlayerDataManager.GetData(plr)
-	if not d or not d.plotId or d.plotId == 0 then return end
-	local plotsFolder = Workspace:FindFirstChild("BasePlots")
-	if not plotsFolder then return end
-	local pm = plotsFolder:FindFirstChild("Plot" .. d.plotId)
-		or plotsFolder:FindFirstChild("Part" .. d.plotId)
-	if not pm then return end
-	local center = pm:FindFirstChild("PlotCenter")
-	if not center or not center:IsA("BasePart") then return end
-	local char = plr.Character
-	if char then
-		local root = char:FindFirstChild("HumanoidRootPart")
-		if root then
-			root.CFrame = CFrame.new(center.Position + Vector3.new(0, 5, 0))
-			if FavoriteCreatureSystem then FavoriteCreatureSystem.TeleportCompanionWithPlayer(plr) end
+--- World position for base teleport (must match LoadingGate / LaserDoor: PlotCenter may be Model or nested).
+local function getPlotCenterWorldPosition(plotModel)
+	if not plotModel then return nil end
+	local pc = plotModel:FindFirstChild("PlotCenter", true) or plotModel:FindFirstChild("PlotCenter")
+	if pc then
+		if pc:IsA("BasePart") then
+			return pc.Position
+		elseif pc:IsA("Model") then
+			if pc.PrimaryPart then
+				return pc.PrimaryPart.Position
+			end
+			local inner = pc:FindFirstChildWhichIsA("BasePart", true)
+			if inner then return inner.Position end
+			local ok, pivot = pcall(function() return pc:GetPivot().Position end)
+			if ok then return pivot end
 		end
 	end
+	for _, name in ipairs({ "PlotFloor", "Floor", "Base", "Ground" }) do
+		local part = plotModel:FindFirstChild(name)
+		if part and part:IsA("BasePart") then return part.Position end
+	end
+	for _, child in ipairs(plotModel:GetChildren()) do
+		if child:IsA("BasePart") and not child.Name:lower():find("wall") then
+			return child.Position
+		end
+	end
+	for _, child in ipairs(plotModel:GetChildren()) do
+		if child:IsA("BasePart") then return child.Position end
+	end
+	local ok, pivot = pcall(function() return plotModel:GetPivot().Position end)
+	if ok then return pivot end
+	return nil
+end
+
+-- Teleport player to their base PlotCenter; also teleports companion with them. Returns true if HRP moved.
+local function teleportToBase(plr)
+	local d = PlayerDataManager.GetData(plr)
+	if not d or not d.plotId or d.plotId == 0 then return false end
+	local plotsFolder = findBasePlotsFolder()
+	if not plotsFolder then return false end
+	local pm = findPlotModelInFolder(plotsFolder, d.plotId)
+	if not pm then return false end
+	local pos = getPlotCenterWorldPosition(pm)
+	if not pos then return false end
+	local char = plr.Character
+	if not char then return false end
+	local root = char:FindFirstChild("HumanoidRootPart")
+	if not root then return false end
+
+	root.AssemblyLinearVelocity = Vector3.zero
+	root.AssemblyAngularVelocity = Vector3.zero
+	root.CFrame = CFrame.new(pos + Vector3.new(0, 5, 0))
+	if FavoriteCreatureSystem then FavoriteCreatureSystem.TeleportCompanionWithPlayer(plr) end
+	return true
+end
+
+--- Join/death recall often races HumanoidRootPart replication; folder/plot may stream in late — retry longer.
+local function teleportToBaseReliable(plr)
+	local d0 = PlayerDataManager.GetData(plr)
+	local pid0 = d0 and d0.plotId or 0
+	for attempt = 1, 100 do
+		if teleportToBase(plr) then return true end
+		task.wait(0.25)
+	end
+	local plotsFolder = findBasePlotsFolder()
+	local d = PlayerDataManager.GetData(plr)
+	local pid = d and d.plotId or 0
+	local pm = plotsFolder and pid > 0 and findPlotModelInFolder(plotsFolder, pid) or nil
+	local pos = pm and getPlotCenterWorldPosition(pm)
+	warn(string.format(
+		"[MainServer] teleportToBaseReliable failed for %s plotId=%s folder=%s model=%s centerPos=%s char=%s hrp=%s",
+		tostring(plr and plr.Name),
+		tostring(pid0),
+		tostring(plotsFolder ~= nil),
+		tostring(pm ~= nil),
+		tostring(pos ~= nil),
+		tostring(plr and plr.Character ~= nil),
+		tostring(plr and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") ~= nil)
+	))
+	return false
+end
+
+local ensureBaseSpawnLastAt = {} -- [userId] = tick()
+ensureBaseSpawn.OnServerEvent:Connect(function(plr)
+	if not plr or not plr.Parent then return end
+	local uid = plr.UserId
+	local now = tick()
+	if (ensureBaseSpawnLastAt[uid] or 0) + 1.4 > now then return end
+	ensureBaseSpawnLastAt[uid] = now
+	teleportToBaseReliable(plr)
+end)
+
+--- Hub SpawnLocation can win the first frames after CharacterAdded; keep snapping to plot briefly if still far (XZ).
+local function nudgeToAssignedBaseXZ(plr, durationSec, maxDistXZ)
+	if not plr or not plr.Parent then return end
+	local deadline = tick() + (durationSec or 3)
+	local conn
+	conn = RunService.Heartbeat:Connect(function()
+		if not plr.Parent or tick() > deadline then
+			if conn then conn:Disconnect() end
+			return
+		end
+		local d = PlayerDataManager.GetData(plr)
+		if not d or not d.plotId or d.plotId == 0 then return end
+		local folder = findBasePlotsFolder()
+		if not folder then return end
+		local pm = findPlotModelInFolder(folder, d.plotId)
+		if not pm then return end
+		local pos = getPlotCenterWorldPosition(pm)
+		if not pos then return end
+		local char = plr.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not root then return end
+		local dxz = ((root.Position - pos) * Vector3.new(1, 0, 1)).Magnitude
+		if dxz > (maxDistXZ or 90) then
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+			root.CFrame = CFrame.new(pos + Vector3.new(0, 5, 0))
+			if FavoriteCreatureSystem then FavoriteCreatureSystem.TeleportCompanionWithPlayer(plr) end
+		end
+	end)
 end
 
 -- Global "Heaven Beam" effect for home recall (server-spawned, visible to all players)
@@ -1265,7 +1537,7 @@ local function startHomeRecall(plr)
 		homeRecallingPlayers[plr.UserId] = nil
 		local endEvt = eventsFolder:FindFirstChild("HomeRecallEnd")
 		if endEvt then endEvt:FireClient(plr) end
-		teleportToBase(plr)
+		teleportToBaseReliable(plr)
 	end)
 end
 
@@ -1316,10 +1588,11 @@ local function autoAssignAndSetup(plr)
 	setupPlotForPlayer(plr)
 	logStartupMetric(plr.UserId, "join_to_base_placed")
 
-	-- Teleport to base on initial join
+	-- Teleport to base on initial join (reliable: HRP may not exist on first frame after spawn)
 	local char = plr.Character or plr.CharacterAdded:Wait()
-	task.wait(0.5)
-	teleportToBase(plr)
+	task.wait(0.35)
+	teleportToBaseReliable(plr)
+	nudgeToAssignedBaseXZ(plr, 4, 95)
 	logStartupMetric(plr.UserId, "join_to_character_spawn")
 
 	-- Debug: double movement speed
@@ -1359,8 +1632,8 @@ local function autoAssignAndSetup(plr)
 
 	-- Respawn at base on death (no base refresh - creatures persist)
 	plr.CharacterAdded:Connect(function(newChar)
-		task.wait(0.5)
-		teleportToBase(plr)
+		task.wait(0.35)
+		teleportToBaseReliable(plr)
 		applyWalkSpeed(newChar)
 		ensurePlayerArmLight(newChar)
 	end)
@@ -1381,37 +1654,18 @@ Players.PlayerAdded:Connect(function(plr)
 end)
 
 -- FIX #24: Clean up base plots when players leave (dome removal, sign reset, floor hiding)
--- BasePlacementSystem.PlayerRemoving handles orb cleanup + RefreshAllPlotVisibility.
--- This handler covers MainServer-owned state: dome, sign, companion.
+-- World cleanup here is intentionally cache-agnostic so plots still reset even if
+-- PlayerDataManager has already released/cleared the player's session data.
 Players.PlayerRemoving:Connect(function(plr)
 	-- FIX #35: Return knight base rental BEFORE clearing plot data (needs plotId + PlotCenter)
 	if KnightBaseSystem and KnightBaseSystem.IsPlayerRenting and KnightBaseSystem.IsPlayerRenting(plr) then
 		pcall(function() KnightBaseSystem.Cleanup(plr) end)
 	end
 
-	-- Grab plot info BEFORE PlayerDataManager clears it (PDM also listens to PlayerRemoving)
 	local d = PlayerDataManager.GetData(plr)
 	local plotId = d and d.plotId
-	local plotModel = nil
-	if plotId and plotId > 0 then
-		local plotsFolder = Workspace:FindFirstChild("BasePlots")
-		if plotsFolder then
-			plotModel = plotsFolder:FindFirstChild("Plot" .. plotId)
-				or plotsFolder:FindFirstChild("Part" .. plotId)
-		end
-	end
-
-	-- Remove dome shield
-	if plotModel and LaserDoorSystem and LaserDoorSystem.RemoveForPlot then
-		pcall(function() LaserDoorSystem.RemoveForPlot(plotModel) end)
-	end
-
-	-- Hide the plot sign when no active player owns this base.
-	if plotModel then
-		setPlotSignState(plotModel, nil)
-		-- Clear OwnerUserId attribute so client doesn't think this is still owned
-		plotModel:SetAttribute("OwnerUserId", nil)
-	end
+	local plotModel, resolvedPlotId = findPlotModelForPlayer(plr, plotId)
+	resetPlotWorldState(plotModel)
 
 	-- Despawn companion (FavoriteCreatureSystem handles its own cleanup via PlayerRemoving,
 	-- but ensure it runs before plot data is gone)
@@ -1423,10 +1677,18 @@ Players.PlayerRemoving:Connect(function(plr)
 	if homeRecallingPlayers and homeRecallingPlayers[plr.UserId] then
 		homeRecallingPlayers[plr.UserId] = nil
 	end
+	ensureBaseSpawnLastAt[plr.UserId] = nil
 	joinClockByUserId[plr.UserId] = nil
 	criticalReadyByUserId[plr.UserId] = nil
 
-	print("[MainServer] Cleaned up plot for " .. plr.Name .. " (Plot " .. tostring(plotId) .. ")")
+	task.defer(function()
+		if BasePlacementSystem and BasePlacementSystem.RefreshAllPlotVisibility then
+			pcall(function() BasePlacementSystem.RefreshAllPlotVisibility() end)
+		end
+		pcall(refreshAllPlotSigns)
+	end)
+
+	print("[MainServer] Cleaned up plot for " .. plr.Name .. " (Plot " .. tostring(resolvedPlotId or plotId) .. ")")
 end)
 
 -- Handle players already in game (Studio test / fast join)
@@ -1545,8 +1807,13 @@ getInventory.OnServerInvoke = function(plr)
 	if BasePlacementSystem and BasePlacementSystem.GetDefenseActivityForOwner then
 		defenseActiveCount, defenseTotalSpawned = BasePlacementSystem.GetDefenseActivityForOwner(plr.UserId)
 	end
+	local companionRespawnRemainingSec = 0
+	if FavoriteCreatureSystem and FavoriteCreatureSystem.GetCompanionRespawnRemainingSeconds then
+		local cr = FavoriteCreatureSystem.GetCompanionRespawnRemainingSeconds(plr)
+		companionRespawnRemainingSec = (type(cr) == "number" and cr > 0) and cr or 0
+	end
 	return {
-		coins = d.coins, gems = d.gems or 0,
+		coins = d.coins, gems = d.gems or 0, scoins = PlayerDataManager.GetScoins(plr),
 		inventory = d.inventory,
 		eggs = d.eggs or {},
 		baseSlots = baseSlotsDense, defenseSlots = defenseSlotsDense,
@@ -1570,6 +1837,7 @@ getInventory.OnServerInvoke = function(plr)
 		firstZoneDoorOpened = d.firstZoneDoorOpened,
 		zoneKeysFromGyms = d.zoneKeysFromGyms or {},
 		doorsUnlocked = d.doorsUnlocked or {},
+		companionRespawnRemainingSec = companionRespawnRemainingSec,
 	}
 end
 
@@ -1658,6 +1926,23 @@ local function savePlayerCustomization(plr)
 	end)
 end
 
+local function applyPlotCosmetics(plr, plot)
+	if not plot or not BaseExteriorSystem then
+		return
+	end
+
+	local exterior = PlayerDataManager.GetExterior(plr)
+	local baseColor = PlayerDataManager.GetBaseColor(plr)
+
+	if BaseExteriorSystem.ApplyThemeToPlot then
+		BaseExteriorSystem.ApplyThemeToPlot(plot, exterior and exterior.equipped)
+	end
+	local bcEquipped = baseColor and baseColor.equipped
+	if BaseExteriorSystem.ApplyBaseColorToPlot then
+		BaseExteriorSystem.ApplyBaseColorToPlot(plot, (bcEquipped and bcEquipped ~= "") and bcEquipped or nil)
+	end
+end
+
 buyExterior.OnServerInvoke = function(plr, exteriorId, currency)
 	local config = getExteriorConfig(exteriorId)
 	if not config then return false, "Invalid exterior" end
@@ -1669,15 +1954,22 @@ buyExterior.OnServerInvoke = function(plr, exteriorId, currency)
 		if d.coins < config.coinCost then return false, "Not enough coins!" end
 		PlayerDataManager.SpendCoins(plr, config.coinCost)
 	elseif currency == "gems" then
-		if (config.gemCost or 0) <= 0 then return false, "Not for gems" end
-		if not PlayerDataManager.SpendGems(plr, config.gemCost) then return false, "Not enough gems!" end
+		if (config.gemCost or 0) <= 0 then return false, "Not for diamonds" end
+		if not PlayerDataManager.SpendGems(plr, config.gemCost) then return false, "Not enough diamonds!" end
 	else
 		return false, "Invalid currency"
 	end
 	PlayerDataManager.PurchaseExterior(plr, exteriorId)
+	PlayerDataManager.SetEquippedExterior(plr, exteriorId)
 	savePlayerCustomization(plr)
 	local coinsEvt = eventsFolder:FindFirstChild("CoinsUpdate")
 	if coinsEvt then coinsEvt:FireClient(plr, PlayerDataManager.GetCoins(plr)) end
+	local gemsEvt = eventsFolder:FindFirstChild("GemsUpdate")
+	if gemsEvt then gemsEvt:FireClient(plr, PlayerDataManager.GetGems(plr)) end
+	if BaseExteriorSystem then
+		local plot = BaseExteriorSystem.GetPlotForPlayer(plr)
+		if plot then applyPlotCosmetics(plr, plot) end
+	end
 	return true, "Purchased!"
 end
 
@@ -1685,19 +1977,12 @@ equipExterior.OnServerInvoke = function(plr, exteriorId)
 	if exteriorId then
 		if not PlayerDataManager.OwnsExterior(plr, exteriorId) then return false, "Not owned" end
 	end
-	-- Link with Colors tab: equipping any exterior clears base color so both UIs stay in sync
-	PlayerDataManager.SetEquippedBaseColor(plr, nil)
 	PlayerDataManager.SetEquippedExterior(plr, exteriorId)
 	savePlayerCustomization(plr)
-	-- Skin existing plot (recolor + exterior shell); never delete or move the plot
-	if not BaseExteriorSystem or not BaseExteriorSystem.ApplyThemeToPlot then return true, exteriorId and "Theme applied!" or "Unequipped" end
+	if not BaseExteriorSystem then return true, exteriorId and "Theme applied!" or "Unequipped" end
 	local plot = BaseExteriorSystem.GetPlotForPlayer(plr)
 	if not plot then return true, exteriorId and "Equipped (no plot to theme)" or "Unequipped" end
-	BaseExteriorSystem.ApplyThemeToPlot(plot, exteriorId)
-	if BaseExteriorSystem.ApplyBaseColorToPlot then
-		local bc = PlayerDataManager.GetBaseColor(plr)
-		BaseExteriorSystem.ApplyBaseColorToPlot(plot, bc and bc.equipped)
-	end
+	applyPlotCosmetics(plr, plot)
 	return true, exteriorId and "Theme applied!" or "Theme removed"
 end
 
@@ -1720,15 +2005,22 @@ buyBaseColor.OnServerInvoke = function(plr, colorId, currency)
 		if d.coins < config.coinCost then return false, "Not enough coins!" end
 		PlayerDataManager.SpendCoins(plr, config.coinCost)
 	elseif currency == "gems" then
-		if (config.gemCost or 0) <= 0 then return false, "Not for gems" end
-		if not PlayerDataManager.SpendGems(plr, config.gemCost) then return false, "Not enough gems!" end
+		if (config.gemCost or 0) <= 0 then return false, "Not for diamonds" end
+		if not PlayerDataManager.SpendGems(plr, config.gemCost) then return false, "Not enough diamonds!" end
 	else
 		return false, "Invalid currency"
 	end
 	PlayerDataManager.PurchaseBaseColor(plr, colorId)
+	PlayerDataManager.SetEquippedBaseColor(plr, colorId)
 	savePlayerCustomization(plr)
 	local coinsEvt = eventsFolder:FindFirstChild("CoinsUpdate")
 	if coinsEvt then coinsEvt:FireClient(plr, PlayerDataManager.GetCoins(plr)) end
+	local gemsEvt = eventsFolder:FindFirstChild("GemsUpdate")
+	if gemsEvt then gemsEvt:FireClient(plr, PlayerDataManager.GetGems(plr)) end
+	if BaseExteriorSystem then
+		local plot = BaseExteriorSystem.GetPlotForPlayer(plr)
+		if plot then applyPlotCosmetics(plr, plot) end
+	end
 	return true, "Purchased!"
 end
 
@@ -1736,19 +2028,11 @@ equipBaseColor.OnServerInvoke = function(plr, colorId)
 	if colorId then
 		if not PlayerDataManager.OwnsBaseColor(plr, colorId) then return false, "Not owned" end
 	end
-	-- Link with Base tab: equipping a color clears exterior so both UIs stay in sync
-	PlayerDataManager.SetEquippedExterior(plr, nil)
 	PlayerDataManager.SetEquippedBaseColor(plr, colorId)
 	savePlayerCustomization(plr)
 	local plot = BaseExteriorSystem and BaseExteriorSystem.GetPlotForPlayer and BaseExteriorSystem.GetPlotForPlayer(plr)
 	if plot and BaseExteriorSystem then
-		-- Clear any custom theme (removes shell, resets parts) then apply base color
-		if BaseExteriorSystem.ApplyThemeToPlot then
-			BaseExteriorSystem.ApplyThemeToPlot(plot, nil)
-		end
-		if BaseExteriorSystem.ApplyBaseColorToPlot then
-			BaseExteriorSystem.ApplyBaseColorToPlot(plot, colorId)
-		end
+		applyPlotCosmetics(plr, plot)
 	end
 	return true, colorId and "Base color applied!" or "Color removed"
 end
@@ -1995,6 +2279,16 @@ end
 -- SET COMPANION TARGET (client sends UniqueId or model; we resolve by id then get data from the model)
 setCompanionTarget.OnServerEvent:Connect(function(plr, targetIdOrModel)
 	if not FavoriteCreatureSystem then return end
+	if type(targetIdOrModel) == "string" then
+		local thiefUid = string.match(targetIdOrModel, "^pvpthief_(%d+)$")
+		if thiefUid then
+			local thiefPlr = Players:GetPlayerByUserId(tonumber(thiefUid))
+			local thiefChar = thiefPlr and thiefPlr.Character
+			if FavoriteCreatureSystem.SetStealRecoveryPlayerTarget(plr, thiefChar, tonumber(thiefUid)) then
+				return
+			end
+		end
+	end
 	local creatureModel = type(targetIdOrModel) == "string" and findCreatureModelByUniqueId(targetIdOrModel) or (type(targetIdOrModel) == "userdata" and targetIdOrModel:IsA("Model") and targetIdOrModel or nil)
 	FavoriteCreatureSystem.SetTarget(plr, creatureModel)
 end)
@@ -2182,10 +2476,9 @@ buyFloor.OnServerInvoke = function(plr, floorNum)
 		local d = PlayerDataManager.GetData(plr)
 		local pm = nil
 		if d and d.plotId and d.plotId > 0 then
-			local plotsFolder = workspace:FindFirstChild("BasePlots")
+			local plotsFolder = findBasePlotsFolder()
 			if plotsFolder then
-				pm = plotsFolder:FindFirstChild("Plot" .. d.plotId)
-					or plotsFolder:FindFirstChild("Part" .. d.plotId)
+				pm = findPlotModelInFolder(plotsFolder, d.plotId)
 			end
 		end
 		if pm and LaserDoorSystem and LaserDoorSystem.CreateForPlot then

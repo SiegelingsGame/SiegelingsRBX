@@ -1,4 +1,4 @@
--- Last updated: 2026-03-27 14:45
+-- Last updated: 2026-04-18 22:15
 -- BadlandsSystem.lua - ServerScriptService (ModuleScript)
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- THE BADLANDS — Master Coordinator (Phase 1: Core Loop)
@@ -52,6 +52,7 @@ local HttpService = game:GetService("HttpService")
 
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+local NpcSpawnMarkers = require(ReplicatedStorage.Modules.NpcSpawnMarkers)
 
 local BadlandsSystem = {}
 
@@ -1381,6 +1382,10 @@ local function extractPlayer(userId)
 	if PlayerDataManager and PlayerDataManager.HasSigil and PlayerDataManager.AddSigil then
 		if not PlayerDataManager.HasSigil(ps.player, siegeLordZone) then
 			PlayerDataManager.AddSigil(ps.player, siegeLordZone)
+			-- Persist immediately: extraction is a milestone moment; don't rely on 120s auto-save.
+			if PlayerDataManager.SavePlayer then
+				pcall(function() PlayerDataManager.SavePlayer(ps.player) end)
+			end
 			local sigilEvt = eventsFolder and eventsFolder:FindFirstChild("SigilEarned")
 			if sigilEvt then
 				sigilEvt:FireClient(ps.player, siegeLordZone)
@@ -2141,7 +2146,11 @@ local function createBrokerNPC()
 	-- Spawn The Broker at workspace.HubArea.SpawnLocation.
 	-- Falls back to workspace.Arena if HubArea doesn't exist.
 	-- If there's already a BrokerNPC part anywhere, reuse it.
+	-- Optional: any BasePart named BrokerSpawn overrides position/facing.
 	-- ═══════════════════════════════════════════════════════════════════
+
+	local brokerSpawnMarker = NpcSpawnMarkers.FindNamedPart("BrokerSpawn")
+	local brokerPlacement = brokerSpawnMarker and NpcSpawnMarkers.ResolvePlacementRelativeToHubSpawn("BrokerSpawn")
 
 	-- Check for an existing BrokerNPC already in workspace (Model or BasePart).
 	-- FIX: Previously returned early without adding ProximityPrompt/BillboardGui,
@@ -2159,6 +2168,20 @@ local function createBrokerNPC()
 		-- Reuse existing — ensure PrimaryPart is set for Models
 		if existingNpc:IsA("Model") then
 			resolveBrokerPrimaryPart(existingNpc)
+		end
+		if brokerSpawnMarker then
+			local baseXZ = brokerPlacement and brokerPlacement.worldPosition or brokerSpawnMarker.Position
+			local spawnRefForFacing = brokerPlacement and brokerPlacement.spawnPart or brokerSpawnMarker
+			local rayOrigin = Vector3.new(baseXZ.X, baseXZ.Y + 50, baseXZ.Z)
+			local rayResult = Workspace:Raycast(rayOrigin, Vector3.new(0, -200, 0))
+			local groundY = rayResult and rayResult.Position.Y or baseXZ.Y
+			local spawnAtCF = buildBrokerSpawnCFrame(baseXZ, groundY, spawnRefForFacing)
+			if existingNpc:IsA("Model") and existingNpc.PrimaryPart then
+				existingNpc:PivotTo(spawnAtCF)
+			elseif existingNpc:IsA("BasePart") then
+				existingNpc.CFrame = spawnAtCF * CFrame.new(0, existingNpc.Size.Y / 2, 0)
+			end
+			print("[Badlands] Positioned existing BrokerNPC at BrokerSpawn (" .. (brokerPlacement and "via SpawnLocation" or "raw marker") .. ")")
 		end
 		-- Anchor all parts so the NPC doesn't fall
 		if existingNpc:IsA("Model") then
@@ -2245,13 +2268,27 @@ local function createBrokerNPC()
 		return npc
 	end
 
-	-- ── Find spawn position: HubArea > SpawnLocation ──
+	-- ── Find spawn position: optional BrokerSpawn, else HubArea > SpawnLocation ──
 	local parentFolder = nil   -- Where to parent the NPC
 	local basePos = nil
 	local spawnRef = nil       -- Hub SpawnLocation (used for upright facing)
 
+	if brokerSpawnMarker then
+		if brokerPlacement then
+			spawnRef = brokerPlacement.spawnPart
+			basePos = brokerPlacement.worldPosition
+			parentFolder = brokerPlacement.spawnPart.Parent or Workspace
+			print("[Badlands] Using BrokerSpawn resolved against HubArea.SpawnLocation")
+		else
+			spawnRef = brokerSpawnMarker
+			basePos = brokerSpawnMarker.Position
+			parentFolder = brokerSpawnMarker.Parent or Workspace
+			print("[Badlands] Using BrokerSpawn raw (no Hub SpawnLocation for resolve)")
+		end
+	end
+
 	local hubArea = Workspace:FindFirstChild("HubArea")
-	if hubArea then
+	if not basePos and hubArea then
 		local spawnLoc = hubArea:FindFirstChild("SpawnLocation")
 		if spawnLoc and spawnLoc:IsA("BasePart") then
 			spawnRef = spawnLoc

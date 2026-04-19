@@ -1,4 +1,5 @@
 -- CosmeticSystem.lua - ServerScriptService (ModuleScript)
+-- Last updated: 2026-04-18 19:30
 -- Handles cosmetic purchases, equipping, and visual application.
 -- Trails, auras, and name colors applied to player characters.
 
@@ -251,9 +252,9 @@ function CosmeticSystem.Init(pdm)
 				if not d or d.coins < config.coinCost then return false, "Not enough coins!" end
 				PlayerDataManager.SpendCoins(player, config.coinCost)
 			elseif currency == "gems" then
-				if config.gemCost <= 0 then return false, "Not for gems" end
+				if config.gemCost <= 0 then return false, "Not for diamonds" end
 				if not PlayerDataManager.SpendGems(player, config.gemCost) then
-					return false, "Not enough gems!"
+					return false, "Not enough diamonds!"
 				end
 			else
 				return false, "Invalid currency"
@@ -266,10 +267,11 @@ function CosmeticSystem.Init(pdm)
 			applyAllCosmetics(player)
 			savePlayerCustomization(player)
 
-			-- Update coins
 			local d = PlayerDataManager.GetData(player)
 			local coinsEvt = events and events:FindFirstChild("CoinsUpdate")
 			if coinsEvt and d then coinsEvt:FireClient(player, d.coins) end
+			local gemsEvt = events and events:FindFirstChild("GemsUpdate")
+			if gemsEvt and d then gemsEvt:FireClient(player, PlayerDataManager.GetGems(player)) end
 
 			print("[Cosmetic] " .. player.Name .. " bought " .. cosmeticId)
 			-- #region agent log

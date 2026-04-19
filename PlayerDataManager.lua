@@ -1,6 +1,6 @@
 -- PlayerDataManager.lua - ServerScriptService (ModuleScript)
 -- Manages all persistent player data.
--- Last updated: 2026-03-28 14:30
+-- Last updated: 2026-04-20 13:00
 
 local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
@@ -77,7 +77,8 @@ local function getDefaultData()
 	local startingCoins = (GameConfig.DebugCoins1000 and 1000) or GameConfig.StartingCoins
 	return {
 		coins        = startingCoins,
-		gems         = 0,  -- premium currency
+		gems         = 0,  -- premium currency (displayed as Diamonds in UI)
+		scoins       = 0,  -- SCoins (special currency; spent by future features)
 		inventory    = {},
 		baseSlots    = {},
 		defenseSlots = {},
@@ -92,7 +93,7 @@ local function getDefaultData()
 		activeBuffs  = {},  -- {buffId = {expiresAt = tick, ...}, ...}
 		cosmetics    = {owned = {}, equipped = {}},  -- {owned = {id1=true, ...}, equipped = {trail="", aura=""}}
 		exterior     = {owned = {}, equipped = nil}, -- nil equipped = standard gray base
-		baseColor    = {owned = {}, equipped = nil}, -- {owned = {id1=true, ...}, equipped = "base_red" or nil}
+		baseColor    = {owned = {}, equipped = nil}, -- Base Plots: IncomePoint / DefensePoint pad tints (see ApplyBaseColorToPlot)
 		playerLevel  = 1,
 		playerXP     = 0,
 		ownedFloors  = {1},  -- array of floor numbers owned; starts with Floor 1
@@ -672,7 +673,14 @@ function PlayerDataManager.AddCreature(player, creatureId, level, xp, variant, e
 	-- Use existing unique id when provided (e.g. from captured world creature) so creature data is maintained
 	local uid = (type(existingUid) == "string" and #existingUid > 0) and existingUid or PlayerDataManager.GenerateUID()
 	variant = variant or "Normal"
-	table.insert(d.inventory, { id = creatureId, uid = uid, level = level or 1, xp = xp or 0, variant = variant })
+	local row = { id = creatureId, uid = uid, level = level or 1, xp = xp or 0, variant = variant }
+	if context and type(context.nickname) == "string" and context.nickname ~= "" then
+		row.nickname = context.nickname
+	end
+	if context and context.nicknameEverSet then
+		row.nicknameEverSet = true
+	end
+	table.insert(d.inventory, row)
 	local source = context and context.source
 	if source == "capture" then
 		PlayerDataManager.NotifyAchievement("OnCapture", player, creatureId, context)
@@ -1822,6 +1830,15 @@ function PlayerDataManager.GetClaimedPlotIds()
 	return out
 end
 
+--- plotId → online owner UserId (nil if unclaimed). Used by BasePlacement to restore Floor2+ after global visibility refresh.
+function PlayerDataManager.GetUserIdForPlot(plotId)
+	local id = tonumber(plotId)
+	if not id or id <= 0 then
+		return nil
+	end
+	return claimedPlotIds[id]
+end
+
 -- ====== Lifecycle ======
 
 function PlayerDataManager.OnPlayerJoin(player)
@@ -1966,15 +1983,23 @@ end
 function PlayerDataManager.OnPlayerLeave(player)
 	local uid = player.UserId
 	craftingMixByUserId[uid] = nil
-	local d = playerCache[uid]
-	if d then
-		-- Release plot so another player can claim it
-		if d.plotId and d.plotId > 0 and claimedPlotIds[d.plotId] == player.UserId then
+	-- Init runs before MainServer/BasePlacement register PlayerRemoving; this handler runs first.
+	-- Defer teardown so later handlers still see plotId/playerCache during world cleanup.
+	task.defer(function()
+		if Players:GetPlayerByUserId(uid) ~= nil then
+			return
+		end
+		local d = playerCache[uid]
+		if not d then
+			return
+		end
+		if d.plotId and d.plotId > 0 and claimedPlotIds[d.plotId] == uid then
 			claimedPlotIds[d.plotId] = nil
 		end
-		saveToStore(player.UserId, d)
-		playerCache[player.UserId] = nil
-	end
+		d.plotId = 0
+		saveToStore(uid, d)
+		playerCache[uid] = nil
+	end)
 end
 
 function PlayerDataManager.SaveAll()
@@ -1990,6 +2015,20 @@ end
 
 function PlayerDataManager.GetGems(player)
 	local d = playerCache[player.UserId]; return d and d.gems or 0
+end
+
+function PlayerDataManager.GetScoins(player)
+	local d = playerCache[player.UserId]
+	return d and math.max(0, math.floor(tonumber(d.scoins) or 0)) or 0
+end
+
+function PlayerDataManager.AddScoins(player, amount)
+	local d = playerCache[player.UserId]
+	if not d then return false end
+	amount = math.floor(tonumber(amount) or 0)
+	if amount <= 0 then return false end
+	d.scoins = math.max(0, math.floor(tonumber(d.scoins) or 0)) + amount
+	return true
 end
 
 function PlayerDataManager.AddGems(player, amount)
@@ -2584,6 +2623,7 @@ function PlayerDataManager.BuyFloor(player, floorNum)
 	d.coins = d.coins - cost
 	table.insert(d.ownedFloors, floorNum)
 	PlayerDataManager.NotifyAchievement("OnFloorUnlocked", player, floorNum)
+	PlayerDataManager.SavePlayer(player)
 	return true, "Floor " .. floorNum .. " unlocked!"
 end
 

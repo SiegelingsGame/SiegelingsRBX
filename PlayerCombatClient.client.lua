@@ -1,3 +1,4 @@
+-- Last updated: 2026-04-18 23:40
 -- PlayerCombatClient.lua - StarterPlayer.StarterPlayerScripts (LocalScript)
 -- Target-based combat: Player and companion only attack when a target is selected from the target menu.
 -- F toggles ranged / melee mode. Click on fainted creature = capture (handled by CaptureClient).
@@ -166,7 +167,7 @@ task.spawn(function()
 		if now - lastAutoAttack < cd then continue end
 
 		-- Check if any GUI panel is open (don't attack while managing inventory etc.)
-		local guiNames = {"InventoryUI", "ShopHubGUI", "EggShopGUI", "BuffShopGUI", "CosmeticShopGUI", "FriendsListGUI"}
+		local guiNames = {"InventoryUI", "ShopHubGUI", "EggShopGUI", "BuffShopGUI", "CosmeticShopGUI", "ScoinsShopGUI", "GemsShopGUI", "FriendsListGUI"}
 		local menuOpen = false
 		for _, gn in ipairs(guiNames) do
 			local gui = playerGui:FindFirstChild(gn)
@@ -182,6 +183,43 @@ task.spawn(function()
 		end
 		if menuOpen then
 			targetIndicator.Visible = false
+			continue
+		end
+
+		-- Steal recovery: hit the player carrying your Siegeling (target id pvpthief_<userId>)
+		if string.sub(targetId, 1, 10) == "pvpthief_" then
+			local tid = tonumber(string.sub(targetId, 11))
+			local thief = tid and Players:GetPlayerByUserId(tid)
+			local char = thief and thief.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			local body = char and char:FindFirstChild("HumanoidRootPart")
+			if hum and hum.Health > 0 and body then
+				local range = combatMode == "ranged" and GameConfig.PlayerRangedRange
+					or (GameConfig.PlayerMeleeRange or GameConfig.PlayerMeleeRadius)
+				if (root.Position - body.Position).Magnitude <= range then
+					lastAutoAttack = now
+					targetLbl.Text = "Hit thief to free Siegeling"
+					targetIndicator.Visible = true
+					lastOutOfRangeToast = 0
+					if combatMode == "ranged" then
+						local origin = root.Position + Vector3.new(0, 2, 0)
+						local direction = (body.Position - origin).Unit
+						if direction.Magnitude > 0.1 then
+							playerAttack:FireServer("ranged", origin, direction, targetId)
+						end
+					else
+						playerAttack:FireServer("melee", root.Position, nil, targetId)
+					end
+				else
+					targetIndicator.Visible = false
+					if now - lastOutOfRangeToast >= 2.5 then
+						lastOutOfRangeToast = now
+						Notify.Toast("Get closer to the thief!", Color3.fromRGB(255, 120, 80), 2)
+					end
+				end
+			else
+				targetIndicator.Visible = false
+			end
 			continue
 		end
 

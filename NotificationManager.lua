@@ -1,4 +1,5 @@
 -- NotificationManager.lua - ReplicatedStorage.Modules (ModuleScript)
+-- Last updated: 2026-04-20 16:00
 -- Toast, Ticker (top bar), Banner, KillFeed, FloatingText, RewardPopup. GUI restores on respawn.
 --
 -- TICKER ARCHITECTURE:
@@ -108,8 +109,10 @@ local function ensureToastContainer()
 
 	toastContainer = Instance.new("Frame")
 	toastContainer.Name = "ToastContainer"
-	toastContainer.Size = UDim2.new(0, 560, 0, 220)
-	toastContainer.Position = UDim2.new(0.5, -280, 0, 12)
+	toastContainer.AnchorPoint = Vector2.new(1, 0)
+	toastContainer.Size = UDim2.new(0, 360, 0, 220)
+	-- Below top-right crest row (~52px) so notification toasts align with the unified badge strip.
+	toastContainer.Position = UDim2.new(1, -12, 0, 54)
 	toastContainer.BackgroundTransparency = 1
 	toastContainer.Parent = sg
 
@@ -118,7 +121,7 @@ local function ensureToastContainer()
 	layout.Padding = UDim.new(0, 6)
 	layout.FillDirection = Enum.FillDirection.Vertical
 	layout.VerticalAlignment = Enum.VerticalAlignment.Top
-	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	layout.HorizontalAlignment = Enum.HorizontalAlignment.Right
 	layout.Parent = toastContainer
 
 	return toastContainer
@@ -812,7 +815,7 @@ function NotificationManager.KillFeed(attackerName, defenderName, color)
 		killFeedContainer = Instance.new("Frame")
 		killFeedContainer.Name = "KillFeed"
 		killFeedContainer.Size = UDim2.new(0, 260, 0, 140)
-		killFeedContainer.Position = UDim2.new(1, -270, 0, 70)
+		killFeedContainer.Position = UDim2.new(1, -270, 0, 288)
 		killFeedContainer.BackgroundTransparency = 1
 		killFeedContainer.Parent = sg
 		local layout = Instance.new("UIListLayout")

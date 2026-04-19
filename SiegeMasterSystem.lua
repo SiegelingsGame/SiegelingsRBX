@@ -1,11 +1,12 @@
 -- SiegeMasterSystem.lua - ServerScriptService (ModuleScript)
 -- Spawns "Siege Master" in/near arena and opens siege provisions shop UI.
--- Last updated: 2026-03-28 16:15
+-- Last updated: 2026-04-18 22:15
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+local NpcSpawnMarkers = require(ReplicatedStorage.Modules.NpcSpawnMarkers)
 
 local SiegeMasterSystem = {}
 
@@ -60,6 +61,52 @@ end
 
 -- Curator uses Broker + ArenaTrader.OffsetFromBrokerStuds; Siege Master mirrors: Broker - that offset (same distance, other side).
 local function buildSpawnCFrame()
+	local siegePlacement = NpcSpawnMarkers.ResolvePlacementRelativeToHubSpawn("SiegeSpawn")
+	if siegePlacement then
+		local cfg = getConfig()
+		local wxz = siegePlacement.worldPosition
+		local rayOrigin = Vector3.new(wxz.X, wxz.Y + 70, wxz.Z)
+		local rayResult = Workspace:Raycast(rayOrigin, Vector3.new(0, -260, 0))
+		local groundY = rayResult and rayResult.Position.Y or wxz.Y
+		local groundOfs = tonumber(cfg.GroundOffsetStuds) or 2.5
+		local pos = Vector3.new(wxz.X, groundY + groundOfs, wxz.Z)
+		local flat = siegePlacement.flatLookWorld
+		local baseCF = CFrame.lookAt(pos, pos + flat)
+		local extraRot = cfg.ExtraRotationDegrees
+		if type(extraRot) == "table" then
+			local pitch = tonumber(extraRot.pitch) or 0
+			local yaw = tonumber(extraRot.yaw) or 0
+			local roll = tonumber(extraRot.roll) or 0
+			if pitch ~= 0 or yaw ~= 0 or roll ~= 0 then
+				baseCF = baseCF * CFrame.Angles(math.rad(pitch), math.rad(yaw), math.rad(roll))
+			end
+		end
+		return baseCF
+	end
+
+	local siegeMarker = NpcSpawnMarkers.FindNamedPart("SiegeSpawn")
+	if siegeMarker then
+		local cfg = getConfig()
+		local rayOrigin = Vector3.new(siegeMarker.Position.X, siegeMarker.Position.Y + 70, siegeMarker.Position.Z)
+		local rayResult = Workspace:Raycast(rayOrigin, Vector3.new(0, -260, 0))
+		local groundY = rayResult and rayResult.Position.Y or siegeMarker.Position.Y
+		local groundOfs = tonumber(cfg.GroundOffsetStuds) or 2.5
+		local pos = Vector3.new(siegeMarker.Position.X, groundY + groundOfs, siegeMarker.Position.Z)
+		local lv = siegeMarker.CFrame.LookVector
+		local flat = Vector3.new(lv.X, 0, lv.Z)
+		local baseCF = (flat.Magnitude > 1e-3) and CFrame.lookAt(pos, pos + flat.Unit) or CFrame.new(pos)
+		local extraRot = cfg.ExtraRotationDegrees
+		if type(extraRot) == "table" then
+			local pitch = tonumber(extraRot.pitch) or 0
+			local yaw = tonumber(extraRot.yaw) or 0
+			local roll = tonumber(extraRot.roll) or 0
+			if pitch ~= 0 or yaw ~= 0 or roll ~= 0 then
+				baseCF = baseCF * CFrame.Angles(math.rad(pitch), math.rad(yaw), math.rad(roll))
+			end
+		end
+		return baseCF
+	end
+
 	local cfg = getConfig()
 	local traderCfg = GameConfig.ArenaTrader or {}
 	local offsetFromBroker = traderCfg.OffsetFromBrokerStuds or Vector3.new(-26, 0, 0)

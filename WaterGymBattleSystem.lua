@@ -702,6 +702,10 @@ local function runBattle()
 		if PlayerDataManager.AddSigil then
 			local hadSigil = PlayerDataManager.HasSigil(currentKing, zoneKey)
 			PlayerDataManager.AddSigil(currentKing, zoneKey)
+			-- Persist immediately so gym-win sigils survive disconnect before 120s auto-save.
+			if PlayerDataManager.SavePlayer then
+				pcall(function() PlayerDataManager.SavePlayer(currentKing) end)
+			end
 			if not hadSigil then
 				local eventsFolder = ReplicatedStorage:FindFirstChild("Events")
 				local sigilEvt = eventsFolder and eventsFolder:FindFirstChild("SigilEarned")

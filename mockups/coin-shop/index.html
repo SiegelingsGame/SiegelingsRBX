@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Coin Shop — Siege Monsters Mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Luckiest+Guy&family=Inter:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-gradient-start: #1a0f2e;
+    --bg-gradient-mid: #2d1a4b;
+    --bg-gradient-end: #0e0820;
+
+    --panel-bg: rgba(32, 20, 58, 0.82);
+    --panel-border: #ffc23a;
+    --panel-border-dark: #8c5a0a;
+
+    --gold-1: #ffe36b;
+    --gold-2: #ffb13b;
+    --gold-3: #b8740a;
+
+    --gem-1: #7af3ff;
+    --gem-2: #29b6ff;
+    --gem-3: #1b4cb3;
+
+    --coin-1: #ffe885;
+    --coin-2: #ffc23a;
+    --coin-3: #a35f09;
+
+    --text-light: #fff4d6;
+    --text-dim: #c7b3e0;
+
+    --tier-common: #b1b5c4;
+    --tier-uncommon: #6be26b;
+    --tier-rare: #57a8ff;
+    --tier-epic: #c876ff;
+    --tier-legendary: #ffba2b;
+    --tier-mythic: #ff4d7a;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; padding: 0;
+    width: 100%; height: 100%;
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--text-light);
+    background:
+      radial-gradient(ellipse at 20% 10%, #3a1d5c 0%, transparent 45%),
+      radial-gradient(ellipse at 80% 90%, #1b3f6b 0%, transparent 50%),
+      linear-gradient(135deg, var(--bg-gradient-start), var(--bg-gradient-mid) 55%, var(--bg-gradient-end));
+    overflow: hidden;
+  }
+
+  /* faux Roblox game viewport */
+  .stage {
+    position: relative;
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+  }
+
+  /* Floating particles for polish */
+  .particle {
+    position: absolute;
+    width: 6px; height: 6px; border-radius: 50%;
+    background: radial-gradient(circle, #fff 0%, rgba(255,255,255,0) 70%);
+    opacity: .5;
+    pointer-events: none;
+    animation: drift 14s linear infinite;
+  }
+  @keyframes drift {
+    0%   { transform: translateY(100vh) scale(.6); opacity: 0; }
+    10%  { opacity: .6; }
+    100% { transform: translateY(-10vh) scale(1); opacity: 0; }
+  }
+
+  /* ───────────── Shop frame ───────────── */
+  .shop {
+    position: relative;
+    width: min(1080px, 96vw);
+    height: min(720px, 92vh);
+    border-radius: 28px;
+    background: var(--panel-bg);
+    backdrop-filter: blur(14px);
+    border: 4px solid var(--panel-border);
+    box-shadow:
+      0 0 0 2px var(--panel-border-dark) inset,
+      0 20px 60px rgba(0,0,0,.55),
+      0 0 80px rgba(255,194,58,.25);
+    display: grid;
+    grid-template-rows: auto auto 1fr auto;
+    overflow: hidden;
+  }
+
+  /* ───── Header ───── */
+  .shop-header {
+    position: relative;
+    padding: 18px 24px 14px;
+    display: flex; align-items: center; justify-content: space-between;
+    background:
+      linear-gradient(180deg, rgba(255,194,58,.25), rgba(255,194,58,0)),
+      linear-gradient(180deg, #3a1d5c 0%, #2a1344 100%);
+    border-bottom: 3px solid var(--panel-border);
+  }
+
+  .title {
+    display: flex; align-items: center; gap: 14px;
+  }
+  .title-icon {
+    width: 56px; height: 56px;
+    border-radius: 16px;
+    display: grid; place-items: center;
+    background: radial-gradient(circle at 30% 30%, var(--coin-1), var(--coin-2) 55%, var(--coin-3));
+    border: 3px solid #fff3a1;
+    box-shadow: 0 6px 14px rgba(0,0,0,.4), inset 0 -4px 0 rgba(0,0,0,.25);
+    font-size: 30px;
+  }
+  .title h1 {
+    font-family: 'Luckiest Guy', 'Inter', sans-serif;
+    font-weight: 400;
+    margin: 0;
+    font-size: 40px;
+    letter-spacing: 1px;
+    color: var(--coin-1);
+    text-shadow:
+      2px 2px 0 var(--coin-3),
+      0 0 18px rgba(255,194,58,.45);
+  }
+  .title p {
+    margin: 2px 0 0;
+    font-size: 13px;
+    color: var(--text-dim);
+    letter-spacing: .3px;
+  }
+
+  .balance {
+    display: flex; gap: 10px;
+  }
+  .pill {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: rgba(0,0,0,.45);
+    border: 2px solid rgba(255,255,255,.12);
+    font-weight: 800;
+    font-size: 15px;
+  }
+  .pill .dot {
+    width: 22px; height: 22px; border-radius: 50%;
+    display: grid; place-items: center;
+    font-size: 13px;
+    box-shadow: inset 0 -3px 0 rgba(0,0,0,.35);
+  }
+  .pill.gems .dot {
+    background: radial-gradient(circle at 30% 30%, var(--gem-1), var(--gem-2) 55%, var(--gem-3));
+    border: 2px solid #b8faff;
+    color: #fff;
+  }
+  .pill.coins .dot {
+    background: radial-gradient(circle at 30% 30%, var(--coin-1), var(--coin-2) 55%, var(--coin-3));
+    border: 2px solid #fff3a1;
+    color: #5a3200;
+  }
+  .pill.gems     { color: #d9f9ff; }
+  .pill.coins    { color: #fff4c1; }
+  .pill .plus {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: #2ecc71; color: #0e2d1a; font-weight: 900;
+    display: grid; place-items: center; font-size: 16px; cursor: pointer;
+    border: 2px solid #a7ffc7;
+    transition: transform .1s ease;
+  }
+  .pill .plus:hover { transform: scale(1.08); }
+
+  .close {
+    position: absolute; top: 10px; right: 10px;
+    width: 36px; height: 36px; border-radius: 10px;
+    background: #b1263a; color: #fff; font-weight: 900; font-size: 18px;
+    border: 3px solid #ff8da0; cursor: pointer;
+    box-shadow: 0 4px 0 #5a1320;
+  }
+  .close:hover { transform: translateY(-1px); }
+
+  /* ───── Tabs / Filters ───── */
+  .subbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 22px;
+    background: rgba(0,0,0,.25);
+    border-bottom: 2px solid rgba(255,194,58,.35);
+  }
+  .tabs { display: flex; gap: 8px; }
+  .tab {
+    padding: 8px 14px;
+    font-size: 13px; font-weight: 800; letter-spacing: .4px;
+    border-radius: 10px;
+    background: rgba(255,255,255,.05);
+    border: 2px solid rgba(255,255,255,.08);
+    color: var(--text-dim);
+    cursor: pointer;
+    text-transform: uppercase;
+  }
+  .tab.active {
+    color: #2a1344;
+    background: linear-gradient(180deg, var(--gold-1), var(--gold-2));
+    border-color: #fff3a1;
+    box-shadow: 0 3px 0 var(--gold-3), 0 0 18px rgba(255,194,58,.4);
+  }
+  .rate {
+    font-size: 12px; color: var(--text-dim);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .rate b { color: var(--coin-1); }
+
+  /* ───── Grid of coin packs ───── */
+  .grid {
+    padding: 22px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+    gap: 18px;
+    overflow: auto;
+  }
+
+  .pack {
+    position: relative;
+    border-radius: 20px;
+    padding: 16px 14px 14px;
+    display: grid;
+    grid-template-rows: auto 1fr auto auto;
+    gap: 8px;
+    background:
+      radial-gradient(ellipse at top, rgba(255,255,255,.08), transparent 60%),
+      linear-gradient(180deg, #2a1856, #150a30);
+    border: 3px solid var(--tier-color, var(--tier-common));
+    box-shadow:
+      0 0 0 2px rgba(0,0,0,.35) inset,
+      0 10px 18px rgba(0,0,0,.45),
+      0 0 24px var(--tier-glow, transparent);
+    transition: transform .15s ease, box-shadow .15s ease;
+    cursor: pointer;
+  }
+  .pack:hover {
+    transform: translateY(-4px);
+    box-shadow:
+      0 0 0 2px rgba(0,0,0,.35) inset,
+      0 16px 28px rgba(0,0,0,.55),
+      0 0 34px var(--tier-glow, rgba(255,255,255,.2));
+  }
+  .pack[data-tier="common"]    { --tier-color: var(--tier-common);    --tier-glow: rgba(177,181,196,.35); }
+  .pack[data-tier="uncommon"]  { --tier-color: var(--tier-uncommon);  --tier-glow: rgba(107,226,107,.35); }
+  .pack[data-tier="rare"]      { --tier-color: var(--tier-rare);      --tier-glow: rgba(87,168,255,.40); }
+  .pack[data-tier="epic"]      { --tier-color: var(--tier-epic);      --tier-glow: rgba(200,118,255,.45); }
+  .pack[data-tier="legendary"] { --tier-color: var(--tier-legendary); --tier-glow: rgba(255,186,43,.55); }
+  .pack[data-tier="mythic"]    { --tier-color: var(--tier-mythic);    --tier-glow: rgba(255,77,122,.55); }
+
+  .pack-top {
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .tier {
+    font-family: 'Luckiest Guy', 'Inter', sans-serif;
+    font-size: 13px; letter-spacing: 1px;
+    padding: 4px 10px; border-radius: 8px;
+    color: #12091f;
+    background: var(--tier-color);
+    border: 2px solid rgba(255,255,255,.35);
+    text-transform: uppercase;
+  }
+  .badge {
+    font-size: 11px; font-weight: 800;
+    padding: 3px 8px; border-radius: 8px;
+    background: #ff4d7a; color: #fff;
+    border: 2px solid #ffb4c6;
+    box-shadow: 0 2px 0 #7a1d33;
+  }
+  .badge.hot { background: #ff7a29; border-color: #ffd0ae; box-shadow: 0 2px 0 #7a3a10; }
+  .badge.best{ background: #6be26b; color: #0e2d1a; border-color: #c6ffc6; box-shadow: 0 2px 0 #1c5a1c; }
+
+  .coin-visual {
+    margin: 6px 0 2px;
+    display: grid; place-items: center;
+    aspect-ratio: 1 / 1;
+    position: relative;
+  }
+  .coin-stack {
+    position: relative;
+    width: 84%; height: 84%;
+  }
+  .coin {
+    position: absolute; left: 50%; top: 50%;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    background:
+      radial-gradient(circle at 30% 30%, var(--coin-1) 0%, var(--coin-2) 55%, var(--coin-3) 100%);
+    border: 3px solid #fff3a1;
+    box-shadow:
+      inset 0 -6px 0 rgba(0,0,0,.3),
+      inset 0 4px 0 rgba(255,255,255,.35),
+      0 6px 12px rgba(0,0,0,.4);
+    display: grid; place-items: center;
+    font-family: 'Luckiest Guy', sans-serif;
+    color: #5a3200;
+    font-size: clamp(18px, 3vw, 34px);
+    text-shadow: 1px 1px 0 rgba(255,255,255,.4);
+  }
+  /* Stack sizes by tier */
+  .pack[data-tier="common"] .c1    { width: 60%; height: 60%; }
+  .pack[data-tier="uncommon"] .c1  { width: 48%; height: 48%; transform: translate(-80%, 10%); }
+  .pack[data-tier="uncommon"] .c2  { width: 60%; height: 60%; transform: translate(-20%, -30%); }
+
+  .pack[data-tier="rare"] .c1 { width: 44%; height: 44%; transform: translate(-95%, 30%); }
+  .pack[data-tier="rare"] .c2 { width: 44%; height: 44%; transform: translate(-5%, 30%); }
+  .pack[data-tier="rare"] .c3 { width: 56%; height: 56%; transform: translate(-50%, -30%); }
+
+  .pack[data-tier="epic"] .c1 { width: 40%; height: 40%; transform: translate(-100%, 40%); }
+  .pack[data-tier="epic"] .c2 { width: 40%; height: 40%; transform: translate(0%, 40%); }
+  .pack[data-tier="epic"] .c3 { width: 46%; height: 46%; transform: translate(-75%, -15%); }
+  .pack[data-tier="epic"] .c4 { width: 46%; height: 46%; transform: translate(-25%, -15%); }
+  .pack[data-tier="epic"] .c5 { width: 52%; height: 52%; transform: translate(-50%, -70%); }
+
+  .pack[data-tier="legendary"] .c1 { width: 38%; height: 38%; transform: translate(-110%, 40%); }
+  .pack[data-tier="legendary"] .c2 { width: 38%; height: 38%; transform: translate(-50%, 40%); }
+  .pack[data-tier="legendary"] .c3 { width: 38%; height: 38%; transform: translate(10%, 40%); }
+  .pack[data-tier="legendary"] .c4 { width: 42%; height: 42%; transform: translate(-85%, -5%); }
+  .pack[data-tier="legendary"] .c5 { width: 42%; height: 42%; transform: translate(-15%, -5%); }
+  .pack[data-tier="legendary"] .c6 { width: 46%; height: 46%; transform: translate(-50%, -55%); }
+
+  .pack[data-tier="mythic"] .c1 { width: 34%; height: 34%; transform: translate(-120%, 55%); }
+  .pack[data-tier="mythic"] .c2 { width: 34%; height: 34%; transform: translate(-70%, 55%); }
+  .pack[data-tier="mythic"] .c3 { width: 34%; height: 34%; transform: translate(-20%, 55%); }
+  .pack[data-tier="mythic"] .c4 { width: 34%; height: 34%; transform: translate(30%, 55%); }
+  .pack[data-tier="mythic"] .c5 { width: 38%; height: 38%; transform: translate(-95%, 15%); }
+  .pack[data-tier="mythic"] .c6 { width: 38%; height: 38%; transform: translate(-45%, 15%); }
+  .pack[data-tier="mythic"] .c7 { width: 38%; height: 38%; transform: translate(5%, 15%); }
+  .pack[data-tier="mythic"] .c8 { width: 44%; height: 44%; transform: translate(-70%, -30%); }
+  .pack[data-tier="mythic"] .c9 { width: 44%; height: 44%; transform: translate(-20%, -30%); }
+  .pack[data-tier="mythic"] .c10{ width: 52%; height: 52%; transform: translate(-50%, -80%); }
+
+  /* glow behind coin stack */
+  .coin-visual::before {
+    content: '';
+    position: absolute; inset: 14%;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--tier-color) 0%, transparent 65%);
+    filter: blur(18px);
+    opacity: .55;
+    z-index: 0;
+  }
+  .coin-stack { z-index: 1; }
+
+  .pack-amount {
+    text-align: center;
+    font-family: 'Luckiest Guy', sans-serif;
+    font-size: 26px;
+    color: var(--coin-1);
+    letter-spacing: .5px;
+    text-shadow: 2px 2px 0 var(--coin-3);
+    line-height: 1;
+  }
+  .pack-amount small {
+    display: block;
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 1.5px;
+    margin-top: 3px;
+    text-shadow: none;
+  }
+  .bonus {
+    color: #6be26b;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px; font-weight: 800;
+    margin-top: 2px;
+    display: inline-block;
+    background: rgba(107,226,107,.12);
+    border: 1px solid rgba(107,226,107,.4);
+    padding: 2px 8px; border-radius: 8px;
+    text-shadow: none;
+  }
+
+  .buy-btn {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 14px;
+    font-family: 'Luckiest Guy', sans-serif;
+    font-size: 18px;
+    letter-spacing: 1px;
+    color: #07192e;
+    background: linear-gradient(180deg, #7af3ff, #29b6ff 55%, #1b4cb3);
+    border: 3px solid #b8faff;
+    box-shadow: 0 5px 0 #0a2a66, 0 8px 14px rgba(0,0,0,.4);
+    cursor: pointer;
+    transition: transform .1s ease, box-shadow .1s ease;
+  }
+  .buy-btn .gem-icon {
+    width: 20px; height: 20px; border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, #eafdff, var(--gem-1) 50%, var(--gem-3));
+    border: 2px solid #fff;
+    box-shadow: inset 0 -3px 0 rgba(0,0,0,.3);
+  }
+  .buy-btn:hover { transform: translateY(-2px); box-shadow: 0 7px 0 #0a2a66, 0 10px 16px rgba(0,0,0,.45); }
+  .buy-btn:active{ transform: translateY(2px);  box-shadow: 0 2px 0 #0a2a66; }
+
+  /* ───── Footer ───── */
+  .shop-footer {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 22px;
+    background: rgba(0,0,0,.35);
+    border-top: 2px solid rgba(255,194,58,.35);
+    font-size: 12px; color: var(--text-dim);
+  }
+  .shop-footer .hint {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .kbd {
+    display: inline-block;
+    padding: 2px 7px; border-radius: 6px;
+    background: #12091f;
+    border: 1px solid rgba(255,255,255,.2);
+    font-family: 'Inter', monospace;
+    font-weight: 800;
+    color: var(--gold-1);
+  }
+
+  /* ───── Purchase modal ───── */
+  .modal-overlay {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,.6);
+    display: none; align-items: center; justify-content: center;
+    z-index: 10;
+    backdrop-filter: blur(4px);
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    width: 380px;
+    background:
+      radial-gradient(ellipse at top, rgba(255,255,255,.08), transparent 60%),
+      linear-gradient(180deg, #2a1856, #150a30);
+    border: 4px solid var(--panel-border);
+    border-radius: 20px;
+    padding: 22px;
+    text-align: center;
+    box-shadow: 0 0 0 2px var(--panel-border-dark) inset, 0 20px 60px rgba(0,0,0,.6);
+    animation: pop .18s ease;
+  }
+  @keyframes pop {
+    from { transform: scale(.9); opacity: 0; }
+    to   { transform: scale(1); opacity: 1; }
+  }
+  .modal h2 {
+    font-family: 'Luckiest Guy', sans-serif;
+    font-size: 28px; margin: 0 0 8px;
+    color: var(--coin-1);
+    text-shadow: 2px 2px 0 var(--coin-3);
+  }
+  .modal p { color: var(--text-dim); font-size: 14px; margin: 0 0 16px; }
+  .modal .receipt {
+    background: rgba(0,0,0,.35);
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 16px;
+    display: grid; gap: 6px;
+    font-size: 14px;
+  }
+  .receipt .row {
+    display: flex; justify-content: space-between;
+  }
+  .receipt .row b { color: var(--text-light); }
+  .receipt .row.total {
+    border-top: 1px dashed rgba(255,255,255,.2);
+    padding-top: 6px; margin-top: 2px;
+    font-weight: 800; color: var(--gem-1);
+  }
+  .modal-actions { display: flex; gap: 10px; }
+  .btn {
+    flex: 1;
+    padding: 10px; border-radius: 12px;
+    font-family: 'Luckiest Guy', sans-serif;
+    font-size: 16px;
+    letter-spacing: 1px;
+    border: 3px solid;
+    cursor: pointer;
+    color: #12091f;
+  }
+  .btn.cancel {
+    background: linear-gradient(180deg, #c1c4d1, #8b90a2);
+    border-color: #e6e8ef;
+    box-shadow: 0 4px 0 #3a3d48;
+  }
+  .btn.confirm {
+    background: linear-gradient(180deg, var(--gold-1), var(--gold-2));
+    border-color: #fff3a1;
+    box-shadow: 0 4px 0 var(--gold-3);
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn:active{ transform: translateY(2px); }
+
+  /* Toast */
+  .toast {
+    position: absolute; bottom: 80px; left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    padding: 10px 18px;
+    background: rgba(14,45,26,.9);
+    border: 2px solid #6be26b;
+    color: #d6ffd6;
+    border-radius: 12px;
+    font-weight: 800;
+    opacity: 0; pointer-events: none;
+    transition: opacity .25s ease, transform .25s ease;
+    z-index: 20;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @media (max-width: 860px) {
+    .grid { grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(3, 1fr); }
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+  <!-- drifting particles for atmosphere -->
+  <div class="particle" style="left:8%;  animation-delay:0s;"></div>
+  <div class="particle" style="left:22%; animation-delay:3s;"></div>
+  <div class="particle" style="left:38%; animation-delay:6s;"></div>
+  <div class="particle" style="left:55%; animation-delay:9s;"></div>
+  <div class="particle" style="left:72%; animation-delay:2s;"></div>
+  <div class="particle" style="left:88%; animation-delay:7s;"></div>
+
+  <section class="shop" role="dialog" aria-label="Coin Shop">
+    <!-- ═════ Header ═════ -->
+    <header class="shop-header">
+      <div class="title">
+        <div class="title-icon">🪙</div>
+        <div>
+          <h1>COIN EXCHANGE</h1>
+          <p>Trade your gems for stacks of shiny coins</p>
+        </div>
+      </div>
+      <div class="balance">
+        <div class="pill gems">
+          <span class="dot">💎</span>
+          <span id="gemBalance">2,450</span>
+          <span class="plus" title="Buy more gems">+</span>
+        </div>
+        <div class="pill coins">
+          <span class="dot">🪙</span>
+          <span id="coinBalance">18,320</span>
+        </div>
+      </div>
+      <button class="close" title="Close">✕</button>
+    </header>
+
+    <!-- ═════ Subbar ═════ -->
+    <div class="subbar">
+      <div class="tabs">
+        <div class="tab active">💰 Coin Packs</div>
+        <div class="tab">⚡ Boosts</div>
+        <div class="tab">🎁 Bundles</div>
+      </div>
+      <div class="rate">
+        Base rate: <b>1 💎 = 50 🪙</b> &nbsp;·&nbsp; Bigger packs get <b style="color:#6be26b">bonus %</b>
+      </div>
+    </div>
+
+    <!-- ═════ Pack grid ═════ -->
+    <div class="grid">
+
+      <!-- 1: Common — Tiny -->
+      <article class="pack" data-tier="common" data-name="Pocket Pouch" data-coins="500" data-gems="10" data-bonus="0">
+        <div class="pack-top">
+          <span class="tier">Common</span>
+        </div>
+        <div class="coin-visual">
+          <div class="coin-stack">
+            <div class="coin c1">$</div>
+          </div>
+        </div>
+        <div class="pack-amount">500<small>COINS</small></div>
+        <button class="buy-btn"><span class="gem-icon"></span>10 GEMS</button>
+      </article>
+
+      <!-- 2: Uncommon -->
+      <article class="pack" data-tier="uncommon" data-name="Adventurer Sack" data-coins="2750" data-gems="50" data-bonus="10">
+        <div class="pack-top">
+          <span class="tier">Uncommon</span>
+          <span class="badge hot">+10%</span>
+        </div>
+        <div class="coin-visual">
+          <div class="coin-stack">
+            <div class="coin c1">$</div>
+            <div class="coin c2">$</div>
+          </div>
+        </div>
+        <div class="pack-amount">2,750<small>COINS</small>
+          <span class="bonus">+250 BONUS</span>
+        </div>
+        <button class="buy-btn"><span class="gem-icon"></span>50 GEMS</button>
+      </article>
+
+      <!-- 3: Rare -->
+      <article class="pack" data-tier="rare" data-name="Knight's Coffer" data-coins="6000" data-gems="100" data-bonus="20">
+        <div class="pack-top">
+          <span class="tier">Rare</span>
+          <span class="badge hot">+20%</span>
+        </div>
+        <div class="coin-visual">
+          <div class="coin-stack">
+            <div class="coin c1">$</div>
+            <div class="coin c2">$</div>
+            <div class="coin c3">$</div>
+          </div>
+        </div>
+        <div class="pack-amount">6,000<small>COINS</small>
+          <span class="bonus">+1,000 BONUS</span>
+        </div>
+        <button class="buy-btn"><span class="gem-icon"></span>100 GEMS</button>
+      </article>
+
+      <!-- 4: Epic -->
+      <article class="pack" data-tier="epic" data-name="Sorcerer's Hoard" data-coins="16500" data-gems="250" data-bonus="32">
+        <div class="pack-top">
+          <span class="tier">Epic</span>
+          <span class="badge hot">+32%</span>
+        </div>
+        <div class="coin-visual">
+          <div class="coin-stack">
+            <div class="coin c1">$</div>
+            <div class="coin c2">$</div>
+            <div class="coin c3">$</div>
+            <div class="coin c4">$</div>
+            <div class="coin c5">$</div>
+          </div>
+        </div>
+        <div class="pack-amount">16,500<small>COINS</small>
+          <span class="bonus">+4,000 BONUS</span>
+        </div>
+        <button class="buy-btn"><span class="gem-icon"></span>250 GEMS</button>
+      </article>
+
+      <!-- 5: Legendary — BEST VALUE -->
+      <article class="pack" data-tier="legendary" data-name="Dragon's Trove" data-coins="37500" data-gems="500" data-bonus="50">
+        <div class="pack-top">
+          <span class="tier">Legendary</span>
+          <span class="badge best">BEST VALUE</span>
+        </div>
+        <div class="coin-visual">
+          <div class="coin-stack">
+            <div class="coin c1">$</div>
+            <div class="coin c2">$</div>
+            <div class="coin c3">$</div>
+            <div class="coin c4">$</div>
+            <div class="coin c5">$</div>
+            <div class="coin c6">$</div>
+          </div>
+        </div>
+        <div class="pack-amount">37,500<small>COINS</small>
+          <span class="bonus">+12,500 BONUS</span>
+        </div>
+        <button class="buy-btn"><span class="gem-icon"></span>500 GEMS</button>
+      </article>
+
+      <!-- 6: Mythic -->
+      <article class="pack" data-tier="mythic" data-name="Titan's Vault" data-coins="90000" data-gems="1000" data-bonus="80">
+        <div class="pack-top">
+          <span class="tier">Mythic</span>
+          <span class="badge">MEGA +80%</span>
+        </div>
+        <div class="coin-visual">
+          <div class="coin-stack">
+            <div class="coin c1">$</div>
+            <div class="coin c2">$</div>
+            <div class="coin c3">$</div>
+            <div class="coin c4">$</div>
+            <div class="coin c5">$</div>
+            <div class="coin c6">$</div>
+            <div class="coin c7">$</div>
+            <div class="coin c8">$</div>
+            <div class="coin c9">$</div>
+            <div class="coin c10">$</div>
+          </div>
+        </div>
+        <div class="pack-amount">90,000<small>COINS</small>
+          <span class="bonus">+40,000 BONUS</span>
+        </div>
+        <button class="buy-btn"><span class="gem-icon"></span>1,000 GEMS</button>
+      </article>
+
+    </div>
+
+    <!-- ═════ Footer ═════ -->
+    <footer class="shop-footer">
+      <div class="hint">Press <span class="kbd">C</span> to close &nbsp;·&nbsp; Hover a pack to preview</div>
+      <div>Siege Monsters · Coin Shop v1 (mockup)</div>
+    </footer>
+  </section>
+
+  <!-- Confirm modal -->
+  <div class="modal-overlay" id="modal">
+    <div class="modal">
+      <h2 id="modalTitle">Confirm Purchase</h2>
+      <p>Are you sure you want to buy this coin pack?</p>
+      <div class="receipt">
+        <div class="row"><span>Pack</span><b id="rPack">—</b></div>
+        <div class="row"><span>Coins gained</span><b id="rCoins" style="color:#ffd86a">— 🪙</b></div>
+        <div class="row"><span>Bonus</span><b id="rBonus" style="color:#6be26b">— %</b></div>
+        <div class="row total"><span>Total cost</span><b id="rGems">— 💎</b></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn cancel" id="btnCancel">Cancel</button>
+        <button class="btn confirm" id="btnConfirm">Buy</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">Purchase successful!</div>
+</div>
+
+<script>
+  // ── State ──
+  const state = {
+    gems: 2450,
+    coins: 18320,
+    selected: null,
+  };
+
+  const fmt = n => n.toLocaleString();
+  const gemEl  = document.getElementById('gemBalance');
+  const coinEl = document.getElementById('coinBalance');
+  const modal  = document.getElementById('modal');
+  const toast  = document.getElementById('toast');
+
+  // ── Open confirm modal on buy ──
+  document.querySelectorAll('.pack').forEach(card => {
+    card.querySelector('.buy-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const d = card.dataset;
+      state.selected = {
+        name: d.name,
+        coins: parseInt(d.coins, 10),
+        gems:  parseInt(d.gems, 10),
+        bonus: parseInt(d.bonus, 10),
+      };
+      document.getElementById('rPack').textContent  = d.name;
+      document.getElementById('rCoins').textContent = fmt(state.selected.coins) + ' 🪙';
+      document.getElementById('rBonus').textContent = '+' + state.selected.bonus + '%';
+      document.getElementById('rGems').textContent  = fmt(state.selected.gems) + ' 💎';
+      modal.classList.add('open');
+    });
+  });
+
+  // Cancel
+  document.getElementById('btnCancel').addEventListener('click', () => {
+    modal.classList.remove('open');
+    state.selected = null;
+  });
+
+  // Confirm purchase (mockup: adjust balances, show toast)
+  document.getElementById('btnConfirm').addEventListener('click', () => {
+    if (!state.selected) return;
+    if (state.gems < state.selected.gems) {
+      showToast('Not enough gems!', true);
+      modal.classList.remove('open');
+      return;
+    }
+    state.gems  -= state.selected.gems;
+    state.coins += state.selected.coins;
+    gemEl.textContent  = fmt(state.gems);
+    coinEl.textContent = fmt(state.coins);
+    modal.classList.remove('open');
+    showToast(`+${fmt(state.selected.coins)} coins added!`);
+    state.selected = null;
+  });
+
+  function showToast(msg, isError=false) {
+    toast.textContent = msg;
+    toast.style.borderColor = isError ? '#ff4d7a' : '#6be26b';
+    toast.style.background  = isError ? 'rgba(60,10,20,.9)' : 'rgba(14,45,26,.9)';
+    toast.style.color       = isError ? '#ffd6df' : '#d6ffd6';
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 1800);
+  }
+
+  // Tabs (mockup only — logs intent)
+  document.querySelectorAll('.tab').forEach(t => {
+    t.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+    });
+  });
+
+  // Close shortcut
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' || e.key === 'c' || e.key === 'C') {
+      modal.classList.remove('open');
+    }
+  });
+</script>
+</body>
+</html>

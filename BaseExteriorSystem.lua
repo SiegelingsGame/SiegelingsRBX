@@ -24,6 +24,8 @@
     Events.RefreshExterior:FireServer()
 ]]
 
+-- Last updated: 2026-04-18 23:25
+
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -296,6 +298,54 @@ local THEME_PALETTES = {
 		GymBlueTeam = Color3.fromRGB(80, 80, 255),
 		GymRedTeam  = Color3.fromRGB(255, 60, 60),
 	},
+	JungleHut = {
+		Wall   = { Color = Color3.fromRGB(72, 92, 54),   Material = Enum.Material.Wood },
+		Floor  = { Color = Color3.fromRGB(58, 78, 46),   Material = Enum.Material.LeafyGrass },
+		Trim   = { Color = Color3.fromRGB(96, 72, 42),   Material = Enum.Material.Wood },
+		Point  = { Color = Color3.fromRGB(52, 68, 44),   Material = Enum.Material.Ground },
+		Stairs = { Color = Color3.fromRGB(84, 64, 38),   Material = Enum.Material.Wood },
+		Sign   = { Color = Color3.fromRGB(110, 130, 72), Material = Enum.Material.Wood },
+		Door   = { Color = Color3.fromRGB(68, 52, 34),   Material = Enum.Material.Wood },
+		Window = { Color = Color3.fromRGB(85, 105, 70),  Material = Enum.Material.Glass },
+		GymBlueTeam = Color3.fromRGB(70, 160, 220),
+		GymRedTeam  = Color3.fromRGB(220, 95, 55),
+	},
+	IceFortress = {
+		Wall   = { Color = Color3.fromRGB(178, 215, 235), Material = Enum.Material.Ice },
+		Floor  = { Color = Color3.fromRGB(210, 232, 245), Material = Enum.Material.Snow },
+		Trim   = { Color = Color3.fromRGB(140, 175, 205), Material = Enum.Material.Glacier },
+		Point  = { Color = Color3.fromRGB(155, 195, 220), Material = Enum.Material.Ice },
+		Stairs = { Color = Color3.fromRGB(188, 218, 238), Material = Enum.Material.Ice },
+		Sign   = { Color = Color3.fromRGB(165, 205, 228), Material = Enum.Material.SmoothPlastic },
+		Door   = { Color = Color3.fromRGB(120, 155, 188), Material = Enum.Material.Ice },
+		Window = { Color = Color3.fromRGB(195, 225, 242), Material = Enum.Material.Glass },
+		GymBlueTeam = Color3.fromRGB(55, 110, 210),
+		GymRedTeam  = Color3.fromRGB(230, 75, 85),
+	},
+	VolcanicCavern = {
+		Wall   = { Color = Color3.fromRGB(42, 34, 38),    Material = Enum.Material.Basalt },
+		Floor  = { Color = Color3.fromRGB(48, 28, 22),    Material = Enum.Material.CrackedLava },
+		Trim   = { Color = Color3.fromRGB(255, 95, 38),    Material = Enum.Material.Neon },
+		Point  = { Color = Color3.fromRGB(55, 42, 44),    Material = Enum.Material.Slate },
+		Stairs = { Color = Color3.fromRGB(62, 48, 46),    Material = Enum.Material.Rock },
+		Sign   = { Color = Color3.fromRGB(75, 58, 52),    Material = Enum.Material.Basalt },
+		Door   = { Color = Color3.fromRGB(38, 28, 26),    Material = Enum.Material.Slate },
+		Window = { Color = Color3.fromRGB(255, 130, 55), Material = Enum.Material.Neon },
+		GymBlueTeam = Color3.fromRGB(65, 145, 240),
+		GymRedTeam  = Color3.fromRGB(255, 215, 60),
+	},
+	FloatingPalace = {
+		Wall   = { Color = Color3.fromRGB(235, 242, 252), Material = Enum.Material.Marble },
+		Floor  = { Color = Color3.fromRGB(248, 250, 255), Material = Enum.Material.CeramicTiles },
+		Trim   = { Color = Color3.fromRGB(218, 198, 140), Material = Enum.Material.SmoothPlastic },
+		Point  = { Color = Color3.fromRGB(225, 232, 248), Material = Enum.Material.Marble },
+		Stairs = { Color = Color3.fromRGB(238, 242, 252), Material = Enum.Material.Marble },
+		Sign   = { Color = Color3.fromRGB(210, 225, 245), Material = Enum.Material.Limestone },
+		Door   = { Color = Color3.fromRGB(230, 208, 155), Material = Enum.Material.Marble },
+		Window = { Color = Color3.fromRGB(190, 215, 245), Material = Enum.Material.Glass },
+		GymBlueTeam = Color3.fromRGB(85, 125, 235),
+		GymRedTeam  = Color3.fromRGB(235, 105, 115),
+	},
 	-- Plain color themes (same code path as full themes; no exterior shell)
 	-- Each includes GymBlueTeam/GymRedTeam colors that never match the main color
 	exterior_red    = { Wall = {Color = Color3.fromRGB(200, 60, 60)}, Floor = {Color = Color3.fromRGB(200, 60, 60)}, Trim = {Color = Color3.fromRGB(200, 60, 60)}, Point = {Color = Color3.fromRGB(200, 60, 60)}, Stairs = {Color = Color3.fromRGB(200, 60, 60)}, Sign = {Color = Color3.fromRGB(200, 60, 60)}, Door = {Color = Color3.fromRGB(200, 60, 60)}, Window = {Color = Color3.fromRGB(200, 60, 60)}, GymBlueTeam = Color3.fromRGB(60, 140, 220), GymRedTeam = Color3.fromRGB(60, 200, 100) },
@@ -304,7 +354,22 @@ local THEME_PALETTES = {
 	exterior_yellow = { Wall = {Color = Color3.fromRGB(220, 200, 60)}, Floor = {Color = Color3.fromRGB(220, 200, 60)}, Trim = {Color = Color3.fromRGB(220, 200, 60)}, Point = {Color = Color3.fromRGB(220, 200, 60)}, Stairs = {Color = Color3.fromRGB(220, 200, 60)}, Sign = {Color = Color3.fromRGB(220, 200, 60)}, Door = {Color = Color3.fromRGB(220, 200, 60)}, Window = {Color = Color3.fromRGB(220, 200, 60)}, GymBlueTeam = Color3.fromRGB(60, 140, 220), GymRedTeam = Color3.fromRGB(200, 60, 60) },
 	exterior_purple = { Wall = {Color = Color3.fromRGB(140, 80, 200)}, Floor = {Color = Color3.fromRGB(140, 80, 200)}, Trim = {Color = Color3.fromRGB(140, 80, 200)}, Point = {Color = Color3.fromRGB(140, 80, 200)}, Stairs = {Color = Color3.fromRGB(140, 80, 200)}, Sign = {Color = Color3.fromRGB(140, 80, 200)}, Door = {Color = Color3.fromRGB(140, 80, 200)}, Window = {Color = Color3.fromRGB(140, 80, 200)}, GymBlueTeam = Color3.fromRGB(60, 140, 220), GymRedTeam = Color3.fromRGB(200, 60, 60) },
 	exterior_orange = { Wall = {Color = Color3.fromRGB(230, 140, 50)}, Floor = {Color = Color3.fromRGB(230, 140, 50)}, Trim = {Color = Color3.fromRGB(230, 140, 50)}, Point = {Color = Color3.fromRGB(230, 140, 50)}, Stairs = {Color = Color3.fromRGB(230, 140, 50)}, Sign = {Color = Color3.fromRGB(230, 140, 50)}, Door = {Color = Color3.fromRGB(230, 140, 50)}, Window = {Color = Color3.fromRGB(230, 140, 50)}, GymBlueTeam = Color3.fromRGB(60, 140, 220), GymRedTeam = Color3.fromRGB(200, 60, 60) },
+	exterior_white  = { Wall = {Color = Color3.fromRGB(248, 248, 250)}, Floor = {Color = Color3.fromRGB(248, 248, 250)}, Trim = {Color = Color3.fromRGB(248, 248, 250)}, Point = {Color = Color3.fromRGB(248, 248, 250)}, Stairs = {Color = Color3.fromRGB(248, 248, 250)}, Sign = {Color = Color3.fromRGB(248, 248, 250)}, Door = {Color = Color3.fromRGB(248, 248, 250)}, Window = {Color = Color3.fromRGB(248, 248, 250)}, GymBlueTeam = Color3.fromRGB(60, 140, 220), GymRedTeam = Color3.fromRGB(200, 60, 60) },
+	exterior_black  = { Wall = {Color = Color3.fromRGB(28, 28, 32)}, Floor = {Color = Color3.fromRGB(28, 28, 32)}, Trim = {Color = Color3.fromRGB(28, 28, 32)}, Point = {Color = Color3.fromRGB(28, 28, 32)}, Stairs = {Color = Color3.fromRGB(28, 28, 32)}, Sign = {Color = Color3.fromRGB(28, 28, 32)}, Door = {Color = Color3.fromRGB(28, 28, 32)}, Window = {Color = Color3.fromRGB(28, 28, 32)}, GymBlueTeam = Color3.fromRGB(90, 170, 255), GymRedTeam = Color3.fromRGB(255, 85, 85) },
 }
+
+--- Premium full themes override part materials; exterior_* paint themes = color only (keeps DiamondPlate in Studio).
+local PREMIUM_FULL_THEME_IDS = {
+	HauntedHouse = true,
+	RetroArcade = true,
+	JungleHut = true,
+	IceFortress = true,
+	VolcanicCavern = true,
+	FloatingPalace = true,
+}
+local function isPremiumFullTheme(themeId)
+	return themeId ~= nil and PREMIUM_FULL_THEME_IDS[themeId] == true
+end
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- DEFAULT GYM TEAM COLORS (used when no theme is equipped or theme has no overrides)
@@ -338,7 +403,6 @@ local function applyGymTeamColors(plotModel, blueColor, redColor)
 			for _, desc in ipairs(teamFolder:GetDescendants()) do
 				if desc:IsA("BasePart") and desc.Name:match("^BattlePoint") then
 					desc.Color = color
-					desc.Material = Enum.Material.SmoothPlastic
 				end
 			end
 		end
@@ -346,7 +410,8 @@ local function applyGymTeamColors(plotModel, blueColor, redColor)
 end
 
 local DEFAULT_GREY = Color3.fromRGB(120, 120, 125)
-local DEFAULT_MATERIAL = Enum.Material.Concrete
+-- No exterior theme: grass tint on foundations; materials stay as authored (e.g. DiamondPlate).
+local DEFAULT_GRASS_COLOR = Color3.fromRGB(88, 142, 72)
 
 local function isGlassPart(part)
 	if part.Transparency >= 0.9 then return true end
@@ -439,9 +504,23 @@ local function isDescendantOfBaseSlotCreature(part)
 	return false
 end
 
+-- Floor1/Carpet1 (or CArpet1) and Floor2/Carpet2: tinted via ApplyBaseColorToPlot (income vs defense shop colors).
+local CARPET_FOLDER_NAMES = { Carpet1 = true, CArpet1 = true, Carpet2 = true, CArpet2 = true }
+local function isUnderBaseCarpetFolder(part)
+	local p = part and part.Parent
+	while p do
+		if CARPET_FOLDER_NAMES[p.Name] then
+			return true
+		end
+		p = p.Parent
+	end
+	return false
+end
+
 --- Parts that should never use exterior / base-color cosmetics (keep asset colors).
 local function shouldSkipCosmeticRecolor(part)
 	if not part or not part:IsA("BasePart") then return false end
+	if isUnderBaseCarpetFolder(part) then return true end
 	if isLeaderboardCosmeticPart(part) then return true end
 	if isDescendantOfBaseSlotCreature(part) then return true end
 	local n = part.Name
@@ -483,47 +562,88 @@ local function createShellPart(name, size, cframe, parent, color, material)
 	return p
 end
 
---- Check if part should get base color (walls, stairs, floors, points — not glass, teleporters, combiner, recycler).
+--- Check if part should get base color (plot center, ramps, stairs, floors; not glass or special machines).
 --- Floor decks: e.g. Folder "Floor2" → Part "Floor2" (same as theme isFloorPart; case-insensitive "floor" match).
 local function shouldApplyBaseColor(part)
 	if isGlassPart(part) then return false end
 	if shouldSkipCosmeticRecolor(part) then return false end
 	local n = part.Name
 	local nl = string.lower(n)
-	if nl:find("wall", 1, true) then return true end
+	if nl == "plotcenter" then return true end
+	if nl:find("ramp", 1, true) then return true end
 	if nl:find("stair", 1, true) then return true end
 	if nl:find("floor", 1, true) then return true end
-	if n:match("^DefensePoint") then return true end
-	if n:match("^IncomePoint") then return true end
-	if n:match("^BattlePoint") then return true end
 	return false
 end
 
---- Reset parts to default grey when unequipping. onlyBaseColorParts = true resets walls/stairs/points only (not teleporter/combiner/recycler).
-local function applyDefaultToPlot(plotModel, onlyBaseColorParts)
+-- Stored Enum.Material.Value from before any cosmetic changed this part (restore on unequip).
+local ATTR_ORIGIN_MAT = "BaseCosmeticOriginMaterial"
+
+local function materialFromStoredValue(val)
+	if type(val) ~= "number" then return nil end
+	for _, e in ipairs(Enum.Material:GetEnumItems()) do
+		if e.Value == val then
+			return e
+		end
+	end
+	return nil
+end
+
+local function restoreOriginMaterial(desc)
+	local v = desc:GetAttribute(ATTR_ORIGIN_MAT)
+	local mat = materialFromStoredValue(v)
+	if mat then
+		desc.Material = mat
+	end
+end
+
+-- Forward declaration — assigned after shouldApplyBaseSlotPadColor / carpet helpers exist.
+local ensureCosmeticOriginSnapshots
+
+local function applyDefaultToFilteredParts(plotModel, filterFn)
 	for _, desc in ipairs(plotModel:GetDescendants()) do
 		if desc:IsA("BasePart") and not isGlassPart(desc) then
 			if shouldSkipCosmeticRecolor(desc) then continue end
-			if onlyBaseColorParts and not shouldApplyBaseColor(desc) then continue end
+			if filterFn and not filterFn(desc) then continue end
 			desc.Color = DEFAULT_GREY
-			desc.Material = DEFAULT_MATERIAL
 			desc.Transparency = 0
+			restoreOriginMaterial(desc)
 		end
 	end
 end
 
+--- Reset parts to default grey when unequipping. onlyBaseColorParts = true resets foundations only.
+local function applyDefaultToPlot(plotModel, onlyBaseColorParts)
+	applyDefaultToFilteredParts(plotModel, onlyBaseColorParts and shouldApplyBaseColor or nil)
+end
+
 --- Apply theme as skin: recolor non-glass parts and add ExteriorShell (door + window frames). Does not delete plot.
---- For color-only themes (BaseExteriorItems with .color): apply color to walls & stairs only, no shell.
+--- For color-only themes (BaseExteriorItems with .color): apply color to base foundations only, no shell.
 function BaseExteriorSystem.ApplyThemeToPlot(plotModel, themeId)
 	if not plotModel or not plotModel.Parent then return false end
+
+	if ensureCosmeticOriginSnapshots then
+		ensureCosmeticOriginSnapshots(plotModel)
+	end
 
 	-- Remove previous exterior shell
 	local oldShell = plotModel:FindFirstChild("ExteriorShell")
 	if oldShell then oldShell:Destroy() end
 
 	if not themeId or themeId == "" then
-		applyDefaultToPlot(plotModel, false)
-		-- FIX: Always apply distinct gym team colors even on default theme
+		-- Default plot: grass tint on foundations; grey trim elsewhere.
+		-- Materials: restore Studio/default snapshot (premium themes overwrite Material).
+		for _, desc in ipairs(plotModel:GetDescendants()) do
+			if desc:IsA("BasePart") and not isGlassPart(desc) and not shouldSkipCosmeticRecolor(desc) then
+				if shouldApplyBaseColor(desc) then
+					desc.Color = DEFAULT_GRASS_COLOR
+				else
+					desc.Color = DEFAULT_GREY
+				end
+				desc.Transparency = 0
+				restoreOriginMaterial(desc)
+			end
+		end
 		applyGymTeamColors(plotModel, DEFAULT_GYM_BLUE, DEFAULT_GYM_RED)
 		return true
 	end
@@ -531,18 +651,18 @@ function BaseExteriorSystem.ApplyThemeToPlot(plotModel, themeId)
 	local palette = THEME_PALETTES[themeId]
 	if not palette then return false end
 
-	-- 1) Recolor all non-glass BaseParts in the plot
-	-- For color-only themes (exterior_red etc), set SmoothPlastic so color is visible (Material was overriding)
+	-- 1) Recolor plot parts. Materials only change for premium full themes (see PREMIUM_FULL_THEME_IDS).
 	local isPlainColor = themeId:match("^exterior_")
+	local premiumFull = isPremiumFullTheme(themeId)
 	for _, desc in ipairs(plotModel:GetDescendants()) do
 		if desc:IsA("BasePart") and not isGlassPart(desc) and not shouldSkipCosmeticRecolor(desc) then
+			if isPlainColor and not shouldApplyBaseColor(desc) then
+				continue
+			end
 			local style = getThemeStyle(desc.Name, palette)
 			if style and style.Color then desc.Color = style.Color end
-			if style and style.Material then
+			if premiumFull and style and style.Material then
 				desc.Material = style.Material
-			elseif isPlainColor and style and style.Color then
-				-- Color-only themes: use SmoothPlastic so the color is clearly visible
-				desc.Material = Enum.Material.SmoothPlastic
 			end
 		end
 	end
@@ -604,25 +724,108 @@ function BaseExteriorSystem.ApplyThemeToPlot(plotModel, themeId)
 	return true
 end
 
---- Apply base color to walls, stairs, points. Does not affect glass, teleporters, combiner, or recycler.
---- Pass nil to reset those parts to default grey.
---- FIX: Floor 4 gym BattlePoints always get distinct team colors that never match the base color.
+--- Base Plots palette: tint IncomePoint* / DefensePoint* pads, Carpet1/Carpet2, and ramp parts (income vs defense by floor).
+--- Pass nil to reset pads to default grey; carpet parts keep their Studio colors (not overwritten).
 
--- Per-base-color gym team overrides (blue/red that contrast with the base color)
-local BASE_COLOR_GYM_TEAMS = {
-	base_red    = { blue = Color3.fromRGB(60, 140, 220), red = Color3.fromRGB(60, 200, 100) },
-	base_blue   = { blue = Color3.fromRGB(220, 180, 50), red = Color3.fromRGB(200, 60, 60) },
-	base_green  = { blue = Color3.fromRGB(60, 140, 220), red = Color3.fromRGB(200, 60, 60) },
-	base_yellow = { blue = Color3.fromRGB(60, 140, 220), red = Color3.fromRGB(200, 60, 60) },
-	base_purple = { blue = Color3.fromRGB(60, 140, 220), red = Color3.fromRGB(200, 60, 60) },
-	base_orange = { blue = Color3.fromRGB(60, 140, 220), red = Color3.fromRGB(200, 60, 60) },
-}
+local function shouldApplyBaseSlotPadColor(part)
+	if isGlassPart(part) then return false end
+	if shouldSkipCosmeticRecolor(part) then return false end
+	local n = part.Name
+	if string.sub(n, 1, 11) == "IncomePoint" then return true end
+	if string.sub(n, 1, 12) == "DefensePoint" then return true end
+	return false
+end
+
+--- Capture Enum.Material.Value once per part so unequipping themes/base tints can restore authored materials.
+ensureCosmeticOriginSnapshots = function(plotModel)
+	if not plotModel then return end
+	for _, desc in ipairs(plotModel:GetDescendants()) do
+		if desc:IsA("BasePart") and not isGlassPart(desc) then
+			local touchesTheme = not shouldSkipCosmeticRecolor(desc)
+			local touchesPads = shouldApplyBaseSlotPadColor(desc)
+			local touchesCarpet = isUnderBaseCarpetFolder(desc)
+			if touchesTheme or touchesPads or touchesCarpet then
+				if desc:GetAttribute(ATTR_ORIGIN_MAT) == nil then
+					desc:SetAttribute(ATTR_ORIGIN_MAT, desc.Material.Value)
+				end
+			end
+		end
+	end
+end
+
+--- Clear stored origin materials (e.g. after plot reset / recycling) so the next owner re-snapshots from template.
+function BaseExteriorSystem.ClearCosmeticOriginSnapshots(plotModel)
+	if not plotModel then return end
+	for _, desc in ipairs(plotModel:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			desc:SetAttribute(ATTR_ORIGIN_MAT, nil)
+		end
+	end
+end
+
+local function deriveDefensePadColor(main)
+	return Color3.new(
+		math.clamp(main.R * 0.82, 0, 1),
+		math.clamp(main.G * 0.82, 0, 1),
+		math.clamp(main.B * 0.82, 0, 1)
+	)
+end
+
+--- Floor1/Carpet1 → income shop color; Floor2/Carpet2 → defense shop color (BaseColorItems).
+local function applyCarpetFolderTints(plotModel, incomeCol, defenseCol)
+	if not plotModel then return end
+	local f1 = plotModel:FindFirstChild("Floor1")
+	if f1 then
+		local folder = f1:FindFirstChild("Carpet1") or f1:FindFirstChild("CArpet1")
+		if folder then
+			for _, d in ipairs(folder:GetDescendants()) do
+				if d:IsA("BasePart") and not isGlassPart(d) then
+					d.Color = incomeCol
+				end
+			end
+		end
+	end
+	local f2 = plotModel:FindFirstChild("Floor2")
+	if f2 then
+		local folder = f2:FindFirstChild("Carpet2") or f2:FindFirstChild("CArpet2")
+		if folder then
+			for _, d in ipairs(folder:GetDescendants()) do
+				if d:IsA("BasePart") and not isGlassPart(d) then
+					d.Color = defenseCol
+				end
+			end
+		end
+	end
+end
+
+--- Ramp parts (name contains "ramp"): Floor2 → defense pad color; Floor1 or elsewhere → income (matches Carpet1 / IncomePoint).
+local function applyRampPadTints(plotModel, incomeCol, defenseCol)
+	if not plotModel or not incomeCol or not defenseCol then return end
+	local f2 = plotModel:FindFirstChild("Floor2")
+	for _, desc in ipairs(plotModel:GetDescendants()) do
+		if desc:IsA("BasePart") and not isGlassPart(desc) and not shouldSkipCosmeticRecolor(desc) then
+			local nl = string.lower(desc.Name)
+			if nl:find("ramp", 1, true) then
+				if f2 and desc:IsDescendantOf(f2) then
+					desc.Color = defenseCol
+				else
+					desc.Color = incomeCol
+				end
+			end
+		end
+	end
+end
 
 function BaseExteriorSystem.ApplyBaseColorToPlot(plotModel, colorId)
 	if not plotModel or not plotModel.Parent then return false end
+
+	if ensureCosmeticOriginSnapshots then
+		ensureCosmeticOriginSnapshots(plotModel)
+	end
+
 	if not colorId or colorId == "" then
-		applyDefaultToPlot(plotModel, true)
-		applyGymTeamColors(plotModel, DEFAULT_GYM_BLUE, DEFAULT_GYM_RED)
+		applyDefaultToFilteredParts(plotModel, shouldApplyBaseSlotPadColor)
+		-- Carpet* folders: keep authored starter colors unless a Base Plots palette is equipped.
 		return true
 	end
 
@@ -635,22 +838,21 @@ function BaseExteriorSystem.ApplyBaseColorToPlot(plotModel, colorId)
 	end
 	if not config then return false end
 
-	local color = config.color
-	-- Use SmoothPlastic so the color is visible; some materials (e.g. Brick/Himmelblau) can obscure Color
+	local incomeCol = config.color
+	local defenseCol = config.defensePointColor or deriveDefensePadColor(incomeCol)
+
 	for _, desc in ipairs(plotModel:GetDescendants()) do
-		if desc:IsA("BasePart") and shouldApplyBaseColor(desc) then
-			desc.Color = color
-			desc.Material = Enum.Material.SmoothPlastic
+		if desc:IsA("BasePart") and shouldApplyBaseSlotPadColor(desc) then
+			local n = desc.Name
+			if string.sub(n, 1, 11) == "IncomePoint" then
+				desc.Color = incomeCol
+			elseif string.sub(n, 1, 12) == "DefensePoint" then
+				desc.Color = defenseCol
+			end
 		end
 	end
-
-	-- FIX: Override Floor 4 gym BattlePoints with distinct team colors (never match base color)
-	local gymOverride = BASE_COLOR_GYM_TEAMS[colorId]
-	if gymOverride then
-		applyGymTeamColors(plotModel, gymOverride.blue, gymOverride.red)
-	else
-		applyGymTeamColors(plotModel, DEFAULT_GYM_BLUE, DEFAULT_GYM_RED)
-	end
+	applyCarpetFolderTints(plotModel, incomeCol, defenseCol)
+	applyRampPadTints(plotModel, incomeCol, defenseCol)
 	return true
 end
 

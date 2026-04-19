@@ -1,5 +1,5 @@
 -- NonMobileUIScale.client.lua - StarterPlayer.StarterPlayerScripts (LocalScript)
--- Scales up the entire UI by 30% on non-mobile devices only.
+-- Scales up the entire UI by 25% on non-mobile devices only.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -9,7 +9,7 @@ local MobileWindowLayout = require(ReplicatedStorage:WaitForChild("Modules"):Wai
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
-local SCALE = 1.3
+local SCALE = 1.25
 local SCALE_NAME = "GlobalNonMobileScale"
 
 local function shouldScale()
@@ -56,4 +56,3 @@ playerGui.ChildAdded:Connect(function(child)
 end)
 
 print("[NonMobileUIScale] Loaded - non-mobile UI scale x" .. tostring(SCALE))
-

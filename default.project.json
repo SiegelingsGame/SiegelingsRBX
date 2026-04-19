@@ -16,9 +16,12 @@
         "BiomeZone": { "$path": "BiomeZone.lua" },
         "IngredientData": { "$path": "IngredientData.lua" },
         "NotificationManager": { "$path": "NotificationManager.lua" },
+        "TopRightBadgeTray": { "$path": "TopRightBadgeTray.lua" },
+        "DiamondNeedHint": { "$path": "DiamondNeedHint.lua" },
         "LivingWorldData": { "$path": "LivingWorldData.lua" },
         "CodexModelViewer": { "$path": "CodexModelViewer.lua" },
         "MobileWindowLayout": { "$path": "MobileWindowLayout.lua" },
+        "NpcSpawnMarkers": { "$path": "NpcSpawnMarkers.lua" },
         "CaptureCostUtil": { "$path": "CaptureCostUtil.lua" },
         "FurnitureCatalog": { "$path": "FurnitureCatalog.lua" },
         "PlayerWorldStats": { "$path": "PlayerWorldStats.lua" }
@@ -104,6 +107,9 @@
       },
       "EggShopSystem": {
         "$path": "EggShopSystem.lua"
+      },
+      "PremiumCurrencyShop": {
+        "$path": "PremiumCurrencyShop.lua"
       },
       "BuffShopSystem": {
         "$path": "BuffShopSystem.lua"
@@ -238,6 +244,12 @@
         "ShopHubClient": {
           "$path": "ShopHubClient.client.lua"
         },
+        "ScoinsShopClient": {
+          "$path": "ScoinsShopClient.client.lua"
+        },
+        "GemsShopClient": {
+          "$path": "GemsShopClient.client.lua"
+        },
         "CreatureAnimationClient": {
           "$path": "CreatureAnimationClient.client.lua"
         },
@@ -258,6 +270,12 @@
         },
         "GameplayMusic": {
           "$path": "GameplayMusic.client.lua"
+        },
+        "MusicMuteBadge": {
+          "$path": "MusicMuteBadge.client.lua"
+        },
+        "AchievementUnlockBadge": {
+          "$path": "AchievementUnlockBadge.client.lua"
         },
         "LivingWorldChatClient": {
           "$path": "LivingWorldChatClient.client.lua"
@@ -297,6 +315,9 @@
         },
         "ArenaTraderClient": {
           "$path": "ArenaTraderClient.client.lua"
+        },
+        "NpcHighlightClient": {
+          "$path": "NpcHighlightClient.client.lua"
         },
         "EleminionClient": {
           "$path": "EleminionClient.client.lua"

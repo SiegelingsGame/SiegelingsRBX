@@ -72,8 +72,10 @@ local DEFAULTS = {
 }
 
 local MENU_GAP_ABOVE_HUB_PX = 4
+local DESKTOP_WINDOW_MARGIN = 12
 
 local HUD_TWEEN_INFO = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local desktopWindowStates = setmetatable({}, { __mode = "k" })
 
 local function getViewport()
 	local camera = Workspace.CurrentCamera
@@ -88,6 +90,126 @@ local function getGuiInsets()
 		return Vector2.new(0, 0), Vector2.new(0, 0)
 	end
 	return topLeft, bottomRight
+end
+
+local function getRootViewportSize(frame)
+	local vp = getViewport()
+	if not frame then
+		return vp
+	end
+	local parent = frame.Parent
+	if parent and parent:IsA("GuiObject") then
+		return parent.AbsoluteSize
+	end
+	return vp
+end
+
+local function resolveGuiObjectPixelSize(frame)
+	if not frame then
+		return 0, 0
+	end
+	local rootSize = getRootViewportSize(frame)
+	local size = frame.Size
+	local width = (rootSize.X * size.X.Scale) + size.X.Offset
+	local height = (rootSize.Y * size.Y.Scale) + size.Y.Offset
+	return math.max(0, math.floor(width + 0.5)), math.max(0, math.floor(height + 0.5))
+end
+
+local function resolveGuiObjectTopLeft(frame, width, height)
+	if not frame then
+		return Vector2.zero
+	end
+	local rootSize = getRootViewportSize(frame)
+	local pos = frame.Position
+	local anchor = frame.AnchorPoint
+	local x = (rootSize.X * pos.X.Scale) + pos.X.Offset - (anchor.X * width)
+	local y = (rootSize.Y * pos.Y.Scale) + pos.Y.Offset - (anchor.Y * height)
+	return Vector2.new(x, y)
+end
+
+local function clampDesktopTopLeft(topLeft, width, height)
+	local vp = getViewport()
+	local minX = DESKTOP_WINDOW_MARGIN
+	local minY = DESKTOP_WINDOW_MARGIN
+	local maxX = math.max(minX, vp.X - width - DESKTOP_WINDOW_MARGIN)
+	local maxY = math.max(minY, vp.Y - height - DESKTOP_WINDOW_MARGIN)
+	return Vector2.new(
+		math.clamp(topLeft.X, minX, maxX),
+		math.clamp(topLeft.Y, minY, maxY)
+	)
+end
+
+local function getDesktopVisualScale(frame)
+	if MobileWindowLayout.IsMobile() then
+		return 1
+	end
+	local current = frame
+	while current do
+		if current:IsA("ScreenGui") then
+			local scaleObj = current:FindFirstChild("GlobalNonMobileScale")
+			if scaleObj and scaleObj:IsA("UIScale") and scaleObj.Scale > 0 then
+				return scaleObj.Scale
+			end
+			local anyScale = current:FindFirstChildOfClass("UIScale")
+			if anyScale and anyScale.Scale > 0 then
+				return anyScale.Scale
+			end
+			return 1
+		end
+		current = current.Parent
+	end
+	return 1
+end
+
+local function disconnectDesktopWindowState(frame)
+	local state = desktopWindowStates[frame]
+	if not state then
+		return
+	end
+	for _, conn in ipairs(state.connections) do
+		conn:Disconnect()
+	end
+	desktopWindowStates[frame] = nil
+end
+
+local function ensureDesktopWindowState(frame)
+	local existing = desktopWindowStates[frame]
+	if existing then
+		return existing
+	end
+
+	local state = {
+		applying = false,
+		userMoved = false,
+		lastTopLeft = nil,
+		connections = {},
+	}
+
+	table.insert(state.connections, frame:GetPropertyChangedSignal("Position"):Connect(function()
+		if state.applying or not frame.Visible then
+			return
+		end
+		local width, height = resolveGuiObjectPixelSize(frame)
+		state.userMoved = true
+		state.lastTopLeft = resolveGuiObjectTopLeft(frame, width, height)
+	end))
+
+	table.insert(state.connections, frame:GetPropertyChangedSignal("Visible"):Connect(function()
+		if frame.Visible then
+			return
+		end
+		state.userMoved = false
+		state.lastTopLeft = nil
+	end))
+
+	table.insert(state.connections, frame.AncestryChanged:Connect(function(_, parent)
+		if parent == nil then
+			disconnectDesktopWindowState(frame)
+		end
+	end))
+
+	desktopWindowStates[frame] = state
+	return state
 end
 
 local function getTickerTopBound()
@@ -400,6 +522,30 @@ function MobileWindowLayout.RestoreDesktopWindow(frame, config)
 	if frame:IsA("Frame") then
 		frame.Draggable = config.draggable == nil and true or config.draggable
 	end
+	local state = ensureDesktopWindowState(frame)
+	local baseWidth, baseHeight = resolveGuiObjectPixelSize(frame)
+	local scale = getDesktopVisualScale(frame)
+	local scaledWidth = baseWidth * scale
+	local scaledHeight = baseHeight * scale
+	local targetTopLeft
+
+	if state.userMoved and state.lastTopLeft and frame.Visible then
+		targetTopLeft = state.lastTopLeft
+	else
+		targetTopLeft = resolveGuiObjectTopLeft(frame, baseWidth, baseHeight)
+		state.userMoved = false
+	end
+
+	targetTopLeft = clampDesktopTopLeft(targetTopLeft, scaledWidth, scaledHeight)
+
+	state.applying = true
+	frame.AnchorPoint = Vector2.new(0, 0)
+	frame.Position = UDim2.fromOffset(
+		math.floor(targetTopLeft.X + 0.5),
+		math.floor(targetTopLeft.Y + 0.5)
+	)
+	state.lastTopLeft = targetTopLeft
+	state.applying = false
 end
 
 function MobileWindowLayout.BindViewportUpdate(callback)

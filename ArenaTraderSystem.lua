@@ -1,6 +1,7 @@
 -- ArenaTraderSystem.lua — ServerScriptService (ModuleScript)
+-- Last updated: 2026-04-18 22:15
 -- Arena Hub NPC: sells six rotating Siegelings (2 Common, 1 Uncommon, 1 Rare, 1 Epic, 1 Legendary).
--- Placement: offset from BrokerNPC when present, else HubArea.SpawnLocation + fallback offset.
+-- Placement: CuratorSpawn resolved vs. HubArea.SpawnLocation when possible; else raw marker; else offset from Broker / SpawnLocation.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -8,6 +9,7 @@ local Workspace = game:GetService("Workspace")
 
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+local NpcSpawnMarkers = require(ReplicatedStorage.Modules.NpcSpawnMarkers)
 
 local ArenaTraderSystem = {}
 
@@ -202,6 +204,49 @@ local function findBrokerPositionAndCFrame()
 end
 
 local function buildSpawnCFrame()
+	local curatorPlacement = NpcSpawnMarkers.ResolvePlacementRelativeToHubSpawn("CuratorSpawn")
+	if curatorPlacement then
+		local cfg = getTraderConfig()
+		local m = curatorPlacement.marker
+		local markerTopY = m.Position.Y + m.Size.Y * 0.5
+		local riseStuds = tonumber(cfg.CuratorSpawnRiseStuds) or 8
+		local wxz = curatorPlacement.worldPosition
+		local pos = Vector3.new(wxz.X, markerTopY + riseStuds, wxz.Z)
+		local flat = curatorPlacement.flatLookWorld
+		local baseCF = CFrame.lookAt(pos, pos + flat)
+		local extraRot = cfg.ExtraRotationDegrees
+		if type(extraRot) == "table" then
+			local pitch = tonumber(extraRot.pitch) or 0
+			local yaw = tonumber(extraRot.yaw) or 0
+			local roll = tonumber(extraRot.roll) or 0
+			if pitch ~= 0 or yaw ~= 0 or roll ~= 0 then
+				baseCF = baseCF * CFrame.Angles(math.rad(pitch), math.rad(yaw), math.rad(roll))
+			end
+		end
+		return baseCF
+	end
+
+	local curatorMarker = NpcSpawnMarkers.FindNamedPart("CuratorSpawn")
+	if curatorMarker then
+		local cfg = getTraderConfig()
+		local markerTopY = curatorMarker.Position.Y + curatorMarker.Size.Y * 0.5
+		local riseStuds = tonumber(cfg.CuratorSpawnRiseStuds) or 8
+		local pos = Vector3.new(curatorMarker.Position.X, markerTopY + riseStuds, curatorMarker.Position.Z)
+		local lv = curatorMarker.CFrame.LookVector
+		local flat = Vector3.new(lv.X, 0, lv.Z)
+		local baseCF = (flat.Magnitude > 1e-3) and CFrame.lookAt(pos, pos + flat.Unit) or CFrame.new(pos)
+		local extraRot = cfg.ExtraRotationDegrees
+		if type(extraRot) == "table" then
+			local pitch = tonumber(extraRot.pitch) or 0
+			local yaw = tonumber(extraRot.yaw) or 0
+			local roll = tonumber(extraRot.roll) or 0
+			if pitch ~= 0 or yaw ~= 0 or roll ~= 0 then
+				baseCF = baseCF * CFrame.Angles(math.rad(pitch), math.rad(yaw), math.rad(roll))
+			end
+		end
+		return baseCF
+	end
+
 	local cfg = getTraderConfig()
 	local offset = cfg.OffsetFromBrokerStuds or Vector3.new(-26, 0, 16)
 	local fallbackOfs = cfg.FallbackOffsetFromSpawnStuds or offset
@@ -533,8 +578,11 @@ function ArenaTraderSystem.Init(pdm)
 	local buyFn = eventsFolder and eventsFolder:FindFirstChild("BuyArenaTraderCreature")
 	if buyFn and buyFn:IsA("RemoteFunction") then
 		buyFn.OnServerInvoke = function(player, slotIndex, paymentType, creatureId, stockId)
-			local ok, msg = tryPurchase(player, slotIndex, paymentType, creatureId, stockId)
-			return ok, msg
+			-- FIX: Must return the fresh stock payload (3rd return from tryPurchase). Dropping it
+			-- caused the client to close the UI instead of re-rendering with the refilled slot,
+			-- so the Curator appeared to "forget" about restocking after a purchase.
+			local ok, msg, newStock = tryPurchase(player, slotIndex, paymentType, creatureId, stockId)
+			return ok, msg, newStock
 		end
 	end
 

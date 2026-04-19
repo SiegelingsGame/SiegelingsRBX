@@ -505,9 +505,9 @@ function BuffShopSystem.Init(pdm)
 				if not d or d.coins < config.coinCost then return false, "Not enough coins!" end
 				PlayerDataManager.SpendCoins(player, config.coinCost)
 			elseif currency == "gems" then
-				if config.gemCost <= 0 then return false, "Not available for gems" end
+				if config.gemCost <= 0 then return false, "Not available for diamonds" end
 				if not PlayerDataManager.SpendGems(player, config.gemCost) then
-					return false, "Not enough gems!"
+					return false, "Not enough diamonds!"
 				end
 			else
 				return false, "Invalid currency"

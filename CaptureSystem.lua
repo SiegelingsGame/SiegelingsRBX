@@ -245,21 +245,25 @@ function CaptureSystem.TryCapture(player, creatureModel)
 
 	data.stats.totalCaptured = (data.stats.totalCaptured or 0) + 1
 
-	-- Inner-zone elemental legendaries: grant SiegeKnight sigil for the matching exterior zone (see ElementalBossToZoneId).
+	-- Inner-zone elemental legendaries: grant SiegeSquire sigil stored under the element name
+	-- (per GameConfig comment: "SiegeSquire sigil stored under that element name in player data").
+	-- FIX: Previously stored under zoneId, which displayed on the wrong Sigils tab row and forced
+	-- the OnPlayerJoin migration to move it each reload (causing sigils to appear to "disappear"
+	-- from the Knight row after session). Store under element directly so persistence is stable.
 	do
 		local elementalElements = GameConfig.ElementalBossElements or { "Fire", "Ice", "Wind", "Earth" }
-		local elemToZone = GameConfig.ElementalBossToZoneId or {}
 		for _, element in ipairs(elementalElements) do
 			local bossId = CreatureData.GetBossCreatureId and CreatureData.GetBossCreatureId(element, false)
 			if bossId and creatureId == bossId then
-				local zoneId = elemToZone[element]
-				if zoneId then
-					local had = PlayerDataManager.HasSigil(player, zoneId)
-					PlayerDataManager.AddSigil(player, zoneId)
-					local sigilEvt = events and events:FindFirstChild("SigilEarned")
-					if sigilEvt and not had then
-						sigilEvt:FireClient(player, zoneId)
-					end
+				local had = PlayerDataManager.HasSigil(player, element)
+				PlayerDataManager.AddSigil(player, element)
+				-- Persist immediately so an abrupt disconnect before auto-save does not lose the sigil.
+				if PlayerDataManager.SavePlayer then
+					pcall(function() PlayerDataManager.SavePlayer(player) end)
+				end
+				local sigilEvt = events and events:FindFirstChild("SigilEarned")
+				if sigilEvt and not had then
+					sigilEvt:FireClient(player, element)
 				end
 				break
 			end

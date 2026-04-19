@@ -4,6 +4,7 @@
 -- Shield lasts 50 seconds then expires. Player must reactivate.
 -- Monsters/raiders are blocked by the shield while active.s
 -- Owner + friends pass through. Others get pushed out + damaged.
+-- Last updated: 2026-04-18 22:50
 
 local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
@@ -276,6 +277,8 @@ local function createActivationButton(plotModel, center, groundY, ownerUserId)
 	pp.MaxActivationDistance = 10
 	pp.HoldDuration = 0
 	pp.RequiresLineOfSight = true
+	pp.KeyboardKeyCode = Enum.KeyCode.E
+	pp.Exclusivity = Enum.ProximityPromptExclusivity.AlwaysShow
 	pp.Parent = pedestal
 	pp:SetAttribute("OwnerUserId", ownerUserId)
 

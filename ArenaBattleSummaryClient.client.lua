@@ -3,8 +3,8 @@
 -- ══════════════════════════════════════════════════════════════════════════════
 -- Condensed arena battle summary with crest-shield toggle badge.
 --
--- When a battle starts, a gold-pulsing shield badge appears to the right of
--- the notification ticker. Clicking it toggles the summary panel on/off.
+-- When a battle starts, a gold-pulsing shield badge appears in the shared top-right tray.
+-- Clicking it toggles the summary panel on/off.
 --
 -- Two summary views (selected automatically by distance when toggled ON):
 --   60-350 studs  → BillboardGui at arena center (mid view)
@@ -22,6 +22,7 @@
 -- FIX #30:  Crest badge toggle (hidden by default, no auto-show)
 -- FIX #31:  Clean rewrite — stable slot ordering, removed debug spam,
 --           eliminated redundant refreshes, poll merges instead of clears
+-- Last updated: 2026-04-20 16:00
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local Players            = game:GetService("Players")
@@ -36,6 +37,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 
 local GameConfig   = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("GameConfig"))
 local CreatureData = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("CreatureData"))
+local TopRightBadgeTray = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("TopRightBadgeTray"))
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- Configuration
@@ -70,13 +72,8 @@ local WINBAR_BG_COLOR      = Color3.fromRGB(24, 26, 36)
 -- Crest badge (FIX #30) — arena badge = slot 0, base badge = slot 1 (in BaseSummaryClient)
 local BADGE_WIDTH       = 36
 local BADGE_HEIGHT      = 42
-local BADGE_GAP         = 8     -- pixels between badges / from ticker
-local BADGE_SLOT        = 0     -- arena is first badge slot
 local BADGE_GOLD        = Color3.fromRGB(220, 180, 60)
 local BADGE_BG          = Color3.fromRGB(18, 22, 32)
--- High display order so the badge stays clickable even when other menus open.
-local BADGE_DISPLAY_ORD = 95
-
 local ARENA_CREATURE_TAG = "ArenaCreature"
 
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -938,36 +935,15 @@ local function stopBadgePulse()
 end
 
 local function createCrestBadge()
-	if badge.gui and badge.gui.Parent then return end
+	if badge.button and badge.button.Parent then return end
 
-	local sg = Instance.new("ScreenGui")
-	sg.Name = "ArenaCrestBadge"
-	sg.DisplayOrder = BADGE_DISPLAY_ORD
-	sg.ResetOnSpawn = false
-	sg.IgnoreGuiInset = true
-	sg.Parent = playerGui
-
-	-- Position relative to ticker
-	local notifGui  = playerGui:FindFirstChild("NotificationGUI")
-	local tickerBar = notifGui and notifGui:FindFirstChild("TickerBar")
+	local row = TopRightBadgeTray.GetBadgeRow(player)
 
 	local btn = Instance.new("TextButton")
 	btn.Name = "CrestButton"
 	btn.Size = UDim2.new(0, BADGE_WIDTH, 0, BADGE_HEIGHT)
-
-	if tickerBar then
-		local ap = tickerBar.AbsolutePosition
-		local as = tickerBar.AbsoluteSize
-		-- Slot formula: tickerRight + gap + slotIndex * (badgeWidth + gap)
-		local xOffset = ap.X + as.X + BADGE_GAP + BADGE_SLOT * (BADGE_WIDTH + BADGE_GAP)
-		btn.Position    = UDim2.new(0, xOffset, 0, ap.Y + as.Y / 2)
-		btn.AnchorPoint = Vector2.new(0, 0.5)
-	else
-		-- Fallback: scale-based position offset by slot
-		local fallbackX = 0.86 + (BADGE_SLOT * 0.04)
-		btn.Position    = UDim2.new(fallbackX, 0, 0, 18)
-		btn.AnchorPoint = Vector2.new(0.5, 0)
-	end
+	btn.LayoutOrder = TopRightBadgeTray.Order.ArenaCrest
+	btn.Parent = row
 
 	btn.BackgroundColor3       = BADGE_BG
 	btn.BackgroundTransparency = 0.15
@@ -978,7 +954,6 @@ local function createCrestBadge()
 	btn.TextSize               = 18
 	btn.AutoButtonColor        = false
 	btn.ZIndex                 = 100
-	btn.Parent                 = sg
 
 	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
@@ -1022,7 +997,7 @@ local function createCrestBadge()
 		end)
 	end)
 
-	badge.gui    = sg
+	badge.gui    = row:FindFirstAncestorWhichIsA("ScreenGui")
 	badge.button = btn
 	badge.glow   = stroke
 	btn.Visible  = false

@@ -10,6 +10,37 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local TextService = game:GetService("TextService")
 local Lighting = game:GetService("Lighting")
+local HttpService = game:GetService("HttpService")
+
+-- #region agent log
+local function _agentLog(hypothesisId, location, message, data)
+	local payload
+	local okEnc = pcall(function()
+		payload = HttpService:JSONEncode({
+			sessionId = "0954a4",
+			hypothesisId = hypothesisId,
+			location = location,
+			message = message,
+			data = data or {},
+			timestamp = math.floor(tick() * 1000),
+			runId = "pre-fix",
+		})
+	end)
+	if not okEnc or not payload then return end
+	local dataEnc = ""
+	pcall(function() dataEnc = HttpService:JSONEncode(data or {}) end)
+	warn("[AGENT0954] " .. tostring(hypothesisId) .. " | " .. tostring(location) .. " | " .. tostring(message) .. " | " .. dataEnc)
+	pcall(function()
+		HttpService:PostAsync(
+			"http://127.0.0.1:7882/ingest/0e60cc12-9e09-414c-83d4-0479f687e09e",
+			payload,
+			Enum.HttpContentType.ApplicationJson,
+			false,
+			{ ["X-Debug-Session-Id"] = "0954a4" }
+		)
+	end)
+end
+-- #endregion
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -43,6 +74,8 @@ local indicatorMenuAliases = {
 	EggShopGUI = "ShopHubGUI",
 	BuffShopGUI = "ShopHubGUI",
 	CosmeticShopGUI = "ShopHubGUI",
+	ScoinsShopGUI = "ShopHubGUI",
+	GemsShopGUI = "ShopHubGUI",
 }
 
 local function normalizeIndicatorMenuName(menuName)
@@ -529,6 +562,9 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 					local goHomeEvt = events and events:FindFirstChild("GoHome")
 					if goHomeEvt then goHomeEvt:FireServer() end
 				else
+					if def.menuName == "InventoryUI" then
+						_agentLog("H5", "HUDButtonBar:InputBegan", "fire_HUDToggleMenu", {})
+					end
 					toggleEvent:Fire(def.menuName)
 				end
 			end

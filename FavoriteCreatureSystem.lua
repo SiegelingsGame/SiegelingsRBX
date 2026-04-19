@@ -1,3 +1,4 @@
+-- Last updated: 2026-04-20 17:00
 -- FavoriteCreatureSystem.lua - ServerScriptService (ModuleScript)
 -- UPDATED: FIX #15 crawling orientation + FIX #15b drift guard (2025)
 -- Companion creature that follows player, attacks world creatures.
@@ -39,7 +40,7 @@ local FAINTED_BASE_TAG = "FaintedBaseCreature"
 local activeCompanions = {}  -- [userId] = { model, creatureId, uid, attackMode, targetModel, hp, maxHp, alive, carrying }
 -- World creature selected in target menu (blocks auto-despawn; tracked even when companion is not out)
 local worldCombatTargetByUserId = {}
--- Player carry (steal): [userId] = { creatureId, level, xp, victimUserId, victimPlotId, uid, visualModel }
+-- Player carry (steal): [userId] = { creatureId, level, xp, victimUserId, victimPlotId, uid, visualModel, slotType, slotIndex, creatureNickname, creatureVariant }
 local playerCarryingSteal = {}
 -- Companion recalled due to water (non-water creature returned when player swims); respawn when player exits water
 local companionRecalledDueToWater = {}
@@ -254,7 +255,7 @@ local COMPANION_STAND_UP_ANGLES = {
 	frostag = {-180, 0, 0},
 	droxyl = {-180, 0, 0},
 	hydroxyl = {-180, 0, 0},
-	cacty = {-90, 0, 0},
+	cacty = {-180, 0, 0},
 	jackedty = {-180, 0, 0},
 	cactyjackedty = {-180, 180, 0},
 	sundile = {-180, 0, 0},
@@ -266,7 +267,7 @@ local COMPANION_STAND_UP_ANGLES = {
 	pylook = {0, 90, -180},
 	pyleer = {0, 180, -180},
 	pylme = {-180, 0, 0},
-	squirebuddy = {-180, 0, 0},
+	squirebud = {-180, 0, 0},
 	generoot = {-180, 0, 0},
 	floraknight = {-180, 0, 0},
 	pursula = {-180, 0, 0},
@@ -281,6 +282,19 @@ local COMPANION_STAND_UP_ANGLES = {
 	gymstone = {-180, 0, 0},
 	glaciemperor = {0,0,0},
 	pylord = {-180,0,0},
+	sleaf = {-180, 0, 0},
+	dracosleaf = {-180, 0, 0},
+	sleafwyrm = {-180, 0, 0},
+	falcoat = {-180, 0, 0},
+	falcool = {-180, 0, 0},
+	peatbeak = {-180,0,0},
+	drillbo = {-180, 0, 0},
+	shellpack = {-180, 0, 0},
+	torqlander = {-180, 0, 0},
+	shellnaut = {-180, 0, 0},
+	luvy = {-180, 0, 0},
+	luvysore = {-180, 0, 0},
+	luvyduvysore = {-180, 0, 0},
 }
 
 local function needsFacingCorrection(model)
@@ -288,7 +302,7 @@ local function needsFacingCorrection(model)
 end
 
 -- Crawling: COMPANION_ROTATION_DEFAULT0.0 = base; CRAWL_UPRIGHT_CORRECTION. = -90° X to stand upright.cc
--- Ground stand-up: for non-flying, non-crawling companions – models that export horizonbtal/on-back need this to stand upright..
+-- Ground stand-up: for non-flying, non-crawling companions – models that export horizonbtal/on-back need this to stand upright
 local COMPANION_CRAWL_UPRIGHT_CORRECTION = CFrame.Angles(math.rad(-90), 0, 0)
 local COMPANION_GROUND_UPRIGHT = COMPANION_CRAWL_UPRIGHT_CORRECTION
 local function getCompanionRotationOffset(creatureId, isWalking, model)
@@ -302,7 +316,7 @@ local function getCompanionRotationOffset(creatureId, isWalking, model)
 			math.rad(companionStandUp[3])
 		)
 		-- FIX #17: Crawling creatures with stand-up overrides (sundile, raydile, solgator):
-		-- The stand-up angles give the correct IDLE (upright) pose. During Move, add -90° X
+		-- The stand-up angles give the correct IDLE (upright) pose. During Move, add -90° Xs
 		-- pitch to produce belly-crawl orientation. Without this, these creatures used the
 		-- static stand-up angle for ALL states and never crawled as companions.
 		if isWalking and creatureId and CreatureData.IsCrawling(creatureId) then
@@ -528,10 +542,34 @@ local function getPlotCenterPosition(plotId)
 	local plotModel = folder:FindFirstChild("Plot" .. plotId) or folder:FindFirstChild("Part" .. plotId)
 	if not plotModel then return nil end
 	local pc = plotModel:FindFirstChild("PlotCenter", true)
-	if not pc then return nil end
+	if not pc then
+		if plotModel:IsA("Model") then
+			return plotModel:GetPivot().Position
+		end
+		return nil
+	end
 	if pc:IsA("BasePart") then return pc.Position end
 	if pc:IsA("Model") then return pc:GetPivot().Position end
 	return nil
+end
+
+-- Horizontal distance only — must match walk-back "home" check (dropPlayerCarryAndWalkBack).
+-- Full 3D distance to PlotCenter fails when the marker Y differs from the player (player at pad, marker floating).
+local function horizontalDistanceXZ(a, b)
+	return Vector3.new(a.X - b.X, 0, a.Z - b.Z).Magnitude
+end
+
+local function isWithinStealHomeRadius(playerRootPos, plotCenterPos)
+	local r = tonumber(GameConfig.StealHomeRadius) or 30
+	return horizontalDistanceXZ(playerRootPos, plotCenterPos) <= r
+end
+
+local function buildRaidAddContext(carry)
+	local ctx = { source = "raid" }
+	if carry and type(carry.creatureNickname) == "string" and carry.creatureNickname ~= "" then
+		ctx.nickname = carry.creatureNickname
+	end
+	return ctx
 end
 
 -- Get plotId from a model that lives inside a plot (e.g. base creature model)
@@ -613,7 +651,15 @@ local function deliverStolenCreature(player, comp)
 	end
 
 	-- Add creature to player's inventory
-	local newUid = PlayerDataManager.AddCreature(player, carry.creatureId, carry.level, carry.xp, nil, nil, { source = "raid" })
+	local newUid = PlayerDataManager.AddCreature(
+		player,
+		carry.creatureId,
+		carry.level,
+		carry.xp,
+		carry.creatureVariant,
+		nil,
+		buildRaidAddContext(carry)
+	)
 
 	local cInfo = CreatureData.GetById(carry.creatureId)
 	local cName = cInfo and cInfo.displayName or carry.creatureId
@@ -648,8 +694,20 @@ end
 local function deliverStolenCreatureForPlayer(player)
 	local carry = playerCarryingSteal[player.UserId]
 	if not carry then return end
+	local victimPlr = carry.victimUserId and Players:GetPlayerByUserId(carry.victimUserId)
+	if victimPlr then
+		fireStealVictimClearToClient(victimPlr, player.UserId)
+	end
 	if carry.visualModel and carry.visualModel.Parent then carry.visualModel:Destroy() end
-	local newUid = PlayerDataManager.AddCreature(player, carry.creatureId, carry.level, carry.xp, nil, nil, { source = "raid" })
+	local newUid = PlayerDataManager.AddCreature(
+		player,
+		carry.creatureId,
+		carry.level,
+		carry.xp,
+		carry.creatureVariant,
+		nil,
+		buildRaidAddContext(carry)
+	)
 	local cInfo = CreatureData.GetById(carry.creatureId)
 	local cName = cInfo and cInfo.displayName or carry.creatureId
 	local notif = getNotifEvent()
@@ -687,6 +745,10 @@ local function dropPlayerCarryAndWalkBack(player)
 	local cName = cInfo and cInfo.displayName or creatureId
 
 	local notif = getNotifEvent()
+	local victimPlrEarly = Players:GetPlayerByUserId(victimUserId)
+	if victimPlrEarly then
+		fireStealVictimClearToClient(victimPlrEarly, player.UserId)
+	end
 	if notif then notif:FireClient(player, cName .. " was dropped! It's walking back to its owner's base.") end
 
 	-- Spawn a visual model that walks back to owner's plot
@@ -733,6 +795,127 @@ local function dropPlayerCarryAndWalkBack(player)
 	end)
 end
 
+local function fireStealVictimClearToClient(victimPlayer, thiefUserId)
+	local events = ReplicatedStorage:FindFirstChild("Events")
+	local ev = events and events:FindFirstChild("StealVictimClearMark")
+	if ev and victimPlayer and thiefUserId then
+		ev:FireClient(victimPlayer, thiefUserId)
+	end
+end
+
+local function fireStealVictimMarkToClient(victimPlayer, thiefPlayer, creatureLabel)
+	local events = ReplicatedStorage:FindFirstChild("Events")
+	local ev = events and events:FindFirstChild("StealVictimMarkThief")
+	if ev and victimPlayer and thiefPlayer then
+		ev:FireClient(victimPlayer, thiefPlayer.UserId, creatureLabel or "?")
+	end
+end
+
+local function recoverStolenCreatureAfterVictimHit(thiefPlayer, victimPlayer)
+	local carry = thiefPlayer and playerCarryingSteal[thiefPlayer.UserId]
+	if not carry or not victimPlayer or carry.victimUserId ~= victimPlayer.UserId then
+		return false
+	end
+	if carry.visualModel and carry.visualModel.Parent then
+		carry.visualModel:Destroy()
+	end
+	playerCarryingSteal[thiefPlayer.UserId] = nil
+
+	local ctx = { source = "steal_recovered" }
+	if type(carry.creatureNickname) == "string" and carry.creatureNickname ~= "" then
+		ctx.nickname = carry.creatureNickname
+		ctx.nicknameEverSet = true
+	end
+	local restoredUid = PlayerDataManager.AddCreature(
+		victimPlayer,
+		carry.creatureId,
+		carry.level,
+		carry.xp,
+		carry.creatureVariant or "Normal",
+		carry.uid,
+		ctx
+	)
+	local cInfo = CreatureData.GetById(carry.creatureId)
+	local cName = cInfo and cInfo.displayName or carry.creatureId
+	local notif = getNotifEvent()
+
+	if restoredUid then
+		local slotIdx = tonumber(carry.slotIndex)
+		local st = carry.slotType
+		if slotIdx and st == "income" then
+			PlayerDataManager.AssignToBase(victimPlayer, restoredUid, slotIdx)
+		elseif slotIdx and st == "defense" then
+			PlayerDataManager.AssignToDefense(victimPlayer, restoredUid, slotIdx)
+		end
+		if st and slotIdx and BasePlacementSystem and BasePlacementSystem.PlaceCreatureInSlot then
+			BasePlacementSystem.PlaceCreatureInSlot(victimPlayer, st, slotIdx, restoredUid)
+		end
+		fireStealVictimClearToClient(victimPlayer, thiefPlayer.UserId)
+		if notif then
+			notif:FireClient(victimPlayer, cName .. " flew back to your base!")
+			notif:FireClient(thiefPlayer, "You dropped " .. cName .. " — it returned to " .. victimPlayer.Name .. "'s base!")
+		end
+	else
+		if notif then
+			notif:FireClient(victimPlayer, "Could not restore creature (inventory full).")
+		end
+	end
+	return true
+end
+
+function FavoriteCreatureSystem.HandleStealVictimHit(victimPlayer, thiefPlayer, origin, isMelee, dmg)
+	local carry = thiefPlayer and playerCarryingSteal[thiefPlayer.UserId]
+	if not carry or not victimPlayer or carry.victimUserId ~= victimPlayer.UserId then
+		return false
+	end
+	local tchar = thiefPlayer.Character
+	local troot = tchar and tchar:FindFirstChild("HumanoidRootPart")
+	local thum = tchar and tchar:FindFirstChild("Humanoid")
+	if not troot or not thum or thum.Health <= 0 then
+		return false
+	end
+	local vchar = victimPlayer.Character
+	local vroot = vchar and vchar:FindFirstChild("HumanoidRootPart")
+	local refPos = (vroot and vroot.Position) or origin
+	-- Match client steal gate: victim HRP vs thief HRP (not packet origin offset); melee reach uses Range not Radius (AOE).
+	local maxDist = isMelee and (GameConfig.PlayerMeleeRange or GameConfig.PlayerMeleeRadius) or GameConfig.PlayerRangedRange
+	if (troot.Position - refPos).Magnitude > maxDist * 1.12 then
+		return false
+	end
+
+	local cap = GameConfig.StealVictimHitDamageCap or 12
+	local deal = math.min(math.max(1, math.floor(dmg)), cap)
+	if thum.Health <= deal then
+		deal = math.max(0, thum.Health - 1)
+	end
+	if deal > 0 then
+		thum:TakeDamage(deal)
+	end
+	recoverStolenCreatureAfterVictimHit(thiefPlayer, victimPlayer)
+	return true
+end
+
+function FavoriteCreatureSystem.SetStealRecoveryPlayerTarget(player, thiefCharacter, thiefUserId)
+	if not player or type(thiefUserId) ~= "number" then
+		return false
+	end
+	local thief = Players:GetPlayerByUserId(thiefUserId)
+	if not thief or thief.Character ~= thiefCharacter then
+		return false
+	end
+	local carry = playerCarryingSteal[thiefUserId]
+	if not carry or carry.victimUserId ~= player.UserId then
+		return false
+	end
+	local c = activeCompanions[player.UserId]
+	if c then
+		c.targetModel = nil
+		c.attackMode = false
+	end
+	worldCombatTargetByUserId[player.UserId] = nil
+	return true
+end
+
 -- Player picks up a fainted base creature (E interact); creature is carried by player, not companion
 local function playerPickUpSteal(player, baseModel)
 	if playerCarryingSteal[player.UserId] then return false, "Already carrying a creature." end
@@ -751,8 +934,12 @@ local function playerPickUpSteal(player, baseModel)
 	local slotType = baseModel:GetAttribute("SlotType")
 	local slotIndex = baseModel:GetAttribute("SlotIndex")
 
-	-- Remove from victim's data and clear the slot (frees the point and removes the model)
 	local victimPlayer = Players:GetPlayerByUserId(victimUserId)
+	local victimEntry = (victimPlayer and uid) and PlayerDataManager.GetCreatureByUid(victimPlayer, uid) or nil
+	local creatureNickname = victimEntry and type(victimEntry.nickname) == "string" and victimEntry.nickname ~= "" and victimEntry.nickname or nil
+	local creatureVariant = victimEntry and victimEntry.variant or "Normal"
+
+	-- Remove from victim's data and clear the slot (frees the point and removes the model)
 	if victimPlayer and uid then
 		PlayerDataManager.RemoveCreature(victimPlayer, uid)
 	end
@@ -764,9 +951,11 @@ local function playerPickUpSteal(player, baseModel)
 	end
 	local cInfo = CreatureData.GetById(creatureId)
 	local cName = cInfo and cInfo.displayName or creatureId
+	local creatureLabelForVictim = creatureNickname and (creatureNickname .. " (" .. cName .. ")") or cName
 	if victimPlayer then
 		local n = getNotifEvent()
-		if n then n:FireClient(victimPlayer, cName .. " was picked up by " .. player.Name .. "! Defeat them before they reach their base to get it back.") end
+		if n then n:FireClient(victimPlayer, cName .. " was picked up by " .. player.Name .. "! Hit them to force a drop and free your Siegeling.") end
+		fireStealVictimMarkToClient(victimPlayer, player, creatureLabelForVictim)
 	end
 
 	local carryVisual = Instance.new("Part")
@@ -790,11 +979,15 @@ local function playerPickUpSteal(player, baseModel)
 	playerCarryingSteal[player.UserId] = {
 		creatureId = creatureId,
 		level = creatureLevel,
-		xp = 0,
+		xp = (victimEntry and victimEntry.xp) or 0,
 		uid = uid,
 		victimUserId = victimUserId,
 		victimPlotId = victimPlotId,
 		visualModel = carryVisual,
+		slotType = slotType,
+		slotIndex = tonumber(slotIndex) or slotIndex,
+		creatureNickname = creatureNickname,
+		creatureVariant = creatureVariant,
 	}
 	local n = getNotifEvent()
 	if n then n:FireClient(player, "Picked up " .. cName .. "! Return to your base to claim it.") end
@@ -1064,12 +1257,13 @@ local function startCompanionBehavior(player, model, creatureId)
 			-- not just tagged WaterBlock/Ocean parts. Previously water creatures couldn't follow in terrain water.
 			local isPlayerInOcean = CreatureAI and CreatureAI.IsPositionInOcean and CreatureAI.IsPositionInOcean(root.Position)
 			local isPlayerInWaterBlock = isPositionInWaterBlock(root.Position)
+			local isTerrainSwim = CreatureAI and CreatureAI.IsPositionInTerrainWater and CreatureAI.IsPositionInTerrainWater(root.Position)
 			local humanoidSwimming = false
 			local playerHumanoid = character:FindFirstChildOfClass("Humanoid")
 			if playerHumanoid and playerHumanoid:GetState() == Enum.HumanoidStateType.Swimming then
 				humanoidSwimming = true
 			end
-			local isWaterFollowing = (isPlayerInOcean or isPlayerInWaterBlock or humanoidSwimming) and CreatureData.IsWaterType(creatureId)
+			local isWaterFollowing = (isPlayerInOcean or isPlayerInWaterBlock or isTerrainSwim or humanoidSwimming) and CreatureData.IsWaterType(creatureId)
 			-- Cache the water volume part for Y-clamping (Ocean part or WaterBlock part)
 			local waterVolumePart = nil
 			if isWaterFollowing then
@@ -1336,20 +1530,13 @@ local function startCompanionBehavior(player, model, creatureId)
 				comp.carrying.visualModel.Position = pos + Vector3.new(0, -2.5, 0)
 			end
 
-			-- "Arrived home" check ? if carrying and near own plot center, deliver
+			-- "Arrived home" check — companion carry path (legacy); same horizontal rule as player steal Heartbeat.
 			if comp.carrying then
 				local d = PlayerDataManager.GetData(player)
 				if d and d.plotId and d.plotId > 0 then
-					local plotsFolder = workspace:FindFirstChild("BasePlots")
-					if plotsFolder then
-						local plotModel = plotsFolder:FindFirstChild("Plot" .. d.plotId) or plotsFolder:FindFirstChild("Part" .. d.plotId)
-						local plotCenter = plotModel and plotModel:FindFirstChild("PlotCenter")
-						if plotCenter then
-							local homeDist = (root.Position - plotCenter.Position).Magnitude
-							if homeDist < (GameConfig.StealHomeRadius or 30) then
-								deliverStolenCreature(player, comp)
-							end
-						end
+					local plotPos = getPlotCenterPosition(d.plotId)
+					if plotPos and isWithinStealHomeRadius(root.Position, plotPos) then
+						deliverStolenCreature(player, comp)
 					end
 				end
 			end
@@ -1713,6 +1900,28 @@ function FavoriteCreatureSystem.IsOnCooldown(player)
 	return cd and (tick() - cd) < GameConfig.CompanionRespawnCD
 end
 
+--- Seconds until companion respawns after fainting (open-world faint cooldown). Nil if not cooling / PvP faint.
+function FavoriteCreatureSystem.GetCompanionRespawnRemainingSeconds(player)
+	if not player then
+		return nil
+	end
+	local uid = player.UserId
+	if pvpFaintedPlayers[uid] then
+		return nil
+	end
+	local start = respawnCooldowns[uid]
+	if not start then
+		return nil
+	end
+	local cd = tonumber(GameConfig.CompanionRespawnCD) or 30
+	local elapsed = tick() - start
+	local left = cd - elapsed
+	if left <= 0 then
+		return nil
+	end
+	return left
+end
+
 function FavoriteCreatureSystem.ToggleAttackMode(player)
 	local c = activeCompanions[player.UserId]
 	if c then
@@ -1912,7 +2121,7 @@ function FavoriteCreatureSystem.Init(playerDataMgr, creatureSpawnerRef, creature
 			local d = PlayerDataManager.GetData(player)
 			if d and d.plotId and d.plotId > 0 then
 				local plotPos = getPlotCenterPosition(d.plotId)
-				if plotPos and (root.Position - plotPos).Magnitude < (GameConfig.StealHomeRadius or 30) then
+				if plotPos and isWithinStealHomeRadius(root.Position, plotPos) then
 					deliverStolenCreatureForPlayer(player)
 					break
 				end

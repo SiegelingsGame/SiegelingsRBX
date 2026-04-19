@@ -4,6 +4,7 @@
 	Prioritizes Model type (BreezeeModel, Model_Breezee) over legacy mesh (Breezee).
 	Blender-imported rigs: Humanoid, AnimationController, nested bones under Meshy_Mesh.
 ]]
+-- Last updated: 2026-04-18
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
@@ -72,7 +73,8 @@ end
 --- Integrates a template into a creature model. Returns body, core (or nil), and whether a custom model was used.
 function CreatureModelLoader.IntegrateTemplate(creatureModel, template, position)
 	local body, core
-	if template:IsA("Model") then
+	local templateWasModel = template:IsA("Model")
+	if templateWasModel then
 		for _, child in ipairs(template:GetChildren()) do
 			child.Parent = creatureModel
 		end
@@ -100,7 +102,7 @@ function CreatureModelLoader.IntegrateTemplate(creatureModel, template, position
 		humanoid.PlatformStand = true
 	end
 	-- Ensure Model-type (rigged) temsplates have AnsimationController+Animator for scripted animations
-	if template:IsA("Model") then
+	if templateWasModel then
 		local hasAnim = false
 		for _, d in ipairs(creatureModel:GetDescendants()) do
 			if d:IsA("AnimationController") or d:IsA("Animator") then

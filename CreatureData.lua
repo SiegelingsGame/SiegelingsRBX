@@ -110,6 +110,8 @@
 		Common/Uncommon are generally too small; Rare+ creatures are recommended.
 ]]
 
+-- Last updated: 2026-04-18 20:20
+
 local CreatureData = {}
 
 CreatureData.Rarities = {
@@ -658,7 +660,7 @@ CreatureData.Creatures = {
 		element = "Ice", class = "Support", behavior = "lone",
 		spawnWeight = 17, baseIncome = 1, captureTime = 0.5,
 		description = "Ceeponee float through the winter winds and are known to be a bit shy",
-		modelName = "Falcool", primaryColor = Color3.fromRGB(130, 190, 255), 
+		modelName = "Falcool", primaryColor = Color3.fromRGB(130, 190, 255), modelDisplaySize = 4.0,modelScaleMultiplier = 1.5,
 		evolvesTo = "falcoat"
 	},
 	{
@@ -691,9 +693,9 @@ CreatureData.Creatures = {
 		id = "falcoat", displayName = "Falcoat", rarity = "Uncommon",
 		element = "Ice", class = "Assassin", behavior = "lone",
 		spawnWeight = 9, baseIncome = 3, captureTime = 1.1,
-		description = "A well dressed predator that blends into ice fields. By the time you see it, its fangs are already at your throat.",
+		description = "A well dressed predator that blends into ice fields. By the time you see it, its talons are already at your throat.",
 		modelName = "Falcoat", primaryColor = Color3.fromRGB(100, 170, 230),evolvesTo = "peatbeak", evolvesFrom = "falcool",
-		modelDisplaySize = 5.0,modelScaleMultiplier = 1.5,
+		modelDisplaySize = 6.0,modelScaleMultiplier = 1.5,
 	},
 
 	-- Ice Rare (3)
@@ -1280,7 +1282,7 @@ CreatureData.Creatures = {
 		mountable = true, mountOffset = {0, 3.5, -1.5}, mountScale = 2.2,
 	},
 
-	-- Water Legendary (1)
+	-- Water Legendary (1).
 	{
 		id = "conchious", displayName = "Conchious", rarity = "Legendary",
 		element = "Water", class = "Mage", behavior = "lone",
@@ -1372,7 +1374,7 @@ CreatureData.Creatures = {
 		spawnPointType = "dungeon",modelDisplaySize = 8,modelScaleMultiplier = 1.5,
 		evolvesFrom = "mentaroo",
 	},
-	-- Psychic Epic (2)
+	-- Psychic Epic (2)..
 	{
 		id = "luvyduvysore", displayName = "Luvy Duvysore", rarity = "Epic",
 		element = "Psychic", class = "Mage", behavior = "lone",
@@ -1442,14 +1444,13 @@ CreatureData.Creatures = {
 		modelName = "Egg", primaryColor = Color3.fromRGB(190, 200, 210),
 		spawnPointType = "boss",
 	},
-	-- Poison stand-ins (evolve chain only for this element among stand-ins)
+	-- Poison stand-ins (evolve chain only for this element among stand-ins).
 	{
-		id = "poison_siegling_standin", displayName = "Poison Siegeling", rarity = "Common",
-		element = "Poison", class = "Assassin", behavior = "skittish",
+		id = "toxleaf", displayName = "Toxleaf", rarity = "Common",
+		element = "Poison", class = "Assassin", behavior = "aggressive",
 		spawnWeight = 1, baseIncome = 1, captureTime = 0.5,
 		description = "A toxic placeholder Siegeling. Full Poison roster coming soon.",
-		modelName = "Egg", primaryColor = Color3.fromRGB(120, 220, 80),
-		evolvesTo = "poison_venomidge",
+		modelName = "Toxleaf", primaryColor = Color3.fromRGB(120, 220, 80),modelDisplaySize = 8,modelScaleMultiplier = 1.5,
 	},
 	{
 		id = "poison_venomidge", displayName = "Poison Siegeling (Venomidge)", rarity = "Uncommon",
@@ -1457,7 +1458,7 @@ CreatureData.Creatures = {
 		spawnWeight = 10, baseIncome = 3, captureTime = 1.1,
 		description = "Uncommon step on the Poison stand-in evolve path.",
 		modelName = "Egg", primaryColor = Color3.fromRGB(125, 225, 75),
-		evolvesFrom = "poison_siegling_standin", evolvesTo = "poison_venomapex",
+		evolvesTo = "poison_venomapex",
 	},
 	{
 		id = "poison_venomapex", displayName = "Poison Siegeling (Venomapex)", rarity = "Rare",
@@ -1897,12 +1898,15 @@ function CreatureData.IsObtainableCreature(creature)
 end
 
 -- Pick a random creature for regular SpawnPoints (weighted by spawnWeight).
--- preferCommon: when true, Common/Uncommon get 3x weight so SpawnPoints stay abundant with common monsters
+-- preferCommon: when true, Common/Uncommon get boosted weight so SpawnPoints stay abundant with common monsters
 -- onlyWithModels: when true, only consider creatures that have models in CreatureModels
+-- spawnCountById: optional {[creatureId] = count} — deprioritize species already in the world (see diversityStrength)
+-- diversityStrength: optional number; when > 0, weight /= (1 + diversityStrength * existingCount)
 -- Returns: creature id string
-function CreatureData.GetRandomCreatureId(onlyWithModels, preferCommon)
+function CreatureData.GetRandomCreatureId(onlyWithModels, preferCommon, spawnCountById, diversityStrength)
 	local totalWeight = 0
 	local weights = {}
+	local k = tonumber(diversityStrength) or 0
 	for _, creature in ipairs(CreatureData.Creatures) do
 		if creature.npcOnly ~= true and not creature.spawnPointType then
 			if not onlyWithModels or CreatureData.CreatureHasModel(creature) then
@@ -1911,6 +1915,12 @@ function CreatureData.GetRandomCreatureId(onlyWithModels, preferCommon)
 					if creature.rarity == "Common" then w = w * 3
 					elseif creature.rarity == "Uncommon" then w = w * 2
 					else w = w * 0.3 end  -- Rare+ much less common at SpawnPoints
+				end
+				if k > 0 and spawnCountById then
+					local dup = spawnCountById[creature.id] or 0
+					if dup > 0 then
+						w = w / (1 + k * dup)
+					end
 				end
 				weights[creature] = w
 				totalWeight = totalWeight + w
@@ -1937,6 +1947,50 @@ function CreatureData.GetRandomCreatureId(onlyWithModels, preferCommon)
 		end
 	end
 	return CreatureData.Creatures[1].id
+end
+
+-- Same weighting as GetRandomCreatureId, but only creatures of the given element (for filling a biome SpawnPoint).
+-- Returns: creature id or nil if no valid wild spawn exists for that element
+function CreatureData.GetRandomWildCreatureIdForElement(element, onlyWithModels, preferCommon, spawnCountById, diversityStrength)
+	if not element then return nil end
+	local totalWeight = 0
+	local weights = {}
+	local k = tonumber(diversityStrength) or 0
+	for _, creature in ipairs(CreatureData.Creatures) do
+		if creature.element == element and creature.npcOnly ~= true and not creature.spawnPointType then
+			if not onlyWithModels or CreatureData.CreatureHasModel(creature) then
+				local w = creature.spawnWeight or 10
+				if preferCommon then
+					if creature.rarity == "Common" then w = w * 3
+					elseif creature.rarity == "Uncommon" then w = w * 2
+					else w = w * 0.3 end
+				end
+				if k > 0 and spawnCountById then
+					local dup = spawnCountById[creature.id] or 0
+					if dup > 0 then
+						w = w / (1 + k * dup)
+					end
+				end
+				weights[creature] = w
+				totalWeight = totalWeight + w
+			end
+		end
+	end
+	if totalWeight <= 0 then return nil end
+	local roll = math.random() * totalWeight
+	local cumulative = 0
+	for _, creature in ipairs(CreatureData.Creatures) do
+		if creature.element == element and creature.npcOnly ~= true and not creature.spawnPointType and (not onlyWithModels or CreatureData.CreatureHasModel(creature)) then
+			cumulative = cumulative + (weights[creature] or creature.spawnWeight)
+			if roll <= cumulative then return creature.id end
+		end
+	end
+	for _, creature in ipairs(CreatureData.Creatures) do
+		if creature.element == element and creature.npcOnly ~= true and not creature.spawnPointType and (not onlyWithModels or CreatureData.CreatureHasModel(creature)) then
+			return creature.id
+		end
+	end
+	return nil
 end
 
 -- Pick a random creature for a DungeonPoint in a specific element's biome.

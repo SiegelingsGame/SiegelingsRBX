@@ -19,6 +19,7 @@
 -- STYLING:
 --   Glassmorphism card matching HUDButtonBar (dark bg, rounded corners, stroke)
 -- ══════════════════════════════════════════════════════════════════════════════
+-- Last updated: 2026-04-20 16:00
 
 local Players            = game:GetService("Players")
 local RunService         = game:GetService("RunService")
@@ -35,6 +36,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 
 --- Load shared config for distance thresholds
 local GameConfig = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("GameConfig"))
+local TopRightBadgeTray = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("TopRightBadgeTray"))
 
 --- Distance (studs) at which the summary billboard fades IN.
 --- Set slightly below BaseBillboardMaxDistance for overlap during transition.
@@ -76,11 +78,8 @@ local POWER_COLOR   = Color3.fromRGB(255, 200, 50)   -- gold
 -- Badge sits to the right of the ticker, SECOND slot (arena badge is first).
 local BADGE_WIDTH       = 36
 local BADGE_HEIGHT      = 42
-local BADGE_GAP         = 8     -- gap between badges / from ticker
-local BADGE_SLOT        = 1     -- 0 = arena badge, 1 = base badge (second position)
 local BADGE_BG          = Color3.fromRGB(18, 22, 32)
 local BADGE_GOLD        = Color3.fromRGB(220, 180, 60)
-local BADGE_DISPLAY_ORD = 52    -- above arena badge (51) and NotificationGUI (50)
 
 -- Tags (must match BasePlacementSystem server-side tags)
 local INCOME_TAG  = "BaseIncomeCreature"
@@ -411,7 +410,7 @@ end
 -- ══════════════════════════════════════════════════════════════════════════════
 -- FIX #33: Base crest badge — toggle button for base summary
 -- ══════════════════════════════════════════════════════════════════════════════
--- Appears to the right of the arena badge (slot 1) when the player is within
+-- Parents into TopRightBadgeTray (shared top-right row). Shows when the player is within
 -- base summary range. Clicking toggles the billboard summary on/off.
 -- Matches the arena badge style: dark glass, gold stroke, shield shape.
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -436,39 +435,17 @@ local function stopBadgePulse()
 	if badge.glow then badge.glow.Thickness = 2; badge.glow.Transparency = 0 end
 end
 
---- Create the base crest badge ScreenGui. Idempotent.
---- Positioned in BADGE_SLOT (1) — right of the arena badge (slot 0).
+--- Create the base crest badge (parents into shared top-right tray).
 local function createBaseBadge()
-	if badge.gui and badge.gui.Parent then return end
+	if badge.button and badge.button.Parent then return end
 
-	local sg = Instance.new("ScreenGui")
-	sg.Name = "BaseCrestBadge"
-	sg.DisplayOrder = BADGE_DISPLAY_ORD
-	sg.ResetOnSpawn = false
-	sg.IgnoreGuiInset = true
-	sg.Parent = playerGui
-
-	-- Position relative to ticker, in the correct badge slot
-	local notifGui  = playerGui:FindFirstChild("NotificationGUI")
-	local tickerBar = notifGui and notifGui:FindFirstChild("TickerBar")
+	local row = TopRightBadgeTray.GetBadgeRow(player)
 
 	local btn = Instance.new("TextButton")
 	btn.Name = "BaseCrestButton"
 	btn.Size = UDim2.new(0, BADGE_WIDTH, 0, BADGE_HEIGHT)
-
-	if tickerBar then
-		local ap = tickerBar.AbsolutePosition
-		local as = tickerBar.AbsoluteSize
-		-- Slot formula: tickerRight + gap + slotIndex * (badgeWidth + gap)
-		local xOffset = ap.X + as.X + BADGE_GAP + BADGE_SLOT * (BADGE_WIDTH + BADGE_GAP)
-		btn.Position    = UDim2.new(0, xOffset, 0, ap.Y + as.Y / 2)
-		btn.AnchorPoint = Vector2.new(0, 0.5)
-	else
-		-- Fallback: offset from 0.86 by one badge width
-		local fallbackX = 0.86 + (BADGE_SLOT * 0.04)
-		btn.Position    = UDim2.new(fallbackX, 0, 0, 18)
-		btn.AnchorPoint = Vector2.new(0.5, 0)
-	end
+	btn.LayoutOrder = TopRightBadgeTray.Order.BaseSummaryCrest
+	btn.Parent = row
 
 	btn.BackgroundColor3       = BADGE_BG
 	btn.BackgroundTransparency = 0.15
@@ -479,7 +456,6 @@ local function createBaseBadge()
 	btn.TextSize               = 16
 	btn.AutoButtonColor        = false
 	btn.ZIndex                 = 100
-	btn.Parent                 = sg
 
 	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
@@ -532,7 +508,7 @@ local function createBaseBadge()
 		print("[BaseSummary] Badge toggled — manualToggle=", manualToggle)
 	end)
 
-	badge.gui    = sg
+	badge.gui    = row:FindFirstAncestorWhichIsA("ScreenGui")
 	badge.button = btn
 	badge.glow   = stroke
 	btn.Visible  = false  -- hidden until player enters range
@@ -672,16 +648,19 @@ RunService.Heartbeat:Connect(function(dt)
 			continue
 		end
 
-		-- Only show summary for the local player's OWN base
-		local plotOwner = plotModel:GetAttribute("OwnerUserId")
-		if plotOwner and tonumber(plotOwner) ~= player.UserId then
-			local existingEntry = summaryGuis[plotModel]
-			if existingEntry and existingEntry.visible then
-				fadeOut(existingEntry)
+		-- Client summary is parented under PlotCenter; when the server clears OwnerUserId (leave / reassign),
+		-- we must destroy stale billboards — previously we skipped vacant plots and left orphaned name/stats UI.
+		local plotOwnerAttr = plotModel:GetAttribute("OwnerUserId")
+		local plotOwnerUid = plotOwnerAttr and tonumber(plotOwnerAttr)
+		local existingEntry = summaryGuis[plotModel]
+		if not plotOwnerUid or plotOwnerUid ~= player.UserId then
+			if existingEntry then
+				cancelTweens(existingEntry)
+				if existingEntry.billboard and existingEntry.billboard.Parent then
+					existingEntry.billboard:Destroy()
+				end
+				summaryGuis[plotModel] = nil
 			end
-			continue
-		end
-		if not plotOwner then
 			continue
 		end
 

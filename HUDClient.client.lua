@@ -1,3 +1,4 @@
+-- Last updated: 2026-04-20 16:00
 -- HUDClient.lua - StarterPlayer.StarterPlayerScripts (LocalScript)
 -- Coin display, inventory count, and event routing through NotificationManager.
 
@@ -12,6 +13,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local Notify = require(ReplicatedStorage.Modules.NotificationManager)
+local TopRightBadgeTray = require(ReplicatedStorage.Modules:WaitForChild("TopRightBadgeTray"))
 
 -- Build HUD first so top-left UI always appears (even if Events is slow/missing)
 -- -- HUD ELEMENTS --
@@ -188,7 +190,8 @@ dungeonBadge.TextColor3 = Color3.fromRGB(255, 184, 0)
 dungeonBadge.Font = Enum.Font.GothamBlack
 dungeonBadge.TextSize = 16
 dungeonBadge.Visible = false
-dungeonBadge.Parent = dungeonBadgeGui
+dungeonBadge.Parent = TopRightBadgeTray.GetBadgeRow(player)
+dungeonBadge.LayoutOrder = TopRightBadgeTray.Order.Dungeon
 Instance.new("UICorner", dungeonBadge).CornerRadius = UDim.new(0, 6)
 local dungeonBadgeStroke = Instance.new("UIStroke")
 dungeonBadgeStroke.Color = Color3.fromRGB(255, 184, 0)
@@ -258,49 +261,16 @@ dungeonTime.TextXAlignment = Enum.TextXAlignment.Left
 dungeonTime.Parent = dungeonPanel
 
 local function positionDungeonBadge()
-	local notifGui = playerGui:FindFirstChild("NotificationGUI")
-	local tickerBar = notifGui and notifGui:FindFirstChild("TickerBar")
-	local arenaBadgeGui = playerGui:FindFirstChild("ArenaCrestBadge")
-	local arenaBadgeButton = arenaBadgeGui and arenaBadgeGui:FindFirstChild("CrestButton")
-	local baseBadgeGui = playerGui:FindFirstChild("BaseCrestBadge")
-	local baseBadgeButton = baseBadgeGui and baseBadgeGui:FindFirstChild("BaseCrestButton")
-
-	-- If arena/base crest badges exist, align to their exact row first.
-	if arenaBadgeButton and arenaBadgeButton:IsA("GuiObject") and arenaBadgeButton.Visible then
-		local ap = arenaBadgeButton.AbsolutePosition
-		local as = arenaBadgeButton.AbsoluteSize
-		local xOffset = ap.X + DUNGEON_BADGE_SLOT * (DUNGEON_BADGE_WIDTH + DUNGEON_BADGE_GAP)
-		local yCenter = ap.Y + as.Y / 2
-		dungeonBadge.Position = UDim2.new(0, xOffset, 0, yCenter)
-		dungeonBadge.AnchorPoint = Vector2.new(0, 0.5)
-		dungeonPanel.Position = UDim2.new(0, math.max(8, xOffset - 286), 0, ap.Y + as.Y + 8)
+	if not dungeonBadge.Parent then
 		return
 	end
-	if baseBadgeButton and baseBadgeButton:IsA("GuiObject") and baseBadgeButton.Visible then
-		local ap = baseBadgeButton.AbsolutePosition
-		local as = baseBadgeButton.AbsoluteSize
-		local xOffset = ap.X + (DUNGEON_BADGE_WIDTH + DUNGEON_BADGE_GAP)
-		local yCenter = ap.Y + as.Y / 2
-		dungeonBadge.Position = UDim2.new(0, xOffset, 0, yCenter)
-		dungeonBadge.AnchorPoint = Vector2.new(0, 0.5)
-		dungeonPanel.Position = UDim2.new(0, math.max(8, xOffset - 286), 0, ap.Y + as.Y + 8)
+	local ap = dungeonBadge.AbsolutePosition
+	local as = dungeonBadge.AbsoluteSize
+	if as.X < 1 or as.Y < 1 then
 		return
 	end
-
-	if tickerBar and tickerBar:IsA("GuiObject") then
-		local ap = tickerBar.AbsolutePosition
-		local as = tickerBar.AbsoluteSize
-		local xOffset = ap.X + as.X + DUNGEON_BADGE_GAP + DUNGEON_BADGE_SLOT * (DUNGEON_BADGE_WIDTH + DUNGEON_BADGE_GAP)
-		dungeonBadge.Position = UDim2.new(0, xOffset, 0, ap.Y + as.Y / 2)
-		dungeonBadge.AnchorPoint = Vector2.new(0, 0.5)
-		dungeonPanel.Position = UDim2.new(0, math.max(8, xOffset - 286), 0, ap.Y + as.Y + 8)
-	else
-		-- Fallback: same slot formula as Arena/Base badges (TickerBar removed)
-		local fallbackX = 0.86 + (DUNGEON_BADGE_SLOT * 0.04)
-		dungeonBadge.Position = UDim2.new(fallbackX, 0, 0, 18)
-		dungeonBadge.AnchorPoint = Vector2.new(0.5, 0)
-		dungeonPanel.Position = UDim2.new(1, -336, 0, 72)
-	end
+	dungeonPanel.AnchorPoint = Vector2.new(1, 0)
+	dungeonPanel.Position = UDim2.fromOffset(ap.X + as.X, ap.Y + as.Y + 8)
 end
 
 positionDungeonBadge()
@@ -359,7 +329,6 @@ local RaidEnd        = safeGet("RaidEnd")
 local AIRaidAlert    = safeGet("AIRaidAlert")
 local DungeonSpawned = safeGet("DungeonSpawned")
 local DungeonDespawned = safeGet("DungeonDespawned")
-local CaptureFail    = safeGet("CaptureFail")
 local BaseDefenseTargeted = safeGet("BaseDefenseTargeted")
 local ShowNotification = safeGet("ShowNotification")
 
@@ -452,11 +421,7 @@ if CaptureSuccess then
 	CaptureSuccess.OnClientEvent:Connect(function() task.wait(0.3); refreshData() end)
 end
 
-if CaptureFail then
-	CaptureFail.OnClientEvent:Connect(function(msg)
-		Notify.Toast(msg or "Action failed", Color3.fromRGB(255, 80, 60), 4)
-	end)
-end
+-- CaptureFail toast: CaptureClient also listens and shows a notif + cleans capture UI — avoid duplicate toasts.
 
 -- PvP raid toasts removed; base tab still updates via InventoryUIManager (RaidStart/RaidEnd).
 if RaidEnd then

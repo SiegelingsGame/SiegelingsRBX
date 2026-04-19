@@ -6,6 +6,12 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "3000", "--directory", "website"],
       "port": 3000
+    },
+    {
+      "name": "coin-shop-mockup",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "3100", "--directory", "mockups/coin-shop"],
+      "port": 3100
     }
   ]
 }

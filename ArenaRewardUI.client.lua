@@ -9,6 +9,7 @@ local player = Players.LocalPlayer
 
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local Notify = require(ReplicatedStorage.Modules.NotificationManager)
+local TopRightBadgeTray = require(ReplicatedStorage.Modules:WaitForChild("TopRightBadgeTray"))
 
 local Events = ReplicatedStorage:WaitForChild("Events", 15)
 if not Events then return end
@@ -37,8 +38,6 @@ local MUTED  = Color3.fromRGB(130, 135, 150)
 -- Arena watch prompt (badge + click-open modal)
 local WATCH_BADGE_WIDTH = 36
 local WATCH_BADGE_HEIGHT = 42
-local WATCH_BADGE_GAP = 8
-local WATCH_BADGE_SLOT = 2 -- after arena/base crest badges
 local watchPrompt = {
 	gui = nil,
 	badge = nil,
@@ -70,30 +69,16 @@ local function hideArenaWatchPrompt()
 		watchPrompt.gui:Destroy()
 	end
 	watchPrompt.gui = nil
+	if watchPrompt.badge and watchPrompt.badge.Parent then
+		watchPrompt.badge:Destroy()
+	end
 	watchPrompt.badge = nil
 	watchPrompt.stroke = nil
 	watchPrompt.payload = nil
 end
 
-local function positionWatchBadge()
-	if not (watchPrompt.badge and watchPrompt.badge.Parent) then return end
-	local notifGui = playerGui:FindFirstChild("NotificationGUI")
-	local tickerBar = notifGui and notifGui:FindFirstChild("TickerBar")
-	if tickerBar then
-		local ap = tickerBar.AbsolutePosition
-		local as = tickerBar.AbsoluteSize
-		local xOffset = ap.X + as.X + WATCH_BADGE_GAP + WATCH_BADGE_SLOT * (WATCH_BADGE_WIDTH + WATCH_BADGE_GAP)
-		watchPrompt.badge.Position = UDim2.new(0, xOffset, 0, ap.Y + as.Y / 2)
-		watchPrompt.badge.AnchorPoint = Vector2.new(0, 0.5)
-	else
-		watchPrompt.badge.Position = UDim2.new(0.94, 0, 0, 18)
-		watchPrompt.badge.AnchorPoint = Vector2.new(0.5, 0)
-	end
-end
-
 local function ensureWatchBadge()
 	if watchPrompt.gui and watchPrompt.gui.Parent and watchPrompt.badge then
-		positionWatchBadge()
 		return
 	end
 	local payload = watchPrompt.payload
@@ -110,6 +95,7 @@ local function ensureWatchBadge()
 	local badge = Instance.new("TextButton")
 	badge.Name = "WatchBadgeButton"
 	badge.Size = UDim2.new(0, 0, 0, 0)
+	badge.LayoutOrder = TopRightBadgeTray.Order.ArenaWatch
 	badge.BackgroundColor3 = Color3.fromRGB(18, 22, 32)
 	badge.BackgroundTransparency = 0.15
 	badge.BorderSizePixel = 0
@@ -119,7 +105,7 @@ local function ensureWatchBadge()
 	badge.TextSize = 18
 	badge.AutoButtonColor = false
 	badge.ZIndex = 20
-	badge.Parent = sg
+	badge.Parent = TopRightBadgeTray.GetBadgeRow(player)
 	Instance.new("UICorner", badge).CornerRadius = UDim.new(0, 6)
 
 	local point = Instance.new("Frame")
@@ -142,7 +128,6 @@ local function ensureWatchBadge()
 	watchPrompt.gui = sg
 	watchPrompt.badge = badge
 	watchPrompt.stroke = stroke
-	positionWatchBadge()
 	badge.MouseButton1Click:Connect(showArenaWatchModal)
 
 	local elapsed = 0
@@ -151,7 +136,6 @@ local function ensureWatchBadge()
 			stopWatchBadgePulse()
 			return
 		end
-		positionWatchBadge()
 		elapsed += dt
 		local t = (math.sin(elapsed * 4 * math.pi) + 1) / 2
 		stroke.Thickness = 2 + t * 2

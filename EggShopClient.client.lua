@@ -1,4 +1,5 @@
 -- EggShopClient.lua - StarterPlayer.StarterPlayerScripts (LocalScript)
+-- Last updated: 2026-04-18 21:00
 -- Press K to open egg shop. Buy and hatch eggs of various rarities.sd
 
 local Players = game:GetService("Players")
@@ -14,6 +15,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local Notify = require(ReplicatedStorage.Modules.NotificationManager)
+local DiamondNeedHint = require(ReplicatedStorage.Modules:WaitForChild("DiamondNeedHint"))
 
 local Events = ReplicatedStorage:WaitForChild("Events", 15)
 if not Events then return end
@@ -126,7 +128,7 @@ currLbl.Name = "CurrLbl"
 currLbl.Size = UDim2.new(0.45, -48, 1, 0)
 currLbl.Position = UDim2.new(0.55, 0, 0, 0)
 currLbl.BackgroundTransparency = 1
-currLbl.Text = "Coins: 0  |  Gems: 0"
+	currLbl.Text = "Coins: 0  |  Diamonds: 0"
 currLbl.TextColor3 = C.muted
 currLbl.Font = Enum.Font.GothamBold
 currLbl.TextSize = 12
@@ -201,8 +203,15 @@ local function refreshCurrency()
 	if not getInventory then return end
 	local ok, data = pcall(function() return getInventory:InvokeServer() end)
 	if ok and data then
-		currLbl.Text = "Coins: " .. (data.coins or 0) .. "  |  Gems: " .. (data.gems or 0)
+		currLbl.Text = "Coins: " .. (data.coins or 0) .. "  |  Diamonds: " .. (data.gems or 0)
 	end
+end
+
+local gemsUpdate = Events:FindFirstChild("GemsUpdate") or Events:WaitForChild("GemsUpdate", 5)
+if gemsUpdate then
+	gemsUpdate.OnClientEvent:Connect(function()
+		refreshCurrency()
+	end)
 end
 
 local function buildEggCards()
@@ -295,39 +304,54 @@ local function buildEggCards()
 
 		-- Buy with Coins button
 		local coinCost = (type(egg.coinCost) == "number") and egg.coinCost or 0
+		local gemCost = (type(egg.gemCost) == "number") and egg.gemCost or 0
 		local robuxCost = (type(egg.robuxCost) == "number") and egg.robuxCost or 0
 		local productId = (type(egg.productId) == "number") and egg.productId or 0
 
 		local buyCoinsBtn = Instance.new("TextButton")
-		buyCoinsBtn.Size = UDim2.new(1, -16, 0, 32)
+		buyCoinsBtn.Size = UDim2.new(0.5, -12, 0, 30)
 		buyCoinsBtn.Position = UDim2.new(0, 8, 1, -78)
 		buyCoinsBtn.BorderSizePixel = 0
 		buyCoinsBtn.Font = Enum.Font.GothamBold
 		buyCoinsBtn.TextSize = math.max(7, math.floor(12 * uiScale))
-		buyCoinsBtn.Text = "Coins: " .. coinCost
+		buyCoinsBtn.Text = "" .. coinCost
 		buyCoinsBtn.BackgroundColor3 = Color3.fromRGB(50, 45, 20)
 		buyCoinsBtn.TextColor3 = C.coin
 		buyCoinsBtn.Parent = card
 		Instance.new("UICorner", buyCoinsBtn).CornerRadius = UDim.new(0, 8)
 		buyCoinsBtn.Active = (coinCost > 0)
 
+		local buyGemsBtn = Instance.new("TextButton")
+		buyGemsBtn.Size = UDim2.new(0.5, -12, 0, 30)
+		buyGemsBtn.Position = UDim2.new(0.5, 4, 1, -78)
+		buyGemsBtn.BorderSizePixel = 0
+		buyGemsBtn.Font = Enum.Font.GothamBold
+		buyGemsBtn.TextSize = math.max(7, math.floor(12 * uiScale))
+		buyGemsBtn.Text = "" .. gemCost
+		buyGemsBtn.BackgroundColor3 = Color3.fromRGB(35, 25, 60)
+		buyGemsBtn.TextColor3 = C.gem
+		buyGemsBtn.Parent = card
+		Instance.new("UICorner", buyGemsBtn).CornerRadius = UDim.new(0, 8)
+		buyGemsBtn.Active = (gemCost > 0)
+
 		local buyRobuxBtn = Instance.new("TextButton")
-		buyRobuxBtn.Size = UDim2.new(1, -16, 0, 32)
-		buyRobuxBtn.Position = UDim2.new(0, 8, 1, -42)
+		buyRobuxBtn.Size = UDim2.new(1, -16, 0, 28)
+		buyRobuxBtn.Position = UDim2.new(0, 8, 1, -44)
 		buyRobuxBtn.BorderSizePixel = 0
 		buyRobuxBtn.Font = Enum.Font.GothamBold
-		buyRobuxBtn.TextSize = math.max(7, math.floor(12 * uiScale))
+		buyRobuxBtn.TextSize = math.max(7, math.floor(11 * uiScale))
 		buyRobuxBtn.Text = "R$ " .. robuxCost
 		buyRobuxBtn.BackgroundColor3 = Color3.fromRGB(30, 70, 45)
 		buyRobuxBtn.TextColor3 = C.robux
 		buyRobuxBtn.Parent = card
 		Instance.new("UICorner", buyRobuxBtn).CornerRadius = UDim.new(0, 8)
-		buyRobuxBtn.Active = (robuxCost > 0)
+		buyRobuxBtn.Visible = (robuxCost > 0)
+		buyRobuxBtn.Active = (robuxCost > 0 and productId > 0)
 
 		local function doCoinPurchase()
 			if hatching or coinCost <= 0 or not buyEgg then return end
 			hatching = true
-			buyCoinsBtn.Text = "Buying..."
+			buyCoinsBtn.Text = "..."
 			local pcallOk, serverOk, serverMsg = pcall(function()
 				return buyEgg:InvokeServer(egg.id, "coins")
 			end)
@@ -340,7 +364,27 @@ local function buildEggCards()
 				Notify.Toast("Connection error", C.red, 3)
 			end
 			hatching = false
-			buyCoinsBtn.Text = "Coins: " .. coinCost
+			buyCoinsBtn.Text = "" .. coinCost
+		end
+
+		local function doGemPurchase()
+			if hatching or gemCost <= 0 or not buyEgg then return end
+			hatching = true
+			buyGemsBtn.Text = "..."
+			local pcallOk, serverOk, serverMsg = pcall(function()
+				return buyEgg:InvokeServer(egg.id, "gems")
+			end)
+			if pcallOk and serverOk then
+				Notify.Toast((type(serverMsg) == "string" and serverMsg ~= "") and serverMsg or "Egg purchased!", C.green, 3)
+				refreshCurrency()
+			elseif pcallOk then
+				Notify.Toast((type(serverMsg) == "string" and serverMsg ~= "") and serverMsg or "Purchase failed", C.red, 3)
+				DiamondNeedHint.OnInsufficientDiamonds(serverOk, serverMsg, Notify)
+			else
+				Notify.Toast("Connection error", C.red, 3)
+			end
+			hatching = false
+			buyGemsBtn.Text = "" .. gemCost
 		end
 
 		local function doRobuxPurchase()
@@ -359,6 +403,7 @@ local function buildEggCards()
 		end
 
 		buyCoinsBtn.MouseButton1Click:Connect(doCoinPurchase)
+		buyGemsBtn.MouseButton1Click:Connect(doGemPurchase)
 		buyRobuxBtn.MouseButton1Click:Connect(doRobuxPurchase)
 	end
 end

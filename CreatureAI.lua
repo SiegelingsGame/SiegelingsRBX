@@ -1,5 +1,7 @@
 -- CreatureAI.lua - ServerScriptService (ModuleScript)
+-- Last updated: 2026-04-19 12:00
 -- UPDATED: FIX #15 crawling upright reset on Move->Idle transition (2025)
+-- Terrain swimmable water: water-type AI uses IsPositionInSwimmableWater; moveTowards skips seafloor raycast while swimming.
 -- Manages world creature behaviors: wander, aggro, pack, flee, fight, faint.
 -- Fainted creatures become capturable for a gold cost.
 
@@ -96,6 +98,34 @@ end
 -- Returns the Ocean part (Biomes -> OceanBiome -> Ocean -> Ocean) or nil. Used to clamp companion Y to water bounds.
 function CreatureAI.GetOceanPart()
 	return getOceanPart()
+end
+
+-- Terrain material water (same voxel check as UnderwaterBreathClient): Roblox swimming volumes without Ocean/WaterBlock parts.
+local TERRAIN_WATER_SAMPLE_RADIUS = 1.5
+
+local function isPositionInTerrainWater(worldPos)
+	local terrain = Workspace.Terrain
+	if not terrain then return false end
+	local r = TERRAIN_WATER_SAMPLE_RADIUS
+	local minV = worldPos - Vector3.new(r, r, r)
+	local maxV = worldPos + Vector3.new(r, r, r)
+	local region = Region3.new(minV, maxV):ExpandToGrid(4)
+	local ok, mats = pcall(function()
+		return terrain:ReadVoxels(region, 4)
+	end)
+	if not ok or not mats then return false end
+	return mats[1] and mats[1][1] and mats[1][1][1] == Enum.Material.Water
+end
+
+function CreatureAI.IsPositionInTerrainWater(worldPos)
+	return isPositionInTerrainWater(worldPos)
+end
+
+-- Ocean part, tagged WaterBlock, OR Terrain.Material.Water — anywhere the player can swim.
+function CreatureAI.IsPositionInSwimmableWater(worldPos)
+	if CreatureAI.IsPositionInOcean(worldPos) then return true end
+	if CreatureAI.IsPositionInWaterBlock(worldPos) then return true end
+	return isPositionInTerrainWater(worldPos)
 end
 
 -- Returns the WaterBlock part containing worldPos, or nil. Used by companion system to clamp Y to water volume bounds.
@@ -309,9 +339,9 @@ pcall(function() ArenaShieldSystem = require(game:GetService("ServerScriptServic
 
 local function moveTowards(body, target, speed, dt, creatureId)
 	local model = body and body.Parent and body.Parent:IsA("Model") and body.Parent
-	-- Water creatures move in 3D when inside Ocean or a WaterBlock part; otherwise use ground level.
+	-- Water creatures move in 3D inside any swimmable volume (Ocean, WaterBlock, Terrain water); otherwise ground level.
 	local isWater3D = creatureId and CreatureData.IsWaterType(creatureId)
-		and (CreatureAI.IsPositionInOcean(body.Position) or CreatureAI.IsPositionInWaterBlock(body.Position))
+		and CreatureAI.IsPositionInSwimmableWater(body.Position)
 	local dir
 	if isWater3D then
 		dir = target - body.Position
@@ -362,10 +392,10 @@ local function moveTowards(body, target, speed, dt, creatureId)
 		end
 	end
 
-	-- Block movement through walls/terrain: raycast path; if blocked, stop at obstruction
+	-- Block movement through walls: raycast path (skip while swimming in water — ray hits seafloor and pins creatures).
 	local toNew = newPos - pos
 	local moveDist = toNew.Magnitude
-	if moveDist > 0.01 then
+	if not isWater3D and moveDist > 0.01 then
 		local rayParams = RaycastParams.new()
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 		rayParams.FilterDescendantsInstances = getCachedExcludeList()
@@ -375,7 +405,7 @@ local function moveTowards(body, target, speed, dt, creatureId)
 		if hit and hit.Distance < moveDist + 0.1 then
 			-- Stop short of wall; stay just outside surface
 			newPos = hit.Position - hit.Normal * (bodyRadius + 0.2)
-			if not isWater3D and model and creatureId then
+			if model and creatureId then
 				newPos = Vector3.new(newPos.X, getDesiredBodyY(body, model, creatureId, newPos.X, newPos.Z), newPos.Z)
 			end
 		end
@@ -389,8 +419,8 @@ local function getRandomWanderPoint(center, radius, creatureId)
 	local angle = math.random() * math.pi * 2
 	local dist = math.random() * radius
 	local offset = Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist)
-	-- FIX #20: Water creatures get vertical wander in both Ocean AND WaterBlock volumes
-	if creatureId and CreatureData.IsWaterType(creatureId) and (CreatureAI.IsPositionInOcean(center) or CreatureAI.IsPositionInWaterBlock(center)) then
+	-- FIX #20: Water creatures get vertical wander in Ocean, WaterBlock, and Terrain water volumes
+	if creatureId and CreatureData.IsWaterType(creatureId) and CreatureAI.IsPositionInSwimmableWater(center) then
 		offset = Vector3.new(offset.X, (math.random() * 2 - 1) * radius * 0.4, offset.Z)
 	end
 	return center + offset
@@ -917,7 +947,7 @@ local function updateCreature(model, state, dt)
 	-- Water creatures in water are exempt (3D movement). Stationary base creatures skip
 	-- only if behavior is "stationary" AND currently at income/defense (they're placed by BasePlacementSystem).
 	local isWaterSwimming = CreatureData.IsWaterType(state.id)
-		and (CreatureAI.IsPositionInOcean(pos) or CreatureAI.IsPositionInWaterBlock(pos))
+		and CreatureAI.IsPositionInSwimmableWater(pos)
 	if not isWaterSwimming and state.behavior ~= "stationary" then
 		local desiredY = getDesiredBodyY(body, model, state.id, pos.X, pos.Z)
 		if math.abs(body.Position.Y - desiredY) > 0.1 then
@@ -955,7 +985,8 @@ local function updateCreature(model, state, dt)
 	local animType
 	if state.state == "attack" then animType = "Attack"
 	elseif (state.state == "chase" or state.state == "wander" or state.state == "flee") and not stationaryFor2s then
-		animType = (CreatureData.IsWaterType(state.id) and "Swimming") or "Move"
+		local useSwimAnim = CreatureData.IsWaterType(state.id) and CreatureAI.IsPositionInSwimmableWater(pos)
+		animType = (useSwimAnim and "Swimming") or "Move"
 	elseif state.behavior == "stationary" and model:GetAttribute("SlotType") == "income" then animType = "Income"
 	else animType = "Idle"
 	end
@@ -1245,8 +1276,8 @@ local function updateCreature(model, state, dt)
 			if math.abs(body.Position.Y - desiredY) > 0.1 then
 				body.Position = Vector3.new(body.Position.X, desiredY, body.Position.Z)
 			end
-		elseif CreatureData.IsWaterType(state.id) and not (CreatureAI.IsPositionInOcean(body.Position) or CreatureAI.IsPositionInWaterBlock(body.Position)) then
-			-- Water creatures outside Ocean and outside WaterBlock: snap to ground level (revert to old movement)
+		elseif CreatureData.IsWaterType(state.id) and not CreatureAI.IsPositionInSwimmableWater(body.Position) then
+			-- Water creatures outside swimmable water: snap to ground level
 			local desiredY = getDesiredBodyY(body, model, state.id, pos.X, pos.Z)
 			if math.abs(body.Position.Y - desiredY) > 0.1 then
 				body.Position = Vector3.new(body.Position.X, desiredY, body.Position.Z)
@@ -1444,8 +1475,8 @@ local function updateCreature(model, state, dt)
 			fleeFrom = CreatureModelLoader.GetBodyPart(state.target) or state.target:FindFirstChild("Body") or state.target:FindFirstChild("HumanoidRootPart")
 		end
 		if fleeFrom then
-			-- FIX #20: Water creatures flee in 3D in both Ocean and WaterBlock volumes
-			local isWater3D = CreatureData.IsWaterType(state.id) and (CreatureAI.IsPositionInOcean(body.Position) or CreatureAI.IsPositionInWaterBlock(body.Position))
+			-- FIX #20: Water creatures flee in 3D in Ocean, WaterBlock, and Terrain water
+			local isWater3D = CreatureData.IsWaterType(state.id) and CreatureAI.IsPositionInSwimmableWater(body.Position)
 			local away = isWater3D and (pos - fleeFrom.Position) or (pos - fleeFrom.Position) * Vector3.new(1, 0, 1)
 			if away.Magnitude > 0.1 then
 				local newPos = body.Position + away.Unit * GameConfig.AI_FleeSpeed * speedMult * dt

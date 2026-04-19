@@ -14,6 +14,7 @@
 --
 -- Toggle: [P] key or Profile HUD button (via HUDToggleMenu BindableEvent).
 -- ══════════════════════════════════════════════════════════════════════════════
+-- Last updated: 2026-04-18 23:59
 
 local Players            = game:GetService("Players")
 local ReplicatedStorage  = game:GetService("ReplicatedStorage")
@@ -278,23 +279,35 @@ profileNameStrip.Position = UDim2.new(PROFILE_HDR_MID_X, 0, 0, 5)
 profileNameStrip.Size = UDim2.new(PROFILE_HDR_MID_W, 0, 0, 22)
 profileNameStrip.Parent = profileHdrCluster
 
+local profileNameRowLayout = Instance.new("UIListLayout")
+profileNameRowLayout.FillDirection = Enum.FillDirection.Horizontal
+profileNameRowLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+profileNameRowLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+profileNameRowLayout.Padding = UDim.new(0, 8)
+profileNameRowLayout.SortOrder = Enum.SortOrder.LayoutOrder
+profileNameRowLayout.Parent = profileNameStrip
+
 local profileNameRich = Instance.new("TextLabel")
 profileNameRich.Name = "NameRich"
-profileNameRich.Size = UDim2.new(1, -8, 1, 0)
-profileNameRich.Position = UDim2.new(0, 4, 0, 0)
+profileNameRich.LayoutOrder = 1
+profileNameRich.Size = UDim2.new(0, 0, 1, 0)
+profileNameRich.AutomaticSize = Enum.AutomaticSize.X
 profileNameRich.BackgroundTransparency = 1
 profileNameRich.Font = Enum.Font.GothamBold
 profileNameRich.TextSize = 15
-profileNameRich.TextXAlignment = Enum.TextXAlignment.Center
+profileNameRich.TextXAlignment = Enum.TextXAlignment.Left
 profileNameRich.TextYAlignment = Enum.TextYAlignment.Center
 profileNameRich.RichText = true
 profileNameRich.TextTruncate = Enum.TextTruncate.AtEnd
 profileNameRich.Parent = profileNameStrip
+local profileNameMaxW = Instance.new("UISizeConstraint", profileNameRich)
+profileNameMaxW.MaxSize = Vector2.new(340, 22)
 
 local profileLvlBadge = Instance.new("TextLabel")
 profileLvlBadge.Name = "LvlBadge"
-profileLvlBadge.Size = UDim2.new(0, 88, 0, 22)
-profileLvlBadge.Position = UDim2.new(1, -90, 0, 6)
+profileLvlBadge.LayoutOrder = 2
+profileLvlBadge.Size = UDim2.new(0, 0, 0, 22)
+profileLvlBadge.AutomaticSize = Enum.AutomaticSize.X
 profileLvlBadge.BackgroundColor3 = C.xpBar
 profileLvlBadge.BackgroundTransparency = 0.15
 profileLvlBadge.BorderSizePixel = 0
@@ -303,7 +316,10 @@ profileLvlBadge.TextColor3 = Color3.new(1, 1, 1)
 profileLvlBadge.Font = Enum.Font.GothamBlack
 profileLvlBadge.TextSize = 11
 profileLvlBadge.ZIndex = 2
-profileLvlBadge.Parent = profileHdrCluster
+profileLvlBadge.Parent = profileNameStrip
+local profileLvlBadgePad = Instance.new("UIPadding", profileLvlBadge)
+profileLvlBadgePad.PaddingLeft = UDim.new(0, 8)
+profileLvlBadgePad.PaddingRight = UDim.new(0, 8)
 Instance.new("UICorner", profileLvlBadge).CornerRadius = UDim.new(0, 6)
 
 local profileXpBg = Instance.new("Frame")
@@ -1332,7 +1348,6 @@ end
 
 local achievementCacheById = {} -- id -> entry (client-facing table)
 local achievementCardById = {}  -- id -> card frame
-local unlockedPopupShown = {}   -- id -> true (client-side duplicate guard)
 
 local function mkBadgeIcon(parent, iconId, tint, locked)
 	if iconId and iconId ~= "" then
@@ -1754,44 +1769,7 @@ function refreshAchievements()
 	end
 end
 
-local function showAchievementUnlockPopup(def)
-	if not def or not def.id then return end
-	if unlockedPopupShown[def.id] then return end
-	unlockedPopupShown[def.id] = true
-
-	local rg = tonumber(def.gems) or 0
-	local rx = tonumber(def.xp) or 0
-	local rd = type(def.rewardData) == "table" and def.rewardData or nil
-	if rg <= 0 and rd then
-		rg = tonumber(rd.gems) or 0
-	end
-	if rx <= 0 and rd then
-		rx = tonumber(rd.xp) or 0
-	end
-
-	local rows = {
-		{ text = def.name or "Badge Earned", color = C.text, font = Enum.Font.GothamBlack, textSize = 16, size = 22 },
-		{ text = def.titleEarned and def.titleEarned ~= "" and ("Title Earned: " .. def.titleEarned) or "New title unlocked", color = C.achieveAccent, font = Enum.Font.GothamBold, textSize = 12, size = 18 },
-	}
-	if rg > 0 or rx > 0 then
-		local parts = {}
-		if rg > 0 then
-			table.insert(parts, "+" .. tostring(rg) .. " diamonds")
-		end
-		if rx > 0 then
-			table.insert(parts, "+" .. tostring(rx) .. " XP")
-		end
-		table.insert(rows, { text = table.concat(parts, " · "), color = C.blue, font = Enum.Font.GothamBold, textSize = 12, size = 18 })
-	end
-	table.insert(rows, { text = def.description or "", color = C.textSec, font = Enum.Font.GothamMedium, textSize = 12, size = 18 })
-
-	Notify.RewardPopup(
-		"ACHIEVEMENT UNLOCKED",
-		C.achieveAccent,
-		rows,
-		5.5
-	)
-end
+-- Achievement unlock RewardPopup: AchievementUnlockBadge.client.lua (top-edge badge, tap to open).
 
 -- Live updates
 if achievementProgress and achievementProgress:IsA("RemoteEvent") then
@@ -1807,7 +1785,6 @@ end
 
 if achievementUnlocked and achievementUnlocked:IsA("RemoteEvent") then
 	achievementUnlocked.OnClientEvent:Connect(function(def)
-		showAchievementUnlockPopup(def)
 		-- Flip the cached visual state immediately (prevents "still LOCKED" after unlock).
 		if def and def.id then
 			local cached = achievementCacheById[def.id]

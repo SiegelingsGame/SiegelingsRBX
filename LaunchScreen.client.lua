@@ -1,6 +1,7 @@
 -- LaunchScreen.lua - StarterPlayer.StarterPlayerScripts (LocalScript)
 -- First-time: pick starter creature. Plot is auto-assigned by server.
 -- Returning: skip launch screen entirely.
+-- Last updated: 2026-04-19 14:30
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -11,6 +12,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+local CodexModelViewer = require(ReplicatedStorage.Modules.CodexModelViewer)
 
 local Events = ReplicatedStorage:WaitForChild("Events", 15)
 if not Events then return end
@@ -222,7 +224,7 @@ local function showStarterSelection()
 		stroke.Thickness = 2
 		stroke.Parent = card
 
-		-- Orb (scale + UIAspectRatioConstraint so it stays square)
+		-- Circular frame + 3D viewport (UICorner on ViewportFrame clips the render; see CodexModelViewer)
 		local orb = Instance.new("Frame")
 		orb.AnchorPoint = Vector2.new(0.5, 0)
 		orb.Size = UDim2.new(0.4, 0, 0.18, 0)
@@ -235,6 +237,16 @@ local function showStarterSelection()
 		local aspect = Instance.new("UIAspectRatioConstraint")
 		aspect.AspectRatio = 1
 		aspect.Parent = orb
+
+		local starterViewer = CodexModelViewer.new(orb, {
+			size = UDim2.new(1, 0, 1, 0),
+			viewportCornerRadius = UDim.new(1, 0),
+			showFloor = false,
+			interactable = false,
+			autoRotate = false,
+			themedLighting = true,
+		})
+		starterViewer:SetCreature(sid)
 
 		-- Name label: base size 13, scaled by ts; minimum 10px
 		local nm = Instance.new("TextLabel")

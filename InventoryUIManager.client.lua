@@ -1,6 +1,7 @@
 -- InventoryUIManager.lua - StarterPlayer.StarterPlayerScripts (LocalScript)
 -- Inventory, Battle Formation, and Bag (misc items) UI...
 -- Toggle with 'B' key or on-screen button.
+-- Last updated: 2026-04-20 17:00
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -10,6 +11,7 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local GuiService = game:GetService("GuiService")
 local MobileWindowLayout = require(ReplicatedStorage.Modules:WaitForChild("MobileWindowLayout"))
+local TopRightBadgeTray = require(ReplicatedStorage.Modules:WaitForChild("TopRightBadgeTray"))
 local CollectionService = game:GetService("CollectionService")
 local HttpService = game:GetService("HttpService")
 
@@ -208,10 +210,8 @@ local CLASS_COLOR = {
 -- ══════════════════════════════════════════════════════════════════════════════
 local BADGE_WIDTH       = 30
 local BADGE_HEIGHT      = 34
-local BADGE_GAP         = 8
 local BADGE_BG          = Color3.fromRGB(18, 22, 32)
 local BADGE_RED         = C.defense
-local BADGE_DISPLAY_ORD = 90
 
 local baseBadge = {
 	gui = nil,
@@ -246,22 +246,15 @@ local function stopBaseBadgePulse()
 end
 
 local function createBaseUnderAttackBadge()
-	if baseBadge.gui and baseBadge.gui.Parent then return end
+	if baseBadge.button and baseBadge.button.Parent then return end
 
-	local sg = Instance.new("ScreenGui")
-	sg.Name = "BaseUnderAttackBadge"
-	sg.DisplayOrder = BADGE_DISPLAY_ORD
-	sg.ResetOnSpawn = false
-	sg.IgnoreGuiInset = true
-	sg.Parent = playerGui
-
-	-- Position relative to Notification ticker bar (if present).
-	local notifGui = playerGui:FindFirstChild("NotificationGUI")
-	local tickerBar = notifGui and notifGui:FindFirstChild("TickerBar")
+	local row = TopRightBadgeTray.GetBadgeRow(player)
 
 	local btn = Instance.new("TextButton")
 	btn.Name = "BaseRaidButton"
 	btn.Size = UDim2.new(0, BADGE_WIDTH, 0, BADGE_HEIGHT)
+	btn.LayoutOrder = TopRightBadgeTray.Order.BaseUnderAttack
+	btn.Parent = row
 	btn.BackgroundColor3 = BADGE_BG
 	btn.BackgroundTransparency = 0.15
 	btn.BorderSizePixel = 0
@@ -271,17 +264,6 @@ local function createBaseUnderAttackBadge()
 	btn.TextSize = 18
 	btn.AutoButtonColor = false
 	btn.ZIndex = 100
-	btn.Parent = sg
-
-	if tickerBar then
-		local ap = tickerBar.AbsolutePosition
-		local as = tickerBar.AbsoluteSize
-		btn.Position = UDim2.new(0, ap.X + as.X + BADGE_GAP, 0, ap.Y + as.Y / 2)
-		btn.AnchorPoint = Vector2.new(0, 0.5)
-	else
-		btn.Position = UDim2.new(0.86, 0, 0, 18)
-		btn.AnchorPoint = Vector2.new(0.5, 0)
-	end
 
 	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
@@ -291,7 +273,7 @@ local function createBaseUnderAttackBadge()
 	glow.Transparency = 0
 	glow.Parent = btn
 
-	baseBadge.gui = sg
+	baseBadge.gui = row:FindFirstAncestorWhichIsA("ScreenGui")
 	baseBadge.button = btn
 	baseBadge.glow = glow
 	btn.Visible = false
@@ -374,6 +356,8 @@ local lastFavoriteUid = nil   -- when user removes favorite, store here; Y or or
 local lastFavoriteName = nil  -- display name for ReCard label when favorite is unequipped
 local lastFavoriteCreatureId = nil  -- creature id for summon card animation (ReCard)
 local companionOut = false   -- true when companion is spawned in world (for Summon vs ReCard label)
+--- tick() when open-world faint respawn completes; nil if not on faint cooldown
+local companionFaintCooldownEndsAt = nil
 
 -- Root GUI
 local sg = Instance.new("ScreenGui")
@@ -623,6 +607,12 @@ local function updateFavOrb()
 	if not Evt.getInventory then return end
 	local ok, data = pcall(function() return Evt.getInventory:InvokeServer() end)
 	if not ok or not data then return end
+	local faintSec = tonumber(data.companionRespawnRemainingSec) or 0
+	if faintSec > 0 then
+		companionFaintCooldownEndsAt = tick() + faintSec
+	else
+		companionFaintCooldownEndsAt = nil
+	end
 	-- Badlands: main favorite is cleared server-side; show the active bag slot on the card instead.
 	if player:GetAttribute("InBadlands") then
 		local ai = tonumber(badBagState.activeIndex)
@@ -684,9 +674,17 @@ local function updateFavOrb()
 					favOrbStroke.Color = RARITY[cr and cr.rarity or "Common"] or C.textMut
 				end
 				favOrbStroke.Transparency = 0.2
-				-- Card label: "ReCard [name]" when companion is out, else "Summon [name]"
-				favOrbYLabel.Text = companionOut and ("ReCard " .. displayName) or ("Summon " .. displayName)
-				favOrbYLabel.TextColor3 = Color3.new(1, 1, 1)
+				local faintLeft = (companionFaintCooldownEndsAt and (companionFaintCooldownEndsAt - tick())) or 0
+				if faintLeft > 0 then
+					favOrbYLabel.Text = string.format("Fainted — %ds · %s", math.ceil(faintLeft), displayName)
+					favOrbYLabel.TextColor3 = Color3.fromRGB(255, 150, 150)
+				elseif companionOut then
+					favOrbYLabel.Text = "ReCard " .. displayName
+					favOrbYLabel.TextColor3 = Color3.new(1, 1, 1)
+				else
+					favOrbYLabel.Text = "Summon " .. displayName
+					favOrbYLabel.TextColor3 = Color3.new(1, 1, 1)
+				end
 				return
 			end
 		end
@@ -704,6 +702,43 @@ local function updateFavOrb()
 	favOrbBtn.BackgroundColor3 = Color3.fromRGB(50, 48, 55)
 	favOrbStroke.Color = C.divider
 	favOrbStroke.Transparency = 0.5
+end
+
+do
+	local faintHbAccum = 0
+	RunService.Heartbeat:Connect(function(dt)
+		if player:GetAttribute("InBadlands") then
+			return
+		end
+		if not companionFaintCooldownEndsAt then
+			return
+		end
+		faintHbAccum += dt
+		if faintHbAccum < 0.2 then
+			return
+		end
+		faintHbAccum = 0
+		local left = companionFaintCooldownEndsAt - tick()
+		if left <= 0 then
+			companionFaintCooldownEndsAt = nil
+			updateFavOrb()
+			return
+		end
+		if not (favOrbYLabel and favOrbYLabel.Parent and lastFavoriteUid and lastFavoriteName) then
+			return
+		end
+		local sec = math.max(1, math.ceil(left))
+		favOrbYLabel.Text = string.format("Fainted — %ds · %s", sec, lastFavoriteName)
+		favOrbYLabel.TextColor3 = Color3.fromRGB(255, 150, 150)
+	end)
+end
+
+local companionFaintedEvt = Events:FindFirstChild("CompanionFainted")
+if companionFaintedEvt and companionFaintedEvt:IsA("RemoteEvent") then
+	companionFaintedEvt.OnClientEvent:Connect(function()
+		companionFaintCooldownEndsAt = tick() + (tonumber(GameConfig.CompanionRespawnCD) or 30)
+		updateFavOrb()
+	end)
 end
 
 -- FIX #17: toggleFavorite rewritten to RECALL/SUMMON instead of unfavorite/re-equip.

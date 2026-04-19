@@ -1,4 +1,5 @@
 -- ══════════════════════════════════════════════════════════════════════════════
+-- Last updated: 2026-04-18 15:45
 -- BiomeSkyboxClient.client.lua
 -- Dynamically swaps the Lighting skybox based on which biome zone the player
 -- is currently standing in. Supports:
@@ -34,6 +35,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local localPlayer = Players.LocalPlayer
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
 local biomeCfg = GameConfig.BiomeSkybox or {}
+local biomeZoneCfg = GameConfig.BiomeZone or {}
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- CONFIGURATION.
@@ -62,8 +64,8 @@ local WAIT_TIMEOUT = 15
 
 --- Maximum XZ distance (studs) from hub center that inner-wedge detection applies.
 --- Beyond this radius the player is in an outer biome zone, not an inner wedge.
---- Set this to roughly the distance from hub center to the nearest outer baseplate edge..
-local INNER_WEDGE_MAX_RADIUS = 1200
+--- Matches `GameConfig.BiomeZone.InnerWedgeMaxRadius` so sky routing aligns with ingredient zones.
+local INNER_WEDGE_MAX_RADIUS = math.max(400, tonumber(biomeZoneCfg.InnerWedgeMaxRadius) or 1200)
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- ZONE DEFINITIONS
@@ -289,6 +291,21 @@ local function isOverPartXZ(position, part)
 	return true
 end
 
+--- XZ footprint of `part`, Y from the bottom face upward without limit (outer biomes only).
+--- Used so CaveSky wins over hub/roads/inner wedges when standing anywhere in the cave column.
+local function isInOuterBiomeVerticalColumn(position, part)
+	local cf = part.CFrame
+	local size = part.Size
+	local localPos = cf:PointToObjectSpace(position)
+	local halfX = size.X / 2
+	local halfZ = size.Z / 2
+	local halfY = size.Y / 2
+	if math.abs(localPos.X) > halfX then return false end
+	if math.abs(localPos.Z) > halfZ then return false end
+	if localPos.Y < -halfY then return false end
+	return true
+end
+
 --- Normalize an angle to the range (-π, π].
 --- @param a number — angle in radians
 --- @return number
@@ -336,6 +353,15 @@ local function getSkyRawForPosition(position)
 	-- Priority 1: Outer biome baseplates
 	for _, zone in ipairs(outerZones) do
 		if isOverPart(position, zone.part, VERTICAL_BUFFER) then
+			return zone.sky
+		end
+	end
+
+	-- Priority 1.5: Cave baseplate column (any height above the slab) before hub/roads/wedges.
+	-- FIX: CaveRoad / hub overlap + inner-wedge FireSky could beat the generic XZ pass order;
+	-- pinning CaveSky here keeps cave interior + volume above the plate on CaveSky for music routing.
+	for _, zone in ipairs(outerZones) do
+		if zone.sky == "CaveSky" and isInOuterBiomeVerticalColumn(position, zone.part) then
 			return zone.sky
 		end
 	end

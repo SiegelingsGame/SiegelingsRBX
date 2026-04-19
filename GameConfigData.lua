@@ -3,7 +3,7 @@
 	ReplicatedStorage/Modules/GameConfigData
 	Actual config data. Required lazily by GameConfig to avoid recursive require.
 ]]
--- Last updated: 2026-03-28 17:00
+-- Last updated: 2026-04-19 17:00
 -- lol
 
 local GameConfig = {}
@@ -34,9 +34,10 @@ GameConfig.QuickSpawnDebugMode = false         -- true = bypass loading gate (sk
 GameConfig.CombinerRecyclerPromptAllPlots = true -- true = add E prompts to Combiner/Recycler on ALL plots (for testing; set false for release)
 GameConfig.DebugBrokerGoldOnly = false             -- true = The Broker only asks for 100 gold coins instead of a creature sacrifice (for testing)
 GameConfig.DebugBrokerCacty = false                -- true = The Broker always asks for a Lv1 Common Earth Cacty (for testing)
+GameConfig.ZoneDoorsDisabled = true
 
 -- Economy
-GameConfig.StartingCoins       = 1000
+GameConfig.StartingCoins       = 100
 GameConfig.IncomeTickSeconds   = 10
 GameConfig.MaxInventorySize    = 50
 GameConfig.EggCost             = 50
@@ -46,7 +47,7 @@ GameConfig.MaxDefenseSlots     = 6   -- matches DefensePoints on plot (auto-dete
 -- Leveling (creature levels; max level depends on evolution stage)
 GameConfig.MaxCreatureLevel    = 10   -- legacy/fallbackd
 GameConfig.BaseMaxLevel        = 10   -- base form (no evolvesFrom)
-GameConfig.EvolvedMaxLevel     = 25   -- after 1st evolution (has evolvesTo)
+GameConfig.EvolvedMaxLevel     = 25   -- after 1st evolution (has evolvesTo).
 GameConfig.FinalMaxLevel       = 50   -- after 2nd evolution / final form (no evolvesTo)
 GameConfig.BaseXPRequired      = 50   -- XP to reach level 2
 GameConfig.XPScaling           = 1.5  -- each level needs 1.5x more XP
@@ -120,6 +121,9 @@ GameConfig.LoadingCriticalMaxWait = 18 -- max seconds client waits for critical 
 GameConfig.LoadingSpawnTarget  = 30   -- world creatures target for non-critical "world ready" signal
 GameConfig.LoadingMinWait      = 2    -- minimum world warmup signal delay (non-blocking for control release)
 GameConfig.LoadingMaxWait      = 25   -- max seconds for world warmup signal before fallback
+-- Loading gate: stay up until character reaches assigned plot (server teleport can lag behind HRP creation)
+GameConfig.LoadingGateArriveMaxWait = 300 -- max seconds at "Arriving at your base..." before forced release (avoids infinite hang)
+GameConfig.LoadingGateAbsoluteMaxSeconds = 330 -- whole-gate hard cap (must be >= arrive + preload headroom)
 GameConfig.StartupMetricLogEnabled = false -- true = prints startup timing milestones (join->critical/control/world-ready)
 
 -- Gameplay music (client-side loop under SoundService)
@@ -268,15 +272,21 @@ GameConfig.SpawnIntervalMin    = 0.5   -- faster spawns so SpawnPoints stay full
 GameConfig.SpawnIntervalMax    = 1.5
 GameConfig.SpawnsPerCycle      = 4     -- spawn this many per cycle when under 50% capacity (else 1-2)
 GameConfig.SpawnPointFillTarget = 0.5  -- run dungeon spawns when creature count above this fraction (lower = more dungeon spawns)
-GameConfig.CreatureDespawnTime = 180
+GameConfig.CreatureDespawnTime = 300
 GameConfig.SpawnRadius         = 200
 GameConfig.SpawnHeightOffset   = 1
 GameConfig.FlyingHoverHeight   = 10   -- studs above ground for flying creatures (player model height)
 GameConfig.SpawnPointSpread    = 25     -- studs radius around a biome SpawnPoint
+-- Cover empty SpawnPoints: no world creature within this horizontal (XZ) radius of the part (nil = SpawnPointSpread * 1.6)
+GameConfig.SpawnPointCoverageRadius = nil
+GameConfig.SpawnPointFillPerCycle   = 12 -- max SpawnPoints to try filling each spawn loop cycle
+GameConfig.SpawnPointBurstFillMax   = 64 -- after initial loading burst, pass over empty SpawnPoints (capped by MaxWorldCreatures)
+-- Weight divisor for species already in the world: w /= (1 + strength * count). 0 = off.
+GameConfig.SpawnDiversityStrength   = 0.55
 GameConfig.DungeonPointSpread  = 15     -- studs radius around a DungeonPoint (tighter for dungeon encounters)
-GameConfig.BossPointSpread     = 10     -- studs radius around a BossPoint (tight cluster for boss arena)
+GameConfig.BossPointSpread     = 10     -- studs radius around a BossPoint (tight cluster for boss arena).
 GameConfig.DungeonSpawnCount   = {2, 4} -- min/max creatures per DungeonPoint per cycle (guarantee at least 1 rare+ always)
-GameConfig.BossRespawnTime     = 300    -- seconds before a boss can respawn at the same BossPoint
+GameConfig.BossRespawnTime     = 300    -- seconds before a boss can respawn at the same BossPoint..
 
 -- Capture (creatures must be fainted first)
 GameConfig.CaptureRange        = 30
@@ -410,11 +420,11 @@ GameConfig.ElectricGymWinXP         = 200
 GameConfig.ElectricGymCooldown      = 120
 
 -- Zone doors (Ocean, Desert, Electric, Cave): spend 4 inner boss Legendaries at the door to pass; gym keys / sigils still supported in data.
--- When true: no prompts / unlock UI / remotes; gate parts are made non-collidable so biomes stay walk-through.
-GameConfig.ZoneDoorsDisabled      = false
+-- When true: no pfrompts / unlock UI / remotes; gate parts are made non-collidafble so biomes stay walk-through.
+
 GameConfig.ZoneDoorZoneIds        = { "Ocean", "Desert", "Electric", "Cave" }
 GameConfig.ZoneDoorBiomeFolders   = { Ocean = "OceanBiome", Desert = "DesertBiome", Electric = "ElectricBiome", Cave = "CaveBiome" }
--- First match under workspace.Biomes wins. Include common alternates so gates work if the folder isn't the canonical name.
+-- First match under workspace.Biomes wins. Include common alternates so gates work if the folder isn't the canonical name.df
 GameConfig.ZoneDoorBiomeAliases   = {
 	Ocean = { "AquaticBiome", "WaterBiome" },
 	Desert = {},
@@ -544,7 +554,7 @@ GameConfig.ElementalDisadvantageMultiplier = 0.5   -- damage when defender eleme
 -- World Creature AI
 GameConfig.AI_TickRate         = 0.5    -- seconds between AI updates
 GameConfig.AI_WanderRadius     = 60     -- max wander distance from spawn
-GameConfig.AI_WanderSpeed      = 10      -- studs/sec for wandering
+GameConfig.AI_WanderSpeed      = 5      -- studs/sec for wandering
 GameConfig.AI_AggroRange       = 40     -- distance to detect targets
 GameConfig.AI_AttackRange      = 40      -- distance to start attacking
 GameConfig.AI_AttackCooldown   = 2.0    -- seconds between attacks
@@ -557,9 +567,10 @@ GameConfig.AI_CreatureProjectileSpeed = 80  -- projectile studs/sec when creatur
 
 -- Stealing (player E-interact, carry to base; creature walks back to owner if carrier dies).
 GameConfig.StealCarrySpeed      = 0.5     -- movement speed multiplier while carrying
-GameConfig.StealHomeRadius      = 30      -- how close to your plot center to "deliver"
+GameConfig.StealHomeRadius      = 30      -- horizontal studs from PlotCenter (XZ); matches walk-back arrival
 GameConfig.StealInteractRange   = 12     -- range for E to interact and pick up fainted base creature
 GameConfig.StealWalkBackSpeed   = 14     -- studs/sec when dropped creature walks back to owner's base
+GameConfig.StealVictimHitDamageCap = 12  -- max HP lost per hit when the victim attacks the thief to recover a steal
 
 -- Home Recall (channel 5s, interrupt on damage)
 GameConfig.HomeRecallChannelTime = 5   -- seconds to channel before teleporting to base
@@ -723,26 +734,46 @@ GameConfig.DomeRadius           = 50    -- studs, horizontal (XZ) radius at base
 GameConfig.DomeHeightMultiplier = 1.5   -- vertical (Y) radius = DomeRadius * sdthis (taller ellipse, same footprint)
 GameConfig.ShieldDuration       = 50    -- seconds before shield expires and must be reactivated
 
+-- Shop hub — SCoins packs (pay Diamonds/gems → SCoins currency). Tier names match GemsRobuxPacks.
+GameConfig.ScoinsGemPacks = {
+	{ id = "handful", name = "Handful", gemCost = 100,  scoins = 5000 },
+	{ id = "bag",     name = "Bag",     gemCost = 200,  scoins = 15000 },
+	{ id = "sack",    name = "Sack",    gemCost = 350,  scoins = 50000 },
+	{ id = "chest",   name = "Chest",   gemCost = 600,  scoins = 175000 },
+	{ id = "safe",    name = "Safe",    gemCost = 1000, scoins = 600000 },
+	{ id = "bank",    name = "Bank",    gemCost = 1700, scoins = 2000000 },
+}
+
+-- Same six tier names — Diamonds only via Robux (Developer Product). Set productId in Creator Studio / GameConfig.
+GameConfig.GemsRobuxPacks = {
+	{ id = "handful", name = "Handful", gems = 80,   robuxListPrice = 49,  productId = 0 },
+	{ id = "bag",     name = "Bag",     gems = 200,  robuxListPrice = 99,  productId = 0 },
+	{ id = "sack",    name = "Sack",    gems = 450,  robuxListPrice = 199, productId = 0 },
+	{ id = "chest",   name = "Chest",   gems = 1000, robuxListPrice = 399, productId = 0 },
+	{ id = "safe",    name = "Safe",    gems = 2200, robuxListPrice = 799, productId = 0 },
+	{ id = "bank",    name = "Bank",    gems = 5000, robuxListPrice = 1699, productId = 0 },
+}
+
 -- Buff Shop
 GameConfig.BuffShopItems = {
-	{id = "shield",     name = "Energy Shield",     desc = "-50% damage for 60s",      duration = 60,  coinCost = 150, gemCost = 0},
-	{id = "highjump",   name = "Super Jump",        desc = "Moon-like jump for 45s",   duration = 45,  coinCost = 100, gemCost = 0},
-	{id = "speed",      name = "Super Speed",       desc = "2x walk speed for 60s",    duration = 60,  coinCost = 120, gemCost = 0},
-	{id = "invuln",     name = "Invulnerability",   desc = "Immune to damage for 15s", duration = 15,  coinCost = 0,   gemCost = 5},
-	{id = "invis",      name = "Invisibility",      desc = "Hidden from creatures 30s", duration = 30,  coinCost = 0,   gemCost = 3},
-	{id = "swap",       name = "Swap Places",       desc = "Teleport to random player", duration = 0,  coinCost = 200, gemCost = 0},
-	{id = "lowgrav",    name = "Low Gravity",       desc = "Moon-like float for 40s",   duration = 40,  coinCost = 90,  gemCost = 0},
-	{id = "regen",      name = "Health Regen",      desc = "Regen 2 HP/s for 45s",      duration = 45,  coinCost = 130, gemCost = 0},
-	{id = "doublejump", name = "Double Jump",       desc = "Jump again in mid-air 40s", duration = 40,  coinCost = 110, gemCost = 0},
-	{id = "glide",      name = "Feather Fall",      desc = "Slow fall for 50s",         duration = 50,  coinCost = 95,  gemCost = 0},
+	{id = "shield",     name = "Energy Shield",     desc = "-50% damage for 60s",      duration = 60,  coinCost = 150, gemCost = 12},
+	{id = "highjump",   name = "Super Jump",        desc = "Moon-like jump for 45s",   duration = 45,  coinCost = 100, gemCost = 8},
+	{id = "speed",      name = "Super Speed",       desc = "2x walk speed for 60s",    duration = 60,  coinCost = 120, gemCost = 10},
+	{id = "invuln",     name = "Invulnerability",   desc = "Immune to damage for 15s", duration = 15,  coinCost = 450, gemCost = 5},
+	{id = "invis",      name = "Invisibility",      desc = "Hidden from creatures 30s", duration = 30,  coinCost = 270, gemCost = 3},
+	{id = "swap",       name = "Swap Places",       desc = "Teleport to random player", duration = 0,  coinCost = 200, gemCost = 16},
+	{id = "lowgrav",    name = "Low Gravity",       desc = "Moon-like float for 40s",   duration = 40,  coinCost = 90,  gemCost = 8},
+	{id = "regen",      name = "Health Regen",      desc = "Regen 2 HP/s for 45s",      duration = 45,  coinCost = 130, gemCost = 11},
+	{id = "doublejump", name = "Double Jump",       desc = "Jump again in mid-air 40s", duration = 40,  coinCost = 110, gemCost = 9},
+	{id = "glide",      name = "Feather Fall",      desc = "Slow fall for 50s",         duration = 50,  coinCost = 95,  gemCost = 8},
 	{id = "xpboost",    name = "XP Boost",          desc = "2x XP gain for 120s",       duration = 120, coinCost = 180, gemCost = 2},
 	{id = "coinboost",  name = "Coin Magnet",       desc = "2x income for 90s",         duration = 90,  coinCost = 160, gemCost = 1},
-	{id = "haste",      name = "Haste",             desc = "1.5x walk speed for 50s",   duration = 50,  coinCost = 80,  gemCost = 0},
-	{id = "giant",      name = "Giant",             desc = "2x size for 30s",           duration = 30,  coinCost = 140, gemCost = 0},
-	{id = "glow",       name = "Radiant",           desc = "Glow aura for 60s",         duration = 60,  coinCost = 0,   gemCost = 4},
-	{id = "antifall",   name = "Featherfeet",       desc = "No fall damage for 45s",    duration = 45,  coinCost = 100, gemCost = 0},
-	{id = "swimspeed",  name = "Dolphin",           desc = "3x swim speed for 45s",     duration = 45,  coinCost = 85,  gemCost = 0},
-	{id = "lucky",      name = "Lucky Charm",       desc = "Better capture odds 90s",   duration = 90,  coinCost = 0,   gemCost = 6},
+	{id = "haste",      name = "Haste",             desc = "1.5x walk speed for 50s",   duration = 50,  coinCost = 80,  gemCost = 7},
+	{id = "giant",      name = "Giant",             desc = "2x size for 30s",           duration = 30,  coinCost = 140, gemCost = 11},
+	{id = "glow",       name = "Radiant",           desc = "Glow aura for 60s",         duration = 60,  coinCost = 360, gemCost = 4},
+	{id = "antifall",   name = "Featherfeet",       desc = "No fall damage for 45s",    duration = 45,  coinCost = 100, gemCost = 8},
+	{id = "swimspeed",  name = "Dolphin",           desc = "3x swim speed for 45s",     duration = 45,  coinCost = 85,  gemCost = 7},
+	{id = "lucky",      name = "Lucky Charm",       desc = "Better capture odds 90s",   duration = 90,  coinCost = 540, gemCost = 6},
 	-- Siege Master stock (Arena-only provisioning)
 	{id = "siegelingxpboost", name = "Siegeling XP Draft", desc = "2x Siegeling XP for 180s", duration = 180, coinCost = 260, gemCost = 2, shop = "siege_master"},
 	{id = "food_powerstew", name = "Power Stew", desc = "+35% player attack for 120s", duration = 120, coinCost = 220, gemCost = 2, shop = "siege_master"},
@@ -756,67 +787,74 @@ GameConfig.BuffShopItems = {
 
 -- Cosmetic Shop
 GameConfig.CosmeticItems = {
-	-- Trails
+	-- Trails (each item: coin price and diamond/gem price — player picks one)
 	{id = "trail_fire",     slot = "trail", name = "Fire Trail",      coinCost = 300,  gemCost = 50},
 	{id = "trail_ice",      slot = "trail", name = "Ice Trail",       coinCost = 300,  gemCost = 50},
-	{id = "trail_rainbow",  slot = "trail", name = "Rainbow Trail",   coinCost = 0,    gemCost = 50},
-	{id = "trail_shadow",   slot = "trail", name = "Shadow Trail",    coinCost = 0,    gemCost = 50},
+	{id = "trail_rainbow",  slot = "trail", name = "Rainbow Trail",   coinCost = 400,  gemCost = 50},
+	{id = "trail_shadow",   slot = "trail", name = "Shadow Trail",    coinCost = 400,  gemCost = 50},
 	{id = "trail_nature",   slot = "trail", name = "Nature Trail",    coinCost = 350,  gemCost = 50},
-	{id = "trail_poison",   slot = "trail", name = "Poison Trail",    coinCost = 0,    gemCost = 50},
-	{id = "trail_void",     slot = "trail", name = "Void Trail",      coinCost = 0,    gemCost = 50},
+	{id = "trail_poison",   slot = "trail", name = "Poison Trail",    coinCost = 400,  gemCost = 50},
+	{id = "trail_void",     slot = "trail", name = "Void Trail",      coinCost = 400,  gemCost = 50},
 	{id = "trail_sunset",   slot = "trail", name = "Sunset Trail",    coinCost = 350,  gemCost = 50},
-	{id = "trail_candy",    slot = "trail", name = "Candy Trail",     coinCost = 0,    gemCost = 50},
-	{id = "trail_galaxy",   slot = "trail", name = "Galaxy Trail",     coinCost = 0,    gemCost = 50},
+	{id = "trail_candy",    slot = "trail", name = "Candy Trail",     coinCost = 400,  gemCost = 50},
+	{id = "trail_galaxy",   slot = "trail", name = "Galaxy Trail",     coinCost = 400,  gemCost = 50},
 	-- Auras
-	{id = "aura_flame",     slot = "aura",  name = "Flame Aura",      coinCost = 500,  gemCost = 0},
-	{id = "aura_electric",  slot = "aura",  name = "⚡ Electric Aura", coinCost = 500,  gemCost = 0},
-	{id = "aura_divine",    slot = "aura",  name = "✨ Divine Aura",   coinCost = 0,    gemCost = 100},
-	{id = "aura_nature",    slot = "aura",  name = "Nature Aura",      coinCost = 500,  gemCost = 0},
-	{id = "aura_void",      slot = "aura",  name = "Void Aura",       coinCost = 0,    gemCost = 100},
-	{id = "aura_ice",       slot = "aura",  name = "Ice Aura",        coinCost = 500,  gemCost = 0},
-	{id = "aura_poison",    slot = "aura",  name = "Poison Aura",     coinCost = 0,    gemCost = 10},
-	{id = "aura_sakura",    slot = "aura",  name = "Sakura Aura",     coinCost = 0,    gemCost = 12},
-	{id = "aura_star",      slot = "aura",  name = "Star Aura",       coinCost = 0,    gemCost = 13},
+	{id = "aura_flame",     slot = "aura",  name = "Flame Aura",      coinCost = 500,  gemCost = 42},
+	{id = "aura_electric",  slot = "aura",  name = "⚡ Electric Aura", coinCost = 500,  gemCost = 42},
+	{id = "aura_divine",    slot = "aura",  name = "✨ Divine Aura",   coinCost = 600,  gemCost = 100},
+	{id = "aura_nature",    slot = "aura",  name = "Nature Aura",      coinCost = 500,  gemCost = 42},
+	{id = "aura_void",      slot = "aura",  name = "Void Aura",       coinCost = 600,  gemCost = 100},
+	{id = "aura_ice",       slot = "aura",  name = "Ice Aura",        coinCost = 500,  gemCost = 42},
+	{id = "aura_poison",    slot = "aura",  name = "Poison Aura",     coinCost = 120,  gemCost = 10},
+	{id = "aura_sakura",    slot = "aura",  name = "Sakura Aura",     coinCost = 144,  gemCost = 12},
+	{id = "aura_star",      slot = "aura",  name = "Star Aura",       coinCost = 156,  gemCost = 13},
 	-- Name Colors
-	{id = "name_gold",      slot = "nameColor", name = "Gold Name",    coinCost = 200,  gemCost = 0},
-	{id = "name_red",       slot = "nameColor", name = "Red Name",     coinCost = 200,  gemCost = 0},
-	{id = "name_rainbow",   slot = "nameColor", name = "Rainbow Name", coinCost = 0,    gemCost = 12},
-	{id = "name_blue",      slot = "nameColor", name = "Blue Name",    coinCost = 200,  gemCost = 0},
-	{id = "name_green",     slot = "nameColor", name = "Green Name",   coinCost = 200,  gemCost = 0},
-	{id = "name_purple",    slot = "nameColor", name = "Purple Name",  coinCost = 200,  gemCost = 0},
-	{id = "name_cyan",      slot = "nameColor", name = "Cyan Name",    coinCost = 200,  gemCost = 0},
-	{id = "name_pink",      slot = "nameColor", name = "Pink Name",    coinCost = 200,  gemCost = 0},
-	{id = "name_orange",    slot = "nameColor", name = "Orange Name",  coinCost = 200,  gemCost = 0},
-	{id = "name_white",     slot = "nameColor", name = "White Name",   coinCost = 0,    gemCost = 6},
-	{id = "name_lime",      slot = "nameColor", name = "Lime Name",    coinCost = 200,  gemCost = 0},
-	{id = "name_coral",     slot = "nameColor", name = "Coral Name",   coinCost = 200,  gemCost = 0},
+	{id = "name_gold",      slot = "nameColor", name = "Gold Name",    coinCost = 200,  gemCost = 17},
+	{id = "name_red",       slot = "nameColor", name = "Red Name",     coinCost = 200,  gemCost = 17},
+	{id = "name_rainbow",   slot = "nameColor", name = "Rainbow Name", coinCost = 240,  gemCost = 12},
+	{id = "name_blue",      slot = "nameColor", name = "Blue Name",    coinCost = 200,  gemCost = 17},
+	{id = "name_green",     slot = "nameColor", name = "Green Name",   coinCost = 200,  gemCost = 17},
+	{id = "name_purple",    slot = "nameColor", name = "Purple Name",  coinCost = 200,  gemCost = 17},
+	{id = "name_cyan",      slot = "nameColor", name = "Cyan Name",    coinCost = 200,  gemCost = 17},
+	{id = "name_pink",      slot = "nameColor", name = "Pink Name",    coinCost = 200,  gemCost = 17},
+	{id = "name_orange",    slot = "nameColor", name = "Orange Name",  coinCost = 200,  gemCost = 17},
+	{id = "name_white",     slot = "nameColor", name = "White Name",   coinCost = 120,  gemCost = 6},
+	{id = "name_lime",      slot = "nameColor", name = "Lime Name",    coinCost = 200,  gemCost = 17},
+	{id = "name_coral",     slot = "nameColor", name = "Coral Name",   coinCost = 200,  gemCost = 17},
 }
 
 -- Base Exterior Shop (purchase theme; equipping applies theme or foundation color styling)
--- Full themes: Haunted House, Retro Arcade
--- Color themes: foundation paint only (style). Slot pad colors are under Drip Shop → Base Plots (BaseColorItems).
+-- Full / premium themes: palette can override materials. Exterior_* + default + Base Plots pads: tint Color only (keeps DiamondPlate etc.).
 GameConfig.BaseExteriorItems = {
-	-- Full themes (500 coins each)
-	{id = "HauntedHouse", name = "Haunted House", desc = "Spooky base with walls, stairs & lanterns", coinCost = 500, gemCost = 0},
-	{id = "RetroArcade",   name = "Retro Arcade",   desc = "Neon lights & arcade vibes on all walls & stairs", coinCost = 500, gemCost = 0},
+	-- Premium full themes (500 coins each) — materials + colors via BaseExteriorSystem.THEME_PALETTES
+	{id = "HauntedHouse", name = "Haunted House", desc = "Spooky base with walls, stairs & lanterns", coinCost = 500, gemCost = 40},
+	{id = "RetroArcade",   name = "Retro Arcade", desc = "Neon lights & arcade vibes on all walls & stairs", coinCost = 500, gemCost = 40},
+	{id = "JungleHut",       name = "Jungle Hut",       desc = "Thatch & bamboo greens — humid jungle hideaway", coinCost = 500, gemCost = 40},
+	{id = "IceFortress",     name = "Ice Fortress",     desc = "Frosted stone & glacier blues — frozen stronghold", coinCost = 500, gemCost = 40},
+	{id = "VolcanicCavern",  name = "Volcanic Cavern",  desc = "Basalt & glowing magma veins — deep volcanic hall", coinCost = 500, gemCost = 40},
+	{id = "FloatingPalace", name = "Floating Palace", desc = "Marble, pearl & soft gold — skyborne courts", coinCost = 500, gemCost = 40},
 	-- Color themes (500 coins each) - base foundations only
-	{id = "exterior_red",    name = "Red Base",    desc = "Base foundations in red",    coinCost = 500, gemCost = 0, color = Color3.fromRGB(200, 60, 60)},
-	{id = "exterior_blue",   name = "Blue Base",   desc = "Base foundations in blue",   coinCost = 500, gemCost = 0, color = Color3.fromRGB(60, 100, 200)},
-	{id = "exterior_green",  name = "Green Base",  desc = "Base foundations in green",  coinCost = 500, gemCost = 0, color = Color3.fromRGB(60, 180, 80)},
-	{id = "exterior_yellow", name = "Yellow Base", desc = "Base foundations in yellow", coinCost = 500, gemCost = 0, color = Color3.fromRGB(220, 200, 60)},
-	{id = "exterior_purple", name = "Purple Base", desc = "Base foundations in purple", coinCost = 500, gemCost = 0, color = Color3.fromRGB(140, 80, 200)},
-	{id = "exterior_orange", name = "Orange Base", desc = "Base foundations in orange", coinCost = 500, gemCost = 0, color = Color3.fromRGB(230, 140, 50)},
+	{id = "exterior_red",    name = "Red Base",    desc = "Base foundations in red",    coinCost = 500, gemCost = 40, color = Color3.fromRGB(200, 60, 60)},
+	{id = "exterior_blue",   name = "Blue Base",   desc = "Base foundations in blue",   coinCost = 500, gemCost = 40, color = Color3.fromRGB(60, 100, 200)},
+	{id = "exterior_green",  name = "Green Base",  desc = "Base foundations in green",  coinCost = 500, gemCost = 40, color = Color3.fromRGB(60, 180, 80)},
+	{id = "exterior_yellow", name = "Yellow Base", desc = "Base foundations in yellow", coinCost = 500, gemCost = 40, color = Color3.fromRGB(220, 200, 60)},
+	{id = "exterior_purple", name = "Purple Base", desc = "Base foundations in purple", coinCost = 500, gemCost = 40, color = Color3.fromRGB(140, 80, 200)},
+	{id = "exterior_orange", name = "Orange Base", desc = "Base foundations in orange", coinCost = 500, gemCost = 40, color = Color3.fromRGB(230, 140, 50)},
+	{id = "exterior_white", name = "White Base", desc = "Base foundations in white", coinCost = 500, gemCost = 40, color = Color3.fromRGB(248, 248, 250)},
+	{id = "exterior_black", name = "Black Base", desc = "Base foundations in black", coinCost = 500, gemCost = 40, color = Color3.fromRGB(28, 28, 32)},
 }
 
--- Base Color Shop (Drip Shop → Base Plots) — tints IncomePoint* / DefensePoint* pads only (see ApplyBaseColorToPlot)
+-- Base Color Shop (Drip Shop → Base Plots) — tints IncomePoint* / DefensePoint* pads; when equipped, also Floor1/Carpet1 (income) + Floor2/Carpet2 (defense). Carpets keep Studio colors until a palette is equipped.
 -- Optional defensePointColor: if omitted, a slightly darker variant of color is used for defense pads.
 GameConfig.BaseColorItems = {
-	{id = "base_red",    name = "Red Pads",    color = Color3.fromRGB(200, 60, 60),   defensePointColor = Color3.fromRGB(160, 45, 50),   coinCost = 300, gemCost = 0},
-	{id = "base_blue",   name = "Blue Pads",   color = Color3.fromRGB(60, 100, 200),  defensePointColor = Color3.fromRGB(45, 75, 170),  coinCost = 300, gemCost = 0},
-	{id = "base_green",  name = "Green Pads",  color = Color3.fromRGB(60, 180, 80),   defensePointColor = Color3.fromRGB(45, 140, 60),   coinCost = 300, gemCost = 0},
-	{id = "base_yellow", name = "Yellow Pads", color = Color3.fromRGB(220, 200, 60),  defensePointColor = Color3.fromRGB(180, 155, 45), coinCost = 300, gemCost = 0},
-	{id = "base_purple", name = "Purple Pads", color = Color3.fromRGB(140, 80, 200),  defensePointColor = Color3.fromRGB(110, 55, 165), coinCost = 300, gemCost = 0},
-	{id = "base_orange", name = "Orange Pads", color = Color3.fromRGB(230, 140, 50),  defensePointColor = Color3.fromRGB(195, 105, 40), coinCost = 300, gemCost = 0},
+	{id = "base_red",    name = "Red Pads",    color = Color3.fromRGB(200, 60, 60),   defensePointColor = Color3.fromRGB(160, 45, 50),   coinCost = 300, gemCost = 28},
+	{id = "base_blue",   name = "Blue Pads",   color = Color3.fromRGB(60, 100, 200),  defensePointColor = Color3.fromRGB(45, 75, 170),  coinCost = 300, gemCost = 28},
+	{id = "base_green",  name = "Green Pads",  color = Color3.fromRGB(60, 180, 80),   defensePointColor = Color3.fromRGB(45, 140, 60),   coinCost = 300, gemCost = 28},
+	{id = "base_yellow", name = "Yellow Pads", color = Color3.fromRGB(220, 200, 60),  defensePointColor = Color3.fromRGB(180, 155, 45), coinCost = 300, gemCost = 28},
+	{id = "base_purple", name = "Purple Pads", color = Color3.fromRGB(140, 80, 200),  defensePointColor = Color3.fromRGB(110, 55, 165), coinCost = 300, gemCost = 28},
+	{id = "base_orange", name = "Orange Pads", color = Color3.fromRGB(230, 140, 50),  defensePointColor = Color3.fromRGB(195, 105, 40), coinCost = 300, gemCost = 28},
+	{id = "base_white",  name = "White Pads",  color = Color3.fromRGB(238, 238, 242),  defensePointColor = Color3.fromRGB(175, 175, 182), coinCost = 300, gemCost = 28},
+	{id = "base_black",  name = "Black Pads",  color = Color3.fromRGB(52, 52, 58),   defensePointColor = Color3.fromRGB(30, 30, 36),   coinCost = 300, gemCost = 28},
 }
 
 
@@ -863,15 +901,20 @@ GameConfig.BrokerNPCExtraRotationDegrees = { pitch = 90, yaw = 0, roll = 0 }
 -- Studs added above downward raycast ground Y before PivotTo (0 = pivot at hit surface).
 GameConfig.BrokerNPCGroundOffsetStuds = 0
 
+-- Hub NPC spawn markers (BrokerSpawn, etc.): wait once so HubArea.SpawnLocation has its final CFrame before resolving marker offsets against it.
+GameConfig.HubNpcPlacementDeferSeconds = 0.12
+
 -- Arena Hub: Curator Trader — sells six rotating Siegelings (2 Common, 1 Uncommon, 1 Rare, 1 Epic, 1 Legendary).
 -- Priced above egg tiers; each slot can be bought with coins or diamonds (gems).
 GameConfig.ArenaTraderEnabled = true
 GameConfig.ArenaTrader = {
-	StockRefreshSeconds = 6 * 3600, -- full rotation (seconds)
+	StockRefreshSeconds = 6 * 3600, -- full rotation (seconds)c
 	-- Horizontal offset from The Broker (studs); Y is resolved with a downward raycast.
 	OffsetFromBrokerStuds = Vector3.new(-26, 0, 0),
 	-- Studs added above the raycast hit when placing TraderNPC (matches Cook / Siege Master tuning).
-	GroundOffsetStuds = 2.5,
+	GroundOffsetStuds = 1.6,
+	-- When workspace CuratorSpawn exists: studs above that part’s top face (ignores terrain raycast). Two classic 4-stud blocks = 8
+	CuratorSpawnRiseStuds = 3,
 	-- If BrokerNPC is missing, place using HubArea.SpawnLocation + this offset instead.
 	FallbackOffsetFromSpawnStuds = Vector3.new(-26, 0, 16),
 	-- Optional extra rotation for TraderNPC after placement (degrees).
@@ -991,6 +1034,7 @@ GameConfig.EggShopItems = {
 		icon = "egg_white",
 		desc = "Common, Uncommon, or Rare",
 		coinCost = 1000,
+		gemCost = 85,
 		robuxCost = 25,
 		productId = 0, -- set to Developer Product ID for Robux; 0 = not configured
 		pool = {
@@ -1005,6 +1049,7 @@ GameConfig.EggShopItems = {
 		icon = "egg_blue",
 		desc = "Uncommon or Rare",
 		coinCost = 10000,
+		gemCost = 720,
 		robuxCost = 75,
 		productId = 0,
 		pool = {
@@ -1018,6 +1063,7 @@ GameConfig.EggShopItems = {
 		icon = "egg_purple",
 		desc = "Rare or Mythic",
 		coinCost = 25000,
+		gemCost = 1750,
 		robuxCost = 199,
 		productId = 0,
 		pool = {
@@ -1031,6 +1077,7 @@ GameConfig.EggShopItems = {
 		icon = "egg_gold",
 		desc = "Rare, Mythic, or Legendary",
 		coinCost = 50000,
+		gemCost = 3400,
 		robuxCost = 499,
 		productId = 0,
 		pool = {
@@ -1045,6 +1092,7 @@ GameConfig.EggShopItems = {
 		icon = "egg_rainbow",
 		desc = "Mythic or Legendary only",
 		coinCost = 100000,
+		gemCost = 6200,
 		robuxCost = 999,
 		productId = 0,
 		pool = {

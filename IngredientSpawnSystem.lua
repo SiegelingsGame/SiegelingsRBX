@@ -1,6 +1,6 @@
 -- IngredientSpawnSystem.lua - ServerScriptService ModuleScript
 -- World ingredient pickups, CookNPC hub chef (crafting), crafting validation.
--- Last updated: 2026-03-28 17:30
+-- Last updated: 2026-04-18 22:15
 
 local HttpService = game:GetService("HttpService")
 local CollectionService = game:GetService("CollectionService")
@@ -8,6 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+local NpcSpawnMarkers = require(ReplicatedStorage.Modules.NpcSpawnMarkers)
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local BiomeZone = require(ReplicatedStorage.Modules.BiomeZone)
 local IngredientData = require(ReplicatedStorage.Modules.IngredientData)
@@ -165,6 +166,57 @@ local function findBrokerPositionAndCFrame()
 end
 
 local function buildCookNPCSpawnCFrame()
+	local placement = NpcSpawnMarkers.ResolvePlacementRelativeToHubSpawn("CookSpawn")
+	if placement then
+		local cfg = getCookNpcConfig()
+		local wxz = placement.worldPosition
+		local rayOrigin = Vector3.new(wxz.X, wxz.Y + 70, wxz.Z)
+		local rayResult = Workspace:Raycast(rayOrigin, Vector3.new(0, -260, 0))
+		local groundY = rayResult and rayResult.Position.Y or wxz.Y
+		local groundOfs = tonumber(cfg.GroundOffsetStuds) or 2.5
+		local pos = Vector3.new(wxz.X, groundY + groundOfs, wxz.Z)
+		local flat = placement.flatLookWorld
+		local baseCF = CFrame.lookAt(pos, pos + flat)
+		local extraRot = cfg.ExtraRotationDegrees or { pitch = 90, yaw = 0, roll = 0 }
+		if type(extraRot) == "table" then
+			local pitch = tonumber(extraRot.pitch) or 0
+			local yaw = tonumber(extraRot.yaw) or 0
+			local roll = tonumber(extraRot.roll) or 0
+			if pitch ~= 0 or yaw ~= 0 or roll ~= 0 then
+				baseCF = baseCF * CFrame.Angles(math.rad(pitch), math.rad(yaw), math.rad(roll))
+			end
+		end
+		return baseCF
+	end
+
+	local cookMarker = NpcSpawnMarkers.FindNamedPart("CookSpawn")
+	if cookMarker then
+		local cfg = getCookNpcConfig()
+		local rayOrigin = Vector3.new(cookMarker.Position.X, cookMarker.Position.Y + 70, cookMarker.Position.Z)
+		local rayResult = Workspace:Raycast(rayOrigin, Vector3.new(0, -260, 0))
+		local groundY = rayResult and rayResult.Position.Y or cookMarker.Position.Y
+		local groundOfs = tonumber(cfg.GroundOffsetStuds) or 2.5
+		local pos = Vector3.new(cookMarker.Position.X, groundY + groundOfs, cookMarker.Position.Z)
+		local lv = cookMarker.CFrame.LookVector
+		local flat = Vector3.new(lv.X, 0, lv.Z)
+		local baseCF
+		if flat.Magnitude > 1e-3 then
+			baseCF = CFrame.lookAt(pos, pos + flat.Unit)
+		else
+			baseCF = CFrame.new(pos)
+		end
+		local extraRot = cfg.ExtraRotationDegrees or { pitch = 90, yaw = 0, roll = 0 }
+		if type(extraRot) == "table" then
+			local pitch = tonumber(extraRot.pitch) or 0
+			local yaw = tonumber(extraRot.yaw) or 0
+			local roll = tonumber(extraRot.roll) or 0
+			if pitch ~= 0 or yaw ~= 0 or roll ~= 0 then
+				baseCF = baseCF * CFrame.Angles(math.rad(pitch), math.rad(yaw), math.rad(roll))
+			end
+		end
+		return baseCF
+	end
+
 	local cookRoot = getCook()
 	local cfg = getCookNpcConfig()
 	local offsetFromBroker = cfg.OffsetFromBrokerStuds or Vector3.new(0, 0, 22)

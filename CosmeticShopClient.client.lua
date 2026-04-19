@@ -1,4 +1,5 @@
 -- CosmeticShopClient.lua - StarterPlayer.StarterPlayerScripts (LocalScript)
+-- Last updated: 2026-04-18 21:00
 -- Press C to open cosmetic shop. Buy trails, auras, name colors, base exteriors.
 
 local Players = game:GetService("Players")
@@ -13,6 +14,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
 local Notify = require(ReplicatedStorage.Modules.NotificationManager)
+local DiamondNeedHint = require(ReplicatedStorage.Modules:WaitForChild("DiamondNeedHint"))
 
 local Events = ReplicatedStorage:WaitForChild("Events", 15)
 if not Events then return end
@@ -25,6 +27,7 @@ local buyBaseColor = Events:FindFirstChild("BuyBaseColor") or Events:WaitForChil
 local equipBaseColor = Events:FindFirstChild("EquipBaseColor") or Events:WaitForChild("EquipBaseColor", 5)
 local getInventory = Events:WaitForChild("GetInventory", 8)
 local coinsUpdate = Events:FindFirstChild("CoinsUpdate") or Events:WaitForChild("CoinsUpdate", 3)
+local gemsUpdate = Events:FindFirstChild("GemsUpdate") or Events:WaitForChild("GemsUpdate", 3)
 
 -- -- COLORS --.
 local C = {
@@ -135,7 +138,7 @@ statusBar.Parent = panel
 local currLbl = Instance.new("TextLabel")
 currLbl.Name = "CurrLbl"
 currLbl.Size = UDim2.new(0.45, -48, 1, 0); currLbl.Position = UDim2.new(0.55, 0, 0, 0)
-currLbl.BackgroundTransparency = 1; currLbl.Text = "Coins: 0  |  Gems: 0"
+currLbl.BackgroundTransparency = 1; currLbl.Text = "Coins: 0  |  Diamonds: 0"
 currLbl.TextColor3 = C.muted; currLbl.Font = Enum.Font.GothamBold; currLbl.TextSize = 12
 currLbl.TextXAlignment = Enum.TextXAlignment.Right; currLbl.Parent = titleBar
 
@@ -144,12 +147,12 @@ local playerGems = 0
 local function updateCurrencyLabel()
 	if currLbl.RichText then
 		currLbl.Text = string.format(
-			'<font color="#ff822d">Coins:</font> <font color="#b8bcc8">%s</font>    <font color="#ff822d">Gems:</font> <font color="#b8bcc8">%s</font>',
+			'<font color="#ff822d">Coins:</font> <font color="#b8bcc8">%s</font>    <font color="#ff822d">Diamonds:</font> <font color="#b8bcc8">%s</font>',
 			tostring(playerCoins or 0),
 			tostring(playerGems or 0)
 		)
 	else
-		currLbl.Text = "Coins: " .. tostring(playerCoins or 0) .. "  |  Gems: " .. tostring(playerGems or 0)
+		currLbl.Text = "Coins: " .. tostring(playerCoins or 0) .. "  |  Diamonds: " .. tostring(playerGems or 0)
 	end
 end
 
@@ -169,6 +172,12 @@ end)
 if coinsUpdate then
 	coinsUpdate.OnClientEvent:Connect(function(balance)
 		playerCoins = balance
+		updateCurrencyLabel()
+	end)
+end
+if gemsUpdate then
+	gemsUpdate.OnClientEvent:Connect(function(balance)
+		playerGems = balance
 		updateCurrencyLabel()
 	end)
 end
@@ -552,29 +561,43 @@ local function buildItems()
 					end
 				end)
 			else
-				local priceText, priceCurr
-				if (item.coinCost or 0) > 0 then
-					priceText = "" .. (item.coinCost or 0); priceCurr = "coins"
-					btn.BackgroundColor3 = Color3.fromRGB(50, 45, 20)
-					btn.TextColor3 = C.coin
-				else
-					priceText = "" .. (item.gemCost or 0); priceCurr = "gems"
-					btn.BackgroundColor3 = Color3.fromRGB(35, 25, 60)
-					btn.TextColor3 = C.gem
-				end
-				btn.Text = priceText
-				btn.MouseButton1Click:Connect(function()
-					if buyExterior then
-						local pcallOk, a, b = pcall(function() return buyExterior:InvokeServer(item.id, priceCurr) end)
-						local success, retMsg = pcallOk and a or false, (pcallOk and b or tostring(a)) or "nil"
-						if success then
-							Notify.Toast("Purchased " .. item.name .. "!", C.green, 3)
-							refreshData(); buildItems()
-						else
-							Notify.Toast(tostring(retMsg) ~= "nil" and tostring(retMsg) or "Purchase failed", C.red, 3)
-						end
+				btn:Destroy()
+				local coinCost = item.coinCost or 0
+				local gemCost = item.gemCost or 0
+				local function tryPurchaseExterior(curr)
+					if not buyExterior then return end
+					local pcallOk, a, b = pcall(function() return buyExterior:InvokeServer(item.id, curr) end)
+					local success, retMsg = pcallOk and a or false, (pcallOk and b or tostring(a)) or "nil"
+					if success then
+						Notify.Toast("Purchased " .. item.name .. "!", C.green, 3)
+						refreshData(); buildItems()
+					else
+						Notify.Toast(tostring(retMsg) ~= "nil" and tostring(retMsg) or "Purchase failed", C.red, 3)
+						if curr == "gems" then DiamondNeedHint.OnInsufficientDiamonds(success, retMsg, Notify) end
 					end
-				end)
+				end
+				if coinCost > 0 then
+					local coinBtn = Instance.new("TextButton")
+					coinBtn.Size = UDim2.new(0, (gemCost > 0) and 72 or 90, 0, (gemCost > 0) and 28 or 30)
+					coinBtn.Position = UDim2.new(1, (gemCost > 0) and -156 or -100, 0.5, (gemCost > 0) and -14 or -15)
+					coinBtn.BorderSizePixel = 0; coinBtn.Font = Enum.Font.GothamBold; coinBtn.TextSize = 11
+					coinBtn.BackgroundColor3 = Color3.fromRGB(50, 45, 20); coinBtn.TextColor3 = C.coin
+					coinBtn.Text = "" .. coinCost
+					coinBtn.Parent = card
+					Instance.new("UICorner", coinBtn).CornerRadius = UDim.new(0, 6)
+					coinBtn.MouseButton1Click:Connect(function() tryPurchaseExterior("coins") end)
+				end
+				if gemCost > 0 then
+					local gemBtn = Instance.new("TextButton")
+					gemBtn.Size = UDim2.new(0, (coinCost > 0) and 72 or 90, 0, (coinCost > 0) and 28 or 30)
+					gemBtn.Position = UDim2.new(1, (coinCost > 0) and -78 or -100, 0.5, (coinCost > 0) and -14 or -15)
+					gemBtn.BorderSizePixel = 0; gemBtn.Font = Enum.Font.GothamBold; gemBtn.TextSize = 11
+					gemBtn.BackgroundColor3 = Color3.fromRGB(35, 25, 60); gemBtn.TextColor3 = C.gem
+					gemBtn.Text = "" .. gemCost
+					gemBtn.Parent = card
+					Instance.new("UICorner", gemBtn).CornerRadius = UDim.new(0, 6)
+					gemBtn.MouseButton1Click:Connect(function() tryPurchaseExterior("gems") end)
+				end
 			end
 		end
 	elseif activeTab == "baseColor" then
@@ -678,29 +701,43 @@ local function buildItems()
 						end
 					end)
 				else
-					local priceText, priceCurr
-					if (item.coinCost or 0) > 0 then
-						priceText = "" .. (item.coinCost or 0); priceCurr = "coins"
-						btn.BackgroundColor3 = Color3.fromRGB(50, 45, 20)
-						btn.TextColor3 = C.coin
-					else
-						priceText = "" .. (item.gemCost or 0); priceCurr = "gems"
-						btn.BackgroundColor3 = Color3.fromRGB(35, 25, 60)
-						btn.TextColor3 = C.gem
-					end
-					btn.Text = priceText
-					btn.MouseButton1Click:Connect(function()
-						if buyRemote then
-							local pcallOk, a, b = pcall(function() return buyRemote:InvokeServer(item.id, priceCurr) end)
-							local success, retMsg = pcallOk and a or false, (pcallOk and b or tostring(a)) or "nil"
-							if success then
-								Notify.Toast("Purchased " .. item.name .. "!", C.green, 3)
-								refreshData(); buildItems()
-							else
-								Notify.Toast(tostring(retMsg) ~= "nil" and tostring(retMsg) or "Purchase failed", C.red, 3)
-							end
+					btn:Destroy()
+					local coinCost = item.coinCost or 0
+					local gemCost = item.gemCost or 0
+					local function tryPurchaseColor(curr)
+						if not buyRemote then return end
+						local pcallOk, a, b = pcall(function() return buyRemote:InvokeServer(item.id, curr) end)
+						local success, retMsg = pcallOk and a or false, (pcallOk and b or tostring(a)) or "nil"
+						if success then
+							Notify.Toast("Purchased " .. item.name .. "!", C.green, 3)
+							refreshData(); buildItems()
+						else
+							Notify.Toast(tostring(retMsg) ~= "nil" and tostring(retMsg) or "Purchase failed", C.red, 3)
+							if curr == "gems" then DiamondNeedHint.OnInsufficientDiamonds(success, retMsg, Notify) end
 						end
-					end)
+					end
+					if coinCost > 0 then
+						local coinBtn = Instance.new("TextButton")
+						coinBtn.Size = UDim2.new(0, (gemCost > 0) and 72 or 90, 0, (gemCost > 0) and 28 or 30)
+						coinBtn.Position = UDim2.new(1, (gemCost > 0) and -156 or -100, 0.5, (gemCost > 0) and -14 or -15)
+						coinBtn.BorderSizePixel = 0; coinBtn.Font = Enum.Font.GothamBold; coinBtn.TextSize = 11
+						coinBtn.BackgroundColor3 = Color3.fromRGB(50, 45, 20); coinBtn.TextColor3 = C.coin
+						coinBtn.Text = "" .. coinCost
+						coinBtn.Parent = card
+						Instance.new("UICorner", coinBtn).CornerRadius = UDim.new(0, 6)
+						coinBtn.MouseButton1Click:Connect(function() tryPurchaseColor("coins") end)
+					end
+					if gemCost > 0 then
+						local gemBtn = Instance.new("TextButton")
+						gemBtn.Size = UDim2.new(0, (coinCost > 0) and 72 or 90, 0, (coinCost > 0) and 28 or 30)
+						gemBtn.Position = UDim2.new(1, (coinCost > 0) and -78 or -100, 0.5, (coinCost > 0) and -14 or -15)
+						gemBtn.BorderSizePixel = 0; gemBtn.Font = Enum.Font.GothamBold; gemBtn.TextSize = 11
+						gemBtn.BackgroundColor3 = Color3.fromRGB(35, 25, 60); gemBtn.TextColor3 = C.gem
+						gemBtn.Text = "" .. gemCost
+						gemBtn.Parent = card
+						Instance.new("UICorner", gemBtn).CornerRadius = UDim.new(0, 6)
+						gemBtn.MouseButton1Click:Connect(function() tryPurchaseColor("gems") end)
+					end
 				end
 			end
 		end
@@ -724,7 +761,7 @@ local function buildItems()
 			local equipped = playerCosmetics.equipped[item.slot] == item.id
 
 			local card = Instance.new("Frame")
-			card.Size = UDim2.new(1, 0, 0, 50); card.LayoutOrder = order
+			card.Size = UDim2.new(1, 0, 0, 56); card.LayoutOrder = order
 			card.BackgroundColor3 = equipped and Color3.fromRGB(20, 35, 50) or (owned and C.cardOwned or C.card)
 			card.BorderSizePixel = 0; card.Parent = scroll
 			Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
@@ -788,29 +825,43 @@ local function buildItems()
 					end
 				end)
 			else
-				local priceText, priceCurr
-				if (item.coinCost or 0) > 0 then
-					priceText = "" .. (item.coinCost or 0); priceCurr = "coins"
-					btn.BackgroundColor3 = Color3.fromRGB(50, 45, 20)
-					btn.TextColor3 = C.coin
-				else
-					priceText = "" .. (item.gemCost or 0); priceCurr = "gems"
-					btn.BackgroundColor3 = Color3.fromRGB(35, 25, 60)
-					btn.TextColor3 = C.gem
-				end
-				btn.Text = priceText
-				btn.MouseButton1Click:Connect(function()
-					if buyCosmetic then
-						local pcallOk, a, b = pcall(function() return buyCosmetic:InvokeServer(item.id, priceCurr) end)
-						local success, retMsg = pcallOk and a or false, (pcallOk and b or tostring(a)) or "nil"
-						if success then
-							Notify.Toast("Purchased " .. item.name .. "!", C.green, 3, "X")
-							refreshData(); buildItems()
-						else
-							Notify.Toast(tostring(retMsg) ~= "nil" and tostring(retMsg) or "Purchase failed", C.red, 3, "X")
-						end
+				btn:Destroy()
+				local coinCost = item.coinCost or 0
+				local gemCost = item.gemCost or 0
+				local function tryPurchaseCosmetic(curr)
+					if not buyCosmetic then return end
+					local pcallOk, a, b = pcall(function() return buyCosmetic:InvokeServer(item.id, curr) end)
+					local success, retMsg = pcallOk and a or false, (pcallOk and b or tostring(a)) or "nil"
+					if success then
+						Notify.Toast("Purchased " .. item.name .. "!", C.green, 3, "X")
+						refreshData(); buildItems()
+					else
+						Notify.Toast(tostring(retMsg) ~= "nil" and tostring(retMsg) or "Purchase failed", C.red, 3, "X")
+						if curr == "gems" then DiamondNeedHint.OnInsufficientDiamonds(success, retMsg, Notify) end
 					end
-				end)
+				end
+				if coinCost > 0 then
+					local coinBtn = Instance.new("TextButton")
+					coinBtn.Size = UDim2.new(0, (gemCost > 0) and 72 or 90, 0, (gemCost > 0) and 28 or 30)
+					coinBtn.Position = UDim2.new(1, (gemCost > 0) and -156 or -100, 0.5, (gemCost > 0) and -14 or -15)
+					coinBtn.BorderSizePixel = 0; coinBtn.Font = Enum.Font.GothamBold; coinBtn.TextSize = 11
+					coinBtn.BackgroundColor3 = Color3.fromRGB(50, 45, 20); coinBtn.TextColor3 = C.coin
+					coinBtn.Text = "" .. coinCost
+					coinBtn.Parent = card
+					Instance.new("UICorner", coinBtn).CornerRadius = UDim.new(0, 6)
+					coinBtn.MouseButton1Click:Connect(function() tryPurchaseCosmetic("coins") end)
+				end
+				if gemCost > 0 then
+					local gemBtn = Instance.new("TextButton")
+					gemBtn.Size = UDim2.new(0, (coinCost > 0) and 72 or 90, 0, (coinCost > 0) and 28 or 30)
+					gemBtn.Position = UDim2.new(1, (coinCost > 0) and -78 or -100, 0.5, (coinCost > 0) and -14 or -15)
+					gemBtn.BorderSizePixel = 0; gemBtn.Font = Enum.Font.GothamBold; gemBtn.TextSize = 11
+					gemBtn.BackgroundColor3 = Color3.fromRGB(35, 25, 60); gemBtn.TextColor3 = C.gem
+					gemBtn.Text = "" .. gemCost
+					gemBtn.Parent = card
+					Instance.new("UICorner", gemBtn).CornerRadius = UDim.new(0, 6)
+					gemBtn.MouseButton1Click:Connect(function() tryPurchaseCosmetic("gems") end)
+				end
 			end
 		end
 	end

@@ -1,5 +1,6 @@
 -- ShopHubClient.client.lua
--- Single "Shop" selector that routes to existing Egg/Buff/Cosmetic shop panels.
+-- Last updated: 2026-04-18 21:00
+-- Single "Shop" selector that routes to Egg/Buff/Cosmetic/SCoins/Gems shop panels.
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -27,7 +28,7 @@ ui.IgnoreGuiInset = false
 ui.Parent = playerGui
 
 local SHOP_HUB_DESIGN_W = 420
-local SHOP_HUB_DESIGN_H = 240
+local SHOP_HUB_DESIGN_H = 460
 
 local panel = Instance.new("Frame")
 panel.Name = "Panel"
@@ -177,6 +178,8 @@ end
 local eggBtn = makeOptionButton("Egg Shop", Color3.fromRGB(255, 210, 90))
 local buffBtn = makeOptionButton("Buff Shop", Color3.fromRGB(110, 230, 150))
 local cosmeticBtn = makeOptionButton("Drip Shop", Color3.fromRGB(215, 150, 255))
+local scoinsBtn = makeOptionButton("SCoins", Color3.fromRGB(100, 210, 255))
+local gemsBtn = makeOptionButton("Gems", Color3.fromRGB(160, 120, 255))
 
 local function openSubShop(menuName)
 	panel.Visible = false
@@ -197,6 +200,14 @@ cosmeticBtn.MouseButton1Click:Connect(function()
 	openSubShop("CosmeticShopGUI")
 end)
 
+scoinsBtn.MouseButton1Click:Connect(function()
+	openSubShop("ScoinsShopGUI")
+end)
+
+gemsBtn.MouseButton1Click:Connect(function()
+	openSubShop("GemsShopGUI")
+end)
+
 closeBtn.MouseButton1Click:Connect(function()
 	panel.Visible = false
 	ui.IgnoreGuiInset = false
@@ -215,7 +226,8 @@ local function onHUDToggle(menuName)
 		else
 			MobileWindowLayout.NotifyMenuClosed()
 		end
-	elseif menuName == "EggShopGUI" or menuName == "BuffShopGUI" or menuName == "CosmeticShopGUI" then
+	elseif menuName == "EggShopGUI" or menuName == "BuffShopGUI" or menuName == "CosmeticShopGUI"
+		or menuName == "ScoinsShopGUI" or menuName == "GemsShopGUI" then
 		panel.Visible = false
 		ui.IgnoreGuiInset = false
 	end

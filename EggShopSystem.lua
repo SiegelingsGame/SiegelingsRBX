@@ -1,4 +1,5 @@
 -- EggShopSystem.lua - ServerScriptService (ModuleScript)
+-- Last updated: 2026-04-18 21:00
 -- Handles egg purchases (coins or Robux via Developer Products) and random creature hatching.
 -- 5 tiers: Common, Rare, Mythic, Legendary, God. Pool percentages in GameConfig.
 
@@ -26,6 +27,16 @@ local function getEggConfigByProductId(productId)
 	if not productId or productId == 0 then return nil end
 	for _, item in ipairs(GameConfig.EggShopItems) do
 		if item.productId == productId then return item end
+	end
+	return nil
+end
+
+local function getGemPackByProductId(productId)
+	if not productId or productId == 0 then return nil end
+	for _, p in ipairs(GameConfig.GemsRobuxPacks or {}) do
+		if (p.productId or 0) == productId then
+			return p
+		end
 	end
 	return nil
 end
@@ -109,7 +120,7 @@ function EggShopSystem.Init(pdm)
 	local buyEgg = events:WaitForChild("BuyEgg", 15)
 	if buyEgg then
 		buyEgg.OnServerInvoke = function(player, eggId, paymentType)
-			paymentType = (paymentType == "robux" and "robux") or "coins"
+			paymentType = (paymentType == "robux" and "robux") or (paymentType == "gems" and "gems") or "coins"
 			local config = getEggConfig(eggId)
 			if not config then return false, "Invalid egg", nil end
 
@@ -125,6 +136,17 @@ function EggShopSystem.Init(pdm)
 				local coinsEvt = events:FindFirstChild("CoinsUpdate")
 				if coinsEvt then
 					coinsEvt:FireClient(player, PlayerDataManager.GetCoins(player))
+				end
+			elseif paymentType == "gems" then
+				if not config.gemCost or config.gemCost <= 0 then
+					return false, "This egg cannot be bought with diamonds", nil
+				end
+				if not PlayerDataManager.SpendGems(player, config.gemCost) then
+					return false, "Not enough diamonds! Need " .. config.gemCost, nil
+				end
+				local gemsEvt = events:FindFirstChild("GemsUpdate")
+				if gemsEvt then
+					gemsEvt:FireClient(player, PlayerDataManager.GetGems(player))
 				end
 			else
 				return false, "Use the R$ button to purchase with Robux", nil
@@ -148,6 +170,22 @@ function EggShopSystem.Init(pdm)
 			return Enum.ProductPurchaseDecision.PurchaseGranted
 		end
 		local productId = receiptInfo.ProductId
+
+		local gemPack = getGemPackByProductId(productId)
+		if gemPack then
+			local playerObj = Players:GetPlayerByUserId(receiptInfo.PlayerId)
+			if not playerObj then return Enum.ProductPurchaseDecision.NotProcessedYet end
+			local grant = math.floor(tonumber(gemPack.gems) or 0)
+			if grant <= 0 then return Enum.ProductPurchaseDecision.NotProcessedYet end
+			PlayerDataManager.AddGems(playerObj, grant)
+			processedReceipts[purchaseId] = true
+			local events = ReplicatedStorage:FindFirstChild("Events")
+			local gemsEvt = events and events:FindFirstChild("GemsUpdate")
+			if gemsEvt then gemsEvt:FireClient(playerObj, PlayerDataManager.GetGems(playerObj)) end
+			print("[GemsRobuxShop] " .. playerObj.Name .. " +" .. grant .. " gems (" .. tostring(gemPack.id) .. ")")
+			return Enum.ProductPurchaseDecision.PurchaseGranted
+		end
+
 		local config = getEggConfigByProductId(productId)
 		if not config then return Enum.ProductPurchaseDecision.NotProcessedYet end
 		local playerObj = Players:GetPlayerByUserId(receiptInfo.PlayerId)

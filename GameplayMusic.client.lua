@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════════════
--- Last updated: 2026-04-11
+-- Last updated: 2026-04-18 15:45
 -- GameplayMusic.client.lua
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- Multi-track biome music system with battle theme override.
@@ -128,6 +128,48 @@ local POSITION_CHECK_INTERVAL = 0.2 -- arena proximity poll (seconds)
 local mainArenaBattlePointParts = {} -- BasePart[]
 local mainArenaCenterPart = nil
 local nearMainArenaBattleMusicZone = false
+local lastCaveColumnActive = false
+
+--- Cave Terrain baseplate (same path as BiomeSkyboxClient / GameConfig.BiomeZone); cached after first resolve.
+local caveBaseplatePart = nil -- BasePart|false|nil
+local function getCaveBaseplatePart()
+	if caveBaseplatePart == false then
+		return nil
+	end
+	if caveBaseplatePart and caveBaseplatePart.Parent then
+		return caveBaseplatePart
+	end
+	local zoneCfg = GameConfig.BiomeZone or {}
+	for _, def in ipairs(zoneCfg.OuterZones or {}) do
+		if def.sky == "CaveSky" and type(def.path) == "table" then
+			local cur = workspace
+			for _, n in ipairs(def.path) do
+				cur = cur and cur:FindFirstChild(n)
+			end
+			if cur and cur:IsA("BasePart") then
+				caveBaseplatePart = cur
+				return cur
+			end
+		end
+	end
+	caveBaseplatePart = false
+	return nil
+end
+
+--- True when root position is in the CaveBaseplate XZ column at or above the slab bottom (matches BiomeSkybox cave column).
+local function isInCaveMusicColumn(pos)
+	local part = getCaveBaseplatePart()
+	if not part then
+		return false
+	end
+	local cf = part.CFrame
+	local lp = cf:PointToObjectSpace(pos)
+	local hx, hz, hy = part.Size.X / 2, part.Size.Z / 2, part.Size.Y / 2
+	if math.abs(lp.X) > hx or math.abs(lp.Z) > hz then
+		return false
+	end
+	return lp.Y >= -hy
+end
 
 local function findMainArenaModel()
 	local direct = workspace:FindFirstChild("Arena")
@@ -490,6 +532,17 @@ local function getDesiredTrack()
 		return battleTheme or mainTheme
 	end
 
+	-- Priority 1b: Cave column — keep Sieglings_CaveBiome when over Terrain.CaveBaseplate even if
+	-- CurrentSkyName briefly lags or inner-wedge skies would map to Fire/Main theme.
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if root and isInCaveMusicColumn(root.Position) then
+		local caveTrack = biomeTracks["CaveSky"]
+		if caveTrack then
+			return caveTrack
+		end
+	end
+
 	-- Priority 2: Outer biome zones (sky from BiomeSkyboxClient outer baseplates).
 	-- Beats main-arena proximity so desert/electric/ocean don't pick up hub battle BGM from range.
 	if skyName and OUTER_BIOME_SKY[skyName] then
@@ -529,6 +582,7 @@ local function resetAllMusicToMainTheme()
 	-- Clear transient combat / arena-proximity state so death always returns to default music.
 	inPvP = false
 	nearMainArenaBattleMusicZone = false
+	lastCaveColumnActive = false
 
 	local uniqueTracks = {}
 	local allTracks = { mainTheme, battleTheme }
@@ -677,8 +731,17 @@ task.spawn(function()
 				near = isNearArenaBattleAnchors(root.Position, ARENA_BATTLE_MUSIC_RADIUS)
 			end
 
+			local caveNow = root and isInCaveMusicColumn(root.Position)
+			local zoneChanged = false
+			if caveNow ~= lastCaveColumnActive then
+				lastCaveColumnActive = caveNow
+				zoneChanged = true
+			end
 			if near ~= nearMainArenaBattleMusicZone then
 				nearMainArenaBattleMusicZone = near
+				zoneChanged = true
+			end
+			if zoneChanged then
 				evaluateMusic()
 			end
 		end

@@ -1,4 +1,5 @@
 -- BuffShopClient.lua - StarterPlayer.StarterPlayerScripts (LocalScript)
+-- Last updated: 2026-04-20 16:00
 -- Press G to open buff shop. Buy buffs with coins or gems.
 -- Active buffs shown as icons on the HUD.
 
@@ -8,6 +9,7 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local MobileWindowLayout = require(ReplicatedStorage.Modules:WaitForChild("MobileWindowLayout"))
+local TopRightBadgeTray = require(ReplicatedStorage.Modules:WaitForChild("TopRightBadgeTray"))
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -16,6 +18,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
 local IngredientData = require(ReplicatedStorage.Modules:WaitForChild("IngredientData"))
 local Notify = require(ReplicatedStorage.Modules.NotificationManager)
+local DiamondNeedHint = require(ReplicatedStorage.Modules:WaitForChild("DiamondNeedHint"))
 
 local Events = ReplicatedStorage:WaitForChild("Events", 15)
 if not Events then return end
@@ -38,9 +41,6 @@ local C = {
 
 local TOP_BADGE_WIDTH = 36
 local TOP_BADGE_HEIGHT = 42
-local TOP_BADGE_GAP = 8
-local TOP_BADGE_START_SLOT = 2
-local TOP_BADGE_DISPLAY_ORD = 96
 local TOP_BADGE_BG = Color3.fromRGB(18, 22, 32)
 local TOP_BADGE_ACCENT = Color3.fromRGB(220, 180, 60)
 
@@ -257,7 +257,7 @@ titleLbl.TextXAlignment = Enum.TextXAlignment.Left; titleLbl.Parent = titleBar
 local currLbl = Instance.new("TextLabel")
 currLbl.Name = "CurrLbl"
 currLbl.Size = UDim2.new(0.45, -48, 1, 0); currLbl.Position = UDim2.new(0.55, 0, 0, 0)
-currLbl.BackgroundTransparency = 1; currLbl.Text = "Coins: 0  |  Gems: 0"
+	currLbl.BackgroundTransparency = 1; currLbl.Text = "Coins: 0  |  Diamonds: 0"
 currLbl.TextColor3 = C.muted; currLbl.Font = Enum.Font.GothamBold; currLbl.TextSize = 12
 currLbl.TextXAlignment = Enum.TextXAlignment.Right; currLbl.Parent = titleBar
 
@@ -313,58 +313,8 @@ local layout = Instance.new("UIListLayout")
 layout.SortOrder = Enum.SortOrder.LayoutOrder
 layout.Padding = UDim.new(0, 6); layout.Parent = scroll
 
-local topBuffBadgeGui
-local topBuffBadgeRow
 local topBuffBadgeEntries = {}
 local topBuffPulseConn
-
-local function ensureTopBuffBadgeGui()
-	if topBuffBadgeGui and topBuffBadgeGui.Parent then
-		return
-	end
-
-	topBuffBadgeGui = Instance.new("ScreenGui")
-	topBuffBadgeGui.Name = "ActiveBuffTopBadges"
-	topBuffBadgeGui.DisplayOrder = TOP_BADGE_DISPLAY_ORD
-	topBuffBadgeGui.ResetOnSpawn = false
-	topBuffBadgeGui.IgnoreGuiInset = true
-	topBuffBadgeGui.Parent = playerGui
-
-	topBuffBadgeRow = Instance.new("Frame")
-	topBuffBadgeRow.Name = "BadgeRow"
-	topBuffBadgeRow.Size = UDim2.fromOffset(0, TOP_BADGE_HEIGHT)
-	topBuffBadgeRow.AutomaticSize = Enum.AutomaticSize.X
-	topBuffBadgeRow.BackgroundTransparency = 1
-	topBuffBadgeRow.AnchorPoint = Vector2.new(0, 0.5)
-	topBuffBadgeRow.Visible = false
-	topBuffBadgeRow.Parent = topBuffBadgeGui
-
-	local rowLayout = Instance.new("UIListLayout")
-	rowLayout.FillDirection = Enum.FillDirection.Horizontal
-	rowLayout.Padding = UDim.new(0, TOP_BADGE_GAP)
-	rowLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-	rowLayout.SortOrder = Enum.SortOrder.LayoutOrder
-	rowLayout.Parent = topBuffBadgeRow
-end
-
-local function positionTopBuffBadgeRow()
-	ensureTopBuffBadgeGui()
-
-	local notifGui = playerGui:FindFirstChild("NotificationGUI")
-	local tickerBar = notifGui and notifGui:FindFirstChild("TickerBar")
-
-	if tickerBar then
-		local ap = tickerBar.AbsolutePosition
-		local as = tickerBar.AbsoluteSize
-		local xOffset = ap.X + as.X + TOP_BADGE_GAP + TOP_BADGE_START_SLOT * (TOP_BADGE_WIDTH + TOP_BADGE_GAP)
-		topBuffBadgeRow.Position = UDim2.fromOffset(xOffset, math.floor(ap.Y + as.Y / 2))
-		topBuffBadgeRow.AnchorPoint = Vector2.new(0, 0.5)
-	else
-		local fallbackX = 0.86 + (TOP_BADGE_START_SLOT * 0.04)
-		topBuffBadgeRow.Position = UDim2.new(fallbackX, 0, 0, 18 + math.floor(TOP_BADGE_HEIGHT * 0.5))
-		topBuffBadgeRow.AnchorPoint = Vector2.new(0.5, 0.5)
-	end
-end
 
 local function refreshTopBuffPulse()
 	local hasBadges = next(topBuffBadgeEntries) ~= nil
@@ -387,12 +337,12 @@ local function refreshTopBuffPulse()
 end
 
 local function createTopBuffBadge(buffId, order)
-	ensureTopBuffBadgeGui()
+	local row = TopRightBadgeTray.GetBadgeRow(player)
 
 	local btn = Instance.new("TextButton")
 	btn.Name = "BuffBadge_" .. buffId
 	btn.Size = UDim2.fromOffset(0, 0)
-	btn.LayoutOrder = order
+	btn.LayoutOrder = TopRightBadgeTray.Order.BuffFirst + order
 	btn.BackgroundColor3 = TOP_BADGE_BG
 	btn.BackgroundTransparency = 1
 	btn.BorderSizePixel = 0
@@ -402,7 +352,7 @@ local function createTopBuffBadge(buffId, order)
 	btn.TextSize = 20
 	btn.AutoButtonColor = false
 	btn.ZIndex = 100
-	btn.Parent = topBuffBadgeRow
+	btn.Parent = row
 	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
 	local stroke = Instance.new("UIStroke")
@@ -476,9 +426,6 @@ local function updateActiveBuffsDisplay()
 	end
 	local activeLookup = {}
 
-	ensureTopBuffBadgeGui()
-	positionTopBuffBadgeRow()
-
 	for order, buff in ipairs(activeBuffs) do
 		activeLookup[buff.id] = true
 
@@ -487,7 +434,7 @@ local function updateActiveBuffsDisplay()
 			entry = createTopBuffBadge(buff.id, order)
 		end
 
-		entry.button.LayoutOrder = order
+		entry.button.LayoutOrder = TopRightBadgeTray.Order.BuffFirst + order
 		entry.button.Text = getBuffEmoji(buff.id)
 		entry.name = getBuffDisplayName(buff.id)
 		entry.remaining = buff.remaining
@@ -518,7 +465,6 @@ local function updateActiveBuffsDisplay()
 		end
 	end
 
-	topBuffBadgeRow.Visible = #activeBuffs > 0
 	refreshTopBuffPulse()
 end
 
@@ -536,7 +482,7 @@ local function refreshCurrency()
 	if getInventory then
 		local ok, data = pcall(function() return getInventory:InvokeServer() end)
 		if ok and data then
-			currLbl.Text = "Coins: " .. (data.coins or 0) .. "  |  Gems: " .. (data.gems or 0)
+			currLbl.Text = "Coins: " .. (data.coins or 0) .. "  |  Diamonds: " .. (data.gems or 0)
 		end
 	end
 end
@@ -597,7 +543,7 @@ local function buildShopItems()
 		-- Buy button(s)
 		local btnX = 0.58
 
-		if item.coinCost > 0 then
+		if (item.coinCost or 0) > 0 then
 			local coinBtn = Instance.new("TextButton")
 			coinBtn.Size = UDim2.new(0, 85, 0, 30); coinBtn.Position = UDim2.new(btnX, 0, 0.5, -15)
 			coinBtn.BackgroundColor3 = Color3.fromRGB(50, 45, 20); coinBtn.BorderSizePixel = 0
@@ -624,7 +570,7 @@ local function buildShopItems()
 			btnX = btnX + 0.22
 		end
 
-		if item.gemCost > 0 then
+		if (item.gemCost or 0) > 0 then
 			local gemBtn = Instance.new("TextButton")
 			gemBtn.Size = UDim2.new(0, 85, 0, 30); gemBtn.Position = UDim2.new(btnX, 0, 0.5, -15)
 			gemBtn.BackgroundColor3 = Color3.fromRGB(35, 25, 60); gemBtn.BorderSizePixel = 0
@@ -646,6 +592,7 @@ local function buildShopItems()
 					playBuffActivatedFX(item.id)
 				else
 					Notify.Toast(msg or "Purchase failed", C.red, 3, "X")
+					DiamondNeedHint.OnInsufficientDiamonds(success, msg, Notify)
 				end
 			end)
 		end
@@ -704,7 +651,6 @@ MobileWindowLayout.BindViewportUpdate(function()
 	else
 		sg.IgnoreGuiInset = false
 	end
-	positionTopBuffBadgeRow()
 end)
 
 -- FIX #18: Removed fallback G key handler — HUDButtonBar is the sole keyboard handler.

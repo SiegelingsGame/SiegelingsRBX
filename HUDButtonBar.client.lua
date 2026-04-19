@@ -74,6 +74,8 @@ local indicatorMenuAliases = {
 	EggShopGUI = "ShopHubGUI",
 	BuffShopGUI = "ShopHubGUI",
 	CosmeticShopGUI = "ShopHubGUI",
+	ScoinsShopGUI = "ShopHubGUI",
+	GemsShopGUI = "ShopHubGUI",
 }
 
 local function normalizeIndicatorMenuName(menuName)

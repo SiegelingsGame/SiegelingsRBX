@@ -1,3 +1,4 @@
+-- Last updated: 2026-04-18 15:00
 -- PlayerCombatSystem.lua - ServerScriptService (ModuleScript)
 -- Handles player direct attacks against world creatures.
 -- Ranged (auto/manual aim) and Melee (AOE swing).
@@ -73,7 +74,15 @@ local function doRangedAttack(player, origin, direction, targetUniqueId)
 
 	-- If targetUniqueId provided, only damage that creature (target-based combat)
 	local bestTarget = nil
+	local stealVictimHit = false
 	if targetUniqueId then
+		local thiefUidMatch = type(targetUniqueId) == "string" and string.match(targetUniqueId, "^pvpthief_(%d+)$")
+		if thiefUidMatch and FavoriteCreatureSystem and FavoriteCreatureSystem.HandleStealVictimHit then
+			local thief = Players:GetPlayerByUserId(tonumber(thiefUidMatch))
+			if thief then
+				stealVictimHit = FavoriteCreatureSystem.HandleStealVictimHit(player, thief, origin, false, dmg)
+			end
+		else
 		local targetModel = findCreatureByUniqueId(targetUniqueId)
 		if targetModel and targetModel.Parent and not targetModel:GetAttribute("Fainted") then
 			local body = targetModel.PrimaryPart or targetModel:FindFirstChild("Body")
@@ -84,6 +93,7 @@ local function doRangedAttack(player, origin, direction, targetUniqueId)
 					bestTarget = targetModel
 				end
 			end
+		end
 		end
 	else
 		-- Find closest creature in direction cone (legacy auto-aim, no longer used)
@@ -111,6 +121,15 @@ local function doRangedAttack(player, origin, direction, targetUniqueId)
 	local attackEvent = events and events:FindFirstChild("PlayerAttackFX")
 	local endPos = origin + direction.Unit * math.min(GameConfig.PlayerRangedRange, 40)
 
+	if stealVictimHit and type(targetUniqueId) == "string" then
+		local tid = string.match(targetUniqueId, "^pvpthief_(%d+)$")
+		local thief = tid and Players:GetPlayerByUserId(tonumber(tid))
+		local troot = thief and thief.Character and thief.Character:FindFirstChild("HumanoidRootPart")
+		if troot then
+			endPos = troot.Position
+		end
+	end
+
 	if bestTarget then
 		local targetBody = bestTarget.PrimaryPart or bestTarget:FindFirstChild("Body")
 		if targetBody then endPos = targetBody.Position end
@@ -134,8 +153,9 @@ local function doRangedAttack(player, origin, direction, targetUniqueId)
 
 	-- Send FX to all players
 	if attackEvent then
+		local didHit = bestTarget ~= nil or stealVictimHit
 		for _, p in ipairs(Players:GetPlayers()) do
-			attackEvent:FireClient(p, player.UserId, origin, endPos, "ranged", bestTarget ~= nil)
+			attackEvent:FireClient(p, player.UserId, origin, endPos, "ranged", didHit)
 		end
 	end
 end
@@ -166,6 +186,13 @@ local function doMeleeAttack(player, origin, targetUniqueId)
 	local hitCount = 0
 
 	if targetUniqueId then
+		local thiefUidMatch = type(targetUniqueId) == "string" and string.match(targetUniqueId, "^pvpthief_(%d+)$")
+		if thiefUidMatch and FavoriteCreatureSystem and FavoriteCreatureSystem.HandleStealVictimHit then
+			local thief = Players:GetPlayerByUserId(tonumber(thiefUidMatch))
+			if thief and FavoriteCreatureSystem.HandleStealVictimHit(player, thief, origin, true, dmg) then
+				hitCount = 1
+			end
+		else
 		local targetModel = findCreatureByUniqueId(targetUniqueId)
 		if targetModel and targetModel.Parent and not targetModel:GetAttribute("Fainted") then
 			local body = targetModel.PrimaryPart or targetModel:FindFirstChild("Body")
@@ -187,6 +214,7 @@ local function doMeleeAttack(player, origin, targetUniqueId)
 					end
 				end
 			end
+		end
 		end
 	else
 	for _, model in ipairs(CollectionService:GetTagged(WORLD_TAG)) do

@@ -74,7 +74,7 @@ local attachedPrompts = {} -- [model] = ProximityPrompt (to avoid duplicates on 
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "BaseInteractionUI"
 screenGui.ResetOnSpawn = false
-screenGui.DisplayOrder = 30
+screenGui.DisplayOrder = 100
 screenGui.Parent = playerGui
 
 -- ══════════════════════════════════════════════════════════════════════════════

@@ -177,6 +177,9 @@
       "ArenaTraderSystem": {
         "$path": "ArenaTraderSystem.lua"
       },
+      "ArenaRocSystem": {
+        "$path": "ArenaRocSystem.lua"
+      },
       "EleminionSystem": {
         "$path": "EleminionSystem.lua"
       },
@@ -315,6 +318,9 @@
         },
         "ArenaTraderClient": {
           "$path": "ArenaTraderClient.client.lua"
+        },
+        "ArenaRocClient": {
+          "$path": "ArenaRocClient.client.lua"
         },
         "NpcHighlightClient": {
           "$path": "NpcHighlightClient.client.lua"

@@ -42,7 +42,7 @@ local RARITY_COLORS = {
 local sg = Instance.new("ScreenGui")
 sg.Name = "FurnishGUI"
 sg.ResetOnSpawn = false
-sg.DisplayOrder = 35
+sg.DisplayOrder = 100
 sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 sg.Parent = playerGui
 

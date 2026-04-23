@@ -295,13 +295,20 @@ local COMPANION_STAND_UP_ANGLES = {
 	luvy = {-180, 0, 0},
 	luvysore = {-180, 0, 0},
 	luvyduvysore = {-180, 0, 0},
+	bearby = {-180, 0, 0},
+	bearnade = {-180, 0, 0},
+	bearzooka = {-180, 0, 0},
+	bleetstrike = {-180, 0, 0},
+	joltram = {-180, 0, 0},
+	staticap = {-180, 0, 0},
+
 }
 
 local function needsFacingCorrection(model)
 	return model and model:GetAttribute("TemplateType") == "Model"
 end
 
--- Crawling: COMPANION_ROTATION_DEFAULT0.0 = base; CRAWL_UPRIGHT_CORRECTION. = -90° X to stand upright.cc
+-- Crawling: COMPANION_ROTATION_DEFAULT0.0 = base; CRAWL_UPRIGHT_CORRECTION. = -90° X to stand upright.c
 -- Ground stand-up: for non-flying, non-crawling companions – models that export horizonbtal/on-back need this to stand upright
 local COMPANION_CRAWL_UPRIGHT_CORRECTION = CFrame.Angles(math.rad(-90), 0, 0)
 local COMPANION_GROUND_UPRIGHT = COMPANION_CRAWL_UPRIGHT_CORRECTION

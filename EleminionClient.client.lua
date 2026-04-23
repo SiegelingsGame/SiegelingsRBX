@@ -1,5 +1,5 @@
 -- EleminionClient.lua - StarterPlayerScripts
--- Opens the Eleminion affinity UI and handles reward claims.
+-- Opens the Eleminion affinity UI and handles reward claims...
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -374,7 +374,7 @@ local function ensureUi()
 	screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "EleminionUI"
 	screenGui.ResetOnSpawn = false
-	screenGui.DisplayOrder = 47
+	screenGui.DisplayOrder = 100
 	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	screenGui.Parent = playerGui
 

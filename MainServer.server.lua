@@ -1,5 +1,5 @@
 -- MainServer.lua - ServerScriptService (Script)
--- Last updated: 2026-04-20 17:00
+-- Last updated: 2026-04-20 20:00
 -- THE SINGLE ENTRY POINT. All remote handlers live HERE.
 -- DELETE "EssentialdHandlers" and "BattleTeamSystem" if they exist....
 
@@ -306,6 +306,8 @@ pcall(function() ArenaShieldSystem = require(ServerScriptService.ArenaShieldSyst
 
 local WaterGymSystem = nil
 pcall(function() WaterGymSystem = require(ServerScriptService.WaterGymSystem) end)
+local ArenaRocSystem = nil
+pcall(function() ArenaRocSystem = require(ServerScriptService.ArenaRocSystem) end)
 local CaveGymSystem = nil
 pcall(function() CaveGymSystem = require(ServerScriptService.CaveGymSystem) end)
 local DesertGymSystem = nil
@@ -551,6 +553,10 @@ end
 if PvPBattleSystem then
 	local ok, err = pcall(function() PvPBattleSystem.Init(PlayerDataManager, FavoriteCreatureSystem, LeaderboardSystem) end)
 	if ok then print("[MainServer] PvPBattleSystem OK") else warn("[MainServer] PvPBattleSystem failed: " .. tostring(err)) end
+end
+if ArenaRocSystem then
+	local ok, err = pcall(function() ArenaRocSystem.Init(PlayerDataManager) end)
+	if ok then print("[MainServer] ArenaRocSystem OK") else warn("[MainServer] ArenaRocSystem failed: " .. tostring(err)) end
 end
 if AIRaidSystem and GameConfig.AIRaidEnabled then
 	local ok, err = pcall(function() AIRaidSystem.Init(PlayerDataManager, BasePlacementSystem, CreatureSpawner, CreatureAI) end)
@@ -1017,6 +1023,27 @@ local function resetPlotWorldState(plotModel)
 	plotModel:SetAttribute("GymOwnerUserId", nil)
 	plotModel:SetAttribute("GymChallengerUserId", nil)
 	plotModel:SetAttribute("KnightBaseRental", nil)
+end
+
+-- Random plot each join: workspace may still show a *previous* plot as owned (Studio stop/start,
+-- missed cleanup). Clear sign + OwnerUserId + runtime tags on any other plot marked for this player.
+local function resetStalePlotAssignmentsForPlayer(plr, assignedPlotId)
+	if not plr or not assignedPlotId or assignedPlotId <= 0 then
+		return
+	end
+	local plotsFolder = findBasePlotsFolder()
+	if not plotsFolder then
+		return
+	end
+	local uid = plr.UserId
+	for _, plot in ipairs(plotsFolder:GetChildren()) do
+		if tonumber(plot:GetAttribute("OwnerUserId")) == uid then
+			local pid = getPlotIdFromModel(plot)
+			if pid and pid ~= assignedPlotId then
+				resetPlotWorldState(plot)
+			end
+		end
+	end
 end
 
 local function setupPlotForPlayer(plr)
@@ -1570,8 +1597,15 @@ local function autoAssignAndSetup(plr)
 	local plotId = PlayerDataManager.AssignPlot(plr)
 	if plotId and plotId > 0 then
 		print("[MainServer] Assigned Plot " .. plotId .. " to " .. plr.Name)
+		resetStalePlotAssignmentsForPlayer(plr, plotId)
 	else
 		warn("[MainServer] No plots available for " .. plr.Name)
+	end
+
+	if BasePlacementSystem and BasePlacementSystem.DestroyTaggedCreaturesForOwnerUserId then
+		pcall(function()
+			BasePlacementSystem.DestroyTaggedCreaturesForOwnerUserId(plr.UserId)
+		end)
 	end
 
 	if BasePlacementSystem and BasePlacementSystem.RefreshAllPlotVisibility then

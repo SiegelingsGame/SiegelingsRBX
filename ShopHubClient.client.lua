@@ -23,7 +23,7 @@ end
 local ui = Instance.new("ScreenGui")
 ui.Name = "ShopHubGUI"
 ui.ResetOnSpawn = false
-ui.DisplayOrder = 41
+ui.DisplayOrder = 100
 ui.IgnoreGuiInset = false
 ui.Parent = playerGui
 

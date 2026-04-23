@@ -1,6 +1,6 @@
 -- PlayerDataManager.lua - ServerScriptService (ModuleScript)
 -- Manages all persistent player data.
--- Last updated: 2026-04-20 13:00
+-- Last updated: 2026-04-20 22:00
 
 local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
@@ -35,6 +35,24 @@ end
 
 function PlayerDataManager.BindEleminionObserver(observer)
 	EleminionObserver = observer
+end
+
+-- Optional hooks after inventory rows change (add/remove/evolve/sell/transfer). Used by ArenaRoc Siegeling↔Cacty pact.
+local inventoryPostChangeListeners = {}
+
+function PlayerDataManager.RegisterInventoryPostChangeListener(fn)
+	if type(fn) == "function" then
+		table.insert(inventoryPostChangeListeners, fn)
+	end
+end
+
+local function fireInventoryPostChange(player)
+	if not player then
+		return
+	end
+	for _, fn in ipairs(inventoryPostChangeListeners) do
+		pcall(fn, player)
+	end
 end
 
 function PlayerDataManager.NotifyAchievement(eventName, ...)
@@ -680,6 +698,10 @@ function PlayerDataManager.AddCreature(player, creatureId, level, xp, variant, e
 	if context and context.nicknameEverSet then
 		row.nicknameEverSet = true
 	end
+	if context and context.rocSiegelingPact == true then
+		row.rocSiegelingPact = true
+		row.rocSiegelingPactActive = false
+	end
 	table.insert(d.inventory, row)
 	local source = context and context.source
 	if source == "capture" then
@@ -688,6 +710,7 @@ function PlayerDataManager.AddCreature(player, creatureId, level, xp, variant, e
 	else
 		PlayerDataManager.NotifyAchievement("OnAcquireCreature", player, creatureId, context)
 	end
+	fireInventoryPostChange(player)
 	return uid
 end
 
@@ -900,6 +923,7 @@ function PlayerDataManager.RemoveCreature(player, uid)
 		if tostring(entry.uid) == tostring(uid) then
 			local removed = table.remove(d.inventory, i)
 			removeFromAllSlots(d, uid)
+			fireInventoryPostChange(player)
 			return removed
 		end
 	end
@@ -919,6 +943,7 @@ function PlayerDataManager.TransferCreature(fromPlayer, toPlayer, uid, context)
 
 	table.remove(fd.inventory, idx)
 	removeFromAllSlots(fd, uid)
+	fireInventoryPostChange(fromPlayer)
 	-- Preserve level/xp/variant on transfers (used by trading/raids)
 	table.insert(td.inventory, {
 		id = entry.id,
@@ -930,6 +955,7 @@ function PlayerDataManager.TransferCreature(fromPlayer, toPlayer, uid, context)
 		nicknameEverSet = entry.nicknameEverSet == true,
 	})
 	PlayerDataManager.NotifyAchievement("OnAcquireCreature", toPlayer, entry.id, context)
+	fireInventoryPostChange(toPlayer)
 	return true
 end
 
@@ -1055,6 +1081,7 @@ function PlayerDataManager.EvolveCreature(player, uid)
 
 	entry.id = nextId
 	PlayerDataManager.NotifyAchievement("OnEvolution", player, previousId, nextId)
+	fireInventoryPostChange(player)
 	return true
 end
 
@@ -1978,6 +2005,7 @@ function PlayerDataManager.OnPlayerJoin(player)
 	task.defer(function()
 		PlayerDataManager.ApplyWorldStatsToCharacter(player)
 	end)
+	fireInventoryPostChange(player)
 end
 
 function PlayerDataManager.OnPlayerLeave(player)
@@ -2784,6 +2812,7 @@ function PlayerDataManager.SellCreature(player, uid)
 	end
 	d.coins = d.coins + sellPrice
 	PlayerDataManager.NotifyAchievement("OnSale", player, entry.id, sellPrice)
+	fireInventoryPostChange(player)
 	return true, sellPrice
 end
 

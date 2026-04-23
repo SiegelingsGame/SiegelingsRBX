@@ -30,7 +30,7 @@ local WHITE = Color3.new(1, 1, 1)
 local sg = Instance.new("ScreenGui")
 sg.Name = "GemsShopGUI"
 sg.ResetOnSpawn = false
-sg.DisplayOrder = 34
+sg.DisplayOrder = 100
 sg.Parent = playerGui
 
 local panel = Instance.new("Frame")

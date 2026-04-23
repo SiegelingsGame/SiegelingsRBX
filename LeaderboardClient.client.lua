@@ -83,7 +83,7 @@ end
 local sg = Instance.new("ScreenGui")
 sg.Name = "LeaderboardGUI"
 sg.ResetOnSpawn = false
-sg.DisplayOrder = 45
+sg.DisplayOrder = 100
 sg.Parent = playerGui
 
 local function applyPanelScale(pnl)

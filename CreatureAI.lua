@@ -1,5 +1,5 @@
 -- CreatureAI.lua - ServerScriptService (ModuleScript)
--- Last updated: 2026-04-19 12:00
+-- Last updated: 2026-04-23 15:45
 -- UPDATED: FIX #15 crawling upright reset on Move->Idle transition (2025)
 -- Terrain swimmable water: water-type AI uses IsPositionInSwimmableWater; moveTowards skips seafloor raycast while swimming.
 -- Manages world creature behaviors: wander, aggro, pack, flee, fight, faint.
@@ -9,12 +9,35 @@ local CollectionService = game:GetService("CollectionService")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local CreatureData = require(game.ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(game.ReplicatedStorage.Modules.GameConfig)
 local CreatureModelLoader = require(game.ReplicatedStorage.Modules.CreatureModelLoader)
 local CreatureAnimation = require(game.ReplicatedStorage.Modules.CreatureAnimation)
 local PlayerWorldStats = require(game.ReplicatedStorage.Modules:WaitForChild("PlayerWorldStats"))
+
+local cachedShowNotification -- nil = unchecked; RemoteEvent once resolved; false = missing
+
+local function notifyPlayerHitByWorldCreature(player, appliedDamage, creatureId)
+	if not player or not player.Parent then return end
+	local dmg = math.max(0, math.floor((tonumber(appliedDamage) or 0) + 0.5))
+	if dmg <= 0 then return end
+	if cachedShowNotification == false then return end
+	local evt = cachedShowNotification
+	if not evt then
+		local eventsFolder = ReplicatedStorage:FindFirstChild("Events")
+		evt = eventsFolder and eventsFolder:FindFirstChild("ShowNotification")
+		if not evt then
+			cachedShowNotification = false
+			return
+		end
+		cachedShowNotification = evt
+	end
+	local cinfo = creatureId and CreatureData.GetById(creatureId)
+	local cname = (cinfo and cinfo.displayName) or "A wild creature"
+	evt:FireClient(player, cname .. " hit you for " .. tostring(dmg) .. " damage", "warning", "combat")
+end
 
 local CreatureAI = {}
 
@@ -27,7 +50,7 @@ local BASE_INCOME_TAG = "BaseIncomeCreature"
 -- State for each creature model
 local creatureStates = {} -- [model] = { id, hp, maxHp, behavior, state, spawnPos, target, lastAttack, packId, faintTime }
 
--- States: "idle", "wander", "chase", "attack", "flee", "faint"
+-- States: "idle", "wander", "chase", "attack", "flee", "faint", "loneHold" (lone: territorial vs other world creatures, no chase)
 
 -- ------ HELPERS ------
 
@@ -768,8 +791,10 @@ function CreatureAI.DamageCreature(model, damage, attackerModel)
 		end
 		if effectiveBehavior == "skittish" then
 			state.target = attackerModel; state.state = "flee"
+			state.loneHoldGround = nil
 		elseif effectiveBehavior == "gentle" or effectiveBehavior == "aggressive" or effectiveBehavior == "pack" or effectiveBehavior == "lone" then
 			state.target = attackerModel; state.state = "chase"
+			state.loneHoldGround = nil -- lone may resume territorial hold after combat via idle/wander
 		end
 	end
 
@@ -984,6 +1009,7 @@ local function updateCreature(model, state, dt)
 	-- Animation: Attack when attacking, Move when chasing/wandering/fleeing (unless stationary 2s), Income on income slots, Idle otherwise. Water: Swimming when moving.
 	local animType
 	if state.state == "attack" then animType = "Attack"
+	elseif state.state == "loneHold" then animType = "Idle"
 	elseif (state.state == "chase" or state.state == "wander" or state.state == "flee") and not stationaryFor2s then
 		local useSwimAnim = CreatureData.IsWaterType(state.id) and CreatureAI.IsPositionInSwimmableWater(pos)
 		animType = (useSwimAnim and "Swimming") or "Move"
@@ -1191,23 +1217,17 @@ local function updateCreature(model, state, dt)
 		end
 
 	elseif state.behavior == "lone" then
-		-- Patrols territory, attacks if you enter range
+		-- Territorial patrol: engage Siegelings (companions + other world creatures) in aggro range but hold ground (no chase). Human players only if they strike first → chase.
 		if state.state == "idle" or state.state == "wander" then
-			local comp, compDist = findNearestCompanion(pos, GameConfig.AI_AggroRange * 0.6)
-			if comp then
-				state.target = comp; state.state = "chase"
+			local prey = select(1, findNearestCompanion(pos, GameConfig.AI_AggroRange * 0.6))
+			if not prey then
+				prey = select(1, findNearestCreature(pos, GameConfig.AI_AggroRange * 0.6, model, nil))
+			end
+			if prey then
+				state.target = prey
+				state.state = "loneHold"
+				state.loneHoldGround = true
 			else
-				-- No companion in range - target player only if they have NO companion out
-				local plr, plrDist = findNearestPlayer(pos, GameConfig.AI_AggroRange * 0.6)
-				if plr then
-					local playerObj = Players:GetPlayerFromCharacter(plr)
-					if playerObj and CreatureAI._FavoriteSystem and CreatureAI._FavoriteSystem.HasCompanion(playerObj) then
-						plr = nil
-					end
-				end
-				if plr then
-					state.target = plr; state.state = "chase"
-				else
 				if state.state ~= "wander" or not state.wanderTarget then
 					state.wanderTarget = getRandomWanderPoint(state.spawnPos, GameConfig.AI_WanderRadius * 0.5, state.id)
 					state.state = "wander"
@@ -1216,7 +1236,6 @@ local function updateCreature(model, state, dt)
 				if (body.Position - state.wanderTarget).Magnitude < 3 then
 					state.state = "idle"; state.wanderTarget = nil
 					state.idleUntil = tick() + math.random(3, 7)
-				end
 				end
 			end
 		end
@@ -1268,6 +1287,45 @@ local function updateCreature(model, state, dt)
 		end
 	end
 
+	-- Lone territorial hold: face another world creature in aggro range; attack at range; never advance (no chase)
+	if state.state == "loneHold" and state.target and state.behavior == "lone" then
+		if typeof(state.target) == "Instance" and state.target:GetAttribute("Fainted") then
+			state.state = "wander"
+			state.target = nil
+			state.loneHoldGround = nil
+			state.wanderTarget = nil
+		else
+			local targetBody = nil
+			if typeof(state.target) == "Instance" and state.target.Parent then
+				targetBody = CreatureModelLoader.GetBodyPart(state.target)
+					or state.target:FindFirstChild("Body")
+					or state.target:FindFirstChild("HumanoidRootPart")
+			end
+			if not targetBody then
+				state.state = "wander"
+				state.target = nil
+				state.loneHoldGround = nil
+				state.wanderTarget = nil
+			else
+				local aggroR = GameConfig.AI_AggroRange * 0.6
+				local tdist = (pos - targetBody.Position).Magnitude
+				if tdist > aggroR then
+					state.state = "wander"
+					state.target = nil
+					state.loneHoldGround = nil
+					state.wanderTarget = nil
+				else
+					local targetFlat = Vector3.new(targetBody.Position.X, pos.Y, targetBody.Position.Z)
+					local rotOffset = state.id and CreatureData.GetModelRotationOffset(state.id) or CFrame.identity
+					body.CFrame = CFrame.lookAt(pos, targetFlat) * rotOffset
+					if tdist <= GameConfig.AI_AttackRange and hasLineOfSight(model, state.target) then
+						state.state = "attack"
+					end
+				end
+			end
+		end
+	end
+
 	-- Handle idle timer (if no idleUntil set, give a short one to prevent permanent idle)
 	if state.state == "idle" then
 		-- Flying creatures: enforce hover height every tick (they don't move, so we don't call moveTowards)
@@ -1294,7 +1352,7 @@ local function updateCreature(model, state, dt)
 	if state.state == "chase" and state.target then
 		-- Don't chase fainted targets (world creatures shouldn't attack monsters that are already fainted)
 		if typeof(state.target) == "Instance" and state.target:GetAttribute("Fainted") then
-			state.state = "wander"; state.target = nil; state.revengeTarget = nil; state.wanderTarget = nil; return
+			state.state = "wander"; state.target = nil; state.revengeTarget = nil; state.wanderTarget = nil; state.loneHoldGround = nil; return
 		end
 		local targetBody = nil
 		if typeof(state.target) == "Instance" and state.target.Parent then
@@ -1302,14 +1360,14 @@ local function updateCreature(model, state, dt)
 		end
 		if not targetBody then
 			-- Target lost — return to wander (not bare idle which can get stuck)
-			state.state = "wander"; state.target = nil; state.revengeTarget = nil; state.wanderTarget = nil; return
+			state.state = "wander"; state.target = nil; state.revengeTarget = nil; state.wanderTarget = nil; state.loneHoldGround = nil; return
 		end
 
 		local tdist = (pos - targetBody.Position).Magnitude
 		local maxChaseRange = state.revengeTarget and 800 or (state.behavior == "raider" and 200 or (GameConfig.AI_AggroRange * 1.5))
 		if tdist > maxChaseRange then
 			-- Lost target, return
-			state.state = "wander"; state.target = nil; state.revengeTarget = nil; state.wanderTarget = nil
+			state.state = "wander"; state.target = nil; state.revengeTarget = nil; state.wanderTarget = nil; state.loneHoldGround = nil
 		elseif tdist > GameConfig.AI_AttackRange then
 			-- Raiders: waypoint sequence — door → plot center (up ramp) → then chase target (or path to door if no LOS)
 			local moveTarget = targetBody.Position
@@ -1363,14 +1421,14 @@ local function updateCreature(model, state, dt)
 	if state.state == "attack" and state.target then
 		-- Don't attack fainted targets (world creatures shouldn't attack monsters that are already fainted)
 		if typeof(state.target) == "Instance" and state.target:GetAttribute("Fainted") then
-			state.state = "wander"; state.target = nil; state.revengeTarget = nil; state.wanderTarget = nil; return
+			state.state = "wander"; state.target = nil; state.revengeTarget = nil; state.wanderTarget = nil; state.loneHoldGround = nil; return
 		end
 		local targetBody = nil
 		if typeof(state.target) == "Instance" and state.target.Parent then
 			targetBody = CreatureModelLoader.GetBodyPart(state.target) or state.target:FindFirstChild("Body") or state.target:FindFirstChild("HumanoidRootPart")
 		end
 		if not targetBody then
-			state.state = "wander"; state.target = nil; state.revengeTarget = nil; state.wanderTarget = nil; return
+			state.state = "wander"; state.target = nil; state.revengeTarget = nil; state.wanderTarget = nil; state.loneHoldGround = nil; return
 		end
 
 		-- Face target while attacking (apply model rotation offset for crawling/facing)
@@ -1380,11 +1438,21 @@ local function updateCreature(model, state, dt)
 
 		local tdist = (pos - targetBody.Position).Magnitude
 		if tdist > GameConfig.AI_AttackRange * 1.5 then
-			state.state = "chase"; return
+			if state.behavior == "lone" and state.loneHoldGround then
+				state.state = "loneHold"
+			else
+				state.state = "chase"
+			end
+			return
 		end
 		-- Raiders: lose LOS (e.g. target behind wall) — drop to chase so they path to door
 		if state.behavior == "raider" and not hasLineOfSight(model, state.target) then
 			state.state = "chase"; return
+		end
+		-- Lone territorial: no LOS — hold ground (wait) instead of repositioning
+		if state.behavior == "lone" and state.loneHoldGround and not hasLineOfSight(model, state.target) then
+			state.state = "loneHold"
+			return
 		end
 		-- Raiders must stay inside base to attack; if pushed out, chase again
 		if state.behavior == "raider" and state.raidCenter then
@@ -1456,6 +1524,7 @@ local function updateCreature(model, state, dt)
 							if hum and hum.Health > 0 then
 								local applied = PlayerWorldStats.ApplyDefenseFromPlayer(player, damage)
 								hum:TakeDamage(applied)
+								notifyPlayerHitByWorldCreature(player, applied, state.id)
 							end
 						end
 					end

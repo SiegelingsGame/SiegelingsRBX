@@ -362,7 +362,7 @@ local companionFaintCooldownEndsAt = nil
 -- Root GUI
 local sg = Instance.new("ScreenGui")
 sg.Name = "InventoryUI"; sg.ResetOnSpawn = false
-sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling; sg.DisplayOrder = 10; sg.Parent = playerGui
+sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling; sg.DisplayOrder = 100; sg.Parent = playerGui
 
 --[[ PANEL SCALING (viewport-based so window fits on mobile and desktop)
      Design size: width 680 so all text (stats, tabs, battle affinity, buttons) fits; height 640.
@@ -544,7 +544,8 @@ weaponIcon.Activated:Connect(fireWeaponToggle)
 -- Mobile only: tap to toggle sprint. Desktop uses hold-Shift (no sprint button).
 local SPRINT_BUTTON_GAP = 6
 local MOBILE_SPRINT_Y = ACTION_BUTTONS_TOP + 54 + 6 + 8 -- below weapon icon row with padding
-local showMobileSprintButton = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+local showMobileSprintButton = UserInputService.TouchEnabled
+	and (not UserInputService.KeyboardEnabled or UserInputService.PreferredInput == Enum.PreferredInput.Touch)
 local sprintBtn = Instance.new("TextButton")
 sprintBtn.Name = "SprintButton"
 sprintBtn.Size = UDim2.new(0, 44, 0, 44)
@@ -575,13 +576,17 @@ sprintStroke.Color = Color3.fromRGB(100, 180, 255)
 sprintStroke.Thickness = 1
 sprintStroke.Transparency = 0.5
 local function setSprintButtonActive(active)
-	sprintBtn.BackgroundColor3 = active and Color3.fromRGB(38, 50, 70) or Color3.fromRGB(28, 30, 42)
-	sprintStroke.Transparency = active and 0.2 or 0.5
+	if active then
+		sprintBtn.BackgroundColor3 = Color3.fromRGB(34, 130, 72)
+		sprintStroke.Color = Color3.fromRGB(140, 230, 160)
+	else
+		sprintBtn.BackgroundColor3 = Color3.fromRGB(28, 30, 42)
+		sprintStroke.Color = Color3.fromRGB(100, 180, 255)
+	end
+	sprintStroke.Transparency = active and 0.15 or 0.5
 end
 local toggleSprintEvt = ensureBindable("ToggleSprint")
-sprintBtn.MouseButton1Click:Connect(function()
-	if showMobileSprintButton then toggleSprintEvt:Fire() end
-end)
+-- Activated covers mouse + touch; do NOT also use MouseButton1Click — on mobile both fire and the sprint toggles twice (net no-op).
 sprintBtn.Activated:Connect(function()
 	if showMobileSprintButton then toggleSprintEvt:Fire() end
 end)

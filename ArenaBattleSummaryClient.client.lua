@@ -770,7 +770,7 @@ local function ensureFarScreenGui()
 	local sg = Instance.new("ScreenGui")
 	sg.Name = "ArenaBattleSummaryFar"
 	sg.ResetOnSpawn = false
-	sg.DisplayOrder = 40
+	sg.DisplayOrder = 100
 	sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	sg.Parent = playerGui
 

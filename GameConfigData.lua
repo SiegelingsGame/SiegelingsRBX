@@ -3,7 +3,7 @@
 	ReplicatedStorage/Modules/GameConfigData
 	Actual config data. Required lazily by GameConfig to avoid recursive require.
 ]]
--- Last updated: 2026-04-19 17:00
+-- Last updated: 2026-04-19 20:00
 -- lol
 
 local GameConfig = {}
@@ -418,6 +418,30 @@ GameConfig.ElectricGymPromptRange   = 30
 GameConfig.ElectricGymWinReward     = 5000
 GameConfig.ElectricGymWinXP         = 200
 GameConfig.ElectricGymCooldown      = 120
+
+-- Arena.Roc or Arena.Model_Roc: Cacty trade + PvP-style 1v1 (PvPBattleSystem) vs a DisplayTeam pick
+GameConfig.ArenaRoc = {
+	OpponentLevel = 25,
+	WinCoins = 200,
+	WinXP = 50,
+	CooldownSeconds = 120,
+	-- Shown in hub (not from player DataStore).
+	Greeting = "Hi! I'm Roc — trade, challenge another player in PvP, or take on my team here!",
+	GymName = "Roc's Challenge",
+	-- Static data for the hub; **Vs Roc** uses PvP 1v1 — see NpcPvPChampionIndex.
+	DisplayTeam = {
+		{ sortOrder = 1, creatureId = "cacty", level = 1, note = "Partner" },
+		{ sortOrder = 2, creatureId = "cactyjackedty", level = 25, note = "Favorite ★" },
+	},
+	-- Which **DisplayTeam** entry is the PvP opponent (1 = first row, 2 = second, etc.).
+	NpcPvPChampionIndex = 2,
+	NpcPvpMaxRange = 80,
+	-- Hub: only one player may hold Roc UI session until timeout (seconds).
+	HubLockSeconds = 120,
+	-- NPC yaw: flat XZ look-at toward nearest player in range, or last Talk/Trade/Battle user (Eleminion-style).
+	AttentionRange = 50,
+	FacingUpdateInterval = 0.15,
+}
 
 -- Zone doors (Ocean, Desert, Electric, Cave): spend 4 inner boss Legendaries at the door to pass; gym keys / sigils still supported in data.
 -- When true: no pfrompts / unlock UI / remotes; gate parts are made non-collidafble so biomes stay walk-through.

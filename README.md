@@ -13,9 +13,14 @@ A Roblox creature-collection and base-defense game. Players capture creatures in
 **Core systems:**
 
 - **Creatures:** 105 creatures across 7 elements (Fire, Ice, Wind, Earth, Shadow, Lightning, Water), 5 classes (Bruiser, Mage, Guardian, Assassin, Support), rarities Common→Legendary, variants Normal/Silver/Gold/Legend (combine 3→1).
-- **Base:** Plot with income slots (coins per tick), defense slots (turrets), battle team (3×3 grid, max 5 for arena/PvP). Up to 3 floors (buy Floor 2/3 with coins + level).
+- **Base:** Plot with income slots (coins per tick), defense slots (turrets), battle team (3×3 grid, max 5 for arena/PvP). Up to 3 floors (buy Floor 2/3 with coins + level). Battle points live inside `Floor2/BattleTeam`; all parts inside a FloorX folder toggle visibility together once that floor is purchased.
 - **Combat:** Arena (periodic king-of-the-hill), PvP 1v1 (challenge nearby player), focus bar and special attacks (burn, earth debuff, wind focus drain).
 - **World:** Biomes with SpawnPoints, DungeonPoints, BossPoints; creature AI (pack, lone, gentle, aggressive, skittish); companion (favorite creature) follows and attacks.
+- **Mounting:** 24 creatures (all Legendary, all Epic, select Rare) can be ridden as mounts. Ground, flying, and swimming mount types. Mutually exclusive with companion. Sprint boost, elemental immunities (lava, ice, electric, oxygen bypass).
+- **Eleminions:** Elemental NPC quest-givers spawned at biome `EPoint` / `EleminionPoint` parts; track affinity-based quest progress and reward coins/gems/XP.
+- **Badlands (roguelike PvPvE):** High-risk run-based mode — enter with nothing, capture during the run, only keep what you extract. Broker NPC gates entry via daily contract / creature sacrifice.
+- **Water Gym:** OceanBiome ArenaBase prompt; pay entry fee, fight a 5-creature Water/Ice/Fire gym leader squad with your battle team.
+- **Crafting:** World ingredient pickups + CookNPC hub chef. IngredientSpawnSystem governs pickup spawning, cook prompts, and crafting validation.
 - **Economy:** Coins (income, capture cost, sell, shops), Gems (premium); Buff Shop, Cosmetic Shop, Egg Shop (hatch creatures).
 
 ---
@@ -35,7 +40,7 @@ A Roblox creature-collection and base-defense game. Players capture creatures in
 - **Run:** From the repo root, `rojo serve` (install the CLI via `aftman.toml`, or use your own Rojo install). In Roblox Studio, use the Rojo plugin and connect to the default local server so changes apply without manual paste.
 
 **Initialization order (server):**  
-`PlayerDataManager.Init()` → `CreatureAI.Init(LaserDoorSystem)` → `CreatureSpawner.Init(CreatureAI)` → then Capture, Raid, Trade, BasePlacement, FavoriteCreature, Arena, Leaderboard, PvP, AIRaid, Dungeon, WorldCreatureHP, PlayerCombat, BuffShop, Cosmetic, EggShop, LaserDoor, EvolutionCombine, **CombinerRecyclerSystem**; finally `BaseIncomeSystem` (or inline income loop).
+`PlayerDataManager.Init()` → `CreatureAI.Init(LaserDoorSystem)` → `CreatureSpawner.Init(CreatureAI)` → then Capture, Raid, Trade, BasePlacement, FavoriteCreature, **MountSystem**, Arena, Leaderboard, PvP, AIRaid, Dungeon, WorldCreatureHP, PlayerCombat, BuffShop, Cosmetic, EggShop, LaserDoor, EvolutionCombine, CombinerRecyclerSystem, **EleminionSystem**, **IngredientSpawnSystem**, **WaterGymSystem** / **WaterGymBattleSystem**, **BadlandsSystem**; finally `BaseIncomeSystem` (or inline income loop).
 
 ---
 
@@ -139,6 +144,12 @@ All live under `ReplicatedStorage.Events`. Created with `makeEvent(name)` / `mak
 | GetProfile | RemoteFunction | C→S | Profile (level, XP, coins, stats, etc.). |
 | PlayerLevelUp | RemoteEvent | S→C | Level up (newLevel). |
 | PlayerXPGained | RemoteEvent | S→C | XP gained. |
+| **Mount** | | | |
+| MountRequest | RemoteEvent | C→S | Request mount on favorite creature. |
+| DismountRequest | RemoteEvent | C→S | Request dismount. |
+| MountStarted | RemoteEvent | S→C | Mount started (creatureId, mountType, speed, bonuses). |
+| MountEnded | RemoteEvent | S→C | Mount ended. |
+| MountFlyInput | RemoteEvent | C→S | Vertical target for flying mount (targetY). |
 | **Launch** | | | |
 | SelectStarter | RemoteEvent | C→S | starterId. |
 | SelectPlot | RemoteFunction | C→S | plotId (no-op; plots auto-assigned). |
@@ -219,6 +230,12 @@ Stored per player (DataStore key `Player_<userId>`). Default shape:
   packSize     = { min, max },  -- for behavior "pack"
   modelRotationY = number | nil,  -- optional degrees
   evolutionComingSoon = boolean | nil,
+  -- Mount fields (optional):
+  mountable    = boolean | nil,   -- true if creature can be ridden
+  mountType    = "Ground" | "Flying" | "Swimming" | "Special" | nil,
+  mountOffset  = Vector3 | {x,y,z} | nil,   -- player seat offset (default {0,3,-1})
+  mountScale   = number | nil,              -- visual scale while mounted (default 2.0)
+  mountSpeedBonus = number | nil,           -- extra flat speed on top of formula
 }
 ```
 
@@ -251,6 +268,7 @@ Central config table; key groups:
 - **Targeting:** `TargetScanRange`
 - **Laser door:** `LaserDoorEnabled`, `LaserDoorDamage`, `LaserDoorMaxFriends`, `DomeRadius`, `ShieldDuration`
 - **Shops:** `BuffShopItems`, `CosmeticItems`, `EggShopItems` (and egg tier percentages)
+- **Mounting:** `MountSpeedMultiplier`, `MountMaxSpeed`, `MountSprintMultiplier`, mount elemental flags (`Mount_LavaImmunity`, `Mount_NoOxygenLoss`, `Mount_IceImmune`, `Mount_ElectricImmune`, etc.), mount flight altitude clamps
 
 ---
 
@@ -446,6 +464,43 @@ Shared; no Init. Defines `Rarities`, `RarityOrder`, `VariantTiers`, `VariantOrde
 - **SetupPlotPrompts(plotModel, ownedFloors)**  
   Adds E prompts to Combiner/Recycler on a plot (respects `CombinerRecyclerPromptAllPlots` for all plots vs own only).
 
+### 5.23 MountSystem (ServerScriptService)
+
+- **Init(playerDataMgr, favoriteCreatureSys, creatureAIRef)**
+- **Mount flow:**  
+  `CanMount(player)`, `MountFavorite(player)`, `Dismount(player, reason)`, `IsMounted(player)`, `GetMountModel(player)`
+- **Mechanics:**  
+  Welds mount model to `HumanoidRootPart` via WeldConstraint with CFrame offset. Ground mounts use modified WalkSpeed; flying mounts use `BodyPosition` on HRP with server-validated/clamped altitude (client sends target Y via `MountFlyInput`). Elemental bonuses set as player attributes (e.g. `Mount_LavaImmunity`, `Mount_NoOxygenLoss`, `Mount_IceImmune`).
+- **Lifecycle hooks:**  
+  Auto-dismount on death, respawn, leaving, arena battle start. Companion is recalled when mounting and re-summoned on dismount (tracks `hadCompanionBeforeMount`).
+- **24 mountable creatures:** All Legendary (6), all Epic (12), select Rare (6). Flying: pyleer, aerovane, skydon, strikehawk, hurricrane, umbralwyrm, thunderlord. Swimming: conchious, clawqueen, leviathan.
+
+### 5.24 EleminionSystem (ServerScriptService)
+
+- **Init(playerDataMgr)**  
+  Spawns Eleminion NPC quest-givers at biome `EPoint` / `EleminionPoint` parts (matched by fuzzy name scoring + pointHints). Handles affinity-based quest progress, status updates, and notification/UI remotes.
+- **Data:** `ReplicatedStorage.Modules.EleminionData` defines each eleminion (element, npcCreatureId, pointHints, quest rewards).
+- **Remotes (fired to client):** status update, open UI, show notification, coins/gems/XP/level updates.
+
+### 5.25 BadlandsSystem (ServerScriptService)
+
+- **Init(deps)**  
+  Coordinator for the Badlands high-risk roguelike PvPvE mode.
+- **Lifecycle:** matchmaking queue → waiting → active → extraction → ended. Teleports players to/from the Badlands zone, manages spawn shields, run timer, zone-collapse phases.
+- **Run rules:** Players enter empty, capture during the run, only keep creatures successfully extracted. Broker NPC gates entry via daily contract / creature sacrifice.
+- **Helpers:** BadlandsSpawner (delegated creature spawning), extraction-channel orchestration, death/elimination handling, post-run inventory transfer.
+
+### 5.26 WaterGymSystem / WaterGymBattleSystem (ServerScriptService)
+
+- **WaterGymSystem.Init(pdm, gymBattle, basePlacement)**  
+  Attaches `[E] Summon Gym` ProximityPrompt to the OceanBiome WaterGym ArenaBase. Collects entry fee and hands off to WaterGymBattleSystem.
+- **WaterGymBattleSystem** runs a 5-vs-5 arena-style fight (Water / Ice / Fire gym leader squad) using the player's battle team, on BlueTeam/RedTeam points mirroring the Arena layout.
+
+### 5.27 IngredientSpawnSystem (ServerScriptService)
+
+- **Init()**  
+  World ingredient pickups (`WorldIngredientPickup` tag) spawn at biome markers; CookNPC hub chef (`CookNPC` tag) offers crafting prompts. Validates recipes against `IngredientData`. Uses `NpcSpawnMarkers` and `BiomeZone` for placement.
+
 ---
 
 ## 6. Client Scripts (StarterPlayerScripts)
@@ -474,6 +529,12 @@ Shared; no Init. Defines `Rarities`, `RarityOrder`, `VariantTiers`, `VariantOrde
 | **LaunchScreen** | Starter selection; SelectStarter. |
 | **LoadingGate** | Loading gate before game. |
 | **NotificationManager** | Shared toast/notifications (required by several clients). |
+| **MountClient** | Mount request/dismount input; listens MountStarted / MountEnded / MountStateChanged; sends MountFlyInput for flying mounts; hides legs and plays mount animation. |
+| **SprintClient** | Shift-to-sprint. Listens to MountStateChanged BindableEvent; applies `MountSprintMultiplier` instead of normal sprint speed when mounted. |
+| **EleminionClient** | Eleminion quest-giver UI (affinity panel, accept/turn-in, reward toasts). |
+| **BadlandsClient / BadlandsBrokerClient** | Badlands run lifecycle UI (queue, phase timer, extraction prompts) and Broker NPC interactions (daily contract, sacrifice, queue entry). |
+| **LivingWorldChatClient** | Ambient living-world chat bubbles / NPC dialogue. |
+| **MobileWindowLayout** | Mobile-friendly UI layout helper. |
 
 ---
 
@@ -488,10 +549,15 @@ Shared; no Init. Defines `Rarities`, `RarityOrder`, `VariantTiers`, `VariantOrde
 ## 8. Key Variables & Conventions
 
 - **Creature instance id:** `uid` — string GUID from `PlayerDataManager.GenerateUID()`.
-- **Creature type id:** `id` or `creatureId` — string key in CreatureData (e.g. `"firsky"`).
-- **Battle team:** `battleTeam` — table with number keys 1..9; value = `uid` or nil; max 5 filled (GameConfig.MaxBattleTeamSize).
-- **Plot:** `plotId` — 1..MaxPlots; plot model name `"Plot" .. plotId` or `"Part" .. plotId` under `workspace.BasePlots`.
-- **Floors:** `ownedFloors` — array of owned floor numbers; Floor 2 required for battle team and arena.
+- **Creature type id:** `id` or `creatureId` — string key in CreatureData (e.g. `”firsky”`).
+- **Battle team:** `battleTeam` — table with number keys 1..9; value = `uid` or nil; max 5 filled (GameConfig.MaxBattleTeamSize). DataStore converts number keys to strings; lookup code tries `tonumber(key)`, raw, and `tostring(key)`.
+- **Plot:** `plotId` — 1..MaxPlots; plot model name `”Plot” .. plotId` under `workspace.BasePlots` (fallback: `”Plots”` folder or workspace root). Matched by `OwnerUserId` attribute.
+- **Floors:** `ownedFloors` — array of owned floor numbers; Floor 2 required for battle team and arena. Floor 2 = Level 5, Floor 3 = Level 15 + Floor 2.
+- **Floor visibility:** All descendants of `FloorX` folder toggle together via `setFloorVisibility`. BattleTeam is INSIDE Floor2 — no separate visibility call.
+- **Slot capacity:** `PlayerDataManager.GetMaxSlots(player, slotType)` returns dynamic max based on `ownedFloors` (6 per floor). Do NOT use static `GameConfig.MaxBaseCreatures` for income/defense limits.
+- **Point discovery:** Always use `getPointsForOwnedFloors()` for placement (filters by floor ownership), never `getPointsByPrefix()` directly.
+- **HP authority:** `CreatureAI.DamageCreature` is authoritative. `WorldCreatureHP` is a fallback only. Always route damage through CreatureAI first.
+- **Mount/companion exclusivity:** `player:GetAttribute(“IsMounted”)` blocks companion spawn. Mounting recalls the companion; dismount re-summons it.
 - **Rarity in eggs:** “Mythic” in config = Epic in CreatureData.
 
 ---
@@ -500,6 +566,9 @@ Shared; no Init. Defines `Rarities`, `RarityOrder`, `VariantTiers`, `VariantOrde
 
 - **Fix Cosmetic Base** — Resolve bugs or UX issues with the cosmetic base system.
 - **Add more cosmetic bases** — Expand cosmetic base options so players have more themes/styles to choose from.
+- **Eleminion quest polish** — Finish wiring every biome's EPoints + balance affinity rewards.
+- **Badlands Phase 2** — Beyond the core loop: loot tables, party queue, persistent leaderboard, cosmetic rewards.
+- **Mount content pass** — Unique mount abilities per creature / mount cosmetic skins.
 
 ---
 
@@ -568,11 +637,19 @@ ServerScriptService/
   LeaderboardSystem.lua
   EvolutionCombineSystem.lua
   CombinerRecyclerSystem.lua
+  MountSystem.lua
+  EleminionSystem.lua
+  BadlandsSystem.lua
+  WaterGymSystem.lua
+  WaterGymBattleSystem.lua
+  IngredientSpawnSystem.lua
 
 ReplicatedStorage / Shared (see default.project.json):
   GameConfig.lua, GameConfigData.lua, CreatureData.lua
   CreatureAnimation.lua, CreatureModelLoader.lua, EvolutionEffects.lua
   NotificationManager.lua
+  EleminionData.lua, IngredientData.lua, LivingWorldData.lua
+  NpcSpawnMarkers.lua, BiomeZone.lua
   Events/ (created by MainServer), CreatureModels/
 
 StarterPlayer.StarterPlayerScripts/
@@ -597,6 +674,13 @@ StarterPlayer.StarterPlayerScripts/
   RebirthUIClient.lua
   LaunchScreen.lua
   LoadingGate.lua
+  MountClient.client.lua
+  SprintClient.client.lua
+  EleminionClient.client.lua
+  BadlandsClient.client.lua
+  BadlandsBrokerClient.client.lua
+  LivingWorldChatClient.client.lua
+  MobileWindowLayout.lua
 
 Reference / agent (e.g. for base building):
   BaseBuildInstructions_HauntedHouse.lua
@@ -605,7 +689,9 @@ Reference / agent (e.g. for base building):
 
 Optional / environment: `DayNightCycle.lua` (Lighting or shared).
 
-Workspace: `BasePlots` (Plot1, Plot2, …), biomes (e.g. VolcanicBiome, FrozenBiome) with SpawnPoint, DungeonPoint, BossPoint parts.
+Workspace: `BasePlots` (Plot1, Plot2, …) with per-plot `Floor1` / `Floor2` / `Floor3` folders. Floor1 holds IncomePoint1..6 + DefensePoint1..6. Floor2 holds IncomePoint7+, DefensePoints folder (7+), and `BattleTeam` folder (BattlePoint1..9). Floor3 mirrors the same pattern. Plot also contains `PlotCenter`, `Ramp`, `SignPart`, and (optionally) `MCombiner` / `MRecycler` interact models.
+
+Biomes (e.g. VolcanicBiome, FrozenBiome, OceanBiome) contain SpawnPoint, DungeonPoint, BossPoint parts, plus `EPoint` / `EleminionPoint` parts for Eleminion NPC spawns and `WaterGym` / `CookNPC` / ingredient markers where applicable.
 
 ---
 

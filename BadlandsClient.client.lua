@@ -328,7 +328,7 @@ local function ensureScreenGui()
 	screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "BadlandsHUD"
 	screenGui.ResetOnSpawn = false
-	screenGui.DisplayOrder = 46
+	screenGui.DisplayOrder = 100
 	screenGui.IgnoreGuiInset = true
 	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	screenGui.Parent = playerGui

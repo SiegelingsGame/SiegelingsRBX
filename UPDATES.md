@@ -1,8 +1,122 @@
-# Update log / Memory — Last updated: 2026-04-20 17:00
+# Update log / Memory — Last updated: 2026-04-23 15:45
 
 Before committing: refresh this file's top timestamp and add an entry below; add or update `-- Last updated: YYYY-MM-DD HH:MM` at the top of each changed script.
 
 ---
+
+## 2026-04-23 15:45
+- **CreatureAI.lua** — **`lone`** resumes territorial **`loneHold`** vs **Siegelings**: priorities **favorite companion**, then nearest **world creature** within **`AI_AggroRange * 0.6`**; **never runs toward prey** — faces them and **attacks at range** (projectiles); if prey leaves aggro / line-of-sight drops, drops to **hold** rather than repositioning (except after **DamageCreature**, which clears **`loneHoldGround`** and uses normal **chase** vs the attacker).
+- **CreatureData.lua** — **`lone`** behavior blurb aligned with AI.
+
+## 2026-04-23 14:30
+- **CreatureAI.lua** — **`lone`** wild creatures no longer **aggro players or companions on sight** (they patrol like before but only enter combat after **DamageCreature** / provocation). **`aggressive`** still hunts in range. When a world creature’s projectile damages the **player’s Humanoid**, the server fires **`ShowNotification`** so **HUDClient** shows a combat toast (**“{displayName} hit you for N damage”**, defense-adjusted).
+- **CreatureData.lua** — Behavior doc for **`lone`** updated to match AI.
+
+## 2026-04-23 01:00
+- **ArenaRocClient.client.lua** — Roc trade now supports **N Siegelings → N Cactys** in a single submit: taps on Siegeling rows multi-select unlimited, Cacty rows still stack (up to 10, silent), and non-siegeling/non-Cacty rows stay single-select. **THEIR OFFER** stays empty until the player drops at least one Siegeling into their side — only then does `• Cacty Lv.1` (or `• Cacty Lv.1 × N`) appear. The empty-state hint is now just `"Offer a Siegeling."` (the **10× Cacty → CactyJackedty** path is an easter egg and is no longer mentioned anywhere in the UI). Accept validates category mutex client-side and toasts never leak the 10-stack count. Build stamp bumped to **"ROC build 2026-04-23 01:00 (N-siegelings, easter-egg hidden)"**.
+- **ArenaRocSystem.lua** — `SubmitRocTrade` accepts any `N ≥ 1` Siegelings and grants `N` Cactys (one per Siegeling, each tagged `rocSiegelingPact = true` + `fromSiegelingId`). Legacy single-creature (non-Siegeling, non-Cacty) trades still return 1 Cacty. 1× Cacty still returns a fresh Cacty; 10× Cacty still forges a **CactyJackedty**. Error copy is intentionally generic — no branch mentions the 10-stack. Reward-space check uses a computed `rewardsCount` so Siegeling batches validate inventory room for *N* rewards, not 1.
+
+## 2026-04-23 00:15
+- **ArenaRocClient.client.lua** — **Root cause of blank Roc trade panel**: `hubGui.ZIndexBehavior = Global` combined with `tradeView.ZIndex = 20` meant every child with **ZIndex < 20** rendered **behind** tradeView's opaque backdrop. Only `tTitle/tBuildStamp/tradeClose` (all ≥ 25) were visible; partner row, inventory strip, offer columns, and Accept/Cancel were hidden by the backdrop.
+- **Fix:** Made `tradeView` transparent (`BackgroundTransparency = 1`, `ZIndex = 1`, `root` already paints PR.bg behind) and bumped all trade-view descendants to **ZIndex 25–28** (partnerRow/rocInvLabel/tradeScroll = 25, offer frames = 25, offer titles/scrolls/rows = 26–27, Accept/Cancel = 28). **THEIR OFFER** now always shows **“• Cacty Lv.1”** by default (Roc always trades a Cacty for a valid Siegeling) with pivot to **CactyJackedty** when you queue 10 Cacty. Build stamp bumped to **“ROC build 2026-04-23 00:15 (ZIndex fix)”**.
+
+## 2026-04-22 23:30
+- **ArenaRocClient.client.lua** — Added **`ROC_BUILD_STAMP = "ROC build 2026-04-22 23:30"`** printed on load (`[ArenaRocClient] ROC build …`) and shown as a small gold line under the **TRADE (ROC)** header so it is visible in-game. If the stamp is missing, Studio/Rojo is running an older copy of the script.
+
+## 2026-04-22 23:00
+- **ArenaRocClient.client.lua** — **Trade with Roc** aligned to **TradeGUI**: **TRADE (ROC)** header, **Trading with: Roc**, top inventory strip, **YOUR OFFER** / **THEIR OFFER** columns (green/blue titles), **ACCEPT** / **CANCEL**, **refreshRocOfferPanels** on open. **C.green** set to **`(80, 220, 120)`** to match P2P. **THEIR OFFER** label matches player trade (no “(Roc)” suffix).
+
+## 2026-04-22 22:45
+- **CodexModelViewer.lua** — Viewport creatures can use configurable **`defaultAnimType`** (with **`playIdleAnimation`**) instead of hardcoded Idle; uses **`PlayAnimation`** when available.
+- **LaunchScreen.client.lua** — Starter pick cards enable viewport animation with **`Income`** (matches passive-income showcase; fixes T-pose).
+
+## 2026-04-22 21:00
+- **ArenaRocClient.client.lua** — Roc **Trade with Roc** panel mirrors **FriendsListClient** TradeGUI inventory strip (dark **`TRADE_INV_STRIP_BG`**, **2px** list gap, compact **28px** rows, **18×18** element orb, **GothamBold** **Name (Lv.n)** + **★** favorite tint). Sections: **Siegeling → Cacty**, **Cacty** (multi up to 10), **Other**. Selection rules aligned with player trade (single non-Cacty vs multi-Cacty).
+- **ArenaRocSystem.lua** — **GetRocTradeInventory** adds **`isSiegeling`** and **`isFavorite`** per row for UI.
+
+## 2026-04-22 20:15
+- **ArenaRocClient.client.lua** — Trade list **UIPadding**: replaced invalid **`.Padding`** (not a member of **`UIPadding`**) with **`PaddingLeft` / `PaddingRight` / `PaddingTop` / `PaddingBottom`** (fixes “Roc menu failed: Padding is not a valid member of UIPadding”).
+
+## 2026-04-22 19:30
+- **ArenaRocClient.client.lua** — Roc hub **pcall** failures addressed: safe **`AutomaticCanvasSize`** with fallback canvas height; avoid fighting auto-size vs manual **`CanvasSize`** (defer + layout listener only when auto is off); **`Draggable`** in **pcall**; **`styleRocCloseButton`** no longer gates on **`GuiButton`**; **`buildFallbackTeamRows`** sort uses **tonumber**; team rows use **`tostring(row.id)`** for **CreatureData**; trade submit uses **pcall** around **`InvokeServer`**; error toast shows **truncated engine error** (not only “re-talk”).
+
+## 2026-04-22 18:45
+- **ArenaRocClient.client.lua** — Close buttons use ASCII **X**, **UIStroke**, solid red fill, higher **ZIndex** (Unicode **✕** was invisible on some devices while still clickable). **TRADE** always switches to the trade overlay; empty inventory shows inline help instead of silently doing nothing; **GetRocTradeInventory** wrapped in **pcall**.
+- **ArenaRocSystem.lua** — **GetRocTradeInventory** scans **`pairs(inventory)`** and resolves **uid/id** from **`uid` · `Uid` · `UID` · `id` · `Id`** so legacy rows aren’t skipped.
+
+## 2026-04-19 22:30
+- **ArenaRocClient.client.lua** — **`showRocHub`** now calls **`destroyHubGui`** (destroy UI only) instead of **`closeAll`**. **`closeAll`** previously fired **`RocHubRelease`** before rebuilding the hub, clearing the server Roc hub mutex immediately after **`RocOpenHub`** — **`GetRocTradeInventory`** returned `{}` (“no creatures / session expired”) and **`RequestRocNpcBattle`** failed (“Session expired”). **`closeAll`** still releases the lock when the player actually closes the hub.
+- **ArenaRocSystem.lua** — **`isSiegelingSpecies`**: treat creature ids containing **`siegeling`** as Siegelings (in addition to **`siegling`**) for pact / counting.
+
+## 2026-04-21 22:10
+- **ArenaRocClient.client.lua** — Roc hub UI build is now **pcall-protected** (and `MobileWindowLayout` calls are wrapped) so a runtime error can’t leave a **blank/dead** window; on failure it closes and shows a toast to re-talk to Roc.
+
+## 2026-04-21 22:18
+- **ArenaRocSystem.lua** — Wrapped `RocInteractPrompt.Triggered` in `pcall` so “interaction failed” doesn’t happen silently; logs the server error and notifies the player.
+
+## 2026-04-20 14:00
+- **ArenaRocClient.client.lua** — Roc menu refit to **FriendsListClient** `ProfilePopupGUI` (360×440, blue stroke, **TRADE** + **PvP 1v1** footer, red **✕**). Scroll: greeting, record, **ROC'S TEAM** cards (orb + Cacty / CactyJackedty from **getRocTeamList**), **Challenge nearest player** row, then fixed footer. **PvP 1v1** → **RequestRocNpcBattle**; **TRADE** → existing Roc trade panel. **Not** DataStore — **GameConfig** + **CreatureData** fallback when remotes omit rows.
+
+## 2026-04-19 20:00
+- **PvPBattleSystem.lua** — **`StartNpcStylePvp`** + **`startNpcStylePvpBattle`**: 1v1 PvP (same `run1v1Battle`, spawns, rewards, **PvPBattleStart** / **End**, faint/revive) vs a scripted creature anchored at **Roc** (no Water Gym / no Arena main ring).
+- **ArenaRocSystem.lua** — **RequestRocNpcBattle** now calls **PvP** NPC path; **`GameConfig.ArenaRoc`**: **NpcPvPChampionIndex**, **NpcPvpMaxRange**; removed arena Blue/Red **gym** requirement.
+- **GameConfigData.lua**, **ArenaRocClient** — config + client hint text aligned with PvP-style Roc battle.
+
+## 2026-04-19 19:00
+- **LaunchScreen.client.lua** — Larger **starter viewport** (orb) and an **income** row with **UIScale** tween (passive coins/min from **CreatureData**).
+- **GameConfigData.lua** — **ArenaRoc** adds **Greeting**, **GymName**, and static **DisplayTeam** (code-driven NPC profile, not DataStore).
+- **ArenaRocSystem.lua** — **buildRocSpecRows** merges **DisplayTeam** with **CreatureData**; **RequestRocNpcBattle** (RemoteFunction) → **WaterGymBattleSystem** vs **Workspace.Arena** (Blue/Red) with custom **opponentTeam**.
+- **ArenaRocClient.client.lua** — **task.defer** + long **Events** wait (avoids early exit); **header** + **close**; **Trade / PvP / Vs Roc's team**; trade panel restored; **RequestRocNpcBattle** + close on success.
+
+## 2026-04-21 16:00
+- **ArenaRocClient.client.lua** — Roc hub + trade: top-right **×** closes the whole window (releases hub lock); removed redundant **Close** text control.
+
+## 2026-04-21 15:00
+- **ArenaRocSystem.lua** — Hub **`rocInventory`** always includes **Cacty** + **CactyJackedty** with **`sortOrder`** and display-name fallbacks if **`CreatureData.GetById`** fails.
+- **ArenaRocClient.client.lua** — **`normalizeRocInventory`**: build list with **`pairs`** + sort by **`sortOrder`** (fixes empty team list when RemoteEvent stringifies array indices); deferred **`CanvasSize`** for Roc team **`ScrollingFrame`**.
+
+## 2026-04-21 14:00
+- **ArenaRocSystem.lua** — Single **`RocInteractPrompt`** opens **`RocOpenHub`** with **display inventory** (Cacty + favorite **CactyJackedty**), **`HubLockSeconds`** mutex, **`GetRocTradeInventory`** / **`SubmitRocTrade`** require lock; **`RocHubRequestBattle`** → **`PvPBattleSystem.ChallengeNearestOpponent`** (stakes **`PvPWinGold`** / **`PvPLoserGoldLoss`**, default 10). Removed Roc NPC gym battle hook; legacy Talk/Trade/Battle prompts cleared on attach.
+- **ArenaRocClient.client.lua** — Hub UI: Roc team list, **Trade** / **Battle (PvP)**, trade sub-panel, **`RocHubRelease`** on close.
+- **PvPBattleSystem.lua** — **`ChallengeNearestOpponent(requester, maxDistance)`** for Roc (standard **`PvPChallengeInvite`** flow).
+- **MainServer.server.lua** — **`PvPBattleSystem.Init`** runs **before** **`ArenaRocSystem.Init`**.
+- **GameConfigData.lua** — **`ArenaRoc.HubLockSeconds`**.
+
+## 2026-04-21 13:00
+- **ArenaRocSystem.lua** — Roc **faces** players: **nearest** alive character within **`ArenaRoc.AttentionRange`** (default 50), else **last** Talk/Trade/Battle interactor if still in range; otherwise returns to **spawn pivot**. **`Humanoid.AutoRotate = false`**. **`GameConfig.ArenaRoc`**: **`AttentionRange`**, **`FacingUpdateInterval`** (fallbacks match **Eleminion**).
+- **GameConfigData.lua** — **`ArenaRoc`** facing defaults.
+
+## 2026-04-21 12:00
+- **ArenaRocSystem.lua** — Resolves NPC as **`Workspace.Arena.Roc`** (R15 character rig) or **`Model_Roc`**; wait + **`DescendantAdded`** (incl. **`HumanoidRootPart`** under that model) so prompts attach after streaming.
+- **ArenaRocClient.client.lua**, **GameConfigData.lua** — Comments aligned with **`Arena.Roc`**.
+
+## 2026-04-20 23:00
+- **ArenaRocSystem.lua** — **`RocTalkPrompt`** (**Talk** / **Roc**) fires **`RocNpcDialog`** with *“Hi ! I'm Roc, Wanna Trade? or Battle!”*; existing worlds get the prompt on next **`attachPrompts`** without duplicating Trade/Battle.
+- **ArenaRocClient.client.lua** — **`RocNpcDialog`** opens a small dialog panel (OK + auto-close).
+
+## 2026-04-20 22:00
+- **PlayerDataManager.lua** — **`RegisterInventoryPostChangeListener`** + **`fireInventoryPostChange`** after **AddCreature**, **RemoveCreature**, **SellCreature**, **TransferCreature** (both players), **EvolveCreature**, and end of **OnPlayerJoin**. **`AddCreature`** persists **`rocSiegelingPact`** / **`rocSiegelingPactActive`** from context when **`rocSiegelingPact == true`**.
+- **ArenaRocSystem.lua** — Siegeling-for-Cacty trades tag the new **Cacty** with a pact: once the player has owned a **Siegeling** again, the pact **arms**; if they later have **no** Siegeling (sell, trade, evolve, etc.), Roc’s **Cacty** is **removed** and a notification is shown.
+- **ArenaRocClient.client.lua** — Subtitle explains the recall rule; slightly taller copy + list layout.
+
+## 2026-04-20 21:00
+- **ArenaRocSystem.lua** — **`GetRocTradeInventory`** (full inventory with **`displayName`**) replaces **`GetRocCactyInventory`**. **`SubmitRocTrade`**: **1 non-Cacty** creature → **Cacty** (e.g. Siegeling); **1 Cacty** → fresh **Cacty** swap; **10 Cacty** → **CactyJackedty** (unchanged).
+- **ArenaRocClient.client.lua** — Lists all tradeable creatures; copy and toasts updated for the three cases.
+
+## 2026-04-20 20:00
+- **default.project.json** — Rojo tree: **`ArenaRocSystem`** (ServerScriptService), **`ArenaRocClient`** (StarterPlayerScripts).
+- **ArenaRocSystem.lua** (new) — **`Workspace.Arena.Model_Roc`**: Trade + Battle **`ProximityPrompt`**s; **1 Cacty** → fresh **Cacty**; **10 Cacty** in one trade → **CactyJackedty**; battle via **`WaterGymBattleSystem`** vs **Lv.25 CactyJackedty**; **global** wins/losses **`DataStore` `ArenaRocStats_v1`** + workspace attributes **`ArenaRocNpcWins` / `ArenaRocNpcLosses`**.
+- **ArenaRocClient.client.lua** (new) — **`RocOpenTrade`** UI to pick 1 or 10 Cacty and **`SubmitRocTrade`**.
+- **WaterGymBattleSystem.lua** — Optional **`opponentTeam`**, **`skipZoneRewards`**, **`onGymBattleResolved`**; **`placeTeam`** takes **`statsPlayer`** (nil for red AI).
+- **GameConfigData.lua** — **`GameConfig.ArenaRoc`** (level / rewards / cooldown).
+- **MainServer.server.lua** — **`ArenaRocSystem.Init`**.
+
+## 2026-04-20 19:00
+- **CreatureData.lua** — New creatures: **Shadow** — **`voib` → `voiboy` → `voimaw`** (VoiMaw, black-hole theme; distinct id from **`voidmaw`** legendary), **`nightcap`**; **Light** — **`lightbear`**; **Poison** — **`slandy`**; **Undead** — **`embertwins`**.
+
+## 2026-04-20 18:00
+- **MainServer.server.lua** — After **`AssignPlot`**, **`resetStalePlotAssignmentsForPlayer`** clears **`OwnerUserId`**, sign, and tagged base objects on **other** plots still marked for that player (fixes ghosts + wrong sign when joining a new random plot after Plot2 / Studio restarts).
+- **BasePlacementSystem.lua** — **`DestroyTaggedCreaturesForOwnerUserId`** (public) removes orphaned **BaseDefenseCreature** / **BaseIncomeCreature** / **BaseBattleCreature** models for that owner before **`PlaceCreatures`** on the new plot.
 
 ## 2026-04-20 17:00
 - **FavoriteCreatureSystem.lua** — **`GetCompanionRespawnRemainingSeconds`** exposes faint-respawn cooldown for UI.
@@ -23,6 +137,12 @@ Before committing: refresh this file's top timestamp and add an entry below; add
 
 ## 2026-04-20 12:00
 - **BasePlacementSystem.lua** — **PlayerRemoving** no longer bails when **`GetData`** / **`plotId`** are cleared before this handler (`PlayerDataManager.OnPlayerLeave` order). **`findPlotModelForLeavingPlayer`** resolves plot by **`plotId`** first, then **`OwnerUserId`** on the plot model. **`destroyTaggedBaseCreaturesForOwnerUserId`** removes defense/income/battle tagged models with matching **`OwnerUserId`** (orphans / wrong parent). Prevents Siegelings staying on the **previous** plot after rejoin.
+
+## 2026-04-19 21:00
+- **EleminionSystem.lua** — NPC placement uses **world-space top face** of the EPoint (`CFrame * local half-height`) instead of `Position.Y + Size.Y/2`, so tilted/rotated pads (e.g. **WaterEPoint**) no longer sink under terrain or float with wrong height.
+
+## 2026-04-19 22:00
+- **EleminionSystem.lua** — Eleminion NPCs use **upright** placement (`CFrame.lookAt` with horizontal pad forward) instead of inheriting the EPoint’s full tilt. Foot **lift** uses world-down **min Y**; a tilted rig made that step mis-place Moisty while flat pads stayed fine.
 
 ## 2026-04-19 19:45
 - **BasePlacementSystem.lua** — **`RefreshAllPlotVisibility`** moved to **after** **`normalizeOwnedFloorsForPlacement`** / **`applyOwnedFloorsVisibility`**. Previously it referenced locals **before** their declarations (Lua treats that as **global** → **nil** → `attempt to call a nil value` at line ~327). That threw during **`MainServer.autoAssignAndSetup`** right after **`AssignPlot`**, aborting **`PlaceCreatures`** and **`teleportToBaseReliable`**. Replaced **`continue`** with nested **`if`** for portability.

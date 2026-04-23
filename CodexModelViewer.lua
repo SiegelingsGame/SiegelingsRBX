@@ -5,11 +5,13 @@
 	- Mouse wheel to zoom
 	- Auto-rotate option
 	- Element-themed lighting, background, and floor
-	- Idle animation support for viewport models
+	- Creature animation support for viewport models (Idle by default; optional Income, etc.)
 	- Safe mount/unmount from ReplicatedStorage.CreatureModels
 	- LoadModelByAssetId(assetId) - load arbitrary models from catalog via InsertService
 	- Placeholder when model missing (no errors)
 ]]
+
+-- Last updated: 2026-04-22 22:45
 
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -54,6 +56,8 @@ local DEFAULTS = {
 	showFloor = true,
 	themedLighting = true,
 	playIdleAnimation = false,
+	-- When playIdleAnimation: first animation to play ("Idle", "Income", …)
+	defaultAnimType = "Idle",
 	interactable = true,
 	-- If set (e.g. UDim.new(1, 0) for a circle on a square host), applies UICorner on the
 	-- ViewportFrame. Parent Frame clipping does not mask 3D viewport output; this does.
@@ -340,8 +344,13 @@ function CodexModelViewer:_tryPlayIdle(creatureId)
 	if not self.playIdleAnimation then return end
 	local anim = getCreatureAnimation()
 	if not anim or not self._model then return end
+	local animType = self.defaultAnimType or "Idle"
 	pcall(function()
-		anim.Setup(self._model, creatureId, "Idle")
+		if anim.PlayAnimation then
+			anim.PlayAnimation(self._model, animType, creatureId)
+		else
+			anim.Setup(self._model, creatureId, animType)
+		end
 	end)
 end
 

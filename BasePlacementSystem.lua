@@ -1,5 +1,5 @@
 -- BasePlacementSystem.lua - ServerScriptService (ModuleScript)
--- Last updated: 2026-04-20 12:00
+-- Last updated: 2026-04-20 18:00
 -- Places creature orbs on DefensePoints, IncomePoints, AND BattlePoints in each plot.
 -- Supports multi-floor bases where points live inside Floor folders.
 --
@@ -1235,6 +1235,12 @@ function BasePlacementSystem.GetSlotIndexForPoint(player, slotType, pointIndex)
 	end
 	placementLog("GetSlotIndexForPoint nil: no point with index=" .. tostring(pointIndex), "points count=" .. #points, player and player.Name, slotType)
 	return nil
+end
+
+-- Remove defense/income/battle base creatures tagged with this OwnerUserId anywhere in Workspace
+-- (orphans or stale plot after random re-assign). Safe before PlaceCreatures on the new plot.
+function BasePlacementSystem.DestroyTaggedCreaturesForOwnerUserId(ownerUserId)
+	destroyTaggedBaseCreaturesForOwnerUserId(ownerUserId)
 end
 
 function BasePlacementSystem.PlaceCreatures(player)

@@ -179,7 +179,7 @@ local function showTraderUI(payload)
 	screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "ArenaTraderUI"
 	screenGui.ResetOnSpawn = false
-	screenGui.DisplayOrder = 46
+	screenGui.DisplayOrder = 100
 	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	screenGui.Parent = playerGui
 

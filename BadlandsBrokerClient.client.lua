@@ -453,7 +453,7 @@ local function showBrokerUI(data)
 	screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "BadlandsBrokerUI"
 	screenGui.ResetOnSpawn = false
-	screenGui.DisplayOrder = 45
+	screenGui.DisplayOrder = 100
 	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	screenGui.Parent = playerGui
 

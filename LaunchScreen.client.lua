@@ -1,7 +1,7 @@
 -- LaunchScreen.lua - StarterPlayer.StarterPlayerScripts (LocalScript)
 -- First-time: pick starter creature. Plot is auto-assigned by server.
 -- Returning: skip launch screen entirely.
--- Last updated: 2026-04-19 14:30
+-- Last updated: 2026-04-22 22:45
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -224,11 +224,11 @@ local function showStarterSelection()
 		stroke.Thickness = 2
 		stroke.Parent = card
 
-		-- Circular frame + 3D viewport (UICorner on ViewportFrame clips the render; see CodexModelViewer)
+		-- Circular frame + 3D viewport (larger for starter showcase)
 		local orb = Instance.new("Frame")
 		orb.AnchorPoint = Vector2.new(0.5, 0)
-		orb.Size = UDim2.new(0.4, 0, 0.18, 0)
-		orb.Position = UDim2.new(0.5, 0, 0.07, 0)
+		orb.Size = UDim2.new(0.62, 0, 0.32, 0)
+		orb.Position = UDim2.new(0.5, 0, 0.04, 0)
 		orb.BackgroundColor3 = info.primaryColor
 		orb.BorderSizePixel = 0
 		orb.Parent = card
@@ -245,13 +245,15 @@ local function showStarterSelection()
 			interactable = false,
 			autoRotate = false,
 			themedLighting = true,
+			playIdleAnimation = true,
+			defaultAnimType = "Income",
 		})
 		starterViewer:SetCreature(sid)
 
 		-- Name label: base size 13, scaled by ts; minimum 10px
 		local nm = Instance.new("TextLabel")
 		nm.Size = UDim2.new(1, -10, 0.07, 0)
-		nm.Position = UDim2.new(0, 5, 0.28, 0)
+		nm.Position = UDim2.new(0, 5, 0.38, 0)
 		nm.BackgroundTransparency = 1
 		nm.Text = info.displayName
 		nm.TextColor3 = TEXT
@@ -259,10 +261,35 @@ local function showStarterSelection()
 		nm.TextSize = math.max(10, math.floor(13 * ts))
 		nm.Parent = card
 
+		-- Passive income (animated)
+		local baseInc = tonumber(info.baseIncome) or 0
+		local incWrap = Instance.new("Frame")
+		incWrap.Name = "IncomeRow"
+		incWrap.Size = UDim2.new(1, -10, 0.05, 0)
+		incWrap.Position = UDim2.new(0, 5, 0.46, 0)
+		incWrap.BackgroundTransparency = 1
+		incWrap.Parent = card
+		local incLbl = Instance.new("TextLabel")
+		incLbl.BackgroundTransparency = 1
+		incLbl.Size = UDim2.new(1, 0, 1, 0)
+		incLbl.Font = Enum.Font.GothamBold
+		incLbl.TextXAlignment = Enum.TextXAlignment.Center
+		incLbl.TextColor3 = WIND
+		incLbl.Text = string.format("+%d coins/min passive", baseInc)
+		incLbl.TextSize = math.max(9, math.floor(11 * ts))
+		incLbl.Parent = incWrap
+		local incScale = Instance.new("UIScale")
+		incScale.Parent = incWrap
+		TweenService:Create(
+			incScale,
+			TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut, -1, true, 0.1),
+			{ Scale = 1.1 }
+		):Play()
+
 		-- Element + class label: base 10, min 8
 		local el = Instance.new("TextLabel")
 		el.Size = UDim2.new(1, -10, 0.05, 0)
-		el.Position = UDim2.new(0, 5, 0.36, 0)
+		el.Position = UDim2.new(0, 5, 0.52, 0)
 		el.BackgroundTransparency = 1
 		el.Text = info.element .. " " .. info.class
 		el.TextColor3 = ec
@@ -273,7 +300,7 @@ local function showStarterSelection()
 		-- Behavior label: base 9, min 7
 		local beh = Instance.new("TextLabel")
 		beh.Size = UDim2.new(1, -10, 0.05, 0)
-		beh.Position = UDim2.new(0, 5, 0.41, 0)
+		beh.Position = UDim2.new(0, 5, 0.57, 0)
 		beh.BackgroundTransparency = 1
 		beh.Text = "Behavior: " .. (info.behavior or "?")
 		beh.TextColor3 = MUTED
@@ -284,8 +311,8 @@ local function showStarterSelection()
 		-- Stats label: base 10, min 8
 		local statsText = "HP: " .. info.health .. "\nATK: " .. info.attack .. "\nDEF: " .. info.defense .. "\nSPD: " .. info.speed
 		local st = Instance.new("TextLabel")
-		st.Size = UDim2.new(1, -16, 0.21, 0)
-		st.Position = UDim2.new(0, 8, 0.50, 0)
+		st.Size = UDim2.new(1, -16, 0.15, 0)
+		st.Position = UDim2.new(0, 8, 0.62, 0)
 		st.BackgroundTransparency = 1
 		st.Text = statsText
 		st.TextColor3 = MUTED
@@ -297,8 +324,8 @@ local function showStarterSelection()
 
 		-- Description label: base 8, min 6
 		local desc = Instance.new("TextLabel")
-		desc.Size = UDim2.new(1, -12, 0.14, 0)
-		desc.Position = UDim2.new(0, 6, 0.70, 0)
+		desc.Size = UDim2.new(1, -12, 0.1, 0)
+		desc.Position = UDim2.new(0, 6, 0.78, 0)
 		desc.BackgroundTransparency = 1
 		desc.Text = info.description or ""
 		desc.TextColor3 = MUTED

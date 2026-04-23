@@ -59,7 +59,7 @@ local sg = Instance.new("ScreenGui")
 sg.Name = "RebirthUI"
 sg.ResetOnSpawn = false
 sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-sg.DisplayOrder = 16
+sg.DisplayOrder = 100
 sg.Parent = playerGui
 
 -- Main panel

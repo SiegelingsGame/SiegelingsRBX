@@ -55,7 +55,7 @@ local C = {
 local sg = Instance.new("ScreenGui")
 sg.Name = "FriendsListGUI"
 sg.ResetOnSpawn = false
-sg.DisplayOrder = 32
+sg.DisplayOrder = 100
 sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 sg.Parent = playerGui
 
@@ -63,7 +63,7 @@ sg.Parent = playerGui
 local profileSg = Instance.new("ScreenGui")
 profileSg.Name = "ProfilePopupGUI"
 profileSg.ResetOnSpawn = false
-profileSg.DisplayOrder = 33
+profileSg.DisplayOrder = 101
 profileSg.ZIndexBehavior = Enum.ZIndexBehavior.Global
 profileSg.Parent = playerGui
 
@@ -399,7 +399,7 @@ end)
 local tradeSg = Instance.new("ScreenGui")
 tradeSg.Name = "TradeGUI"
 tradeSg.ResetOnSpawn = false
-tradeSg.DisplayOrder = 40
+tradeSg.DisplayOrder = 102
 tradeSg.Parent = playerGui
 
 local tradeUI = Instance.new("Frame")

@@ -1,5 +1,6 @@
 -- EleminionSystem.lua - ServerScriptService (ModuleScript)
 -- Spawns Eleminion NPCs at biome EPoints / EleminionPoints and handles affinity quest progress.
+-- Last updated: 2026-04-19 22:00
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -26,6 +27,24 @@ local eleminionNpcs = {}
 local eleminionNpcStates = {}
 local promptConnections = {}
 local warnedMissingPoints = {}
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- MULTI-ELEMINION BIOME ASSIGNMENT
+-- Some biomes host TWO Eleminions (see CreatureData.OuterBiomePrimarySecondary):
+--   OceanBiome    = Water (primary) + Poison (secondary)
+--   CaveBiome     = Shadow (primary) + Metal (secondary)
+--   ElectricBiome = Lightning (primary) + Light (secondary)
+--   DesertBiome   = Psychic (primary) + Undead (secondary)
+-- Without coordination, both defs would score the same EPoint highest and
+-- both NPCs would overlap at the same part — looking like only one spawned.
+-- Two mechanisms keep them distinct:
+--   1. Claim system (npcSpawnPoints): once a def picks a point, other defs
+--      skip that exact point so each NPC gets its own location.
+--   2. Primary/secondary suffix bias: secondary elements prefer points whose
+--      names end in "2" (EPoint2, EleminionPoint2) matching the same
+--      SpawnPoint / SpawnPoint2 convention used by outer dual biomes.
+-- ══════════════════════════════════════════════════════════════════════════
+local npcSpawnPoints = {}  -- [element] = BasePart currently hosting that Eleminion NPC
 
 warn("[EleminionSystem] Module loaded")
 
@@ -68,6 +87,68 @@ local function scoreNameKey(nameKey, def)
 	end
 
 	return score
+end
+
+-- Returns "primary", "secondary", or nil for def.element based on
+-- CreatureData.OuterBiomePrimarySecondary. Only dual-biome elements get a role.
+local function getElementRoleInOuterBiome(element)
+	local tbl = CreatureData.OuterBiomePrimarySecondary
+	if type(tbl) ~= "table" then
+		return nil
+	end
+	for _, pair in pairs(tbl) do
+		if type(pair) == "table" then
+			if pair[1] == element then
+				return "primary"
+			elseif pair[2] == element then
+				return "secondary"
+			end
+		end
+	end
+	return nil
+end
+
+-- Point names matching the SpawnPoint2 convention (trailing "2", or an
+-- explicit "secondary" marker) are reserved for the secondary Eleminion in a
+-- dual-element biome.
+local function hasSecondaryPointSuffix(nameKey)
+	if not nameKey or nameKey == "" then
+		return false
+	end
+	if nameKey:sub(-1) == "2" then
+		return true
+	end
+	if nameKey:find("secondary", 1, true) then
+		return true
+	end
+	return false
+end
+
+-- Biases the score of a point based on the def's role in an outer dual biome:
+--   secondary def + "2"-suffix point      → strongly preferred
+--   primary def   + "2"-suffix point      → strongly avoided
+--   secondary def + plain (non-"2") point → mildly avoided so plain points go to primary
+--   primary def   + plain point           → neutral
+-- Non-dual-biome defs (Fire, Ice, Wind, Earth, ...) get no bias.
+local function scoreSecondaryBias(nameKey, def)
+	local role = getElementRoleInOuterBiome(def.element)
+	if not role then
+		return 0
+	end
+	local isSecondaryPoint = hasSecondaryPointSuffix(nameKey)
+	if role == "secondary" then
+		if isSecondaryPoint then
+			return 55
+		else
+			return -20
+		end
+	else -- primary
+		if isSecondaryPoint then
+			return -55
+		else
+			return 0
+		end
+	end
 end
 
 local function scoreAttributes(instance, def)
@@ -841,13 +922,25 @@ local function spawnNpc(def, point)
 
 	local rotationOffset = CreatureData.GetModelRotationOffset(info, "world", false)
 	local placementOffset = CreatureData.GetModelPlacementOffset(info)
-	local baseY = point.Position.Y + point.Size.Y * 0.5 + getNpcGroundOffset()
-	local pivot = CFrame.new(
-		point.Position.X + placementOffset.X,
+	-- World-space top of the pad: Position.Y + Size.Y/2 is wrong when the part is rotated
+	-- (Size is in local axes). Use local +Y half-extent in world space.
+	local topOfPad = point.CFrame * Vector3.new(0, point.Size.Y * 0.5, 0)
+	local baseY = topOfPad.Y + getNpcGroundOffset()
+	local pos = Vector3.new(
+		topOfPad.X + placementOffset.X,
 		baseY + placementOffset.Y,
-		point.Position.Z + placementOffset.Z
-	) * (point.CFrame - point.Position)
-	model:PivotTo(pivot * rotationOffset)
+		topOfPad.Z + placementOffset.Z
+	)
+	-- Stand upright: applying the pad's full tilt breaks foot alignment because getModelBottomY
+	-- + vertical lift assume world-up. Flat EPoints behave the same; tilted pads (e.g. ocean sand) do not.
+	local flatLook = point.CFrame.LookVector * Vector3.new(1, 0, 1)
+	if flatLook.Magnitude < 0.05 then
+		flatLook = Vector3.new(0, 0, -1)
+	else
+		flatLook = flatLook.Unit
+	end
+	local pivot = CFrame.lookAt(pos, pos + flatLook) * rotationOffset
+	model:PivotTo(pivot)
 
 	local bottomY = getModelBottomY(model)
 	if bottomY then

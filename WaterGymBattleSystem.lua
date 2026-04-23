@@ -461,7 +461,8 @@ local function clearArena()
 	redTeamCreatures = {}
 end
 
-local function placeTeam(team, teamFolder, teamColor, sizeMultiplier, enemyFolder)
+-- statsPlayer: passed to GetEffectiveStats (player buffs). Use nil for AI / gym red team.
+local function placeTeam(team, teamFolder, teamColor, sizeMultiplier, enemyFolder, statsPlayer)
 	local points = getPointsSorted(teamFolder)
 	local faceTowardPos = enemyFolder and getTeamCenter(enemyFolder)
 	local pointMap = {}
@@ -487,7 +488,7 @@ local function placeTeam(team, teamFolder, teamColor, sizeMultiplier, enemyFolde
 			local model = spawnBattleCreature(entry.id, targetPoint, teamColor, sizeMultiplier, faceTowardPos)
 			if model then
 				local variant = entry.variant or "Normal"
-				local stats = PlayerDataManager.GetEffectiveStats(entry.id, entry.level or 1, variant, currentKing)
+				local stats = PlayerDataManager.GetEffectiveStats(entry.id, entry.level or 1, variant, statsPlayer)
 				local lvl = entry.level or 1
 				local maxFocus = GameConfig.FocusMax or 100
 				if stats then
@@ -695,25 +696,31 @@ local function runBattle()
 			pcall(function() PlayerDataManager.AddPlayerXP(currentKing, winXP) end)
 		end
 		-- Zone door: gym pass (key) + SiegeKnight sigil for this outer biome
-		local zoneKey = (currentGymConfig and currentGymConfig.zoneKey) or "Ocean"
-		if PlayerDataManager.AddZoneKeyFromGym then
-			PlayerDataManager.AddZoneKeyFromGym(currentKing, zoneKey)
-		end
-		if PlayerDataManager.AddSigil then
-			local hadSigil = PlayerDataManager.HasSigil(currentKing, zoneKey)
-			PlayerDataManager.AddSigil(currentKing, zoneKey)
-			-- Persist immediately so gym-win sigils survive disconnect before 120s auto-save.
-			if PlayerDataManager.SavePlayer then
-				pcall(function() PlayerDataManager.SavePlayer(currentKing) end)
+		if not currentGymConfig.skipZoneRewards then
+			local zoneKey = (currentGymConfig and currentGymConfig.zoneKey) or "Ocean"
+			if PlayerDataManager.AddZoneKeyFromGym then
+				PlayerDataManager.AddZoneKeyFromGym(currentKing, zoneKey)
 			end
-			if not hadSigil then
-				local eventsFolder = ReplicatedStorage:FindFirstChild("Events")
-				local sigilEvt = eventsFolder and eventsFolder:FindFirstChild("SigilEarned")
-				if sigilEvt then
-					sigilEvt:FireClient(currentKing, zoneKey)
+			if PlayerDataManager.AddSigil then
+				local hadSigil = PlayerDataManager.HasSigil(currentKing, zoneKey)
+				PlayerDataManager.AddSigil(currentKing, zoneKey)
+				-- Persist immediately so gym-win sigils survive disconnect before 120s auto-save.
+				if PlayerDataManager.SavePlayer then
+					pcall(function() PlayerDataManager.SavePlayer(currentKing) end)
+				end
+				if not hadSigil then
+					local eventsFolder = ReplicatedStorage:FindFirstChild("Events")
+					local sigilEvt = eventsFolder and eventsFolder:FindFirstChild("SigilEarned")
+					if sigilEvt then
+						sigilEvt:FireClient(currentKing, zoneKey)
+					end
 				end
 			end
 		end
+	end
+
+	if currentGymConfig and type(currentGymConfig.onGymBattleResolved) == "function" and currentKing then
+		pcall(currentGymConfig.onGymBattleResolved, currentKing, winnerTeam == "blue")
 	end
 
 	if arenaEvents.ArenaReward then
@@ -883,12 +890,17 @@ function WaterGymBattleSystem.StartGymBattle(player, gymFolder, config)
 
 	local playerTeam = getPlayerBattleTeam(player)
 	local level = currentGymConfig.level or (GameConfig.WaterGymCreatureLevel or 45)
-	local gymTeam = generateGymTeam(level, currentGymConfig.elements)
+	local gymTeam
+	if type(currentGymConfig.opponentTeam) == "table" and #currentGymConfig.opponentTeam > 0 then
+		gymTeam = currentGymConfig.opponentTeam
+	else
+		gymTeam = generateGymTeam(level, currentGymConfig.elements)
+	end
 
 	local redCenter = getTeamCenter(redTeamFolder)
 	local blueCenter = getTeamCenter(blueTeamFolder)
-	blueTeamCreatures = placeTeam(playerTeam, blueTeamFolder, "blue", 1, redTeamFolder)
-	redTeamCreatures = placeTeam(gymTeam, redTeamFolder, "red", 1, blueTeamFolder)
+	blueTeamCreatures = placeTeam(playerTeam, blueTeamFolder, "blue", 1, redTeamFolder, currentKing)
+	redTeamCreatures = placeTeam(gymTeam, redTeamFolder, "red", 1, blueTeamFolder, nil)
 
 	if arenaEvents.BattleTeamsPlaced then
 		local blueData, redData = {}, {}

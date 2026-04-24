@@ -1,4 +1,5 @@
 --[[
+	Last updated: 2026-04-23 21:35
 	CreatureAnimation.lua - ReplicatedStorage.Modules (ModuleScript)
 	Loads and plays creature animations from ReplicatedStorage.RBX_ANIMSAVES (fallback: ServerStorage).
 	Animation types: Idle (default), Move, Attack, Special, Income, Faint (one-shot, freezes on final frame).
@@ -356,11 +357,7 @@ function CreatureAnimation.PlayAnimation(model, animType, creatureId, options)
 		local events = ReplicatedStorage:FindFirstChild("Events")
 		local evt = events and events:FindFirstChild("PlayCreatureAnimation")
 		if evt then
-			for _, p in ipairs(Players:GetPlayers()) do
-				task.defer(function()
-					evt:FireClient(p, model, animType, creatureId, options)
-				end)
-			end
+			evt:FireAllClients(model, animType, creatureId, options)
 		end
 	end
 end

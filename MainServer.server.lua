@@ -1,5 +1,5 @@
 -- MainServer.lua - ServerScriptService (Script)
--- Last updated: 2026-04-20 20:00
+-- Last updated: 2026-04-23 21:35
 -- THE SINGLE ENTRY POINT. All remote handlers live HERE.
 -- DELETE "EssentialdHandlers" and "BattleTeamSystem" if they exist....
 
@@ -36,6 +36,29 @@ local function makeEvent(n)
 	local existing = eventsFolder:FindFirstChild(n)
 	if existing then return existing end
 	local e = Instance.new("RemoteEvent"); e.Name = n; e.Parent = eventsFolder; return e
+end
+local function makeEventTyped(n, className)
+	local existing = eventsFolder:FindFirstChild(n)
+	if existing and existing.ClassName == className then
+		return existing
+	end
+	if existing then
+		existing:Destroy()
+	end
+	local ok, ev = pcall(function()
+		local created = Instance.new(className)
+		created.Name = n
+		created.Parent = eventsFolder
+		return created
+	end)
+	if ok and ev then
+		return ev
+	end
+	-- Fallback for engines that do not support requested class.
+	local fallback = Instance.new("RemoteEvent")
+	fallback.Name = n
+	fallback.Parent = eventsFolder
+	return fallback
 end
 local function makeFunc(n)
 	local existing = eventsFolder:FindFirstChild(n)
@@ -132,7 +155,7 @@ makeFunc("ClaimEleminionQuestReward")
 makeEvent("ShowNotification")
 
 -- Creature animations (server -> clients for multiplayer replication)
-makeEvent("PlayCreatureAnimation")
+makeEventTyped("PlayCreatureAnimation", "UnreliableRemoteEvent")
 
 -- Loading: server fires when creatures/models are ready; client LoadingGate waits for this
 makeEvent("LoadingReady")
@@ -144,8 +167,8 @@ makeEvent("PvPChallengeNotice"); makeEvent("PvPRevivePrompt"); makeEvent("PvPRev
 makeEvent("PvPChallengeInvite"); makeEvent("PvPAcceptChallenge"); makeEvent("PvPDeclineChallenge")
 
 -- Player Combat
-makeEvent("PlayerAttack"); makeEvent("PlayerAttackFX")
-makeEvent("ShowDamageNumber")  -- S->C: (position, damage) only to attacker/companion owner for open-world
+makeEvent("PlayerAttack"); makeEventTyped("PlayerAttackFX", "UnreliableRemoteEvent")
+makeEventTyped("ShowDamageNumber", "UnreliableRemoteEvent") -- S->C cosmetic; unreliable OK if a number occasionally drops
 
 -- FIX #27: Underwater drowning (client fires when breath runs out)
 local drownDamage = makeEvent("DrownDamage")
@@ -1949,13 +1972,17 @@ local function getExteriorConfig(exteriorId)
 end
 
 local function savePlayerCustomization(plr)
-	if not plr or not PlayerDataManager or not PlayerDataManager.SavePlayer then
+	if not plr or not PlayerDataManager then
 		return
 	end
 
 	task.spawn(function()
 		pcall(function()
-			PlayerDataManager.SavePlayer(plr)
+			if PlayerDataManager.RequestSave then
+				PlayerDataManager.RequestSave(plr)
+			elseif PlayerDataManager.SavePlayer then
+				PlayerDataManager.SavePlayer(plr)
+			end
 		end)
 	end)
 end
@@ -2271,8 +2298,10 @@ toggleBattleTeam.OnServerInvoke = function(plr)
 		return nil
 	end
 	local enabled = PlayerDataManager.ToggleBattleTeamEnabled(plr)
-	if PlayerDataManager.SavePlayer then
-		PlayerDataManager.SavePlayer(plr)  -- Persist immediately so state sticks
+	if PlayerDataManager.RequestSave then
+		PlayerDataManager.RequestSave(plr)
+	elseif PlayerDataManager.SavePlayer then
+		PlayerDataManager.SavePlayer(plr)
 	end
 	-- Toggle should be backend-only plus BattlePoint color feedback.
 	-- Do not full-refresh base models (prevents flicker/disappear-reappear).

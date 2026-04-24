@@ -4,6 +4,7 @@
 -- Defense turrets auto-target raiders via "WorldCreature" tag.
 -- Raiders target BaseDefenseCreature first, then BaseIncomeCreature.
 -- On attack, a dice roll can "free" a base creature (spawns it wild).
+-- Last updated: 2026-04-23 21:35
 
 local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
@@ -245,9 +246,7 @@ local function runRaid()
 	local events = ReplicatedStorage:FindFirstChild("Events")
 	local raidAlert = events and events:FindFirstChild("AIRaidAlert")
 	if raidAlert then
-		for _, p in ipairs(Players:GetPlayers()) do
-			raidAlert:FireClient(p, target.Name, packSize, "start")
-		end
+		raidAlert:FireAllClients(target.Name, packSize, "start")
 	end
 
 	-- Shared raid state for callbacks
@@ -363,9 +362,7 @@ local function runRaid()
 	-- (PlaceCreatures clears and respawns all models; prefer base stays as-is)
 
 	if raidAlert then
-		for _, p in ipairs(Players:GetPlayers()) do
-			raidAlert:FireClient(p, target.Name, 0, "end")
-		end
+		raidAlert:FireAllClients(target.Name, 0, "end")
 	end
 
 	if faintedConn then faintedConn:Disconnect() end

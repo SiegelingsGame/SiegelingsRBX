@@ -1,6 +1,6 @@
 -- PlayerDataManager.lua - ServerScriptService (ModuleScript)
 -- Manages all persistent player data.
--- Last updated: 2026-04-20 22:00
+-- Last updated: 2026-04-23 19:35
 
 local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
@@ -16,6 +16,7 @@ local PlayerDataManager = {}
 local DATA_STORE_NAME = "MonsterSiege_PlayerData_v1"
 local AUTO_SAVE_INTERVAL = 120
 local MAX_RETRIES = 3
+local COALESCED_SAVE_DELAY = 20
 -- FIX #22: MaxBattleTeamSize is the GRID size (9 slots in 3x3 layout).
 -- MaxBattleTeamCreatures is the actual creature limit (default 5).
 -- Previously used grid size as creature limit, allowing 9 creatures on a 5-creature team.
@@ -24,6 +25,7 @@ local GRID_SLOTS = 9
 
 local dataStore = DataStoreService:GetDataStore(DATA_STORE_NAME)
 local playerCache = {}
+local pendingSaveDueAt = {} -- [userId] = dueTick
 local AchievementObserver = nil
 local EleminionObserver = nil
 -- plotId -> userId: atomic source of truth to prevent two players claiming same base
@@ -2011,6 +2013,7 @@ end
 function PlayerDataManager.OnPlayerLeave(player)
 	local uid = player.UserId
 	craftingMixByUserId[uid] = nil
+	pendingSaveDueAt[uid] = nil
 	-- Init runs before MainServer/BasePlacement register PlayerRemoving; this handler runs first.
 	-- Defer teardown so later handlers still see plotId/playerCache during world cleanup.
 	task.defer(function()
@@ -2031,12 +2034,37 @@ function PlayerDataManager.OnPlayerLeave(player)
 end
 
 function PlayerDataManager.SaveAll()
-	for userId, d in pairs(playerCache) do saveToStore(userId, d) end
+	for userId, d in pairs(playerCache) do
+		saveToStore(userId, d)
+		pendingSaveDueAt[userId] = nil
+	end
 end
 
 function PlayerDataManager.SavePlayer(player)
 	local d = playerCache[player.UserId]
-	if d then saveToStore(player.UserId, d) end
+	if d then
+		saveToStore(player.UserId, d)
+		pendingSaveDueAt[player.UserId] = nil
+	end
+end
+
+function PlayerDataManager.RequestSave(player, delaySeconds)
+	if not player then
+		return
+	end
+	local uid = player.UserId
+	if not playerCache[uid] then
+		return
+	end
+	local delay = tonumber(delaySeconds) or COALESCED_SAVE_DELAY
+	if delay < 0 then
+		delay = 0
+	end
+	local due = tick() + delay
+	local existing = pendingSaveDueAt[uid]
+	if not existing or due < existing then
+		pendingSaveDueAt[uid] = due
+	end
 end
 
 -- -- GEMS (premium currency) --
@@ -2845,6 +2873,21 @@ function PlayerDataManager.Init()
 	for _, p in ipairs(Players:GetPlayers()) do
 		task.spawn(function() PlayerDataManager.OnPlayerJoin(p) end)
 	end
+	task.spawn(function()
+		while true do
+			task.wait(2)
+			local now = tick()
+			for userId, due in pairs(pendingSaveDueAt) do
+				if now >= due then
+					local d = playerCache[userId]
+					if d then
+						saveToStore(userId, d)
+					end
+					pendingSaveDueAt[userId] = nil
+				end
+			end
+		end
+	end)
 	task.spawn(function() while true do task.wait(AUTO_SAVE_INTERVAL); PlayerDataManager.SaveAll() end end)
 	game:BindToClose(function() PlayerDataManager.SaveAll() end)
 end

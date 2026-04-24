@@ -25,7 +25,7 @@
 		that point's element. Random spawns still use global weighted picks with
 		diversity bias (prefer species not already in the world).
 ]]
--- Last updated: 2026-04-18 20:20
+-- Last updated: 2026-04-23 19:20
 
 local CollectionService = game:GetService("CollectionService")
 local HttpService = game:GetService("HttpService")
@@ -564,6 +564,12 @@ local function spawnSingleCreature(creatureId, position, packId, variant, isShin
 	-- startBobAnimation(model)
 	startHPBarUpdater(model)
 	activeCreatures[model] = { id = creatureId, spawnTime = os.time() }
+	local rootPart = model.PrimaryPart or CreatureModelLoader.GetBodyPart(model)
+	if rootPart and rootPart:IsA("BasePart") and not rootPart.Anchored then
+		pcall(function()
+			rootPart:SetNetworkOwner(nil)
+		end)
+	end
 	if CreatureAI then CreatureAI.RegisterCreature(model, creatureId, position, packId) end
 
 	return model

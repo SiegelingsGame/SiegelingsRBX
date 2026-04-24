@@ -1,4 +1,4 @@
--- Last updated: 2026-03-21 00:34
+-- Last updated: 2026-04-23 19:35
 -- CaptureSystem.lua - ServerScriptService (ModuleScript)
 -- Capture fainted creatures for a gold cost based on rarity.
 -- After capture, sends slot availability so client can prompt for assignment.
@@ -259,7 +259,13 @@ function CaptureSystem.TryCapture(player, creatureModel)
 				PlayerDataManager.AddSigil(player, element)
 				-- Persist immediately so an abrupt disconnect before auto-save does not lose the sigil.
 				if PlayerDataManager.SavePlayer then
-					pcall(function() PlayerDataManager.SavePlayer(player) end)
+					pcall(function()
+						if PlayerDataManager.RequestSave then
+							PlayerDataManager.RequestSave(player)
+						else
+							PlayerDataManager.SavePlayer(player)
+						end
+					end)
 				end
 				local sigilEvt = events and events:FindFirstChild("SigilEarned")
 				if sigilEvt and not had then

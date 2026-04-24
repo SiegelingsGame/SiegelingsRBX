@@ -21,7 +21,7 @@
 -- FIX #29c: Slot dedup, InfoTag aggressive hiding, SP overflow
 -- FIX #30:  Crest badge toggle (hidden by default, no auto-show)
 -- FIX #31:  Clean rewrite — stable slot ordering, removed debug spam,
---           eliminated redundant refreshes, poll merges instead of clears
+--           eliminated redundant refreshes, poll merges instead of clears.
 -- Last updated: 2026-04-20 16:00
 -- ══════════════════════════════════════════════════════════════════════════════
 

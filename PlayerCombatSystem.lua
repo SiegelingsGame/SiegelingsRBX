@@ -1,4 +1,4 @@
--- Last updated: 2026-04-18 15:00
+-- Last updated: 2026-04-23 21:35
 -- PlayerCombatSystem.lua - ServerScriptService (ModuleScript)
 -- Handles player direct attacks against world creatures.
 -- Ranged (auto/manual aim) and Melee (AOE swing).
@@ -154,9 +154,7 @@ local function doRangedAttack(player, origin, direction, targetUniqueId)
 	-- Send FX to all players
 	if attackEvent then
 		local didHit = bestTarget ~= nil or stealVictimHit
-		for _, p in ipairs(Players:GetPlayers()) do
-			attackEvent:FireClient(p, player.UserId, origin, endPos, "ranged", didHit)
-		end
+		attackEvent:FireAllClients(player.UserId, origin, endPos, "ranged", didHit)
 	end
 end
 
@@ -246,9 +244,7 @@ local function doMeleeAttack(player, origin, targetUniqueId)
 	local events = ReplicatedStorage:FindFirstChild("Events")
 	local attackEvent = events and events:FindFirstChild("PlayerAttackFX")
 	if attackEvent then
-		for _, p in ipairs(Players:GetPlayers()) do
-			attackEvent:FireClient(p, player.UserId, origin, nil, "melee", hitCount > 0)
-		end
+		attackEvent:FireAllClients(player.UserId, origin, nil, "melee", hitCount > 0)
 	end
 
 	return hitCount

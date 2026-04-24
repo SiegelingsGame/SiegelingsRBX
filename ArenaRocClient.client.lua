@@ -1,12 +1,15 @@
 -- ArenaRocClient.client.lua — StarterPlayerScripts
 -- Roc hub mirrors FriendsListClient ProfilePopupGUI (same layout as walking up to a player).
 -- NPC team rows come from GameConfig.ArenaRoc + CreatureData when remotes omit data (not player DB).
--- Last updated: 2026-04-23 01:00
+-- Last updated: 2026-04-23 19:00
 
--- Siegelings are N-for-N Cactys (no hidden limit). 10× Cacty → CactyJackedty is an easter egg; never
--- advertise the exact count in UI strings. "THEIR OFFER" stays empty until the player drops a Siegeling
--- into their side — that is the trigger for Roc to promise Cactys back.
-local ROC_BUILD_STAMP = "ROC build 2026-04-23 01:00 (N-siegelings, easter-egg hidden)"
+-- Roc trade rules (only Siegelings are capturable/tradable, so the inventory strip only ever contains
+-- Siegelings — mixed offers of any count are always valid):
+--   * YOUR OFFER = 0          → THEIR OFFER empty.
+--   * YOUR OFFER > 0          → THEIR OFFER = "• Cacty Lv.1".
+--   * YOUR OFFER contains ≥10 Cactys (anywhere in the mix) → THEIR OFFER = "• CactyJackedty Lv.1".
+-- Reward is always exactly 1 creature regardless of how many are offered.
+local ROC_BUILD_STAMP = "ROC build 2026-04-23 19:00 (server accepts any inventory uid)"
 print("[ArenaRocClient] " .. ROC_BUILD_STAMP)
 
 local Players = game:GetService("Players")
@@ -230,10 +233,9 @@ task.defer(function()
 			l.Parent = parent
 		end
 
-		-- Categorize the current selection so we can both render "YOUR OFFER" and decide whether to
-		-- preview "THEIR OFFER". Siegelings are the only path that reveals Roc's reward preview;
-		-- the Cacty-stack path stays intentionally silent (easter egg).
-		local nSieg, nCacty, nOther = 0, 0, 0
+		-- Count Cactys inside the offer. We don't categorize further: every tradable creature is a
+		-- Siegeling, so the only decision is whether the mix crosses the 10-Cacty CactyJackedty threshold.
+		local nCacty = 0
 		for uid in pairs(selected) do
 			local r = findTradeRow(uid)
 			if r then
@@ -245,29 +247,26 @@ task.defer(function()
 				end
 				addOfferLine(rocMyOfferScroll, line, r.isFavorite and C.favorite or C.white)
 
-				if r.isSiegeling then
-					nSieg += 1
-				elseif string.lower(tostring(r.id or "")) == "cacty" then
+				if string.lower(tostring(r.id or "")) == "cacty" then
 					nCacty += 1
-				else
-					nOther += 1
 				end
 			end
 		end
 		if nSel == 0 then
-			addOfferLine(rocMyOfferScroll, "Offer a Siegeling.", C.muted)
+			addOfferLine(rocMyOfferScroll, "Tap inventory above to add to your offer.", C.muted)
 		end
 
-		-- THEIR OFFER rules:
-		--   * Empty until the player drops at least one Siegeling into their side.
-		--   * N Siegelings → N Cactys (collapsed to "• Cacty Lv.1 × N" when N >= 2 to save rows).
-		--   * Any Cacty / non-siegeling path shows nothing — keeps the easter-egg hidden and avoids
-		--     mentioning the exact 10× stack anywhere in the UI.
-		if nSieg > 0 and nCacty == 0 and nOther == 0 then
-			if nSieg == 1 then
-				addOfferLine(rocTheirOfferScroll, "• Cacty Lv.1", C.white)
+		-- THEIR OFFER refreshes on the same click that drives YOUR OFFER:
+		--   * nSel == 0            → empty (Roc pulls his offer back too)
+		--   * nCacty >= 10         → CactyJackedty (check this first so 10+ never shows plain Cacty)
+		--   * nSel > 0             → plain Cacty
+		if nSel > 0 then
+			if nCacty >= 10 then
+				local jack = CreatureData.GetById("cactyjackedty")
+				local jackNm = (jack and jack.displayName) or "CactyJackedty"
+				addOfferLine(rocTheirOfferScroll, "• " .. jackNm .. " Lv.1", C.white)
 			else
-				addOfferLine(rocTheirOfferScroll, "• Cacty Lv.1 × " .. tostring(nSieg), C.white)
+				addOfferLine(rocTheirOfferScroll, "• Cacty Lv.1", C.white)
 			end
 		end
 
@@ -378,37 +377,11 @@ task.defer(function()
 			nameLbl.Parent = rowF
 
 			rowF.MouseButton1Click:Connect(function()
-				-- Category of the tapped row drives mutex with the rest of the offer.
-				--   * Siegeling → multi-select, unlimited count. Clears any non-Siegeling rows first.
-				--   * Cacty     → multi-select up to 10 (easter-egg stack, never announced). Clears non-Cacty first.
-				--   * Other     → single-select, replaces whatever was selected.
-				-- Toggling an already-selected row always just removes it.
-				local idLower = string.lower(tostring(row.id or ""))
+				-- Plain toggle. Only Siegelings reach this UI (non-Siegelings are uncapturable), so
+				-- there is no category mutex — any mix up to the full inventory is allowed.
 				if selected[uid] then
 					selected[uid] = nil
-				elseif row.isSiegeling then
-					for k in pairs(selected) do
-						local r = findTradeRow(k)
-						if not r or not r.isSiegeling then
-							selected[k] = nil
-						end
-					end
-					selected[uid] = true
-				elseif idLower == "cacty" then
-					for k in pairs(selected) do
-						local r = findTradeRow(k)
-						if not r or string.lower(tostring(r.id or "")) ~= "cacty" then
-							selected[k] = nil
-						end
-					end
-					if countSelectedCacty() >= 10 then
-						return
-					end
-					selected[uid] = true
 				else
-					for k in pairs(selected) do
-						selected[k] = nil
-					end
 					selected[uid] = true
 				end
 				rebuildRocTradeInventoryUI(lastTradeInventory)
@@ -1179,39 +1152,12 @@ task.defer(function()
 			if busy then
 				return
 			end
-			-- Build the offer array and validate category mix client-side. Server is the source of
-			-- truth, but we do a soft check so the toast copy never leaks the Cacty-stack easter egg.
 			local arr = {}
-			local anySieg, anyCacty, anyOther = false, false, false
 			for uid in pairs(selected) do
 				table.insert(arr, uid)
-				local r = findTradeRow(uid)
-				if r then
-					if r.isSiegeling then
-						anySieg = true
-					elseif string.lower(tostring(r.id or "")) == "cacty" then
-						anyCacty = true
-					else
-						anyOther = true
-					end
-				end
 			end
 			if #arr == 0 then
-				toast("Offer a Siegeling first.", C.muted)
-				return
-			end
-			-- Siegeling path: any count is valid. Cacty path: 1 (fresh swap) or 10 (hidden easter egg).
-			-- Non-siegeling non-cacty: only single-select is meaningful for Roc's trade.
-			if anySieg and (anyCacty or anyOther) then
-				toast("Offer Siegelings by themselves.", C.muted)
-				return
-			end
-			if not anySieg and anyCacty and anyOther then
-				toast("Offer one creature at a time.", C.muted)
-				return
-			end
-			if not anySieg and not anyCacty and #arr > 1 then
-				toast("Offer one creature at a time.", C.muted)
+				toast("Add creatures to your offer.", C.muted)
 				return
 			end
 			busy = true

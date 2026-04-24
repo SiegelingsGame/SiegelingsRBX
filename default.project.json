@@ -208,6 +208,9 @@
         "HUDButtonBar": {
           "$path": "HUDButtonBar.client.lua"
         },
+        "WorldMapClient": {
+          "$path": "WorldMapClient.client.lua"
+        },
         "HUDClient": {
           "$path": "HUDClient.client.lua"
         },

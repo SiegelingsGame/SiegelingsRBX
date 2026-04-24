@@ -1,5 +1,6 @@
 -- WaterGymBattleSystem.lua - ServerScriptService (ModuleScript)
 -- Separate gym battle runner for OceanBiome/WaterGym that does NOT share ArenaSystem state/round loop.
+-- Last updated: 2026-04-23 21:35
 
 local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
@@ -548,9 +549,7 @@ end
 local function runBattle()
 	-- Broadcast battle start
 	if arenaEvents.BattleStart then
-		for _, p in ipairs(Players:GetPlayers()) do
-			arenaEvents.BattleStart:FireClient(p, currentKing and currentKing.Name or "?", "Gym Leader", #blueTeamCreatures, #redTeamCreatures)
-		end
+		arenaEvents.BattleStart:FireAllClients(currentKing and currentKing.Name or "?", "Gym Leader", #blueTeamCreatures, #redTeamCreatures)
 	end
 
 	task.wait(2)
@@ -660,9 +659,7 @@ local function runBattle()
 				if arenaEvents.BattleKill then
 					local aInfo = CreatureData.GetById(attacker.creatureId)
 					local dInfo = CreatureData.GetById(target.creatureId)
-					for _, p in ipairs(Players:GetPlayers()) do
-						arenaEvents.BattleKill:FireClient(p, aInfo and aInfo.displayName or "?", dInfo and dInfo.displayName or "?", attacker.team)
-					end
+					arenaEvents.BattleKill:FireAllClients(aInfo and aInfo.displayName or "?", dInfo and dInfo.displayName or "?", attacker.team)
 				end
 			end
 		end
@@ -679,9 +676,7 @@ local function runBattle()
 	local winnerName = (winnerTeam == "blue" and currentKing and currentKing.Name) or "Gym Leader"
 
 	if arenaEvents.BattleEnd then
-		for _, p in ipairs(Players:GetPlayers()) do
-			arenaEvents.BattleEnd:FireClient(p, winnerName or "?", winnerTeam, blueAlive, redAlive)
-		end
+		arenaEvents.BattleEnd:FireAllClients(winnerName or "?", winnerTeam, blueAlive, redAlive)
 	end
 
 	-- Gym reward: only if player wins
@@ -706,7 +701,13 @@ local function runBattle()
 				PlayerDataManager.AddSigil(currentKing, zoneKey)
 				-- Persist immediately so gym-win sigils survive disconnect before 120s auto-save.
 				if PlayerDataManager.SavePlayer then
-					pcall(function() PlayerDataManager.SavePlayer(currentKing) end)
+					pcall(function()
+						if PlayerDataManager.RequestSave then
+							PlayerDataManager.RequestSave(currentKing)
+						else
+							PlayerDataManager.SavePlayer(currentKing)
+						end
+					end)
 				end
 				if not hadSigil then
 					local eventsFolder = ReplicatedStorage:FindFirstChild("Events")
@@ -733,9 +734,7 @@ local function runBattle()
 			winnerReward = winnerReward,
 			loserReward = loserReward,
 		}
-		for _, p in ipairs(Players:GetPlayers()) do
-			arenaEvents.ArenaReward:FireClient(p, payload)
-		end
+		arenaEvents.ArenaReward:FireAllClients(payload)
 	end
 
 	task.wait(3)
@@ -924,9 +923,7 @@ function WaterGymBattleSystem.StartGymBattle(player, gymFolder, config)
 				primaryColor = info and {info.primaryColor.R * 255, info.primaryColor.G * 255, info.primaryColor.B * 255} or {180, 180, 180},
 			})
 		end
-		for _, p in ipairs(Players:GetPlayers()) do
-			arenaEvents.BattleTeamsPlaced:FireClient(p, blueData, redData, player.Name, "Gym Leader")
-		end
+		arenaEvents.BattleTeamsPlaced:FireAllClients(blueData, redData, player.Name, "Gym Leader")
 	end
 
 	task.wait(2)

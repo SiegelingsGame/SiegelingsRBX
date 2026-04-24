@@ -1,8 +1,64 @@
-# Update log / Memory — Last updated: 2026-04-23 15:45
+# Update log / Memory — Last updated: 2026-04-23 22:37
 
 Before committing: refresh this file's top timestamp and add an entry below; add or update `-- Last updated: YYYY-MM-DD HH:MM` at the top of each changed script.
 
 ---
+
+## 2026-04-23 22:09
+- **default.project.json** — Rojo workflow fix: `WorldMapClient.client.lua` now syncs into `StarterPlayerScripts` so the `[M] Map` button can actually open `WorldMapGUI` in live play.
+
+## 2026-04-23 22:21
+- **WorldMapClient.client.lua**, **GameConfigData.lua** — Added `WorldMap.RotationDegrees` (0/90/180/270) to calibrate map art orientation so the player pin matches real biomes/landmarks.
+
+## 2026-04-23 22:23
+- **WorldMapClient.client.lua** — World map now places a **BASE** marker at the player’s plot `PlotCenter` (resolved from `BasePlots/Plots` and `OwnerUserId` attributes; retries while the map is open until replicated).
+
+## 2026-04-23 22:37
+- **WorldMapClient.client.lua**, **GameConfigData.lua** — Added in-game **map calibration mode**: press **[C]** on the world map and click 3 landmarks (A/B/C) while standing on them to print a ready-to-paste `WorldMap.Calibration` block; pins then use the solved transform.
+
+## 2026-04-23 23:35
+- **GameConfigData.lua**, **WorldMapClient.client.lua** (new), **HUDButtonBar.client.lua** — **World map** UI: optional `rbxassetid` image, auto XZ bounds from hub + outer baseplates (or manual `MinWorldXZ`/`MaxWorldXZ`), live **you-are-here** pin from `HumanoidRootPart`. Open with **`[M] Map`** on the HUD (or `M`).
+
+## 2026-04-23 22:45
+- **TradeSystem.lua**, **ArenaRocSystem.lua** — After trades, **`BasePlacementSystem.ClearOrbByUid(..., true)`** runs only for each **removed** creature uid (destroys that defense/income/battle model only), instead of **`PlaceCreatures`** rebuilding the whole base.
+
+## 2026-04-23 22:15
+- **TradeSystem.lua** — After a completed player trade, **`BasePlacementSystem.PlaceCreatures`** runs for **both** traders so defense/income/battle plot models match inventory (fixes traded-away creatures staying visible on base slots).
+- **ArenaRocSystem.lua** — After **Roc** multi-creature trades, **`PlaceCreatures`** refreshes the player’s plot for the same reason.
+
+## 2026-04-23 21:35
+- **MainServer.server.lua** — **`Events.PlayCreatureAnimation`** and **`Events.ShowDamageNumber`** now use **`makeEventTyped(..., "UnreliableRemoteEvent")`** (with existing `RemoteEvent` fallback) so cosmetic replication does not compete with reliable gameplay traffic.
+- **CreatureAnimation.lua** — Replaced per-player **`FireClient`** loop with **`FireAllClients`** for animation replication (same payload for every client).
+- **PlayerCombatSystem.lua** — **`PlayerAttackFX`** uses **`FireAllClients`** instead of looping **`GetPlayers()`** for ranged and melee cosmetic FX.
+- **ArenaSystem.lua**, **WaterGymBattleSystem.lua**, **AIRaidSystem.lua**, **DungeonSpawner.lua** — Same **`FireAllClients`** pattern wherever every player received identical arena/gym/raid/dungeon payloads (**ArenaAnnounce** paths with different text per player stay as targeted **`FireClient`**).
+
+## 2026-04-23 19:45
+- **CreatureAI.lua** — Added **distance-based AI LOD scheduling** in the Heartbeat loop: `<40` studs updates every frame, `40–120` studs at **10 Hz**, and `>120` studs at **2 Hz**. The loop now samples active player root positions once per tick and skips far-off creature updates until their next due window, reducing per-frame server AI load while preserving nearby movement fidelity.
+- **MainServer.server.lua** — Added typed remote creation helper and switched **`Events.PlayerAttackFX`** to **`UnreliableRemoteEvent`** (with `RemoteEvent` fallback if unsupported) so cosmetic attack FX traffic does not contend with reliable gameplay remotes.
+- **PlayerDataManager.lua** — Added coalesced save queue: **`RequestSave(player, delaySeconds?)`** plus a periodic flush loop (`2s` cadence, default `20s` delay). `SavePlayer` / `SaveAll` now clear queued save markers on flush/immediate save.
+- **ArenaRocSystem.lua**, **CaptureSystem.lua**, **AchievementsSystem.lua**, **BadlandsSystem.lua**, **CosmeticSystem.lua**, **PremiumCurrencyShop.lua**, **WaterGymBattleSystem.lua**, **MainServer.server.lua** — Replaced several immediate `SavePlayer` calls with **`RequestSave`** (fallbacks preserved) to reduce DataStore burst pressure after frequent inventory/UI/reward mutations while still persisting via short-delay coalescing and normal autosave.
+- **GameConfigData.lua**, **CreatureSpawner.lua** — (from prior pass) restored `MaxWorldCreatures = 150` and added spawn-time `SetNetworkOwner(nil)` for unanchored creature roots to reduce replication churn and multiplayer desync.
+
+## 2026-04-23 19:20
+- **GameConfigData.lua** — Restored world-spawn cap to **`GameConfig.MaxWorldCreatures = 150`** (was 1000 despite the perf-note comment), so default live load returns to the intended lower creature budget before night bonus.
+- **CreatureSpawner.lua** — New spawn-time network ownership pin: after model creation, server attempts **`rootPart:SetNetworkOwner(nil)`** on unanchored creature roots before AI registration. This prevents client auto-ownership from fighting server-driven AI movement and reduces multiplayer rubber-banding/desync.
+
+## 2026-04-23 19:00
+- **ArenaRocSystem.lua** — **Fixed server rejecting valid offers with “Roc only trades Siegelings.”** Root cause: `isSiegelingSpecies` only matched `pylook` / ids containing `"siegeling"` / `"siegling"`, so **Squire Bud** (`squirebud`), **Cacty** (`cacty`), **Generoot**, etc. — all actually Siegelings — fell through and were rejected on **Accept**. Since only Siegelings are capturable, the species gate inside `SubmitRocTrade` is redundant; removed it. The server now only requires each offered uid to resolve to a real row in the player’s own inventory. Reward logic unchanged (**≥10 Cactys → CactyJackedty**, else **Cacty**; always exactly 1 creature).
+- **ArenaRocClient.client.lua** — Build stamp bumped to **2026-04-23 19:00** so in-game UI confirms this rev.
+
+## 2026-04-23 18:30
+- **ArenaRocClient.client.lua** — **Final Roc trade rules.** Inventory row taps are now a plain toggle (no category mutex) — any mix of any Siegelings, any count, up to the full inventory. **THEIR OFFER** on every refresh: `nSel == 0` → empty; `nCacty >= 10` → **`• CactyJackedty Lv.1`**; otherwise `nSel > 0` → **`• Cacty Lv.1`**. Dropping from 10 Cactys to 9 flips the preview back to Cacty on the same click. Accept handler only rejects an empty offer. Build stamp **2026-04-23 18:30**.
+- **ArenaRocSystem.lua** — **`SubmitRocTrade`** simplified to the new contract: every offered uid must be a Siegeling species (non-Siegelings rejected since nothing else is capturable). **Reward is always exactly 1 creature** — `CactyJackedty` when the offer contains `nCacty >= 10`, otherwise `Cacty`. The Cacty is tagged `rocSiegelingPact = true` plus `offerCount` / `offerCactyCount` metadata. Inventory-space check uses `rewardsCount = 1`.
+
+## 2026-04-23 17:45
+- **ArenaRocClient.client.lua** — **Cacty-only stacks (2–9)** now keep **`• Cacty Lv.1`** in **THEIR OFFER** (same as 1× Cacty) instead of going blank; **10× Cacty** still switches that line to **CactyJackedty**. Build stamp **2026-04-23 17:45**.
+
+## 2026-04-23 17:15
+- **ArenaRocClient.client.lua** — **THEIR OFFER syncs on the same tap as YOUR OFFER** for every valid Roc trade shape that was previously blank on the client: **1× Cacty** (fresh swap) and **one non-Siegeling / non-Cacty** creature now immediately show **`• Cacty Lv.1`** in **THEIR OFFER** (same `refreshRocOfferPanels` pass as the inventory click). Siegelings / **10× Cacty → CactyJackedty** behavior unchanged. Empty-state copy is neutral: **“Tap inventory above to add to your offer.”** Build stamp **2026-04-23 17:15**.
+
+## 2026-04-23 16:00
+- **ArenaRocClient.client.lua** — **Final THEIR OFFER behavior**: (1) Clearing all Siegelings removes Roc’s Cacty lines because `TheirOfferScroll` is rebuilt each refresh and only Siegelings-only selections paint `• Cacty Lv.1` / `× N`. (2) Adding Siegelings again repaints the same preview. (3) When the offer is **exactly 10× Cacty** and nothing else, **THEIR OFFER** now shows **`• CactyJackedty Lv.1`** (from **CreatureData**) instead of staying blank — matches server **SubmitRocTrade** forge. Empty-offer Accept toast is neutral: **“Add creatures to your offer.”** Build stamp **2026-04-23 16:00**.
 
 ## 2026-04-23 15:45
 - **CreatureAI.lua** — **`lone`** resumes territorial **`loneHold`** vs **Siegelings**: priorities **favorite companion**, then nearest **world creature** within **`AI_AggroRange * 0.6`**; **never runs toward prey** — faces them and **attacks at range** (projectiles); if prey leaves aggro / line-of-sight drops, drops to **hold** rather than repositioning (except after **DamageCreature**, which clears **`loneHoldGround`** and uses normal **chase** vs the attacker).

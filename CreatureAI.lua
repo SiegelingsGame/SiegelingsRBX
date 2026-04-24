@@ -1,5 +1,5 @@
 -- CreatureAI.lua - ServerScriptService (ModuleScript)
--- Last updated: 2026-04-23 15:45
+-- Last updated: 2026-04-23 19:35
 -- UPDATED: FIX #15 crawling upright reset on Move->Idle transition (2025)
 -- Terrain swimmable water: water-type AI uses IsPositionInSwimmableWater; moveTowards skips seafloor raycast while swimming.
 -- Manages world creature behaviors: wander, aggro, pack, flee, fight, faint.
@@ -1671,7 +1671,8 @@ end
 function CreatureAI.Init(laserDoorRef)
 	if laserDoorRef then LaserDoorSystem = laserDoorRef end
 	CreatureAI.OnCreatureFainted = Instance.new("BindableEvent")
-	-- Main AI loop: run every frame for fluid movement (was task.wait tick rate - caused jumpy motion)
+	-- Main AI loop: distance-based LOD to reduce per-frame AI cost while keeping nearby movement fluid.
+	-- <40 studs: full rate; 40-120 studs: 10 Hz; >120 studs: 2 Hz.
 	-- IMPORTANT: Never modify creatureStates during pairs() iteration.
 	-- Collect removals in a separate list, then apply after iteration.
 	local lastTick = tick()
@@ -1679,11 +1680,54 @@ function CreatureAI.Init(laserDoorRef)
 		local now = tick()
 		local dt = math.min(now - lastTick, 1/15) -- clamp dt to avoid huge jumps after lag
 		lastTick = now
+		local playerRoots = {}
+		for _, p in ipairs(Players:GetPlayers()) do
+			local char = p.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			local root = char and char:FindFirstChild("HumanoidRootPart")
+			if root and hum and hum.Health > 0 then
+				table.insert(playerRoots, root.Position)
+			end
+		end
 
 		local toRemove = {}
 		for model, state in pairs(creatureStates) do
 			if model.Parent then
-				local ok, err = pcall(updateCreature, model, state, dt)
+				local body = getBody(model)
+				local nearest = math.huge
+				if body and #playerRoots > 0 then
+					local bpos = body.Position
+					for _, rpos in ipairs(playerRoots) do
+						local d = (bpos - rpos).Magnitude
+						if d < nearest then nearest = d end
+					end
+				end
+
+				local updateInterval
+				if nearest <= 40 then
+					updateInterval = 0
+				elseif nearest <= 120 then
+					updateInterval = 0.1
+				else
+					updateInterval = 0.5
+				end
+
+				local stepDt = dt
+				if updateInterval > 0 then
+					local nextAt = state._nextAiUpdateAt or 0
+					if now < nextAt then
+						continue
+					end
+					local lastAi = state._lastAiUpdateAt or now
+					stepDt = math.min(now - lastAi, 0.25)
+					state._lastAiUpdateAt = now
+					state._nextAiUpdateAt = now + updateInterval
+				else
+					state._lastAiUpdateAt = now
+					state._nextAiUpdateAt = now
+				end
+
+				local ok, err = pcall(updateCreature, model, state, stepDt)
 				if not ok then warn("[CreatureAI] Error: " .. tostring(err)) end
 			else
 				table.insert(toRemove, model)

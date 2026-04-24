@@ -3,7 +3,7 @@
 	ReplicatedStorage/Modules/GameConfigData
 	Actual config data. Required lazily by GameConfig to avoid recursive require.
 ]]
--- Last updated: 2026-04-19 20:00
+-- Last updated: 2026-04-23 22:37
 -- lol
 
 local GameConfig = {}
@@ -197,6 +197,36 @@ GameConfig.BiomeZone = {
 	},
 }
 
+-- World map (client UI): upload your map. imaage to Roblox,f paste rbxassetid here, tune bounds if the pin feels off.
+GameConfig.WorldMap = {
+	Enabled = true,
+	-- After uploading the PNG to Roblox (Asset Manager or Create Decal/Image), set e.g. "rbxassetid://1234567890"
+	ImageAssetId = "76681495282321",
+	UseAutoBounds = true,
+	-- When UseAutoBounds is false, or auto-resolve finds no parts, these world XZ extents define the full image edges:
+	MinWorldXZ = Vector2.new(-2200, -2200),
+	MaxWorldXZ = Vector2.new(2200, 2200),
+	-- Padding added outside the union of hub + outer baseplates when UseAutoBounds is true (0–0.25)
+	AutoBoundsPadFraction = 0.08,
+	-- If true, world +Z maps toward the bottom of the image (common for north-up art vs Roblox UI Y-down)
+	FlipWorldZOnMap = true,
+	-- Rotation (degrees). Use 0/90/180/270 to align the art with your world orientation.
+	-- If the pin appears in the wrong biome but with roughly correct distance from the center,
+	-- try 90 (clockwise), then 180, then 270.
+	RotationDegrees = 0,
+	-- Calibration mode (recommended): solve a worldXZ -> mapUV transform from 3 anchors.
+	-- Enable, open the map, press [C], then:
+	-- - Stand on a landmark in-world
+	-- - Click that same landmark on the map image
+	-- Do this for A, B, C. The output prints a ready-to-paste Calibration block.
+	CalibrationEnabled = true,
+	Calibration = nil,
+	-- Panel width as fraction of the shorter viewport side
+	PanelFill = 0.88,
+	-- Map image width ÷ height (your art aspect); used for the map frame only
+	MapAspectRatio = 1.65,
+}
+
 -- Campfire crafting / ingredient pickups
 GameConfig.Cooking = {
 	Enabled = true,
@@ -267,7 +297,7 @@ GameConfig.Cooking = {
 
 -- Spawning (SpawnPoints should stay full; common creatures prioritized)
 -- Reduced from 200 to 150 for performance (night bonus +100 still applies)
-GameConfig.MaxWorldCreatures   = 1000
+GameConfig.MaxWorldCreatures   = 150
 GameConfig.SpawnIntervalMin    = 0.5   -- faster spawns so SpawnPoints stay full
 GameConfig.SpawnIntervalMax    = 1.5
 GameConfig.SpawnsPerCycle      = 4     -- spawn this many per cycle when under 50% capacity (else 1-2)

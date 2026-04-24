@@ -1,4 +1,4 @@
--- Last updated: 2026-04-18 22:15
+-- Last updated: 2026-04-23 19:35
 -- BadlandsSystem.lua - ServerScriptService (ModuleScript)
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- THE BADLANDS — Master Coordinator (Phase 1: Core Loop)
@@ -1384,7 +1384,13 @@ local function extractPlayer(userId)
 			PlayerDataManager.AddSigil(ps.player, siegeLordZone)
 			-- Persist immediately: extraction is a milestone moment; don't rely on 120s auto-save.
 			if PlayerDataManager.SavePlayer then
-				pcall(function() PlayerDataManager.SavePlayer(ps.player) end)
+				pcall(function()
+					if PlayerDataManager.RequestSave then
+						PlayerDataManager.RequestSave(ps.player)
+					else
+						PlayerDataManager.SavePlayer(ps.player)
+					end
+				end)
 			end
 			local sigilEvt = eventsFolder and eventsFolder:FindFirstChild("SigilEarned")
 			if sigilEvt then

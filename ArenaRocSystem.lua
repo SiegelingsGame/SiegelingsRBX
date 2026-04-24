@@ -1,8 +1,13 @@
 -- ArenaRocSystem.lua — ServerScriptService (ModuleScript)
 -- Workspace.Arena: **Roc** / **Model_Roc** — single Interact → hub (display team, Trade, PvP, NPC team); hub mutex; faces players (Eleminion-style).
--- Last updated: 2026-04-23 01:00
--- Roc trade accepts N Siegelings → N Cactys in a single submit (no hidden cap). The 10× Cacty →
--- CactyJackedty path is an easter egg; server-side error copy never mentions the 10-stack number.
+-- Last updated: 2026-04-23 22:45
+-- Roc trade: player may offer any mix of N≥1 creatures from their inventory. Reward is always exactly
+-- 1 creature:
+--   * If the offer contains ≥10 Cactys → 1 CactyJackedty
+--   * Otherwise                        → 1 Cacty
+-- Only Siegelings are capturable in this game, so the entire player inventory is Siegelings — the
+-- server no longer species-gates offered uids, it only requires each uid to resolve to a real row
+-- in the player's own inventory.
 
 local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
@@ -15,6 +20,10 @@ local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
 local FavoriteCreatureSystem = nil
 pcall(function()
 	FavoriteCreatureSystem = require(ServerScriptService.FavoriteCreatureSystem)
+end)
+local BasePlacementSystem = nil
+pcall(function()
+	BasePlacementSystem = require(ServerScriptService.BasePlacementSystem)
 end)
 
 local ArenaRocSystem = {}
@@ -133,7 +142,11 @@ local function enforceRocSiegelingPact(player)
 	end
 	if PlayerDataManager.SavePlayer then
 		pcall(function()
-			PlayerDataManager.SavePlayer(player)
+			if PlayerDataManager.RequestSave then
+				PlayerDataManager.RequestSave(player)
+			else
+				PlayerDataManager.SavePlayer(player)
+			end
 		end)
 	end
 end
@@ -678,8 +691,13 @@ function ArenaRocSystem.Init(pdm)
 			return false, "Offer at least one creature."
 		end
 
+		-- Every offered uid must resolve to a real row in this player's own inventory. No species
+		-- gate: only Siegelings are capturable, so anything in PlayerDataManager.inventory qualifies.
+		-- (`isSiegelingSpecies` is intentionally not used here — it only recognized a subset of
+		-- species and was rejecting legitimate offers like Squire Bud.)
 		local seen = {}
 		local offeredRows = {}
+		local nCacty = 0
 		for _, uid in ipairs(uids) do
 			if type(uid) ~= "string" or uid == "" then
 				return false, "Invalid creature."
@@ -692,42 +710,16 @@ function ArenaRocSystem.Init(pdm)
 			if not row or not row.id then
 				return false, "Creature not found."
 			end
+			if row.id == CACTY_ID then
+				nCacty += 1
+			end
 			table.insert(offeredRows, row)
 		end
 
-		-- Classify the offer. Only three valid shapes reach the reward branches below:
-		--   * Siegelings only (any count N ≥ 1)  → N Cactys
-		--   * Cacty only, exactly 1               → fresh Cacty swap
-		--   * Cacty only, exactly 10              → CactyJackedty (easter egg — copy stays generic)
-		--   * Single non-siegeling, non-Cacty     → 1 Cacty (legacy catch-all trade)
-		local allSiegelings = true
-		local allCacty = true
-		for _, row in ipairs(offeredRows) do
-			if not isSiegelingSpecies(row.id) then
-				allSiegelings = false
-			end
-			if row.id ~= CACTY_ID then
-				allCacty = false
-			end
-		end
-
-		local isSiegelingBatch = allSiegelings and n >= 1
-		local isCactyJackedtyEasterEgg = allCacty and n == 10
-		local isFreshCactySwap = allCacty and n == 1
-		local isLegacySingle = (not allSiegelings) and (not allCacty) and n == 1
-
-		if not (isSiegelingBatch or isCactyJackedtyEasterEgg or isFreshCactySwap or isLegacySingle) then
-			-- Intentionally vague: never mention the 10-stack count.
-			return false, "Roc only accepts Siegelings together, or one other creature at a time."
-		end
-
-		-- Compute rewards up front so we can validate inventory space before any removal.
-		local rewardsCount
-		if isSiegelingBatch then
-			rewardsCount = n
-		else
-			rewardsCount = 1
-		end
+		-- Reward is always exactly 1 creature: CactyJackedty when the offer contains 10 or more
+		-- Cactys (anywhere in the mix), otherwise a plain Cacty.
+		local rewardId = (nCacty >= 10) and JACK_ID or CACTY_ID
+		local rewardsCount = 1
 
 		local d = PlayerDataManager.GetData(player)
 		if not d or not d.inventory then
@@ -750,55 +742,31 @@ function ArenaRocSystem.Init(pdm)
 			end)
 		end
 
-		if isCactyJackedtyEasterEgg then
-			PlayerDataManager.AddCreature(player, JACK_ID, 1, 0, "Normal", nil, { source = "roc_trade" })
-			if PlayerDataManager.SavePlayer then
-				pcall(function()
-					PlayerDataManager.SavePlayer(player)
-				end)
-			end
-			return true, "Roc forged your Cactys into a CactyJackedty!"
-		end
-
-		if isSiegelingBatch then
-			for _, row in ipairs(offeredRows) do
-				PlayerDataManager.AddCreature(player, CACTY_ID, 1, 0, "Normal", nil, {
-					source = "roc_trade",
-					rocSiegelingPact = true,
-					fromSiegelingId = row.id,
-				})
-			end
-			if PlayerDataManager.SavePlayer then
-				pcall(function()
-					PlayerDataManager.SavePlayer(player)
-				end)
-			end
-			if n == 1 then
-				local givenInfo = CreatureData.GetById(offeredRows[1].id)
-				local givenName = (givenInfo and givenInfo.displayName) or offeredRows[1].id
-				return true, "Roc traded you a Cacty for your " .. givenName .. "."
-			end
-			return true, string.format("Roc traded you %d Cactys for your Siegelings.", n)
-		end
-
-		-- Remaining shapes: isFreshCactySwap (1 Cacty) or isLegacySingle (1 non-siegeling non-Cacty).
-		local given = offeredRows[1]
-		local siegelingPact = (given.id ~= CACTY_ID) and isSiegelingSpecies(given.id)
-		PlayerDataManager.AddCreature(player, CACTY_ID, 1, 0, "Normal", nil, {
+		PlayerDataManager.AddCreature(player, rewardId, 1, 0, "Normal", nil, {
 			source = "roc_trade",
-			rocSiegelingPact = siegelingPact == true,
+			rocSiegelingPact = true,
+			offerCount = n,
+			offerCactyCount = nCacty,
 		})
+		if BasePlacementSystem and BasePlacementSystem.ClearOrbByUid then
+			for _, uid in ipairs(uids) do
+				pcall(function() BasePlacementSystem.ClearOrbByUid(player, uid, true) end)
+			end
+		end
 		if PlayerDataManager.SavePlayer then
 			pcall(function()
-				PlayerDataManager.SavePlayer(player)
+				if PlayerDataManager.RequestSave then
+					PlayerDataManager.RequestSave(player)
+				else
+					PlayerDataManager.SavePlayer(player)
+				end
 			end)
 		end
-		if given.id == CACTY_ID then
-			return true, "Roc traded you a fresh Cacty."
+
+		if rewardId == JACK_ID then
+			return true, "Roc forged your Cactys into a CactyJackedty!"
 		end
-		local givenInfo = CreatureData.GetById(given.id)
-		local givenName = (givenInfo and givenInfo.displayName) or given.id
-		return true, "Roc traded you a Cacty for your " .. givenName .. "."
+		return true, "Roc traded you a Cacty."
 	end
 
 	local function attachPrompts()

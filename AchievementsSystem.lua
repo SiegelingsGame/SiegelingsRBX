@@ -1,5 +1,6 @@
 -- AchievementsSystem.lua - ServerScriptService (ModuleScript)
 -- Scalable achievement tracking, metric storage, and live unlock dispatch.
+-- Last updated: 2026-04-23 19:35
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -98,7 +99,13 @@ local function grantAchievementRewards(player, def)
 	-- Persist immediately so an abrupt disconnect before the 120s auto-save
 	-- cannot swallow the reward after the player has already seen the toast.
 	if PlayerDataManager.SavePlayer then
-		pcall(function() PlayerDataManager.SavePlayer(player) end)
+		pcall(function()
+			if PlayerDataManager.RequestSave then
+				PlayerDataManager.RequestSave(player)
+			else
+				PlayerDataManager.SavePlayer(player)
+			end
+		end)
 	end
 end
 

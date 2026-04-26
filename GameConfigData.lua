@@ -3,7 +3,7 @@
 	ReplicatedStorage/Modules/GameConfigData
 	Actual config data. Required lazily by GameConfig to avoid recursive require.
 ]]
--- Last updated: 2026-04-23 22:37
+-- Last updated: 2026-04-24 22:26
 -- lol
 
 local GameConfig = {}
@@ -77,6 +77,17 @@ GameConfig.PlayerXP_RaidWin       = 30     -- XP for successful raid
 GameConfig.PlayerXP_DungeonKill   = 20     -- XP for killing a dungeon creature
 GameConfig.PlayerXP_BossKill      = 100    -- XP for killing a boss creature
 
+-- Player rank titles (used for Roblox `leaderstats` + UI).
+-- The first entry whose `minLevel <= playerLevel` and is the highest minLevel wins.
+-- Edit these strings freely to match your game's lore.
+GameConfig.PlayerRankTitles = {
+	{ minLevel = 1,  title = "Siegling" },
+	{ minLevel = 5,  title = "Siegesquire" },
+	{ minLevel = 10, title = "Siegeknight" },
+	{ minLevel = 25, title = "Siegemaster" },
+	{ minLevel = 50, title = "Siegelord" },
+}
+
 -- Achievement tier rewards (chain tier I–V; single-step achievements use tier 1)
 GameConfig.AchievementGemsByTier = { 5, 12, 24, 45, 80 }
 GameConfig.AchievementXPByTier = { 35, 75, 140, 230, 350 }
@@ -111,6 +122,7 @@ GameConfig.SellRange              = 12     -- studs to walk-up sell from base cr
 GameConfig.BaseInteractionRange   = 12     -- studs; ProximityPrompt activation distance
 GameConfig.BasePlacementPromptRange = 18   -- studs; [E] Place Here / Swap on points while holding (slightly larger so standing on defense platform can reach adjacent empty points)
 GameConfig.BaseInteractionEnabled = true   -- master toggle for pick-up/move/swap features
+GameConfig.HoldInteractionDuration = 0.6   -- seconds to hold [E] for ProximityPrompt interactions (0 = press)
 
 -- Per-floor slot limits (total across all owned floors)
 GameConfig.IncomePointsPerFloor   = 6
@@ -176,7 +188,7 @@ GameConfig.GameplayMusic = {
     SoundGroupName  = "Music",
 }
 
--- Biome regions for ingredient spawns (mirrors BiomeSkyboxClient zone order; server-side)
+-- Biome regions for ingredient spawns (mirrors BiomeSkyboxClient zone order; server-side)df
 GameConfig.BiomeZone = {
 	InnerWedgeMaxRadius = 1000,
 	OuterZones = {
@@ -197,7 +209,7 @@ GameConfig.BiomeZone = {
 	},
 }
 
--- World map (client UI): upload your map. imaage to Roblox,f paste rbxassetid here, tune bounds if the pin feels off.
+-- World map (client UI): upload your map imaage to Roblox,f paste rbxassetid here, tune bounds if the pin feels off.
 GameConfig.WorldMap = {
 	Enabled = true,
 	-- After uploading the PNG to Roblox (Asset Manager or Create Decal/Image), set e.g. "rbxassetid://1234567890"
@@ -220,7 +232,53 @@ GameConfig.WorldMap = {
 	-- - Click that same landmark on the map image
 	-- Do this for A, B, C. The output prints a ready-to-paste Calibration block.
 	CalibrationEnabled = true,
+	-- Temporary base-point debugging: when true, opening the map prints the player's world position
+	-- plus the resolved owned PlotCenter so base/map anchor points can be collected from Studio output.
+	DebugPrintPlayerPositionOnOpen = true,
+	-- PlotCenter orientation can differ from the hand-drawn map. Snap owned base markers to these measured
+	-- world XZ anchor points so each base lands on its true drawn hub pad.
+	UseBasePointAnchors = true,
+	BasePointAnchorSnapDistance = 90,
+	BasePointAnchors = {
+		{ id = "Red", world = Vector2.new(82.911, -93.859) },
+		{ id = "Blue", world = Vector2.new(177.128, -0.531) },
+		{ id = "Green", world = Vector2.new(175.310, 115.909) },
+		{ id = "Yellow", world = Vector2.new(84.891, 221.530) },
+		{ id = "Orange", world = Vector2.new(-36.782, 216.679) },
+		{ id = "Purple", world = Vector2.new(-134.612, 121.513) },
+		{ id = "Pink", world = Vector2.new(-130.212, -0.641) },
+		{ id = "White", world = Vector2.new(-37.752, -89.189), mapUV = Vector2.new(0.620000, 0.335000) },
+	},
 	Calibration = nil,
+	-- Auto-calibration (recommended): solve calibration from the 4 exterior zone doors (Ocean/Desert/Electric/Cave).
+	-- You only need to click each door once on the map (UV capture); the world positions are resolved automatically.
+	AutoFromZoneDoors = true,
+	-- Filled via the in-game capture mode (press [Z] on the map): values are UVs (0..1) on the image.
+	ZoneDoorMapUV = {
+		Ocean = Vector2.new(0.281880, 0.615916),
+		Desert = Vector2.new(0.478516, 0.345646),
+		Electric = Vector2.new(0.688260, 0.615916),
+		Cave = Vector2.new(0.481793, 0.902402),
+	},
+	-- Durable calibration: each point pairs a real world XZ position with its UV on the uploaded map image.
+	-- Keep literal world coordinates for critical anchors so missing/streamed door parts cannot force bounds fallback.
+	AnchorCalibration = {
+		Enabled = true,
+		Mode = "nearest3",
+		MinResolvedPoints = 3,
+		WarnErrorUV = 0.025,
+		Points = {
+			{ id = "OceanDoor", zoneId = "Ocean", uv = Vector2.new(0.281880, 0.615916) },
+			{ id = "DesertDoor", zoneId = "Desert", uv = Vector2.new(0.478516, 0.345646) },
+			{ id = "ElectricDoor", zoneId = "Electric", world = Vector2.new(-1004.753, 62.229), uv = Vector2.new(0.688260, 0.615916) },
+			{ id = "CaveDoor", zoneId = "Cave", world = Vector2.new(30.186, -983.326), uv = Vector2.new(0.481793, 0.902402) },
+			{ id = "CloudtopiaWind", world = Vector2.new(-586.587, 309.098), uv = Vector2.new(0.355000, 0.145000) },
+			{ id = "EvergreenEarth", world = Vector2.new(-536.305, -375.834), uv = Vector2.new(0.610000, 0.535000) },
+			{ id = "EvergreenForestReference", world = Vector2.new(-772.743, -764.626), uv = Vector2.new(0.680000, 0.680000) },
+			{ id = "VolcanicFire", world = Vector2.new(737.707, -876.628), uv = Vector2.new(0.345000, 0.690000) },
+			{ id = "FrozenIce", world = Vector2.new(650.820, 841.113), uv = Vector2.new(0.390000, 0.400000) },
+		},
+	},
 	-- Panel width as fraction of the shorter viewport side
 	PanelFill = 0.88,
 	-- Map image width ÷ height (your art aspect); used for the map frame only
@@ -471,6 +529,16 @@ GameConfig.ArenaRoc = {
 	-- NPC yaw: flat XZ look-at toward nearest player in range, or last Talk/Trade/Battle user (Eleminion-style).
 	AttentionRange = 50,
 	FacingUpdateInterval = 0.15,
+}
+
+-- Eleminion affinity “battle pass” milestones.
+-- As you gain affinity with ANY Eleminion element, you earn these one-time rewards per element.
+-- Thresholds are expressed as a fraction (0..1) of that element’s max affinity.
+GameConfig.EleminionAffinityPass = {
+	{ id = "25", pct = 0.25, rewards = { coins = 1000 }, label = "25% — 1,000 Gold" },
+	{ id = "50", pct = 0.50, rewards = { egg = "Rare" }, label = "50% — Rare Egg" },
+	{ id = "75", pct = 0.75, rewards = { gems = 250 }, label = "75% — 250 Diamonds" },
+	{ id = "100", pct = 1.00, rewards = { egg = "Legendary" }, label = "100% — Legendary Egg" },
 }
 
 -- Zone doors (Ocean, Desert, Electric, Cave): spend 4 inner boss Legendaries at the door to pass; gym keys / sigils still supported in data.

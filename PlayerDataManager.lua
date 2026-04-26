@@ -195,6 +195,64 @@ local function normalizeOwnedFloors(raw)
 	return out
 end
 
+-- -- LEADERSTATS (Roblox built-in player list) --
+
+local function getRankTitleForLevel(level)
+	level = tonumber(level) or 1
+	local defs = GameConfig.PlayerRankTitles
+	if type(defs) ~= "table" then
+		return ""
+	end
+	local bestMin = -math.huge
+	local bestTitle = ""
+	for _, def in ipairs(defs) do
+		if type(def) == "table" then
+			local minLevel = tonumber(def.minLevel)
+			local title = def.title
+			if minLevel and minLevel <= level and minLevel >= bestMin and type(title) == "string" then
+				bestMin = minLevel
+				bestTitle = title
+			end
+		end
+	end
+	return bestTitle
+end
+
+local function getOrCreateLeaderstats(player)
+	local ls = player:FindFirstChild("leaderstats")
+	if not ls then
+		ls = Instance.new("Folder")
+		ls.Name = "leaderstats"
+		ls.Parent = player
+	end
+
+	local levelVal = ls:FindFirstChild("Level")
+	if not levelVal then
+		levelVal = Instance.new("IntValue")
+		levelVal.Name = "Level"
+		levelVal.Parent = ls
+	end
+
+	local rankVal = ls:FindFirstChild("Rank")
+	if not rankVal then
+		rankVal = Instance.new("StringValue")
+		rankVal.Name = "Rank"
+		rankVal.Parent = ls
+	end
+
+	return levelVal, rankVal
+end
+
+local function syncLeaderstats(player)
+	if not player or not player.Parent then return end
+	local d = playerCache[player.UserId]
+	if not d then return end
+	local levelVal, rankVal = getOrCreateLeaderstats(player)
+	local lvl = tonumber(d.playerLevel) or 1
+	levelVal.Value = lvl
+	rankVal.Value = getRankTitleForLevel(lvl)
+end
+
 local function normalizeOwnedLookup(raw)
 	local fixed = {}
 	if type(raw) ~= "table" then
@@ -1981,6 +2039,10 @@ function PlayerDataManager.OnPlayerJoin(player)
 	else
 		playerCache[player.UserId] = getDefaultData()
 	end
+
+	-- Built-in Roblox leaderboard / player list columns
+	syncLeaderstats(player)
+
 	PlayerDataManager.AssignPlot(player)
 	PlayerDataManager.SavePlayer(player)
 
@@ -2559,6 +2621,9 @@ function PlayerDataManager.AddPlayerXP(player, amount)
 	end
 	if leveled then
 		PlayerDataManager.NotifyAchievement("OnPlayerLevelChanged", player, d.playerLevel)
+		task.defer(function()
+			syncLeaderstats(player)
+		end)
 		task.defer(function()
 			if player.Parent then
 				PlayerDataManager.ApplyWorldStatsToCharacter(player)

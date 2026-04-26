@@ -275,7 +275,7 @@ local function createActivationButton(plotModel, center, groundY, ownerUserId)
 	pp.ActionText = "Activate Shield"
 	pp.ObjectText = "Shield Generator"
 	pp.MaxActivationDistance = 10
-	pp.HoldDuration = 0
+	pp.HoldDuration = tonumber(GameConfig.HoldInteractionDuration) or 0.6
 	pp.RequiresLineOfSight = true
 	pp.KeyboardKeyCode = Enum.KeyCode.E
 	pp.Exclusivity = Enum.ProximityPromptExclusivity.AlwaysShow

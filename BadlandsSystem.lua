@@ -1618,7 +1618,7 @@ local function startRun(playerList)
 			prompt.Name = "ExtractPrompt"
 			prompt.ObjectText = "Extraction Point"
 			prompt.ActionText = "Extract"
-			prompt.HoldDuration = 0
+			prompt.HoldDuration = tonumber(GameConfig.HoldInteractionDuration) or 0.6
 			prompt.MaxActivationDistance = 12
 			prompt.RequiresLineOfSight = false
 			prompt.KeyboardKeyCode = Enum.KeyCode.E

@@ -474,7 +474,7 @@ local function attachPrompt(part, slotKey)
 	prompt.Name = "DecorFurnishPrompt"
 	prompt.ActionText = "Furnish"
 	prompt.ObjectText = "Decor " .. slotKey:gsub("_", " · ")
-	prompt.HoldDuration = 0
+	prompt.HoldDuration = tonumber(GameConfig.HoldInteractionDuration) or 0.6
 	prompt.MaxActivationDistance = GameConfig.BaseInteractionRange or 10
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = part

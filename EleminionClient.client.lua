@@ -59,6 +59,7 @@ local progressLabel
 local rewardLabel
 local affinityBar
 local affinityFill
+local passRow
 local questList
 local emptyLabel
 local claimButton
@@ -102,6 +103,7 @@ local function closeUi()
 	rewardLabel = nil
 	affinityBar = nil
 	affinityFill = nil
+	passRow = nil
 	questList = nil
 	emptyLabel = nil
 	claimButton = nil
@@ -342,6 +344,38 @@ local function renderPayload(payload)
 	affinityFill.BackgroundColor3 = accent
 	affinityFill.Size = UDim2.new(payload.affinityPercent or 0, 0, 1, 0)
 
+	-- Affinity “battle pass” milestones
+	if passRow then
+		for _, child in ipairs(passRow:GetChildren()) do
+			if not child:IsA("UIListLayout") then
+				child:Destroy()
+			end
+		end
+		for _, m in ipairs(payload.affinityPass or {}) do
+			local chip = Instance.new("Frame")
+			chip.Size = UDim2.new(1, 0, 0, 26)
+			chip.BackgroundColor3 = m.claimed and Color3.fromRGB(40, 88, 58) or Color3.fromRGB(22, 26, 37)
+			chip.BorderSizePixel = 0
+			chip.Parent = passRow
+			Instance.new("UICorner", chip).CornerRadius = UDim.new(0, 8)
+
+			local stroke = Instance.new("UIStroke")
+			stroke.Thickness = 1
+			stroke.Color = m.claimed and C.green or Color3.fromRGB(72, 78, 96)
+			stroke.Transparency = m.claimed and 0.2 or 0.35
+			stroke.Parent = chip
+
+			makeTextLabel(chip, {
+				Position = UDim2.new(0, 10, 0, 0),
+				Size = UDim2.new(1, -20, 1, 0),
+				Font = Enum.Font.GothamMedium,
+				TextSize = 12,
+				TextColor3 = m.claimed and C.green or C.white,
+				Text = (m.claimed and "[Claimed] " or "[ ] ") .. tostring(m.label or ""),
+			})
+		end
+	end
+
 	clearQuestCards()
 	questList.CanvasPosition = Vector2.new(0, 0)
 	for _, questPayload in ipairs(payload.quests or {}) do
@@ -476,10 +510,23 @@ local function ensureUi()
 		Text = "",
 	})
 
+	passRow = Instance.new("Frame")
+	passRow.Name = "AffinityPass"
+	passRow.Position = UDim2.new(0, 12, 0, 100)
+	passRow.Size = UDim2.new(1, -24, 0, 0)
+	passRow.AutomaticSize = Enum.AutomaticSize.Y
+	passRow.BackgroundTransparency = 1
+	passRow.Parent = affinityCard
+
+	local passLayout = Instance.new("UIListLayout")
+	passLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	passLayout.Padding = UDim.new(0, 6)
+	passLayout.Parent = passRow
+
 	questList = Instance.new("ScrollingFrame")
 	questList.Name = "QuestList"
-	questList.Position = UDim2.new(0, 14, 0, 204)
-	questList.Size = UDim2.new(1, -28, 1, -270)
+	questList.Position = UDim2.new(0, 14, 0, 222)
+	questList.Size = UDim2.new(1, -28, 1, -288)
 	questList.BackgroundTransparency = 1
 	questList.BorderSizePixel = 0
 	questList.ScrollBarThickness = 6

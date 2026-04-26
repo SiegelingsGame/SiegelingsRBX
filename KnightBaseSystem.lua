@@ -751,7 +751,7 @@ local function setupProximityPrompts()
 		prompt.ActionText = "Rent Knight Base"
 		prompt.ObjectText = getBiomeDisplayName(biome)
 		prompt.KeyboardKeyCode = Enum.KeyCode.E
-		prompt.HoldDuration = 0
+		prompt.HoldDuration = tonumber(GameConfig.HoldInteractionDuration) or 0.6
 		prompt.MaxActivationDistance = 12
 		prompt.RequiresLineOfSight = false
 		prompt.Parent = part

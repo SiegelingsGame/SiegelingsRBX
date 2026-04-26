@@ -798,6 +798,46 @@ addSingle({
 	metric = metricListCount({ "ownedFloors" }),
 })
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- NPC / affinity achievements (Eleminions + Roc)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+addSingle({
+	id = "exploration_eleminion_meet",
+	category = "Exploration",
+	subcategory = "NPCs & Affinity",
+	name = "Elemental Introductions",
+	badgeGlyph = "E",
+	titleEarned = "Elemental Friend",
+	description = "Meet an Eleminion and open their affinity path.",
+	requiredProgress = 1,
+	metric = metricSetCount("exploration.eleminionsMet"),
+})
+
+addSingle({
+	id = "exploration_eleminion_quest_complete",
+	category = "Exploration",
+	subcategory = "NPCs & Affinity",
+	name = "Quest Of Affinity",
+	badgeGlyph = "Q",
+	titleEarned = "Bondkeeper",
+	description = "Complete and claim an Eleminion quest reward.",
+	requiredProgress = 1,
+	metric = metricCounter("exploration.eleminionQuestClaims"),
+})
+
+addSingle({
+	id = "exploration_roc_interact",
+	category = "Exploration",
+	subcategory = "NPCs & Affinity",
+	name = "Roc's Attention",
+	badgeGlyph = "R",
+	titleEarned = "Roc's Associate",
+	description = "Interact with Roc in the arena hub.",
+	requiredProgress = 1,
+	metric = metricSetMember("exploration.npcsInteracted", "Roc"),
+})
+
 AchievementsConfig.Definitions = definitions
 AchievementsConfig.Chains = chains
 AchievementsConfig.ChainById = chainById

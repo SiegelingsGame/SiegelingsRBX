@@ -1,6 +1,6 @@
 -- EleminionSystem.lua - ServerScriptService (ModuleScript)
 -- Spawns Eleminion NPCs at biome EPoints / EleminionPoints and handles affinity quest progress.
--- Last updated: 2026-04-19 22:00
+-- Last updated: 2026-04-25 00:22
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -366,6 +366,9 @@ local function getOrCreateElementState(player, element)
 	if type(state.quests) ~= "table" then
 		state.quests = {}
 	end
+	if type(state.affinityPassClaims) ~= "table" then
+		state.affinityPassClaims = {} -- [milestoneId] = true
+	end
 	return data, state
 end
 
@@ -580,6 +583,29 @@ function EleminionSystem.GetStatusPayload(player, element)
 		unlocked = questState.claimed == true
 	end
 
+	local pass = {}
+	local cfgPass = GameConfig.EleminionAffinityPass
+	if type(cfgPass) == "table" then
+		for _, m in ipairs(cfgPass) do
+			if type(m) == "table" then
+				local id = tostring(m.id or "")
+				local pct = math.clamp(tonumber(m.pct) or 0, 0, 1)
+				if id ~= "" and pct > 0 then
+					table.insert(pass, {
+						id = id,
+						pct = pct,
+						requiredAffinity = math.floor(maxAffinity * pct + 0.5),
+						label = m.label,
+						claimed = state.affinityPassClaims and state.affinityPassClaims[id] == true or false,
+					})
+				end
+			end
+		end
+	end
+	table.sort(pass, function(a, b)
+		return (a.pct or 0) < (b.pct or 0)
+	end)
+
 	return {
 		element = def.element,
 		title = def.title,
@@ -591,6 +617,7 @@ function EleminionSystem.GetStatusPayload(player, element)
 		affinity = affinity,
 		maxAffinity = maxAffinity,
 		affinityPercent = (maxAffinity > 0) and math.clamp(affinity / maxAffinity, 0, 1) or 0,
+		affinityPass = pass,
 		currentQuestIndex = currentQuestIndex or #(def.quests or {}),
 		totalQuests = #(def.quests or {}),
 		allClaimed = allClaimed,
@@ -649,6 +676,133 @@ local function awardLegendaryEgg(player, element)
 	return true, eggUid, creatureId
 end
 
+local function rollRandomCreatureIdByRarity(rarity)
+	local pool = {}
+	for _, c in ipairs(CreatureData.Creatures or {}) do
+		if c
+			and c.id
+			and c.rarity == rarity
+			and c.npcOnly ~= true
+			and c.modelName ~= "Egg" then
+			table.insert(pool, c.id)
+		end
+	end
+	if #pool == 0 then
+		return nil
+	end
+	return pool[math.random(1, #pool)]
+end
+
+local function awardRareEgg(player)
+	local data = PlayerDataManager.GetData(player)
+	if not data then
+		return false, "No data"
+	end
+	if #(data.eggs or {}) >= (GameConfig.MaxInventorySize or 50) then
+		return false, "Too many eggs. Hatch or clear space first."
+	end
+
+	-- Rare Egg pool: Uncommon or Rare (matches GameConfig egg_rare defaults).
+	local rarity = (math.random() < 0.50) and "Uncommon" or "Rare"
+	local creatureId = rollRandomCreatureIdByRarity(rarity) or rollRandomCreatureIdByRarity("Common")
+	if not creatureId then
+		return false, "No creatures available for rare egg reward."
+	end
+
+	local eggUid = PlayerDataManager.AddEgg(player, creatureId, 1, rarity, true)
+	if not eggUid then
+		return false, "Failed to create reward egg"
+	end
+	return true, eggUid, creatureId, rarity
+end
+
+local function tryGrantAffinityPassMilestones(player, element, previousAffinity, newAffinity, grantedEggThisClaim)
+	local def = EleminionData.GetByElement(element)
+	if not def then
+		return
+	end
+	local data, state = getOrCreateElementState(player, element)
+	if not data or not state then
+		return
+	end
+
+	local maxAffinity = EleminionData.GetMaxAffinity(element)
+	if maxAffinity <= 0 then
+		return
+	end
+
+	local passCfg = GameConfig.EleminionAffinityPass
+	if type(passCfg) ~= "table" then
+		return
+	end
+
+	local claims = state.affinityPassClaims
+	if type(claims) ~= "table" then
+		claims = {}
+		state.affinityPassClaims = claims
+	end
+
+	local function markClaimed(id)
+		claims[tostring(id)] = true
+	end
+
+	for _, m in ipairs(passCfg) do
+		if type(m) == "table" then
+			local id = tostring(m.id or "")
+			local pct = math.clamp(tonumber(m.pct) or 0, 0, 1)
+			if id ~= "" and pct > 0 and claims[id] ~= true then
+				local requiredAffinity = math.floor(maxAffinity * pct + 0.5)
+				if (tonumber(newAffinity) or 0) >= requiredAffinity then
+					local rewards = m.rewards or {}
+
+					-- 100% legendary egg: if the current quest claim already granted the legendary egg,
+					-- do not grant a duplicate — just mark the pass milestone claimed.
+					local wantsEgg = rewards.egg
+					if wantsEgg == "Legendary" and grantedEggThisClaim == true then
+						markClaimed(id)
+					else
+						local didAnything = false
+						if tonumber(rewards.coins) and rewards.coins > 0 then
+							PlayerDataManager.AddCoins(player, math.floor(rewards.coins))
+							if coinsUpdateEvent then
+								coinsUpdateEvent:FireClient(player, PlayerDataManager.GetCoins(player))
+							end
+							didAnything = true
+						end
+						if tonumber(rewards.gems) and rewards.gems > 0 then
+							PlayerDataManager.AddGems(player, math.floor(rewards.gems))
+							if gemsUpdateEvent then
+								gemsUpdateEvent:FireClient(player, PlayerDataManager.GetGems(player))
+							end
+							didAnything = true
+						end
+						if wantsEgg == "Rare" then
+							local ok = awardRareEgg(player)
+							if ok then
+								didAnything = true
+							end
+						elseif wantsEgg == "Legendary" then
+							local ok = awardLegendaryEgg(player, element)
+							if ok then
+								didAnything = true
+							end
+						end
+
+						if didAnything then
+							markClaimed(id)
+							notify(player, (def.title or (element .. " Eleminion")) .. " affinity milestone reached: " .. tostring(m.label or (tostring(math.floor(pct * 100)) .. "%")), "info")
+						else
+							-- Still mark claimed to prevent repeated attempts if the reward cannot be granted (e.g., egg full).
+							-- Player will still have the quest reward path; this avoids spam loops.
+							markClaimed(id)
+						end
+					end
+				end
+			end
+		end
+	end
+end
+
 function EleminionSystem.ClaimQuestReward(player, element)
 	local def = EleminionData.GetByElement(element)
 	if not def then
@@ -670,11 +824,14 @@ function EleminionSystem.ClaimQuestReward(player, element)
 	end
 
 	local rewards = sync.questDef.rewards or {}
+	local previousAffinity = math.max(0, tonumber(sync.state.affinity) or 0)
+	local grantedEggThisClaim = false
 	if rewards.legendaryEggElement then
 		local ok, err = awardLegendaryEgg(player, rewards.legendaryEggElement)
 		if not ok then
 			return false, err or "Reward egg unavailable.", EleminionSystem.GetStatusPayload(player, element)
 		end
+		grantedEggThisClaim = true
 	end
 
 	if tonumber(rewards.coins) and rewards.coins > 0 then
@@ -696,12 +853,21 @@ function EleminionSystem.ClaimQuestReward(player, element)
 	sync.questState.claimed = true
 	sync.questState.claimedAt = os.time()
 	sync.state.affinity = math.min(EleminionData.GetMaxAffinity(element), math.max(0, tonumber(sync.state.affinity) or 0) + (tonumber(sync.questDef.affinityReward) or 0))
+	local newAffinity = math.max(0, tonumber(sync.state.affinity) or 0)
 
 	local message = def.title .. " rewarded your progress."
 	if rewards.legendaryEggElement then
 		message = message .. " A " .. rewards.legendaryEggElement .. " Legendary Egg was added to your eggs."
 	end
 	notify(player, message, "info")
+
+	-- Achievements: quest completion/claim.
+	if PlayerDataManager and PlayerDataManager.NotifyAchievement then
+		PlayerDataManager.NotifyAchievement("OnEleminionQuestClaimed", player, element, sync.questIndex)
+	end
+
+	-- Affinity pass milestones (one-time per element).
+	tryGrantAffinityPassMilestones(player, element, previousAffinity, newAffinity, grantedEggThisClaim)
 	fireStatusUpdate(player, element)
 
 	return true, "Reward claimed!", EleminionSystem.GetStatusPayload(player, element)
@@ -982,7 +1148,7 @@ local function spawnNpc(def, point)
 	prompt.Name = "EleminionPrompt"
 	prompt.ObjectText = info.displayName
 	prompt.ActionText = "Talk"
-	prompt.HoldDuration = 0
+	prompt.HoldDuration = tonumber(GameConfig.HoldInteractionDuration) or 0.6
 	prompt.RequiresLineOfSight = false
 	prompt.MaxActivationDistance = getPromptRange()
 	prompt.KeyboardKeyCode = Enum.KeyCode.E
@@ -1021,6 +1187,9 @@ local function spawnNpc(def, point)
 			end
 			if openUiEvent then
 				openUiEvent:FireClient(player, def.element)
+			end
+			if PlayerDataManager and PlayerDataManager.NotifyAchievement then
+				PlayerDataManager.NotifyAchievement("OnEleminionMet", player, def.element)
 			end
 			fireStatusUpdate(player, def.element)
 		end)

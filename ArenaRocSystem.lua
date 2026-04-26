@@ -1,6 +1,6 @@
 -- ArenaRocSystem.lua — ServerScriptService (ModuleScript)
 -- Workspace.Arena: **Roc** / **Model_Roc** — single Interact → hub (display team, Trade, PvP, NPC team); hub mutex; faces players (Eleminion-style).
--- Last updated: 2026-04-23 22:45
+-- Last updated: 2026-04-25 00:22
 -- Roc trade: player may offer any mix of N≥1 creatures from their inventory. Reward is always exactly
 -- 1 creature:
 --   * If the offer contains ≥10 Cactys → 1 CactyJackedty
@@ -798,7 +798,7 @@ function ArenaRocSystem.Init(pdm)
 		interact.ActionText = "Interact"
 		interact.ObjectText = "Roc"
 		interact.MaxActivationDistance = 14
-		interact.HoldDuration = 0
+		interact.HoldDuration = tonumber(GameConfig.HoldInteractionDuration) or 0.6
 		interact.RequiresLineOfSight = false
 		interact.Parent = part
 		interact.Triggered:Connect(function(plr)
@@ -806,6 +806,9 @@ function ArenaRocSystem.Init(pdm)
 			-- Keep it protected so we can surface the real error and avoid breaking the prompt.
 			local ok, err = pcall(function()
 				noteRocInteractor(plr)
+				if PlayerDataManager and PlayerDataManager.NotifyAchievement then
+					PlayerDataManager.NotifyAchievement("OnRocInteracted", plr)
+				end
 				rocHubLockClearStale()
 				if rocHubLockUserId ~= nil and rocHubLockUserId ~= plr.UserId and os.clock() < rocHubLockUntil then
 					notify(plr, "Roc is busy with another player. Try again in a moment.", "error")

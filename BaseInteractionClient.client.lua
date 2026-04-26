@@ -258,7 +258,7 @@ local function createHoldingBanner(creatureName, level)
 	lbl.Size = UDim2.new(1, -50, 1, 0)
 	lbl.Position = UDim2.new(0, 12, 0, 0)
 	lbl.BackgroundTransparency = 1
-	lbl.Text = "Holding: " .. creatureName .. " Lv." .. level .. "  |  Walk to a point & press [E]"
+	lbl.Text = "Holding: " .. creatureName .. " Lv." .. level .. "  |  Walk to a point & hold [E]"
 	lbl.TextColor3 = UI_WHITE
 	lbl.Font = Enum.Font.GothamMedium
 	lbl.TextSize = 14
@@ -427,7 +427,7 @@ local function showContextMenu(model)
 		-- Attach [E] prompts to all matching-type base points so the player
 		-- can walk to any point and press E to place / swap. Works on mobile too.
 		attachPointPrompts()
-		Notify.Toast("Picked up " .. displayName .. "! Walk to a point & press [E] to place.", UI_BLUE, 2.5)
+		Notify.Toast("Picked up " .. displayName .. "! Walk to a point & hold [E] to place.", UI_BLUE, 2.5)
 	end)
 
 	if sellBtn then
@@ -923,7 +923,7 @@ attachPointPrompts = function()
 		local prompt = Instance.new("ProximityPrompt")
 		prompt.MaxActivationDistance = promptRange
 		prompt.RequiresLineOfSight = false
-		prompt.HoldDuration = 0
+		prompt.HoldDuration = tonumber(GameConfig.HoldInteractionDuration) or 0.6
 		prompt.KeyboardKeyCode = Enum.KeyCode.E
 		prompt.Exclusivity = Enum.ProximityPromptExclusivity.AlwaysShow
 
@@ -1067,7 +1067,7 @@ local function attachPromptToOrb(model)
 	prompt.ObjectText = displayName .. " Lv." .. level
 	prompt.MaxActivationDistance = GameConfig.BaseInteractionRange or 12
 	prompt.RequiresLineOfSight = false
-	prompt.HoldDuration = 0
+	prompt.HoldDuration = tonumber(GameConfig.HoldInteractionDuration) or 0.6
 	prompt.KeyboardKeyCode = Enum.KeyCode.E
 	prompt.Parent = body
 

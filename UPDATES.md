@@ -1,8 +1,40 @@
-# Update log / Memory — Last updated: 2026-04-23 22:37
+# Update log / Memory — Last updated: 2026-04-25 00:22
 
 Before committing: refresh this file's top timestamp and add an entry below; add or update `-- Last updated: YYYY-MM-DD HH:MM` at the top of each changed script.
 
 ---
+
+## 2026-04-25 00:22
+- **AchievementsConfig.lua**, **AchievementsSystem.lua** — Added new achievements + tracking for **meeting Eleminions**, **claiming an Eleminion quest reward**, and **interacting with Roc**.
+- **EleminionSystem.lua**, **EleminionClient.client.lua**, **GameConfigData.lua** — Added a per-element **affinity “battle pass” milestone track** (25/50/75/100%) with rewards: **1000 Gold**, **Rare Egg**, **250 Diamonds**, and **Legendary Egg** at completion. Rewards are granted server-side and the UI shows claimed milestones.
+- **ArenaRocSystem.lua** — Roc interaction now contributes to the new Roc achievement.
+
+## 2026-04-24 22:52
+- **WorldMapClient.client.lua** — Fixed “map is still off” by accounting for `ScaleType.Fit` letterboxing: pins and calibration clicks now convert UV↔pixels using the actual drawn image rect (based on `WorldMap.MapAspectRatio`) instead of the full frame.
+
+## 2026-04-24 22:55
+- **WorldMapClient.client.lua** — Disabled all map overlay markers/capture/calibration UI (map-only mode) so the map can be used without off-by-offset pins. Flip `MAP_ONLY = false` in the script later to restore markers.
+
+## 2026-04-24 22:37
+- **WorldMapClient.client.lua** — Added `[B]` base-UV capture mode: while the map is open, press **B** and click where the base should appear. The client stamps `BasePointAnchors[*].mapUV` for the nearest base anchor and prints a ready-to-paste config snippet.
+
+## 2026-04-24 22:26
+- **WorldMapClient.client.lua**, **GameConfigData.lua** — Added nearest-three anchor triangulation for the world map so hand-drawn landmark anchors resolve locally instead of being averaged through one global affine. Added landmark anchors from Studio positions (Cloudtopia, Evergreen, Volcanic, Frozen) and a direct map UV override for the White base pad.
+
+## 2026-04-24 22:13
+- **GameConfigData.lua** — Added the Evergreen Forest debug sample as a durable `WorldMap.AnchorCalibration` point and stored literal world XZ values for the Electric/Cave door anchors, so calibration still resolves when only two zone-door parts are present on the client.
+
+## 2026-04-24 21:56
+- **WorldMapClient.client.lua**, **GameConfigData.lua** — Added durable `WorldMap.AnchorCalibration` support: map transforms now prefer named world anchors with UVs, report active transform source/fallback reason, and print per-anchor fit errors for debugging. Zone-door capture output now includes a ready-to-paste anchor calibration block.
+
+## 2026-04-24 21:46
+- **WorldMapClient.client.lua** — Player map pin now shows calibrated direction: a gold facing arrow and a cyan movement arrow while walking. Direction is computed by projecting the player's world look/velocity through the same map transform used for pins.
+
+## 2026-04-24 21:42
+- **GameConfigData.lua**, **WorldMapClient.client.lua** — Added eight measured `WorldMap.BasePointAnchors` (Red/Blue/Green/Yellow/Orange/Purple/Pink/White). The base marker now snaps an owned plot center to the nearest configured anchor before converting to map UV, and debug output reports the matched anchor.
+
+## 2026-04-24 21:10
+- **GameConfigData.lua**, **WorldMapClient.client.lua** — Added `WorldMap.DebugPrintPlayerPositionOnOpen`; when enabled, opening the map prints the player's `Vector3`, XZ, current map UV, and owned plot center details for base-to-map calibration.
 
 ## 2026-04-23 22:09
 - **default.project.json** — Rojo workflow fix: `WorldMapClient.client.lua` now syncs into `StarterPlayerScripts` so the `[M] Map` button can actually open `WorldMapGUI` in live play.
@@ -15,6 +47,21 @@ Before committing: refresh this file's top timestamp and add an entry below; add
 
 ## 2026-04-23 22:37
 - **WorldMapClient.client.lua**, **GameConfigData.lua** — Added in-game **map calibration mode**: press **[C]** on the world map and click 3 landmarks (A/B/C) while standing on them to print a ready-to-paste `WorldMap.Calibration` block; pins then use the solved transform.
+
+## 2026-04-23 22:54
+- **WorldMapClient.client.lua**, **GameConfigData.lua** — Added persistent **auto-calibration from zone doors**: capture the 4 zone-door UV markers once on the map (press **[Z]**, select 1-4, click), then the client auto-resolves door world positions and solves the transform (least squares if all 4 present).
+
+## 2026-04-23 23:12
+- **WorldMapClient.client.lua** — Fixed `[Z]` zone-door capture hotkey: no longer blocked by `processed` input, and uses the correct `zdCapture` local (was previously scoped after the key handler).
+
+## 2026-04-23 23:46
+- **WorldMapClient.client.lua** — Fixed `[Z]` capture runtime errors: `updateZDHelp` / `printZoneDoorUVBlock` are now properly defined before the input handler calls them.
+
+## 2026-04-24 00:02
+- **WorldMapClient.client.lua** — Map no longer closes when clicking the backdrop; it now only closes via **✕** or **Esc**, so calibration clicks work reliably.
+
+## 2026-04-24 00:06
+- **GameConfigData.lua** — Persisted `WorldMap.ZoneDoorMapUV` from in-game capture so zone-door auto-calibration works automatically every session.
 
 ## 2026-04-23 23:35
 - **GameConfigData.lua**, **WorldMapClient.client.lua** (new), **HUDButtonBar.client.lua** — **World map** UI: optional `rbxassetid` image, auto XZ bounds from hub + outer baseplates (or manual `MinWorldXZ`/`MaxWorldXZ`), live **you-are-here** pin from `HumanoidRootPart`. Open with **`[M] Map`** on the HUD (or `M`).

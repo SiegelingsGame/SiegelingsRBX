@@ -168,7 +168,7 @@ function WaterGymSystem.Init(playerDataMgr)
 		prompt.ActionText = "Summon Gym"
 		prompt.ObjectText = "Water Gym (" .. entryFee .. " coins)"
 		prompt.MaxActivationDistance = promptRange
-		prompt.HoldDuration = 0
+		prompt.HoldDuration = tonumber(GameConfig.HoldInteractionDuration) or 0.6
 		prompt.KeyboardKeyCode = Enum.KeyCode.E
 		prompt.RequiresLineOfSight = false
 		prompt.Enabled = true

@@ -189,6 +189,22 @@ local RARITY = {
 	Rare = Color3.fromRGB(50, 130, 255), Epic = Color3.fromRGB(170, 70, 255),
 	Legendary = Color3.fromRGB(255, 170, 0),
 }
+
+-- Cinematic cell config (centralized icons/colors)
+local CinematicCellConfig = nil
+do
+	local ok, mod = pcall(function()
+		local ReplicatedStorage = game:GetService("ReplicatedStorage")
+		local modules = ReplicatedStorage:FindFirstChild("Modules")
+		local m = modules and modules:FindFirstChild("CinematicCellConfig")
+		if m then return require(m) end
+		-- Fallback for this workspace file layout (when running from loose scripts)
+		return require(script:FindFirstChild("CinematicCellConfig") or script.Parent:FindFirstChild("CinematicCellConfig"))
+	end)
+	if ok and type(mod) == "table" then
+		CinematicCellConfig = mod
+	end
+end
 local ELEMENT_COLOR = {
 	Fire = Color3.fromRGB(255, 80, 30), Ice = Color3.fromRGB(100, 200, 255),
 	Wind = Color3.fromRGB(150, 255, 180), Earth = Color3.fromRGB(180, 140, 80),
@@ -345,6 +361,13 @@ local pendingOptimistic = {} -- { [uidStr] = { base = bool|nil, def = bool|nil, 
 local pendingBattleUid = nil
 -- Optimistic battle formation: { [slotIndex] = uid } — show placement instantly before server confirms
 local pendingBattleOptimistic = {}
+-- Battle UI (new 3-column) state:
+-- inspectedSource: "slot" | "roster" | nil
+local battleInspectedSource = nil
+local battleInspectedSlotIndex = nil
+local battleInspectedUid = nil
+local battleSelectedDeploySlotIndex = nil
+local battleDeployPickMode = false -- when true, next empty slot click deploys inspected roster unit
 local selectedInventoryUid = nil
 local latestInventoryData = nil
 local latestInventoryLookup = {}
@@ -1799,9 +1822,25 @@ updateInventoryLayout = function()
 	task.defer(function()
 		local w = invGridScroll.AbsoluteSize.X
 		if w <= 0 then return end
+		-- Account for scroll padding + scrollbar, otherwise 3-col math can still wrap to 2.
+		local pad = invGridScroll:FindFirstChildOfClass("UIPadding")
+		if pad then
+			w -= (pad.PaddingLeft.Offset + pad.PaddingRight.Offset)
+		end
+		if invGridScroll.ScrollBarThickness and invGridScroll.ScrollBarThickness > 0 then
+			w -= (invGridScroll.ScrollBarThickness + 2)
+		end
+		w = math.max(0, w)
 		local mobile = isMobileLayout()
 		local desired = mobile and 110 or 150
-		local cols = math.max(2, math.floor((w + 10) / (desired + 10)))
+		-- Mobile should always be 3 columns.
+		-- Desktop: when the detail panel is visible, we want 3 columns in the selection grid.
+		local minCols = (mobile or showDetails) and 3 or 2
+		local cols = mobile and 3 or math.max(minCols, math.floor((w + 10) / (desired + 10)))
+		if mobile or showDetails then
+			cols = 3
+		end
+		invGridLayout.FillDirectionMaxCells = cols
 		local cellW = math.floor((w - ((cols - 1) * 10)) / cols)
 		local cellH = mobile and 86 or 104
 		invGridLayout.CellSize = UDim2.fromOffset(math.clamp(cellW, mobile and 104 or 138, mobile and 140 or 190), cellH)
@@ -1956,93 +1995,142 @@ local function mkInvCell(entry, creature, data, order)
 	pad.PaddingBottom = UDim.new(0, 6)
 	pad.Parent = cell
 
-	-- Top row: icon + level badge
-	local top = Instance.new("Frame")
-	top.Name = "TopRow"
-	top.Size = UDim2.new(1, 0, 0, mobile and 40 or 46)
-	top.BackgroundTransparency = 1
-	top.Parent = cell
-
-	local iconFrame = Instance.new("Frame")
-	iconFrame.Name = "IconFrame"
-	iconFrame.Size = UDim2.new(0, mobile and 40 or 46, 0, mobile and 40 or 46)
-	iconFrame.BackgroundColor3 = Color3.fromRGB(28, 32, 45)
-	iconFrame.BorderSizePixel = 0
-	iconFrame.Parent = top
-	Instance.new("UICorner", iconFrame).CornerRadius = UDim.new(0, 9)
-
-	-- Fallback orb (when no model viewer is mounted)
-	local orb = Instance.new("Frame")
-	orb.Name = "Orb"
-	orb.Size = UDim2.new(0, mobile and 22 or 28, 0, mobile and 22 or 28)
-	orb.Position = UDim2.new(0.5, 0, 0.5, 0)
-	orb.AnchorPoint = Vector2.new(0.5, 0.5)
-	orb.BackgroundColor3 = creature.primaryColor or rc
-	orb.BorderSizePixel = 0
-	orb.Parent = iconFrame
-	Instance.new("UICorner", orb).CornerRadius = UDim.new(1, 0)
-
-	-- Slot for a pooled ViewportFrame (CodexModelViewer)
+	-- Cinematic full-bleed viewport
 	local viewerHost = Instance.new("Frame")
 	viewerHost.Name = "ViewerHost"
 	viewerHost.Size = UDim2.new(1, 0, 1, 0)
+	viewerHost.Position = UDim2.new(0, 0, 0, 0)
 	viewerHost.BackgroundTransparency = 1
-	viewerHost.Parent = iconFrame
+	viewerHost.Parent = cell
 
-	local lvlBadge = Instance.new("TextLabel")
-	lvlBadge.Name = "LevelBadge"
-	lvlBadge.Size = UDim2.new(0, 26, 0, 16)
-	lvlBadge.Position = UDim2.new(0, 0, 1, -16)
-	lvlBadge.BackgroundColor3 = Color3.fromRGB(14, 16, 24)
-	lvlBadge.BackgroundTransparency = 0.1
-	lvlBadge.BorderSizePixel = 0
-	lvlBadge.Text = tostring(entry.level or 1)
-	lvlBadge.TextColor3 = Color3.fromRGB(230, 230, 240)
-	lvlBadge.Font = Enum.Font.GothamBold
-	lvlBadge.TextSize = 9
-	lvlBadge.Parent = iconFrame
-	Instance.new("UICorner", lvlBadge).CornerRadius = UDim.new(0, 6)
+	-- Fallback orb (when no model viewer is mounted yet)
+	local orb = Instance.new("Frame")
+	orb.Name = "Orb"
+	orb.Size = UDim2.new(1, 0, 1, 0)
+	orb.BackgroundColor3 = creature.primaryColor or rc
+	orb.BorderSizePixel = 0
+	orb.Parent = viewerHost
+	Instance.new("UICorner", orb).CornerRadius = UDim.new(0, 9)
 
-	-- Labels
+	-- Top bar (gradient)
+	local topBar = Instance.new("Frame")
+	topBar.Name = "TopBar"
+	topBar.Size = UDim2.new(1, 0, 0, 32)
+	topBar.BackgroundColor3 = Color3.new(0, 0, 0)
+	topBar.BackgroundTransparency = 0.4
+	topBar.BorderSizePixel = 0
+	topBar.Parent = cell
+	topBar.ZIndex = 5
+	local grad = Instance.new("UIGradient")
+	grad.Rotation = 90
+	grad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.new(0, 0, 0)),
+		ColorSequenceKeypoint.new(1, Color3.new(0, 0, 0)),
+	})
+	grad.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.0),
+		NumberSequenceKeypoint.new(1, 1.0),
+	})
+	grad.Parent = topBar
+
+	-- Level pill (left)
+	local lvlPill = Instance.new("TextLabel")
+	lvlPill.Name = "LevelLabel"
+	lvlPill.Size = UDim2.new(0, 26, 0, 18)
+	lvlPill.Position = UDim2.new(0, 6, 0, 6)
+	lvlPill.BackgroundColor3 = Color3.fromRGB(14, 16, 24)
+	lvlPill.BackgroundTransparency = 0.1
+	lvlPill.BorderSizePixel = 0
+	lvlPill.Text = tostring(entry.level or 1)
+	lvlPill.TextColor3 = Color3.fromRGB(230, 230, 240)
+	lvlPill.Font = Enum.Font.GothamBold
+	lvlPill.TextSize = 9
+	lvlPill.ZIndex = 6
+	lvlPill.Parent = topBar
+	Instance.new("UICorner", lvlPill).CornerRadius = UDim.new(1, 0)
+
+	-- Rarity abbrev pill (right)
+	local rarityName = tostring(creature.rarity or entry.rarity or "Common")
+	local abbrev = CinematicCellConfig and CinematicCellConfig.GetRarityAbbrev(rarityName) or rarityName
+	local rarColor = CinematicCellConfig and CinematicCellConfig.GetRarityColor(abbrev) or rc
+	local rarPill = Instance.new("TextLabel")
+	rarPill.Name = "RarityLabel"
+	rarPill.Size = UDim2.new(0, 34, 0, 18)
+	rarPill.Position = UDim2.new(1, -40, 0, 6)
+	rarPill.BackgroundColor3 = rarColor
+	rarPill.BackgroundTransparency = 0.15
+	rarPill.BorderSizePixel = 0
+	rarPill.Text = tostring(abbrev)
+	rarPill.TextColor3 = Color3.new(1, 1, 1)
+	rarPill.Font = Enum.Font.GothamBold
+	rarPill.TextSize = 9
+	rarPill.ZIndex = 6
+	rarPill.Parent = topBar
+	Instance.new("UICorner", rarPill).CornerRadius = UDim.new(1, 0)
+
+	-- Bottom bar (name + traits)
+	local bottomBar = Instance.new("Frame")
+	bottomBar.Name = "BottomBar"
+	bottomBar.Size = UDim2.new(1, 0, 0, 36)
+	bottomBar.Position = UDim2.new(0, 0, 1, -36)
+	bottomBar.BackgroundColor3 = Color3.new(0, 0, 0)
+	bottomBar.BackgroundTransparency = 0.45
+	bottomBar.BorderSizePixel = 0
+	bottomBar.ZIndex = 5
+	bottomBar.Parent = cell
+
 	local nameLbl = Instance.new("TextLabel")
-	nameLbl.Name = "Name"
-	nameLbl.Size = UDim2.new(1, (mobile and -46 or -52), 0, 16)
-	nameLbl.Position = UDim2.new(0, (mobile and 46 or 52), 0, 0)
+	nameLbl.Name = "NameLabel"
+	nameLbl.Size = UDim2.new(1, -12, 0, 16)
+	nameLbl.Position = UDim2.new(0, 6, 0, 4)
 	nameLbl.BackgroundTransparency = 1
 	nameLbl.Text = eggHidden and "Unknown Egg" or (creature.displayName or entry.id or "Siegeling")
-	nameLbl.TextColor3 = Color3.fromRGB(235, 238, 245)
+	nameLbl.TextColor3 = Color3.fromRGB(245, 245, 250)
 	nameLbl.Font = Enum.Font.GothamBold
-	nameLbl.TextSize = 11
+	nameLbl.TextSize = 12
 	nameLbl.TextXAlignment = Enum.TextXAlignment.Left
 	nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
-	nameLbl.Parent = top
+	nameLbl.ZIndex = 6
+	nameLbl.Parent = bottomBar
 
-	local metaLbl = Instance.new("TextLabel")
-	metaLbl.Name = "Meta"
-	metaLbl.Size = UDim2.new(1, (mobile and -46 or -52), 0, 13)
-	metaLbl.Position = UDim2.new(0, (mobile and 46 or 52), 0, 16)
-	metaLbl.BackgroundTransparency = 1
-	metaLbl.Text = string.format("%s  |  %s", tostring(creature.rarity or entry.rarity or "?"), tostring(creature.element or "?"))
-	metaLbl.TextColor3 = rc
-	metaLbl.Font = Enum.Font.GothamMedium
-	metaLbl.TextSize = 9
-	metaLbl.TextXAlignment = Enum.TextXAlignment.Left
-	metaLbl.TextTruncate = Enum.TextTruncate.AtEnd
-	metaLbl.Parent = top
+	local traits = Instance.new("Frame")
+	traits.Name = "TraitsFrame"
+	traits.Size = UDim2.new(1, -12, 0, 14)
+	traits.Position = UDim2.new(0, 6, 0, 20)
+	traits.BackgroundTransparency = 1
+	traits.ZIndex = 6
+	traits.Parent = bottomBar
 
-	-- Class under rarity+type
-	local classLbl = Instance.new("TextLabel")
-	classLbl.Name = "Class"
-	classLbl.Size = UDim2.new(1, (mobile and -46 or -52), 0, 12)
-	classLbl.Position = UDim2.new(0, (mobile and 46 or 52), 0, 29)
-	classLbl.BackgroundTransparency = 1
-	classLbl.Text = (creature.class and tostring(creature.class)) or (creature.role and tostring(creature.role)) or ""
-	classLbl.TextColor3 = Color3.fromRGB(170, 175, 190)
-	classLbl.Font = Enum.Font.GothamMedium
-	classLbl.TextSize = 9
-	classLbl.TextXAlignment = Enum.TextXAlignment.Left
-	classLbl.TextTruncate = Enum.TextTruncate.AtEnd
-	classLbl.Parent = top
+	local tLayout = Instance.new("UIListLayout")
+	tLayout.FillDirection = Enum.FillDirection.Horizontal
+	tLayout.Padding = UDim.new(0, 6)
+	tLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	tLayout.Parent = traits
+
+	local elem = tostring(creature.element or "?")
+	local role = tostring(creature.class or creature.role or "")
+	local elemIcon = CinematicCellConfig and CinematicCellConfig.GetElementIcon(elem) or "❔"
+	local roleIcon = CinematicCellConfig and CinematicCellConfig.GetRoleIcon(role) or "❔"
+
+	local elemLbl = Instance.new("TextLabel")
+	elemLbl.Size = UDim2.new(0, 22, 1, 0)
+	elemLbl.BackgroundTransparency = 1
+	elemLbl.Text = elemIcon
+	elemLbl.TextColor3 = Color3.new(1, 1, 1)
+	elemLbl.Font = Enum.Font.GothamBold
+	elemLbl.TextSize = 12
+	elemLbl.ZIndex = 7
+	elemLbl.Parent = traits
+
+	local roleLbl = Instance.new("TextLabel")
+	roleLbl.Size = UDim2.new(0, 22, 1, 0)
+	roleLbl.BackgroundTransparency = 1
+	roleLbl.Text = role ~= "" and roleIcon or ""
+	roleLbl.TextColor3 = Color3.new(1, 1, 1)
+	roleLbl.Font = Enum.Font.GothamBold
+	roleLbl.TextSize = 12
+	roleLbl.ZIndex = 7
+	roleLbl.Parent = traits
 
 	local function applySelectedVisual()
 		local selectedNow = (selectedInventoryUid ~= nil) and tostring(selectedInventoryUid) == uidStr
@@ -2300,6 +2388,850 @@ end
 -- --------------------------------------------
 -- BATTLE TAB - YOUR FORMATION + AFFINITY
 -- --------------------------------------------
+local function renderBattle3Col(args)
+	-- Full data-driven 3-column battle UI (Board / Inspector / Roster)
+	-- CRITICAL: roster card click = inspect only; deploy requires explicit Deploy button.
+	pendingBattleUid = nil
+
+	local ui = {
+		content = args.content,
+		restoreScroll = args.restoreScroll,
+		battleTeamEnabled = args.battleTeamEnabled,
+		battleTeam = args.battleTeam,
+		battleCreatureCap = args.battleCreatureCap,
+		gridData = args.gridData,
+		available = args.available,
+		uidToEntry = args.uidToEntry,
+		activeSynergies = args.activeSynergies,
+		rosterCardStrokeByUid = {},
+	}
+
+	local function mkPanel(parent, name, wScale)
+		local p = Instance.new("Frame")
+		p.Name = name
+		p.Size = UDim2.new(wScale, 0, 1, 0)
+		p.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
+		p.BorderSizePixel = 0
+		p.Parent = parent
+		Instance.new("UICorner", p).CornerRadius = UDim.new(0, 10)
+		local s = Instance.new("UIStroke")
+		s.Color = C.divider
+		s.Transparency = 0.35
+		s.Parent = p
+		return p
+	end
+
+	local function buildShell()
+		ui.root = Instance.new("Frame")
+		ui.root.Name = "Battle3ColRoot"
+		ui.root.Size = UDim2.new(1, 0, 0, 520)
+		ui.root.BackgroundTransparency = 1
+		ui.root.Parent = ui.content
+
+		local h = Instance.new("UIListLayout")
+		h.FillDirection = Enum.FillDirection.Horizontal
+		h.SortOrder = Enum.SortOrder.LayoutOrder
+		h.Padding = UDim.new(0, 12)
+		h.Parent = ui.root
+
+		local mobile = isMobileLayout()
+		ui.leftCol = mkPanel(ui.root, "LeftColumn", mobile and 0.42 or 0.34); ui.leftCol.LayoutOrder = 1
+		ui.midCol = mkPanel(ui.root, "MiddleColumn", mobile and 0.58 or 0.38); ui.midCol.LayoutOrder = 2
+		ui.rightCol = mkPanel(ui.root, "RightColumn", mobile and 1.00 or 0.28); ui.rightCol.LayoutOrder = 3
+	end
+
+	local function deployUidToSlot(uid, slotIndex)
+		if not uid or uid == "" or not slotIndex then return end
+		if not Evt.assignToBattle then return end
+		args.invButtonDebounce(tostring(uid) .. "_" .. tostring(slotIndex), "assignBattle", function()
+			Evt.assignToBattle:FireServer(uid, slotIndex)
+			pendingBattleOptimistic[slotIndex] = uid
+			battleDeployPickMode = false
+			battleSelectedDeploySlotIndex = nil
+			task.wait(0.25)
+			refreshBattle()
+		end)
+	end
+
+	local function buildInspector()
+		local mid = ui.midCol
+
+		ui.inspTitle = Instance.new("TextLabel")
+		ui.inspTitle.Size = UDim2.new(1, -16, 0, 20)
+		ui.inspTitle.Position = UDim2.new(0, 8, 0, 8)
+		ui.inspTitle.BackgroundTransparency = 1
+		ui.inspTitle.Text = "Slot Details"
+		ui.inspTitle.TextColor3 = C.textSec
+		ui.inspTitle.Font = Enum.Font.GothamBold
+		ui.inspTitle.TextSize = 12
+		ui.inspTitle.TextXAlignment = Enum.TextXAlignment.Left
+		ui.inspTitle.Parent = mid
+
+		ui.removeBtn = Instance.new("TextButton")
+		ui.removeBtn.Name = "RemoveButton"
+		ui.removeBtn.Size = UDim2.new(0, 110, 0, 28)
+		ui.removeBtn.Position = UDim2.new(1, -118, 0, 6)
+		ui.removeBtn.BackgroundColor3 = Color3.fromRGB(120, 60, 60)
+		ui.removeBtn.Text = "Remove Unit"
+		ui.removeBtn.TextColor3 = Color3.new(1, 1, 1)
+		ui.removeBtn.Font = Enum.Font.GothamBold
+		ui.removeBtn.TextSize = 10
+		ui.removeBtn.BorderSizePixel = 0
+		ui.removeBtn.Visible = false
+		ui.removeBtn.Parent = mid
+		Instance.new("UICorner", ui.removeBtn).CornerRadius = UDim.new(0, 10)
+
+		ui.deployToSlotBtn = Instance.new("TextButton")
+		ui.deployToSlotBtn.Name = "DeployToSlotButton"
+		ui.deployToSlotBtn.Size = UDim2.new(0, 120, 0, 28)
+		ui.deployToSlotBtn.Position = UDim2.new(1, -128, 0, 6)
+		ui.deployToSlotBtn.BackgroundColor3 = Color3.fromRGB(120, 90, 180)
+		ui.deployToSlotBtn.Text = "Deploy to Slot..."
+		ui.deployToSlotBtn.TextColor3 = Color3.new(1, 1, 1)
+		ui.deployToSlotBtn.Font = Enum.Font.GothamBold
+		ui.deployToSlotBtn.TextSize = 10
+		ui.deployToSlotBtn.BorderSizePixel = 0
+		ui.deployToSlotBtn.Visible = false
+		ui.deployToSlotBtn.Parent = mid
+		Instance.new("UICorner", ui.deployToSlotBtn).CornerRadius = UDim.new(0, 10)
+
+		ui.viewerHost = Instance.new("Frame")
+		ui.viewerHost.Name = "ViewportHost"
+		ui.viewerHost.Size = UDim2.new(1, -16, 0, 240)
+		ui.viewerHost.Position = UDim2.new(0, 8, 0, 40)
+		ui.viewerHost.BackgroundColor3 = Color3.fromRGB(22, 24, 35)
+		ui.viewerHost.BorderSizePixel = 0
+		ui.viewerHost.Parent = mid
+		Instance.new("UICorner", ui.viewerHost).CornerRadius = UDim.new(0, 12)
+
+		ui.statsBox = Instance.new("Frame")
+		ui.statsBox.Name = "StatsFrame"
+		ui.statsBox.Size = UDim2.new(1, -16, 0, 96)
+		ui.statsBox.Position = UDim2.new(0, 8, 0, 292)
+		ui.statsBox.BackgroundColor3 = C.card
+		ui.statsBox.BorderSizePixel = 0
+		ui.statsBox.Parent = mid
+		Instance.new("UICorner", ui.statsBox).CornerRadius = UDim.new(0, 12)
+
+		ui.nameLbl = Instance.new("TextLabel")
+		ui.nameLbl.Size = UDim2.new(1, -16, 0, 20)
+		ui.nameLbl.Position = UDim2.new(0, 8, 0, 6)
+		ui.nameLbl.BackgroundTransparency = 1
+		ui.nameLbl.Text = "Empty Slot Selected"
+		ui.nameLbl.TextColor3 = C.text
+		ui.nameLbl.Font = Enum.Font.GothamBold
+		ui.nameLbl.TextSize = 14
+		ui.nameLbl.TextXAlignment = Enum.TextXAlignment.Center
+		ui.nameLbl.Parent = mid
+
+		local function mkStatPill(pos, label, iconColor)
+			local pill = Instance.new("Frame")
+			pill.Size = UDim2.new(0.5, -12, 0, 26)
+			pill.Position = pos
+			pill.BackgroundColor3 = Color3.fromRGB(22, 24, 35)
+			pill.BorderSizePixel = 0
+			pill.Parent = ui.statsBox
+			Instance.new("UICorner", pill).CornerRadius = UDim.new(0, 10)
+			local st = Instance.new("UIStroke")
+			st.Color = C.divider
+			st.Transparency = 0.55
+			st.Parent = pill
+
+			local icon = Instance.new("Frame")
+			icon.Size = UDim2.new(0, 18, 0, 18)
+			icon.Position = UDim2.new(0, 8, 0.5, -9)
+			icon.BackgroundColor3 = iconColor
+			icon.BorderSizePixel = 0
+			icon.Parent = pill
+			Instance.new("UICorner", icon).CornerRadius = UDim.new(1, 0)
+
+			local lbl = Instance.new("TextLabel")
+			lbl.Size = UDim2.new(0, 48, 1, 0)
+			lbl.Position = UDim2.new(0, 30, 0, 0)
+			lbl.BackgroundTransparency = 1
+			lbl.Text = label
+			lbl.TextColor3 = C.textSec
+			lbl.Font = Enum.Font.GothamBold
+			lbl.TextSize = 11
+			lbl.TextXAlignment = Enum.TextXAlignment.Left
+			lbl.Parent = pill
+
+			local val = Instance.new("TextLabel")
+			val.Size = UDim2.new(1, -10, 1, 0)
+			val.Position = UDim2.new(0, 0, 0, 0)
+			val.BackgroundTransparency = 1
+			val.Text = "-"
+			val.TextColor3 = C.text
+			val.Font = Enum.Font.GothamBold
+			val.TextSize = 12
+			val.TextXAlignment = Enum.TextXAlignment.Right
+			val.Parent = pill
+
+			return val
+		end
+
+		ui.hpLbl = mkStatPill(UDim2.new(0, 10, 0, 34), "HP", Color3.fromRGB(80, 220, 140))
+		ui.atkLbl = mkStatPill(UDim2.new(0.5, 2, 0, 34), "ATK", Color3.fromRGB(255, 120, 120))
+		ui.defLbl = mkStatPill(UDim2.new(0, 10, 0, 64), "DEF", Color3.fromRGB(120, 180, 255))
+		ui.spdLbl = mkStatPill(UDim2.new(0.5, 2, 0, 64), "SPD", Color3.fromRGB(255, 220, 100))
+
+		ui.viewer = nil
+		if CodexModelViewer then
+			ui.viewer = CodexModelViewer.new(ui.viewerHost, {
+				size = UDim2.new(1, -12, 1, -12),
+				autoRotate = true,
+				zoomEnabled = false,
+				showFloor = false,
+				themedLighting = true,
+				playIdleAnimation = true,
+				interactable = false,
+				viewportCornerRadius = UDim.new(0, 12),
+			})
+		end
+
+		function ui:setInspectorEmpty()
+			self.inspTitle.Text = "Slot Details"
+			self.nameLbl.Text = "Empty Slot Selected"
+			self.hpLbl.Text, self.atkLbl.Text, self.defLbl.Text, self.spdLbl.Text = "-", "-", "-", "-"
+			self.removeBtn.Visible = false
+			self.deployToSlotBtn.Visible = false
+			self.deployToSlotBtn.Text = "Deploy to Slot..."
+			if self.viewer then self.viewer:SetCreature(nil) end
+		end
+
+		function ui:inspectEntry(source, slotIndex, uid, entryLike)
+			battleInspectedSource = source
+			battleInspectedSlotIndex = slotIndex
+			battleInspectedUid = uid
+
+			-- Roster card highlight (inspect state)
+			for k, st in pairs(ui.rosterCardStrokeByUid or {}) do
+				if st and st.Parent then
+					st.Enabled = (source == "roster" and tostring(uid or "") == tostring(k))
+				end
+			end
+
+			if source == "slot" then
+				self.inspTitle.Text = ("Slot %d Details"):format(slotIndex or 0)
+				self.removeBtn.Visible = (uid ~= nil and uid ~= "")
+				self.deployToSlotBtn.Visible = false
+			elseif source == "roster" then
+				self.inspTitle.Text = "Roster Details"
+				self.removeBtn.Visible = false
+				self.deployToSlotBtn.Visible = true
+				if battleSelectedDeploySlotIndex then
+					self.deployToSlotBtn.Text = ("Deploy to Slot %d"):format(battleSelectedDeploySlotIndex)
+				else
+					self.deployToSlotBtn.Text = "Deploy to Slot..."
+				end
+			else
+				self:setInspectorEmpty()
+				return
+			end
+
+			local e = entryLike
+			if not e and uid then
+				local invEntry = ui.uidToEntry[uid]
+				if invEntry then
+					local cr = CreatureData.GetById(invEntry.id)
+					if cr then
+						e = { uid = uid, id = invEntry.id, displayName = cr.displayName, health = cr.health, attack = cr.attack, defense = cr.defense, speed = cr.speed }
+					end
+				end
+			end
+
+			if e then
+				self.nameLbl.Text = e.displayName or "?"
+				self.hpLbl.Text = tostring(e.health or "-")
+				self.atkLbl.Text = tostring(e.attack or "-")
+				self.defLbl.Text = tostring(e.defense or "-")
+				self.spdLbl.Text = tostring(e.speed or "-")
+				if self.viewer then self.viewer:SetCreature(e.id) end
+			else
+				self:setInspectorEmpty()
+			end
+		end
+
+		ui.removeBtn.MouseButton1Click:Connect(function()
+			if battleInspectedSource ~= "slot" or not battleInspectedUid then return end
+			if not Evt.removeFromBattle then return end
+			args.invButtonDebounce(battleInspectedUid, "removeBattle", function()
+				Evt.removeFromBattle:FireServer(battleInspectedUid)
+				task.wait(0.25)
+				refreshBattle()
+			end)
+		end)
+
+		ui.deployToSlotBtn.MouseButton1Click:Connect(function()
+			if battleInspectedSource ~= "roster" or not battleInspectedUid then return end
+			if battleSelectedDeploySlotIndex then
+				deployUidToSlot(battleInspectedUid, battleSelectedDeploySlotIndex)
+				return
+			end
+			battleDeployPickMode = true
+			Notify.Toast("Select an empty slot to deploy.", C.textSec, 2)
+		end)
+	end
+
+	local function buildBoard()
+		local left = ui.leftCol
+
+		ui.boardTitle = Instance.new("TextLabel")
+		ui.boardTitle.Size = UDim2.new(1, -16, 0, 20)
+		ui.boardTitle.Position = UDim2.new(0, 8, 0, 8)
+		ui.boardTitle.BackgroundTransparency = 1
+		ui.boardTitle.Text = "YOUR FORMATION"
+		ui.boardTitle.TextColor3 = C.favorite
+		ui.boardTitle.Font = Enum.Font.GothamBold
+		ui.boardTitle.TextSize = 12
+		ui.boardTitle.TextXAlignment = Enum.TextXAlignment.Left
+		ui.boardTitle.Parent = left
+
+		ui.deployedLbl = Instance.new("TextLabel")
+		ui.deployedLbl.Size = UDim2.new(1, -16, 0, 16)
+		ui.deployedLbl.Position = UDim2.new(0, 8, 0, 28)
+		ui.deployedLbl.BackgroundTransparency = 1
+		ui.deployedLbl.Text = ("Deployed: %d/%d"):format(#ui.battleTeam, ui.battleCreatureCap)
+		ui.deployedLbl.TextColor3 = C.textMut
+		ui.deployedLbl.Font = Enum.Font.GothamMedium
+		ui.deployedLbl.TextSize = 10
+		ui.deployedLbl.TextXAlignment = Enum.TextXAlignment.Left
+		ui.deployedLbl.Parent = left
+
+		ui.gridFrame = Instance.new("Frame")
+		ui.gridFrame.Name = "GridFrame"
+		ui.gridFrame.Size = UDim2.new(1, -16, 0, 300)
+		ui.gridFrame.Position = UDim2.new(0, 8, 0, 52)
+		ui.gridFrame.BackgroundTransparency = 1
+		ui.gridFrame.Parent = left
+
+		local gl = Instance.new("UIGridLayout")
+		gl.CellPadding = UDim2.fromOffset(10, 10)
+		local gridAvailW = math.max(240, left.AbsoluteSize.X - 16)
+		local cellW = math.floor((gridAvailW - (10 * 2)) / 3)
+		local cell = math.clamp(cellW, 66, 96)
+		gl.CellSize = UDim2.fromOffset(cell, cell)
+		gl.FillDirectionMaxCells = 3
+		gl.SortOrder = Enum.SortOrder.LayoutOrder
+		gl.Parent = ui.gridFrame
+
+		ui.slotBtns = {}
+		ui.boardSlotCards = {}
+		ui.boardViewerPool = ui.boardViewerPool or {}
+		ui.boardAnimToken = ui.boardAnimToken or {}
+		local function setSlotSelectedVisual(idx, on)
+			local b = ui.slotBtns[idx]
+			if not b then return end
+			local st = b:FindFirstChild("SelStroke")
+			if st and st:IsA("UIStroke") then st.Enabled = on end
+		end
+
+		for slotIdx = 1, 9 do
+			local btn = Instance.new("TextButton")
+			btn.Name = "Slot" .. tostring(slotIdx)
+			btn.BackgroundColor3 = Color3.fromRGB(20, 22, 32)
+			btn.BorderSizePixel = 0
+			btn.Text = ""
+			btn.LayoutOrder = slotIdx
+			btn.Parent = ui.gridFrame
+			Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 12)
+			btn.ZIndex = 1
+
+			local baseStroke = Instance.new("UIStroke")
+			baseStroke.Color = C.divider
+			baseStroke.Transparency = 0.55
+			baseStroke.Thickness = 1
+			baseStroke.Parent = btn
+
+			local selStroke = Instance.new("UIStroke")
+			selStroke.Name = "SelStroke"
+			selStroke.Color = Color3.fromRGB(255, 205, 90) -- gold highlight
+			selStroke.Transparency = 0.05
+			selStroke.Thickness = 3
+			selStroke.Enabled = false
+			selStroke.Parent = btn
+
+			ui.slotBtns[slotIdx] = btn
+
+			-- Slot index number (adds depth/reference)
+			local slotNum = Instance.new("TextLabel")
+			slotNum.Size = UDim2.new(0, 18, 0, 18)
+			slotNum.Position = UDim2.new(0, 8, 0, 8)
+			slotNum.BackgroundTransparency = 1
+			slotNum.Text = tostring(slotIdx)
+			slotNum.TextColor3 = C.textMut
+			slotNum.Font = Enum.Font.GothamBold
+			slotNum.TextSize = 11
+			slotNum.ZIndex = 5
+			slotNum.Parent = btn
+
+			-- Inner ring (gives the “circle depth” shown in the example)
+			local ring = Instance.new("Frame")
+			ring.Name = "Ring"
+			ring.Size = UDim2.new(0, 44, 0, 44)
+			ring.Position = UDim2.new(0.5, -22, 0.5, -22)
+			ring.BackgroundColor3 = Color3.fromRGB(16, 18, 24)
+			ring.BorderSizePixel = 0
+			ring.ZIndex = 2
+			ring.Parent = btn
+			Instance.new("UICorner", ring).CornerRadius = UDim.new(1, 0)
+			local ringStroke = Instance.new("UIStroke")
+			ringStroke.Color = C.divider
+			ringStroke.Transparency = 0.55
+			ringStroke.Thickness = 2
+			ringStroke.Parent = ring
+
+			local ce = ui.gridData[slotIdx]
+			if ce then
+				-- Filled slot: viewport fills entire square; overlays (slot index + level) sit above.
+				ring.Visible = false
+
+				local viewerHost = Instance.new("Frame")
+				viewerHost.Name = "ViewerHost"
+				viewerHost.Size = UDim2.new(1, 0, 1, 0)
+				viewerHost.Position = UDim2.new(0, 0, 0, 0)
+				viewerHost.BackgroundTransparency = 1
+				viewerHost.ZIndex = 2
+				viewerHost.Parent = btn
+
+				local orb = Instance.new("Frame")
+				orb.Name = "Orb"
+				orb.Size = UDim2.new(1, 0, 1, 0)
+				orb.ZIndex = 2
+				orb.BackgroundColor3 = ce.primaryColor or C.textMut
+				orb.BorderSizePixel = 0
+				orb.Parent = viewerHost
+				Instance.new("UICorner", orb).CornerRadius = UDim.new(0, 12)
+
+				ui.boardSlotCards[slotIdx] = { slot = viewerHost, orb = orb, creatureId = ce.id }
+
+				local lvlDot = Instance.new("TextLabel")
+				lvlDot.Size = UDim2.new(0, 18, 0, 18)
+				lvlDot.Position = UDim2.new(1, -20, 1, -20)
+				lvlDot.BackgroundColor3 = C.card
+				lvlDot.BorderSizePixel = 0
+				lvlDot.Text = tostring(ui.uidToEntry[ce.uid] and (ui.uidToEntry[ce.uid].level or "") or "")
+				lvlDot.TextColor3 = C.textSec
+				lvlDot.Font = Enum.Font.GothamBold
+				lvlDot.TextSize = 9
+				lvlDot.ZIndex = 6
+				lvlDot.Parent = btn
+				Instance.new("UICorner", lvlDot).CornerRadius = UDim.new(1, 0)
+			else
+				-- Big centered slot number for empty slots (helps communicate selection target)
+				local bigNum = Instance.new("TextLabel")
+				bigNum.Name = "BigSlotNum"
+				bigNum.Size = UDim2.new(1, 0, 1, 0)
+				bigNum.BackgroundTransparency = 1
+				bigNum.Text = tostring(slotIdx)
+				bigNum.TextColor3 = C.textMut
+				bigNum.Font = Enum.Font.GothamBold
+				bigNum.TextSize = 18
+				bigNum.TextXAlignment = Enum.TextXAlignment.Center
+				bigNum.TextYAlignment = Enum.TextYAlignment.Center
+				bigNum.ZIndex = 3
+				bigNum.Parent = ring
+			end
+
+			btn.MouseButton1Click:Connect(function()
+				local entry = ui.gridData[slotIdx]
+				if battleSelectedDeploySlotIndex then
+					setSlotSelectedVisual(battleSelectedDeploySlotIndex, false)
+				end
+
+				if entry then
+					battleSelectedDeploySlotIndex = nil
+					battleDeployPickMode = false
+					ui:inspectEntry("slot", slotIdx, entry.uid, entry)
+					return
+				end
+
+				if battleDeployPickMode and battleInspectedSource == "roster" and battleInspectedUid then
+					deployUidToSlot(battleInspectedUid, slotIdx)
+					return
+				end
+
+				battleSelectedDeploySlotIndex = slotIdx
+				setSlotSelectedVisual(slotIdx, true)
+				if battleInspectedSource == "roster" and ui.deployToSlotBtn and ui.deployToSlotBtn.Visible then
+					ui.deployToSlotBtn.Text = ("Deploy to Slot %d"):format(slotIdx)
+				end
+				ui:setInspectorEmpty()
+			end)
+		end
+
+		-- Mount board slot viewports + animation loop (Idle → Attack → Special)
+		if CodexModelViewer then
+			task.defer(function()
+				if not sg or not main or not main.Parent or not main.Visible then return end
+				for slotIdx = 1, 9 do
+					local info = ui.boardSlotCards[slotIdx]
+					if info and info.slot and info.slot.Parent then
+						local viewer = ui.boardViewerPool[slotIdx]
+						if not viewer then
+							viewer = CodexModelViewer.new(info.slot, {
+								size = UDim2.new(1, 0, 1, 0),
+								autoRotate = false,
+								zoomEnabled = false,
+								showFloor = false,
+								themedLighting = true,
+								playIdleAnimation = true,
+								defaultAnimType = "Idle",
+								interactable = false,
+								viewportCornerRadius = UDim.new(0, 12),
+							})
+							ui.boardViewerPool[slotIdx] = viewer
+						end
+						pcall(function() viewer:SetCreature(info.creatureId) end)
+						if info.orb then info.orb.Visible = false end
+
+						local token = tostring(os.clock()) .. "_" .. tostring(slotIdx)
+						ui.boardAnimToken[slotIdx] = token
+						task.spawn(function()
+							-- small per-slot loop; safe to abandon when UI refreshes
+							local animSeq = { "Idle", "Attack", "Special" }
+							local delays = { Idle = 1.8, Attack = 1.0, Special = 1.0 }
+							while ui.boardAnimToken[slotIdx] == token do
+								if not sg or not main or not main.Parent or not main.Visible then break end
+								for _, a in ipairs(animSeq) do
+									if ui.boardAnimToken[slotIdx] ~= token then break end
+									if viewer and viewer.PlayAnimationState then
+										pcall(function() viewer:PlayAnimationState(a) end)
+									end
+									task.wait(delays[a] or 1.0)
+								end
+							end
+						end)
+					end
+				end
+			end)
+		end
+	end
+
+	local function buildSynergies()
+		local left = ui.leftCol
+		local box = Instance.new("Frame")
+		box.Name = "ActiveSynergies"
+		box.Size = UDim2.new(1, -16, 0, 70)
+		box.Position = UDim2.new(0, 8, 1, -78)
+		box.BackgroundColor3 = Color3.fromRGB(18, 20, 30)
+		box.BorderSizePixel = 0
+		box.Parent = left
+		Instance.new("UICorner", box).CornerRadius = UDim.new(0, 10)
+		local st = Instance.new("UIStroke")
+		st.Color = C.divider
+		st.Transparency = 0.45
+		st.Parent = box
+
+		local title = Instance.new("TextLabel")
+		title.Size = UDim2.new(1, -16, 0, 18)
+		title.Position = UDim2.new(0, 10, 0, 6)
+		title.BackgroundTransparency = 1
+		title.Text = "ACTIVE SYNERGIES"
+		title.TextColor3 = C.textMut
+		title.Font = Enum.Font.GothamBold
+		title.TextSize = 10
+		title.TextXAlignment = Enum.TextXAlignment.Left
+		title.Parent = box
+
+		local pillRow = Instance.new("Frame")
+		pillRow.Size = UDim2.new(1, -16, 0, 30)
+		pillRow.Position = UDim2.new(0, 10, 0, 30)
+		pillRow.BackgroundTransparency = 1
+		pillRow.Parent = box
+
+		local layout = Instance.new("UIListLayout")
+		layout.FillDirection = Enum.FillDirection.Horizontal
+		layout.Padding = UDim.new(0, 6)
+		layout.SortOrder = Enum.SortOrder.LayoutOrder
+		layout.Parent = pillRow
+
+		local shown = 0
+		for i = 1, math.min(#(ui.activeSynergies or {}), 3) do
+			local syn = ui.activeSynergies[i]
+			local pill = Instance.new("Frame")
+			pill.Size = UDim2.new(0, 92, 0, 24)
+			pill.BackgroundColor3 = Color3.fromRGB(24, 26, 36)
+			pill.BorderSizePixel = 0
+			pill.Parent = pillRow
+			Instance.new("UICorner", pill).CornerRadius = UDim.new(0, 10)
+
+			local pStroke = Instance.new("UIStroke")
+			pStroke.Color = C.divider
+			pStroke.Transparency = 0.55
+			pStroke.Parent = pill
+
+			local clr = (syn and syn.color) or C.textSec
+			local dot = Instance.new("Frame")
+			dot.Size = UDim2.new(0, 10, 0, 10)
+			dot.Position = UDim2.new(0, 8, 0.5, -5)
+			dot.BackgroundColor3 = clr
+			dot.BorderSizePixel = 0
+			dot.Parent = pill
+			Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+
+			local t = Instance.new("TextLabel")
+			t.Size = UDim2.new(1, -22, 1, 0)
+			t.Position = UDim2.new(0, 18, 0, 0)
+			t.BackgroundTransparency = 1
+			t.Text = (syn and syn.trait and (syn.trait .. " (" .. tostring(syn.count or 0) .. ")")) or "—"
+			t.TextColor3 = C.textSec
+			t.Font = Enum.Font.GothamBold
+			t.TextSize = 10
+			t.TextXAlignment = Enum.TextXAlignment.Left
+			t.TextTruncate = Enum.TextTruncate.AtEnd
+			t.Parent = pill
+
+			shown += 1
+		end
+
+		if shown == 0 then
+			local none = Instance.new("TextLabel")
+			none.Size = UDim2.new(1, -16, 0, 18)
+			none.Position = UDim2.new(0, 10, 0, 32)
+			none.BackgroundTransparency = 1
+			none.Text = "None"
+			none.TextColor3 = C.textMut
+			none.Font = Enum.Font.GothamMedium
+			none.TextSize = 10
+			none.TextXAlignment = Enum.TextXAlignment.Left
+			none.Parent = box
+		end
+	end
+
+	local function buildRoster()
+		local right = ui.rightCol
+
+		ui.autoBtn = Instance.new("TextButton")
+		ui.autoBtn.Name = "AutoBattleToggle"
+		ui.autoBtn.Size = UDim2.new(1, -16, 0, 34)
+		ui.autoBtn.Position = UDim2.new(0, 8, 0, 8)
+		ui.autoBtn.BackgroundColor3 = ui.battleTeamEnabled and C.battle or C.divider
+		ui.autoBtn.Text = ui.battleTeamEnabled and "Arena Battle: Active" or "Arena Battle: Inactive"
+		ui.autoBtn.TextColor3 = ui.battleTeamEnabled and Color3.new(1, 1, 1) or C.textSec
+		ui.autoBtn.Font = Enum.Font.GothamBold
+		ui.autoBtn.TextSize = 11
+		ui.autoBtn.BorderSizePixel = 0
+		ui.autoBtn.Parent = right
+		Instance.new("UICorner", ui.autoBtn).CornerRadius = UDim.new(0, 10)
+		ui.autoBtn.MouseButton1Click:Connect(function()
+			if not Evt.toggleBattleTeam then return end
+			args.invButtonDebounce("battleTeamToggle", "toggleBattleTeam", function()
+				local ok = pcall(function() return Evt.toggleBattleTeam:InvokeServer() end)
+				if ok then task.wait(0.15); refreshBattle() end
+			end)
+		end)
+
+		ui.rosterScroll = Instance.new("ScrollingFrame")
+		ui.rosterScroll.Name = "RosterScroll"
+		ui.rosterScroll.Size = UDim2.new(1, -16, 1, -52)
+		ui.rosterScroll.Position = UDim2.new(0, 8, 0, 48)
+		ui.rosterScroll.BackgroundTransparency = 1
+		ui.rosterScroll.BorderSizePixel = 0
+		ui.rosterScroll.ScrollBarThickness = 4
+		ui.rosterScroll.ScrollBarImageColor3 = C.scroll
+		ui.rosterScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+		ui.rosterScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+		ui.rosterScroll.Parent = right
+
+		-- Ensure cards don't sit under the scrollbar (fixes clipped right edge).
+		local scrollPad = Instance.new("UIPadding")
+		scrollPad.PaddingLeft = UDim.new(0, 2)
+		scrollPad.PaddingRight = UDim.new(0, 10)
+		scrollPad.Parent = ui.rosterScroll
+
+		local rosterList = Instance.new("UIListLayout")
+		rosterList.SortOrder = Enum.SortOrder.LayoutOrder
+		rosterList.Padding = UDim.new(0, 8)
+		rosterList.Parent = ui.rosterScroll
+
+		local rosterHead = Instance.new("TextLabel")
+		rosterHead.Size = UDim2.new(1, 0, 0, 18)
+		rosterHead.BackgroundTransparency = 1
+		rosterHead.Text = "Available (" .. tostring(#ui.available) .. ")"
+		rosterHead.TextColor3 = C.textSec
+		rosterHead.Font = Enum.Font.GothamBold
+		rosterHead.TextSize = 11
+		rosterHead.TextXAlignment = Enum.TextXAlignment.Left
+		rosterHead.LayoutOrder = -1
+		rosterHead.Parent = ui.rosterScroll
+
+		local rosterCards = {}
+		for i, av in ipairs(ui.available) do
+			local cr = av.cr
+
+			local row = Instance.new("Frame")
+			row.Name = "RosterCard_" .. tostring(av.uid)
+			-- Slightly narrower than scroll to avoid edge clipping.
+			row.Size = UDim2.new(1, -8, 0, 56)
+			row.BackgroundColor3 = C.card
+			row.BorderSizePixel = 0
+			row.LayoutOrder = i
+			row.Parent = ui.rosterScroll
+			Instance.new("UICorner", row).CornerRadius = UDim.new(0, 12)
+			local inspectStroke = Instance.new("UIStroke")
+			inspectStroke.Name = "InspectStroke"
+			inspectStroke.Color = Color3.fromRGB(255, 205, 90)
+			inspectStroke.Transparency = 0.1
+			inspectStroke.Thickness = 2
+			inspectStroke.Enabled = false
+			inspectStroke.Parent = row
+			ui.rosterCardStrokeByUid[tostring(av.uid)] = inspectStroke
+
+			local icon = Instance.new("Frame")
+			icon.Name = "IconFrame"
+			icon.Size = UDim2.new(0, 34, 0, 34)
+			icon.Position = UDim2.new(0, 10, 0.5, -17)
+			icon.BackgroundColor3 = Color3.fromRGB(28, 32, 45)
+			icon.BorderSizePixel = 0
+			icon.Parent = row
+			Instance.new("UICorner", icon).CornerRadius = UDim.new(0, 10)
+
+			local orb = Instance.new("Frame")
+			orb.Name = "Orb"
+			orb.Size = UDim2.new(0, 18, 0, 18)
+			orb.Position = UDim2.new(0.5, 0, 0.5, 0)
+			orb.AnchorPoint = Vector2.new(0.5, 0.5)
+			orb.BackgroundColor3 = cr.primaryColor or C.textMut
+			orb.BorderSizePixel = 0
+			orb.Parent = icon
+			Instance.new("UICorner", orb).CornerRadius = UDim.new(1, 0)
+
+			local viewerHost = Instance.new("Frame")
+			viewerHost.Name = "ViewerHost"
+			viewerHost.Size = UDim2.new(1, 0, 1, 0)
+			viewerHost.BackgroundTransparency = 1
+			viewerHost.Parent = icon
+
+			if CodexModelViewer then
+				table.insert(rosterCards, { frame = row, slot = viewerHost, creatureId = av.id, uid = av.uid })
+			end
+
+			local nm = Instance.new("TextLabel")
+			nm.Size = UDim2.new(1, -126, 0, 16)
+			nm.Position = UDim2.new(0, 52, 0, 10)
+			nm.BackgroundTransparency = 1
+			nm.Text = cr.displayName
+			nm.TextColor3 = C.text
+			nm.Font = Enum.Font.GothamBold
+			nm.TextSize = 12
+			nm.TextXAlignment = Enum.TextXAlignment.Left
+			nm.TextTruncate = Enum.TextTruncate.AtEnd
+			nm.Parent = row
+
+			local sub = Instance.new("TextLabel")
+			sub.Size = UDim2.new(1, -126, 0, 14)
+			sub.Position = UDim2.new(0, 52, 0, 28)
+			sub.BackgroundTransparency = 1
+			sub.Text = (cr.element or "?") .. " " .. (cr.class or "?")
+			sub.TextColor3 = ELEMENT_COLOR[cr.element] or C.textMut
+			sub.Font = Enum.Font.GothamMedium
+			sub.TextSize = 9
+			sub.TextXAlignment = Enum.TextXAlignment.Left
+			sub.TextTruncate = Enum.TextTruncate.AtEnd
+			sub.Parent = row
+
+			local inspectBtn = Instance.new("TextButton")
+			inspectBtn.Name = "InspectButton"
+			inspectBtn.Size = UDim2.new(1, -90, 1, 0)
+			inspectBtn.BackgroundTransparency = 1
+			inspectBtn.Text = ""
+			inspectBtn.AutoButtonColor = false
+			inspectBtn.Parent = row
+			inspectBtn.MouseButton1Click:Connect(function()
+				-- CRITICAL: inspect only (no deploy)
+				battleDeployPickMode = false
+				ui:inspectEntry("roster", nil, av.uid, {
+					uid = av.uid, id = av.id,
+					displayName = cr.displayName,
+					health = cr.health, attack = cr.attack, defense = cr.defense, speed = cr.speed,
+				})
+			end)
+
+			local deployBtn = Instance.new("TextButton")
+			deployBtn.Name = "DeployButton"
+			deployBtn.Size = UDim2.new(0, 70, 0, 26)
+			deployBtn.Position = UDim2.new(1, -80, 0.5, -13)
+			deployBtn.BackgroundColor3 = Color3.fromRGB(120, 90, 180)
+			deployBtn.Text = "Deploy"
+			deployBtn.TextColor3 = Color3.new(1, 1, 1)
+			deployBtn.Font = Enum.Font.GothamBold
+			deployBtn.TextSize = 10
+			deployBtn.BorderSizePixel = 0
+			deployBtn.Parent = row
+			Instance.new("UICorner", deployBtn).CornerRadius = UDim.new(0, 10)
+
+			deployBtn.MouseButton1Click:Connect(function()
+				-- Explicit deploy; if slot is selected, deploy immediately; else inspect + require slot pick
+				if battleSelectedDeploySlotIndex then
+					deployUidToSlot(av.uid, battleSelectedDeploySlotIndex)
+					return
+				end
+				ui:inspectEntry("roster", nil, av.uid, {
+					uid = av.uid, id = av.id,
+					displayName = cr.displayName,
+					health = cr.health, attack = cr.attack, defense = cr.defense, speed = cr.speed,
+				})
+				battleDeployPickMode = true
+				Notify.Toast("Select an empty slot to deploy.", C.textSec, 2)
+			end)
+		end
+
+		-- Mount roster viewports (pooled, like inventory tiles)
+		if CodexModelViewer and #rosterCards > 0 then
+			ui.rosterViewerPool = ui.rosterViewerPool or {}
+			local POOL = 6
+			task.defer(function()
+				if not sg or not main or not main.Parent or not main.Visible then return end
+				if not ui.rosterScroll or not ui.rosterScroll.Parent then return end
+				for i = 1, math.min(POOL, #rosterCards) do
+					local card = rosterCards[i]
+					if not ui.rosterViewerPool[i] then
+						ui.rosterViewerPool[i] = CodexModelViewer.new(card.slot, {
+							size = UDim2.new(1, 0, 1, 0),
+							autoRotate = false,
+							zoomEnabled = false,
+							showFloor = false,
+							themedLighting = true,
+							playIdleAnimation = true,
+							interactable = false,
+							viewportCornerRadius = UDim.new(0, 10),
+						})
+					end
+					ui.rosterViewerPool[i]:SetCreature(card.creatureId)
+					local icon = card.frame and card.frame:FindFirstChild("IconFrame")
+					local orb = icon and icon:FindFirstChild("Orb")
+					if orb and orb:IsA("GuiObject") then orb.Visible = false end
+				end
+				for i = POOL + 1, #rosterCards do
+					local card = rosterCards[i]
+					local icon = card.frame and card.frame:FindFirstChild("IconFrame")
+					local orb = icon and icon:FindFirstChild("Orb")
+					if orb and orb:IsA("GuiObject") then orb.Visible = true end
+				end
+			end)
+		end
+	end
+
+	buildShell()
+	buildInspector()
+	buildBoard()
+	buildSynergies()
+	buildRoster()
+
+	-- Restore previous inspector state if possible
+	if battleInspectedSource == "slot" and battleInspectedSlotIndex and ui.gridData[battleInspectedSlotIndex] then
+		local e = ui.gridData[battleInspectedSlotIndex]
+		ui:inspectEntry("slot", battleInspectedSlotIndex, e.uid, e)
+	elseif battleInspectedSource == "roster" and battleInspectedUid then
+		ui:inspectEntry("roster", nil, battleInspectedUid, nil)
+	else
+		ui:setInspectorEmpty()
+	end
+
+	ui.restoreScroll()
+end
+
 refreshBattle = function()
 	local restoreScroll = captureScrollPosition()
 	for _, ch in ipairs(content:GetChildren()) do
@@ -2463,6 +3395,30 @@ refreshBattle = function()
 		local ok2, r2 = pcall(function() return Evt.getBattleInfo:InvokeServer() end)
 		if ok2 and r2 then arenaInfo = r2 end
 	end
+
+	renderBattle3Col({
+		content = content,
+		restoreScroll = restoreScroll,
+		invButtonDebounce = invButtonDebounce,
+		Notify = Notify,
+		isMobileLayout = isMobileLayout,
+		Evt = Evt,
+		C = C,
+		ELEMENT_COLOR = ELEMENT_COLOR,
+		CodexModelViewer = CodexModelViewer,
+		battleTeamEnabled = battleTeamEnabled,
+		battleTeam = battleTeam,
+		battleCreatureCap = battleCreatureCap,
+		gridData = gridData,
+		available = available,
+		uidToEntry = uidToEntry,
+		pendingBattleOptimistic = pendingBattleOptimistic,
+		activeSynergies = activeSynergies,
+	})
+	do return end
+
+	-- LEGACY BATTLE UI (disabled)
+	-- The old battle renderer used to live below. It will never execute because of the `do return end` above.
 
 	-- Mobile: monster selection is a true sub-menu (modal outside main panel); desktop: sidebar
 	local mobile = isMobileLayout()
@@ -4616,7 +5572,7 @@ refreshInventory = function(overrideBaseStr, overrideDefStr)
 			if activeTab == "inventory" then
 				local cell = mkInvCell(entry, cr, data, i)
 				cell.Parent = invGridScroll
-				local viewerHost = cell:FindFirstChild("TopRow") and cell.TopRow:FindFirstChild("IconFrame") and cell.TopRow.IconFrame:FindFirstChild("ViewerHost")
+				local viewerHost = cell:FindFirstChild("ViewerHost")
 				if viewerHost and CodexModelViewer and not (entry.isEgg == true) then
 					table.insert(invCards, { frame = cell, slot = viewerHost, creatureId = entry.id })
 				end
@@ -4636,6 +5592,8 @@ refreshInventory = function(overrideBaseStr, overrideDefStr)
 	-- Populate visible inventory cards with 3D viewport models (pooled)
 	if CodexModelViewer and #invCards > 0 then
 		task.defer(function()
+			-- UI can be closed/destroyed before this runs; bail to avoid viewport reparent errors.
+			if not sg or not main or not main.Parent or not main.Visible then return end
 			for i = 1, math.min(INV_VIEWER_POOL_SIZE, #invCards) do
 				local card = invCards[i]
 				if not invViewerPool[i] then
@@ -4648,14 +5606,61 @@ refreshInventory = function(overrideBaseStr, overrideDefStr)
 						playIdleAnimation = true,
 					})
 				end
-				invViewerPool[i]:GetViewportFrame().Parent = card.slot
+				local vf = invViewerPool[i]:GetViewportFrame()
+				if vf and vf.Parent ~= card.slot then
+					local okParent = pcall(function()
+						vf.Parent = card.slot
+					end)
+					-- If the ViewportFrame was destroyed with its prior parent, recreate the pooled viewer.
+					if not okParent then
+						pcall(function()
+							if invViewerPool[i].Destroy then invViewerPool[i].Destroy() end
+						end)
+						invViewerPool[i] = CodexModelViewer.new(card.slot, {
+							size = UDim2.new(1, 0, 1, 0),
+							autoRotate = false,
+							zoomEnabled = false,
+							showFloor = false,
+							themedLighting = true,
+							playIdleAnimation = true,
+						})
+					end
+				end
 				invViewerPool[i]:SetCreature(card.creatureId)
 				invViewerInUse[i] = card.creatureId
+
+				-- Hide fallback orb when viewport is mounted (prevents “static circle” look).
+				local viewerHost = card.frame and card.frame:FindFirstChild("ViewerHost")
+				local orb = viewerHost and viewerHost:FindFirstChild("Orb")
+				if orb and orb:IsA("GuiObject") then
+					orb.Visible = false
+				end
 			end
 			for i = #invCards + 1, INV_VIEWER_POOL_SIZE do
 				if invViewerPool[i] then
 					invViewerPool[i]:SetCreature(nil)
-					invViewerPool[i]:GetViewportFrame().Parent = nil
+					local vf = invViewerPool[i]:GetViewportFrame()
+					if vf and vf.Parent ~= nil then
+						local okParent = pcall(function()
+							vf.Parent = nil
+						end)
+						if not okParent then
+							pcall(function()
+								if invViewerPool[i].Destroy then invViewerPool[i].Destroy() end
+							end)
+							invViewerPool[i] = nil
+						end
+					end
+				end
+			end
+
+			-- Restore fallback orb for cards not covered by the viewer pool.
+			for i = INV_VIEWER_POOL_SIZE + 1, #invCards do
+				local card = invCards[i]
+				local viewerHost = card.frame and card.frame:FindFirstChild("ViewerHost")
+				local orb = viewerHost and viewerHost:FindFirstChild("Orb")
+				if orb and orb:IsA("GuiObject") then
+					orb.Visible = true
 				end
 			end
 		end)
@@ -4713,6 +5718,12 @@ local function ensureInventoryGuiReady()
 end
 
 local function syncVisibleStateFromGui()
+	-- If the UI hasn't been constructed yet, don't block toggle flows.
+	-- `openUI()` is responsible for creating/parenting `sg` + `main`.
+	if not sg or not main then
+		isVis = false
+		return true
+	end
 	local guiOk = ensureInventoryGuiReady()
 	if not guiOk then
 		warn("[InventoryUI] ensureInventoryGuiReady failed — attempting recovery")
@@ -4910,7 +5921,13 @@ local function onHUDToggle(menuName)
 		return
 	end
 	if menuName == "InventoryUI" then
-		lastHUDInventoryToggleTick = tick()
+		local now = tick()
+		-- Some clients/scripts fire HUDToggleMenu twice; guard against instant open→close.
+		if (now - (lastHUDInventoryToggleTick or 0)) < 0.2 then
+			_agentLog("H4", "onHUDToggle", "skipped_double_fire", { dt = now - (lastHUDInventoryToggleTick or 0) })
+			return
+		end
+		lastHUDInventoryToggleTick = now
 		local dtQ = tick() - lastQKeyTick
 		_agentLog("H4", "onHUDToggle", "inventory_menu", { dtSinceDirectQ = dtQ })
 		-- Skip if Q key was just handled directly (prevents double-toggle from keyboard path)
@@ -4926,23 +5943,22 @@ local function onHUDToggle(menuName)
 	end
 end
 
-local hudToggleConnect, hudToggleChildAddedConnect
-local function bindHUDToggleListeners()
-	if hudToggleConnect then hudToggleConnect:Disconnect() end
-	if hudToggleChildAddedConnect then hudToggleChildAddedConnect:Disconnect() end
-	hudToggleConnect = getHUDToggle().Event:Connect(onHUDToggle)
-	local livePlayerGui = getLivePlayerGui()
-	hudToggleChildAddedConnect = livePlayerGui.ChildAdded:Connect(function(child)
+-- Hook into HUDToggleMenu without allocating extra top-level locals (Luau register limit safety).
+getHUDToggle().Event:Connect(onHUDToggle)
+do
+	getLivePlayerGui().ChildAdded:Connect(function(child)
 		if child.Name == "HUDToggleMenu" and child:IsA("BindableEvent") then
 			child.Event:Connect(onHUDToggle)
 		end
 	end)
 end
-bindHUDToggleListeners()
 player.CharacterAdded:Connect(function()
 	task.defer(function()
-		getLivePlayerGui()
-		bindHUDToggleListeners()
+		-- Reconnect in case HUDToggleMenu was recreated on respawn.
+		local evt = getLivePlayerGui():FindFirstChild("HUDToggleMenu")
+		if evt and evt:IsA("BindableEvent") then
+			evt.Event:Connect(onHUDToggle)
+		end
 		syncVisibleStateFromGui()
 	end)
 end)
@@ -4993,149 +6009,152 @@ battleTab.MouseButton1Click:Connect(function() setTab("battle"); refreshBattle()
 raidTab.MouseButton1Click:Connect(function() setTab("bag"); refreshBag() end)
 badBagTab.MouseButton1Click:Connect(function() setTab("badbag"); if refreshBadBag then refreshBadBag() end end)
 
--- Refresh current tab only (never switch content to Inventory when user is on Battle/Bag).
--- FIX #19: Forward-declared above (alongside refreshInventory/refreshBattle/refreshBag) so that
--- toggleFavorite (line ~324) can call it without getting a nil global. The local function form here
--- would shadow the forward-declared upvalue; using assignment form populates the shared binding.
-refreshCurrentTab = function()
-	if not isVis then return end
-	if activeTab == "inventory" then refreshInventory()
-	elseif activeTab == "battle" then refreshBattle()
-	elseif activeTab == "badbag" then if refreshBadBag then refreshBadBag() end
-	else refreshBag() end
-end
+-- Refresh current tab + late remote handlers: wrapped in an IIFE so the main chunk stays under
+-- Luau's ~200 local-register limit (otherwise compile fails near ZoneDoorLocked / script tail).
+;(function()
+	-- FIX #19: Forward-declared above (alongside refreshInventory/refreshBattle/refreshBag) so that
+	-- toggleFavorite (line ~324) can call it without getting a nil global.
+	refreshCurrentTab = function()
+		if not isVis then return end
+		if activeTab == "inventory" then refreshInventory()
+		elseif activeTab == "battle" then refreshBattle()
+		elseif activeTab == "badbag" then if refreshBadBag then refreshBadBag() end
+		else refreshBag() end
+	end
 
--- Bag: server-persisted data; refresh when bank or decor slots change (same saves as login)
-if Evt.ingredientBankChanged and Evt.ingredientBankChanged:IsA("RemoteEvent") then
-	Evt.ingredientBankChanged.OnClientEvent:Connect(function()
-		if isVis and activeTab == "bag" then refreshBag() end
-	end)
-end
-if Evt.decorStatueBonusSetUpdate and Evt.decorStatueBonusSetUpdate:IsA("RemoteEvent") then
-	Evt.decorStatueBonusSetUpdate.OnClientEvent:Connect(function()
-		if isVis and activeTab == "bag" then refreshBag() end
-	end)
-end
-
--- Events: refresh the *current* tab so we don't overwrite Battle/Bag with Inventory (fixes mobile reset bug)
-if Evt.captureSuccess then Evt.captureSuccess.OnClientEvent:Connect(function()
-		task.defer(function() task.wait(0.3); if isVis then refreshCurrentTab() end; updateFavOrb() end)
-	end) end
-if Evt.evolveResult then Evt.evolveResult.OnClientEvent:Connect(function(success, payload)
-		if success then
-			local newName = payload and CreatureData.GetById(payload)
-			local toastText = newName and ("Evolved to " .. newName.displayName .. "!") or "Evolved!"
-			Notify.Toast(toastText, Color3.fromRGB(180, 100, 255), 3)
-			task.defer(function()
-				setTab("inventory")
-				task.wait(0.25)
-				refreshInventory()
-				updateFavOrb()
-			end)
-		else
-			Notify.Toast(payload or "Evolution failed", C.red, 3)
-		end
-	end) end
-if Evt.raidStart then Evt.raidStart.OnClientEvent:Connect(function()
-		task.defer(function()
-			task.wait(0.25)
-			refreshBaseUnderAttackBadgeFromServer()
-			-- If the user is currently viewing the base overview, refresh it
-			-- so the "RAID" label + HP bar color update immediately.
+	-- Bag: server-persisted data; refresh when bank or decor slots change (same saves as login)
+	if Evt.ingredientBankChanged and Evt.ingredientBankChanged:IsA("RemoteEvent") then
+		Evt.ingredientBankChanged.OnClientEvent:Connect(function()
 			if isVis and activeTab == "bag" then refreshBag() end
 		end)
-	end) end
-if Evt.raidEnd then Evt.raidEnd.OnClientEvent:Connect(function()
-		task.defer(function()
-			task.wait(0.5)
-			refreshBaseUnderAttackBadgeFromServer()
-			if isVis then refreshCurrentTab() end
-			updateFavOrb()
+	end
+	if Evt.decorStatueBonusSetUpdate and Evt.decorStatueBonusSetUpdate:IsA("RemoteEvent") then
+		Evt.decorStatueBonusSetUpdate.OnClientEvent:Connect(function()
+			if isVis and activeTab == "bag" then refreshBag() end
 		end)
-	end) end
--- Income received: do NOT refresh inventory (coins update on next button/tab action).
--- Refreshing here caused constant scroll resets on mobile when income ticks fired.
+	end
 
-if Evt.arenaAnnounce then Evt.arenaAnnounce.OnClientEvent:Connect(function(msg)
-		if type(msg) == "string" and string.find(string.lower(msg), "battle team", 1, true) then
-			return
+	-- Events: refresh the *current* tab so we don't overwrite Battle/Bag with Inventory (fixes mobile reset bug)
+	if Evt.captureSuccess then Evt.captureSuccess.OnClientEvent:Connect(function()
+			task.defer(function() task.wait(0.3); if isVis then refreshCurrentTab() end; updateFavOrb() end)
+		end) end
+	if Evt.evolveResult then Evt.evolveResult.OnClientEvent:Connect(function(success, payload)
+			if success then
+				local newName = payload and CreatureData.GetById(payload)
+				local toastText = newName and ("Evolved to " .. newName.displayName .. "!") or "Evolved!"
+				Notify.Toast(toastText, Color3.fromRGB(180, 100, 255), 3)
+				task.defer(function()
+					setTab("inventory")
+					task.wait(0.25)
+					refreshInventory()
+					updateFavOrb()
+				end)
+			else
+				Notify.Toast(payload or "Evolution failed", C.red, 3)
+			end
+		end) end
+	if Evt.raidStart then Evt.raidStart.OnClientEvent:Connect(function()
+			task.defer(function()
+				task.wait(0.25)
+				refreshBaseUnderAttackBadgeFromServer()
+				if isVis and activeTab == "bag" then refreshBag() end
+			end)
+		end) end
+	if Evt.raidEnd then Evt.raidEnd.OnClientEvent:Connect(function()
+			task.defer(function()
+				task.wait(0.5)
+				refreshBaseUnderAttackBadgeFromServer()
+				if isVis then refreshCurrentTab() end
+				updateFavOrb()
+			end)
+		end) end
+
+	if Evt.arenaAnnounce then Evt.arenaAnnounce.OnClientEvent:Connect(function(msg)
+			if type(msg) == "string" and string.find(string.lower(msg), "battle team", 1, true) then
+				return
+			end
+			Notify.Toast(msg, C.favorite, 4)
+		end) end
+	if Evt.gymAnnounce then Evt.gymAnnounce.OnClientEvent:Connect(function(msg)
+			Notify.Toast(msg, C.favorite, 4)
+		end) end
+
+	if Evt.battleKill then Evt.battleKill.OnClientEvent:Connect(function(aN, dN, team)
+			local color = team == "blue" and C.blue or C.red
+			Notify.KillFeed(aN, dN, color)
+		end) end
+	if Evt.gymBattleKill then Evt.gymBattleKill.OnClientEvent:Connect(function(aN, dN, team)
+			local color = team == "blue" and C.blue or C.red
+			Notify.KillFeed(aN, dN, color)
+		end) end
+
+	if Evt.battleEnd then Evt.battleEnd.OnClientEvent:Connect(function(winName, winTeam)
+			local isWin = (winName == player.Name)
+			Notify.Banner(
+				winName .. " WINS THE BATTLE!",
+				isWin and Color3.fromRGB(80, 255, 120) or (winTeam == "blue" and C.blue or C.red),
+				4
+			)
+			if isVis and activeTab == "battle" then task.wait(1); refreshBattle() end
+		end) end
+	if Evt.gymBattleEnd then Evt.gymBattleEnd.OnClientEvent:Connect(function(winName, winTeam)
+			local isWin = (winName == player.Name)
+			Notify.Banner(
+				winName .. " WINS THE BATTLE!",
+				isWin and Color3.fromRGB(80, 255, 120) or (winTeam == "blue" and C.blue or C.red),
+				4
+			)
+			if isVis and activeTab == "battle" then task.wait(1); refreshBattle() end
+		end) end
+
+	do
+		local zoneDoorLocked = Events:FindFirstChild("ZoneDoorLocked")
+		if zoneDoorLocked then
+			zoneDoorLocked.OnClientEvent:Connect(function(zoneId, msg)
+				if type(msg) == "string" and msg ~= "" then Notify.Toast(msg, C.textSec, 5) end
+			end)
 		end
-		Notify.Toast(msg, C.favorite, 4)
-	end) end
-if Evt.gymAnnounce then Evt.gymAnnounce.OnClientEvent:Connect(function(msg)
-		Notify.Toast(msg, C.favorite, 4)
-	end) end
-
-if Evt.battleKill then Evt.battleKill.OnClientEvent:Connect(function(aN, dN, team)
-		local color = team == "blue" and C.blue or C.red
-		Notify.KillFeed(aN, dN, color)
-	end) end
-if Evt.gymBattleKill then Evt.gymBattleKill.OnClientEvent:Connect(function(aN, dN, team)
-		local color = team == "blue" and C.blue or C.red
-		Notify.KillFeed(aN, dN, color)
-	end) end
-
-if Evt.battleEnd then Evt.battleEnd.OnClientEvent:Connect(function(winName, winTeam)
-		local isWin = (winName == player.Name)
-		Notify.Banner(
-			winName .. " WINS THE BATTLE!",
-			isWin and Color3.fromRGB(80, 255, 120) or (winTeam == "blue" and C.blue or C.red),
-			4
-		)
-		if isVis and activeTab == "battle" then task.wait(1); refreshBattle() end
-	end) end
-if Evt.gymBattleEnd then Evt.gymBattleEnd.OnClientEvent:Connect(function(winName, winTeam)
-		local isWin = (winName == player.Name)
-		Notify.Banner(
-			winName .. " WINS THE BATTLE!",
-			isWin and Color3.fromRGB(80, 255, 120) or (winTeam == "blue" and C.blue or C.red),
-			4
-		)
-		if isVis and activeTab == "battle" then task.wait(1); refreshBattle() end
-	end) end
-
-local zoneDoorLocked = Events:FindFirstChild("ZoneDoorLocked")
-if zoneDoorLocked then zoneDoorLocked.OnClientEvent:Connect(function(zoneId, msg)
-		if type(msg) == "string" and msg ~= "" then Notify.Toast(msg, C.textSec, 5) end
-	end) end
-local sigilEarned = Events:FindFirstChild("SigilEarned")
-if sigilEarned then sigilEarned.OnClientEvent:Connect(function(zoneId)
-		Notify.Toast("Sigil earned: " .. tostring(zoneId), C.income, 3)
-	end) end
-
--- Badlands bag: update state and auto-refresh BadBag tab when data arrives
-if Evt.badlandsBagUpdate then
-	Evt.badlandsBagUpdate.OnClientEvent:Connect(function(payload)
-		local bag = (payload and payload.bag) or payload or {}
-		badBagState = {
-			count = tonumber(bag.count) or 0,
-			capacity = tonumber(bag.capacity) or 0,
-			activeIndex = bag.activeIndex,
-			slots = bag.slots or {},
-		}
-		task.defer(updateFavOrb)
-		if isVis and activeTab == "badbag" and refreshBadBag then
-			refreshBadBag()
+	end
+	do
+		local sigilEarned = Events:FindFirstChild("SigilEarned")
+		if sigilEarned then
+			sigilEarned.OnClientEvent:Connect(function(zoneId)
+				Notify.Toast("Sigil earned: " .. tostring(zoneId), C.income, 3)
+			end)
 		end
-	end)
-end
+	end
 
-if Evt.badlandsSacrificeResult then
-	Evt.badlandsSacrificeResult.OnClientEvent:Connect(function(success, message)
-		if success then
-			Notify.Toast(message or "Sacrifice complete!", C.income, 3)
-		else
-			Notify.Toast(message or "Sacrifice failed", C.red, 3)
-		end
-		if isVis and activeTab == "badbag" and refreshBadBag then
-			task.wait(0.2)
-			refreshBadBag()
-		end
-	end)
-end
+	if Evt.badlandsBagUpdate then
+		Evt.badlandsBagUpdate.OnClientEvent:Connect(function(payload)
+			local bag = (payload and payload.bag) or payload or {}
+			badBagState = {
+				count = tonumber(bag.count) or 0,
+				capacity = tonumber(bag.capacity) or 0,
+				activeIndex = bag.activeIndex,
+				slots = bag.slots or {},
+			}
+			task.defer(updateFavOrb)
+			if isVis and activeTab == "badbag" and refreshBadBag then
+				refreshBadBag()
+			end
+		end)
+	end
 
--- No auto-refresh loop: inventory only refreshes on tab/button press or when
--- CaptureSuccess/RaidEnd adds a monster. Avoids scroll reset on mobile.
-task.defer(syncInventoryScreenGuiInset)
-_agentLog("H1", "InventoryUIManager", "script_loaded_handlers", { inventoryUiParent = sg and sg.Parent and sg.Parent.Name })
-print("[InventoryUI] Script fully loaded — all handlers registered")
+	if Evt.badlandsSacrificeResult then
+		Evt.badlandsSacrificeResult.OnClientEvent:Connect(function(success, message)
+			if success then
+				Notify.Toast(message or "Sacrifice complete!", C.income, 3)
+			else
+				Notify.Toast(message or "Sacrifice failed", C.red, 3)
+			end
+			if isVis and activeTab == "badbag" and refreshBadBag then
+				task.wait(0.2)
+				refreshBadBag()
+			end
+		end)
+	end
+
+	task.defer(syncInventoryScreenGuiInset)
+	_agentLog("H1", "InventoryUIManager", "script_loaded_handlers", { inventoryUiParent = sg and sg.Parent and sg.Parent.Name })
+	print("[InventoryUI] Script fully loaded — all handlers registered")
+end)()

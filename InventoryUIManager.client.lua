@@ -205,6 +205,16 @@ do
 		CinematicCellConfig = mod
 	end
 end
+-- Emoji / colored icons in TextLabels need a font with emoji coverage (Gotham shows tofu / "?").
+local CINEMA_TRAIT_FONTFACE = nil
+do
+	local ok, face = pcall(function()
+		return Font.new("rbxasset://fonts/families/BuilderSans.json", Enum.FontWeight.Medium, Enum.FontStyle.Normal)
+	end)
+	if ok then
+		CINEMA_TRAIT_FONTFACE = face
+	end
+end
 local ELEMENT_COLOR = {
 	Fire = Color3.fromRGB(255, 80, 30), Ice = Color3.fromRGB(100, 200, 255),
 	Wind = Color3.fromRGB(150, 255, 180), Earth = Color3.fromRGB(180, 140, 80),
@@ -2036,7 +2046,8 @@ local function mkInvCell(entry, creature, data, order)
 	-- Level pill (left)
 	local lvlPill = Instance.new("TextLabel")
 	lvlPill.Name = "LevelLabel"
-	lvlPill.Size = UDim2.new(0, 26, 0, 18)
+	lvlPill.AutomaticSize = Enum.AutomaticSize.X
+	lvlPill.Size = UDim2.new(0, 0, 0, 18)
 	lvlPill.Position = UDim2.new(0, 6, 0, 6)
 	lvlPill.BackgroundColor3 = Color3.fromRGB(14, 16, 24)
 	lvlPill.BackgroundTransparency = 0.1
@@ -2044,35 +2055,62 @@ local function mkInvCell(entry, creature, data, order)
 	lvlPill.Text = tostring(entry.level or 1)
 	lvlPill.TextColor3 = Color3.fromRGB(230, 230, 240)
 	lvlPill.Font = Enum.Font.GothamBold
-	lvlPill.TextSize = 9
+	lvlPill.TextScaled = true
 	lvlPill.ZIndex = 6
 	lvlPill.Parent = topBar
 	Instance.new("UICorner", lvlPill).CornerRadius = UDim.new(1, 0)
+	do
+		local lp = Instance.new("UIPadding")
+		lp.PaddingLeft = UDim.new(0, 6)
+		lp.PaddingRight = UDim.new(0, 6)
+		lp.Parent = lvlPill
+		local tc = Instance.new("UITextSizeConstraint")
+		tc.MaxTextSize = 11
+		tc.MinTextSize = 7
+		tc.Parent = lvlPill
+	end
 
 	-- Rarity abbrev pill (right)
 	local rarityName = tostring(creature.rarity or entry.rarity or "Common")
-	local abbrev = CinematicCellConfig and CinematicCellConfig.GetRarityAbbrev(rarityName) or rarityName
+	local abbrev = rarityName
+	if CinematicCellConfig then
+		abbrev = CinematicCellConfig.GetRarityAbbrev(rarityName)
+	else
+		abbrev = ({ Common = "C", Uncommon = "UC", Rare = "R", Epic = "M", Mystic = "M", Legendary = "L" })[rarityName] or "C"
+	end
 	local rarColor = CinematicCellConfig and CinematicCellConfig.GetRarityColor(abbrev) or rc
 	local rarPill = Instance.new("TextLabel")
 	rarPill.Name = "RarityLabel"
-	rarPill.Size = UDim2.new(0, 34, 0, 18)
-	rarPill.Position = UDim2.new(1, -40, 0, 6)
+	rarPill.AutomaticSize = Enum.AutomaticSize.X
+	rarPill.Size = UDim2.new(0, 0, 0, 18)
+	rarPill.Position = UDim2.new(1, -6, 0, 6)
+	rarPill.AnchorPoint = Vector2.new(1, 0)
 	rarPill.BackgroundColor3 = rarColor
 	rarPill.BackgroundTransparency = 0.15
 	rarPill.BorderSizePixel = 0
 	rarPill.Text = tostring(abbrev)
 	rarPill.TextColor3 = Color3.new(1, 1, 1)
 	rarPill.Font = Enum.Font.GothamBold
-	rarPill.TextSize = 9
+	rarPill.TextScaled = true
 	rarPill.ZIndex = 6
 	rarPill.Parent = topBar
 	Instance.new("UICorner", rarPill).CornerRadius = UDim.new(1, 0)
+	do
+		local rp = Instance.new("UIPadding")
+		rp.PaddingLeft = UDim.new(0, 7)
+		rp.PaddingRight = UDim.new(0, 7)
+		rp.Parent = rarPill
+		local tc = Instance.new("UITextSizeConstraint")
+		tc.MaxTextSize = 11
+		tc.MinTextSize = 7
+		tc.Parent = rarPill
+	end
 
 	-- Bottom bar (name + traits)
 	local bottomBar = Instance.new("Frame")
 	bottomBar.Name = "BottomBar"
-	bottomBar.Size = UDim2.new(1, 0, 0, 36)
-	bottomBar.Position = UDim2.new(0, 0, 1, -36)
+	bottomBar.Size = UDim2.new(1, 0, 0, 42)
+	bottomBar.Position = UDim2.new(0, 0, 1, -42)
 	bottomBar.BackgroundColor3 = Color3.new(0, 0, 0)
 	bottomBar.BackgroundTransparency = 0.45
 	bottomBar.BorderSizePixel = 0
@@ -2081,56 +2119,86 @@ local function mkInvCell(entry, creature, data, order)
 
 	local nameLbl = Instance.new("TextLabel")
 	nameLbl.Name = "NameLabel"
-	nameLbl.Size = UDim2.new(1, -12, 0, 16)
+	nameLbl.Size = UDim2.new(1, -12, 0, 20)
 	nameLbl.Position = UDim2.new(0, 6, 0, 4)
 	nameLbl.BackgroundTransparency = 1
 	nameLbl.Text = eggHidden and "Unknown Egg" or (creature.displayName or entry.id or "Siegeling")
 	nameLbl.TextColor3 = Color3.fromRGB(245, 245, 250)
 	nameLbl.Font = Enum.Font.GothamBold
-	nameLbl.TextSize = 12
+	nameLbl.TextScaled = true
 	nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+	nameLbl.TextYAlignment = Enum.TextYAlignment.Center
 	nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
 	nameLbl.ZIndex = 6
 	nameLbl.Parent = bottomBar
+	do
+		local tc = Instance.new("UITextSizeConstraint")
+		tc.MaxTextSize = 13
+		tc.MinTextSize = 7
+		tc.Parent = nameLbl
+	end
 
 	local traits = Instance.new("Frame")
 	traits.Name = "TraitsFrame"
-	traits.Size = UDim2.new(1, -12, 0, 14)
-	traits.Position = UDim2.new(0, 6, 0, 20)
+	traits.Size = UDim2.new(1, -12, 0, 18)
+	traits.Position = UDim2.new(0, 6, 0, 24)
 	traits.BackgroundTransparency = 1
 	traits.ZIndex = 6
 	traits.Parent = bottomBar
 
 	local tLayout = Instance.new("UIListLayout")
 	tLayout.FillDirection = Enum.FillDirection.Horizontal
-	tLayout.Padding = UDim.new(0, 6)
+	tLayout.Padding = UDim.new(0, 4)
 	tLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	tLayout.VerticalAlignment = Enum.VerticalAlignment.Center
 	tLayout.Parent = traits
 
 	local elem = tostring(creature.element or "?")
 	local role = tostring(creature.class or creature.role or "")
-	local elemIcon = CinematicCellConfig and CinematicCellConfig.GetElementIcon(elem) or "❔"
-	local roleIcon = CinematicCellConfig and CinematicCellConfig.GetRoleIcon(role) or "❔"
+	local elemIcon = CinematicCellConfig and CinematicCellConfig.GetElementIcon(elem)
+		or string.upper(string.sub(elem ~= "?" and elem or "?", 1, 2))
+	local roleIcon = (role ~= "" and (CinematicCellConfig and CinematicCellConfig.GetRoleIcon(role)
+		or string.upper(string.sub(role, 1, 2)))) or ""
 
 	local elemLbl = Instance.new("TextLabel")
-	elemLbl.Size = UDim2.new(0, 22, 1, 0)
+	elemLbl.Size = UDim2.new(0, 24, 1, 0)
 	elemLbl.BackgroundTransparency = 1
 	elemLbl.Text = elemIcon
 	elemLbl.TextColor3 = Color3.new(1, 1, 1)
-	elemLbl.Font = Enum.Font.GothamBold
-	elemLbl.TextSize = 12
+	if CINEMA_TRAIT_FONTFACE then
+		elemLbl.FontFace = CINEMA_TRAIT_FONTFACE
+	else
+		elemLbl.Font = Enum.Font.GothamBold
+	end
+	elemLbl.TextScaled = true
 	elemLbl.ZIndex = 7
 	elemLbl.Parent = traits
+	do
+		local tc = Instance.new("UITextSizeConstraint")
+		tc.MaxTextSize = 15
+		tc.MinTextSize = 9
+		tc.Parent = elemLbl
+	end
 
 	local roleLbl = Instance.new("TextLabel")
-	roleLbl.Size = UDim2.new(0, 22, 1, 0)
+	roleLbl.Size = UDim2.new(0, 24, 1, 0)
 	roleLbl.BackgroundTransparency = 1
 	roleLbl.Text = role ~= "" and roleIcon or ""
 	roleLbl.TextColor3 = Color3.new(1, 1, 1)
-	roleLbl.Font = Enum.Font.GothamBold
-	roleLbl.TextSize = 12
+	if CINEMA_TRAIT_FONTFACE then
+		roleLbl.FontFace = CINEMA_TRAIT_FONTFACE
+	else
+		roleLbl.Font = Enum.Font.GothamBold
+	end
+	roleLbl.TextScaled = true
 	roleLbl.ZIndex = 7
 	roleLbl.Parent = traits
+	do
+		local tc = Instance.new("UITextSizeConstraint")
+		tc.MaxTextSize = 15
+		tc.MinTextSize = 9
+		tc.Parent = roleLbl
+	end
 
 	local function applySelectedVisual()
 		local selectedNow = (selectedInventoryUid ~= nil) and tostring(selectedInventoryUid) == uidStr

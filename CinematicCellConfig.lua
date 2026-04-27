@@ -67,13 +67,18 @@ function Config.GetRarityColor(abbrevOrName)
 end
 
 function Config.GetElementIcon(elementName)
-	if type(elementName) ~= "string" then return "❔" end
-	return Config.Elements[elementName] or "❔"
+	if type(elementName) ~= "string" then return "?" end
+	local em = Config.Elements[elementName]
+	if em then return em end
+	-- ASCII fallback if emoji missing from table (still readable in any font)
+	return string.upper(string.sub(elementName, 1, 2))
 end
 
 function Config.GetRoleIcon(roleName)
-	if type(roleName) ~= "string" then return "❔" end
-	return Config.Roles[roleName] or "❔"
+	if type(roleName) ~= "string" then return "?" end
+	local em = Config.Roles[roleName]
+	if em then return em end
+	return string.upper(string.sub(roleName, 1, 2))
 end
 
 return Config

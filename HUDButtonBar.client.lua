@@ -457,8 +457,8 @@ end
 		tipLabel.Visible = false
 	end)
 
-	-- Click: fire toggle event, set active indicator, bounce
-	btn.MouseButton1Click:Connect(function()
+	-- Tap/click: use Activated so touch + mouse both open menus (MouseButton1Click alone is flaky on some mobile clients).
+	btn.Activated:Connect(function()
 		setActiveAndMove(def.menuName, true)
 		-- Click bounce (scale 1 -> 1.25 -> 1 with Elastic)
 		local uiScale = btn:FindFirstChildOfClass("UIScale") or Instance.new("UIScale", btn)

@@ -28,6 +28,10 @@ local playerGui = player:WaitForChild("PlayerGui")
 local GameConfig    = require(ReplicatedStorage.Modules.GameConfig)
 local Notify        = require(ReplicatedStorage.Modules.NotificationManager)
 local CreatureData  = require(ReplicatedStorage.Modules.CreatureData)
+local CreatureModelLoader = nil
+pcall(function()
+	CreatureModelLoader = require(ReplicatedStorage.Modules:WaitForChild("CreatureModelLoader"))
+end)
 local AchievementsConfig = nil
 pcall(function()
 	AchievementsConfig = require(ReplicatedStorage.Modules:WaitForChild("AchievementsConfig"))
@@ -109,6 +113,37 @@ local SIEGE_ZONE_IDS     = GameConfig.SiegeKnightSigilZoneIds or { "Desert", "Ca
 local SIEGE_LORD_ZONE_ID = GameConfig.SiegeLordSigilZoneId or "Badlands"
 local SIEGE_LORD_SUB     = GameConfig.SiegeLordSigilSubtext or "Successful extraction"
 
+local TOTAL_SIGIL_COUNT = 9 -- 4 Squire + 4 Knight + 1 Lord
+local KNIGHT_ZONE_BOSS_ELEMENT = {
+	Desert = "Fire",
+	Cave = "Earth",
+	Ocean = "Water",
+	Electric = "Lightning",
+}
+local SIGIL_ELEMENT_EMOJI = {
+	Fire = "🔥",
+	Ice = "❄️",
+	Wind = "💨",
+	Earth = "🌍",
+}
+local KNIGHT_ZONE_EMOJI = {
+	Desert = "🏜️",
+	Cave = "🦇",
+	Ocean = "🌊",
+	Electric = "⚡",
+}
+
+local DEFAULT_SIGIL_ELEMENTS = { "Fire", "Ice", "Wind", "Earth" }
+
+--- GameConfig.ElementalBossElements must be a sequential array; if # is 0, sigil rows would be empty.
+local function getSquireElementList()
+	local t = ELEMENTAL_ELEMENTS
+	if type(t) ~= "table" or #t < 1 then
+		return DEFAULT_SIGIL_ELEMENTS
+	end
+	return t
+end
+
 -- ══════════════════════════════════════════════════════════════════════════════
 -- Layout constants
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -133,6 +168,34 @@ local function escapeRichText(s)
 	s = tostring(s or "")
 	s = s:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;")
 	return s
+end
+
+-- Same abbreviation rules as HUD coin bar (HUDClient.formatAbbrev): K / M / B / T.
+local function formatAbbrev(n)
+	n = tonumber(n) or 0
+	local neg = n < 0
+	n = math.abs(n)
+	local function trunc2(x)
+		return math.floor(x * 100) / 100
+	end
+	local function fmt(x, suffix)
+		local v = trunc2(x)
+		local s
+		if v == math.floor(v) then
+			s = tostring(math.floor(v))
+		else
+			s = string.format("%.2f", v):gsub("0+$", ""):gsub("%.$", "")
+		end
+		return s .. suffix
+	end
+	local out
+	if n >= 1e12 then      out = fmt(n / 1e12, "T")
+	elseif n >= 1e9 then   out = fmt(n / 1e9,  "B")
+	elseif n >= 1e6 then   out = fmt(n / 1e6,  "M")
+	elseif n >= 1e3 then   out = fmt(n / 1e3,  "K")
+	else                    out = tostring(math.floor(n))
+	end
+	return neg and ("-" .. out) or out
 end
 
 --- Highest unlocked floor title for header (matches floor list copy).
@@ -480,7 +543,7 @@ local sidebarTitle = Instance.new("TextLabel")
 sidebarTitle.Size = UDim2.new(1, -16, 0, 28)
 sidebarTitle.Position = UDim2.new(0, 10, 0, 6)
 sidebarTitle.BackgroundTransparency = 1
-sidebarTitle.Text = "BASE FLOORS"
+sidebarTitle.Text = "🏛️ BASE FLOORS"
 sidebarTitle.TextColor3 = C.accent
 sidebarTitle.Font = Enum.Font.GothamBold
 sidebarTitle.TextSize = 12
@@ -510,15 +573,22 @@ sigilsTab.BorderSizePixel = 0
 sigilsTab.ScrollBarThickness = 4
 sigilsTab.ScrollBarImageColor3 = C.divider
 sigilsTab.ScrollingDirection = Enum.ScrollingDirection.Y
-sigilsTab.AutomaticCanvasSize = Enum.AutomaticSize.Y
-sigilsTab.CanvasSize = UDim2.new(0, 0, 0, 0)
+-- Manual CanvasSize after layout: AutomaticCanvasSize + Y-scale children often yields 0-width canvas → invisible rows.
+sigilsTab.AutomaticCanvasSize = Enum.AutomaticSize.None
+sigilsTab.CanvasSize = UDim2.new(0, 400, 0, 800)
+sigilsTab.ClipsDescendants = true
 sigilsTab.Visible = false
 sigilsTab.Parent = main
 
 local sigilsLayout = Instance.new("UIListLayout")
 sigilsLayout.SortOrder = Enum.SortOrder.LayoutOrder
-sigilsLayout.Padding = UDim.new(0, 10)
+sigilsLayout.Padding = UDim.new(0, 12)
 sigilsLayout.Parent = sigilsTab
+
+local sigilsPadding = Instance.new("UIPadding")
+sigilsPadding.PaddingLeft = UDim.new(0, 2)
+sigilsPadding.PaddingRight = UDim.new(0, 2)
+sigilsPadding.Parent = sigilsTab
 
 tabContents.Sigils = sigilsTab
 
@@ -563,19 +633,20 @@ rebirthTab.Parent = main
 -- Scroll area inside rebirth tab (leaves room for rebirth button at bottom)
 local rebirthScroll = Instance.new("ScrollingFrame")
 rebirthScroll.Name = "RebirthScroll"
-rebirthScroll.Size = UDim2.new(1, 0, 1, -60)
+rebirthScroll.Size = UDim2.new(1, 0, 1, 0)
 rebirthScroll.BackgroundTransparency = 1
 rebirthScroll.BorderSizePixel = 0
 rebirthScroll.ScrollBarThickness = 4
 rebirthScroll.ScrollBarImageColor3 = C.divider
 rebirthScroll.ScrollingDirection = Enum.ScrollingDirection.Y
-rebirthScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-rebirthScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+rebirthScroll.AutomaticCanvasSize = Enum.AutomaticSize.None
+rebirthScroll.CanvasSize = UDim2.new(1, 0, 1, 0)
+rebirthScroll.ScrollingEnabled = false
 rebirthScroll.Parent = rebirthTab
 
 local rebirthLayout = Instance.new("UIListLayout")
 rebirthLayout.SortOrder = Enum.SortOrder.LayoutOrder
-rebirthLayout.Padding = UDim.new(0, 8)
+rebirthLayout.Padding = UDim.new(0, 0)
 rebirthLayout.Parent = rebirthScroll
 
 -- Bottom rebirth button
@@ -590,6 +661,7 @@ rebirthBtn.Font = Enum.Font.GothamBlack
 rebirthBtn.TextSize = 14
 rebirthBtn.BorderSizePixel = 0
 rebirthBtn.Parent = rebirthTab
+rebirthBtn.Visible = false
 Instance.new("UICorner", rebirthBtn).CornerRadius = UDim.new(0, 10)
 
 -- Confirmation overlay (covers entire main frame)
@@ -698,7 +770,7 @@ local function switchTab(tabName)
 	elseif tabName == "Rebirth" then
 		title.Visible = true
 		profileHdrCluster.Visible = false
-		title.Text = "PILOT REBIRTH"
+		title.Text = "KNIGHT REBIRTH"
 		title.TextColor3 = C.rebirthAccent
 	elseif tabName == "Achievements" then
 		title.Visible = true
@@ -778,6 +850,53 @@ local function mkStatRow(parent, label, value, color, order)
 	return row, val
 end
 
+-- 2×2 stat pills — same layout/visual language as Battle slot inspector (InventoryUIManager buildInspector mkStatPill).
+local function mkPilotStatPill(parent, pos, label, iconColor, valueText)
+	local pill = Instance.new("Frame")
+	pill.Size = UDim2.new(0.5, -12, 0, 26)
+	pill.Position = pos
+	pill.BackgroundColor3 = Color3.fromRGB(22, 24, 35)
+	pill.BorderSizePixel = 0
+	pill.Parent = parent
+	Instance.new("UICorner", pill).CornerRadius = UDim.new(0, 10)
+	local pst = Instance.new("UIStroke")
+	pst.Color = C.divider
+	pst.Transparency = 0.55
+	pst.Parent = pill
+
+	local icon = Instance.new("Frame")
+	icon.Size = UDim2.new(0, 18, 0, 18)
+	icon.Position = UDim2.new(0, 8, 0.5, -9)
+	icon.BackgroundColor3 = iconColor
+	icon.BorderSizePixel = 0
+	icon.Parent = pill
+	Instance.new("UICorner", icon).CornerRadius = UDim.new(1, 0)
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(0, 48, 1, 0)
+	lbl.Position = UDim2.new(0, 30, 0, 0)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = label
+	lbl.TextColor3 = C.textSec
+	lbl.Font = Enum.Font.GothamBold
+	lbl.TextSize = 11
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.Parent = pill
+
+	local val = Instance.new("TextLabel")
+	val.Size = UDim2.new(1, -10, 1, 0)
+	val.Position = UDim2.new(0, 0, 0, 0)
+	val.BackgroundTransparency = 1
+	val.Text = valueText or "-"
+	val.TextColor3 = C.text
+	val.Font = Enum.Font.GothamBold
+	val.TextSize = 11
+	val.TextXAlignment = Enum.TextXAlignment.Right
+	val.TextTruncate = Enum.TextTruncate.AtEnd
+	val.Parent = pill
+	return pill
+end
+
 -- Live economy row refs (avoid full profile rebuild on every coin tick)
 local profileCoinsValueLbl = nil
 local profileGemsValueLbl = nil
@@ -789,10 +908,10 @@ end
 
 local function updateProfileEconomyDisplay(coins, gems)
 	if profileCoinsValueLbl and coins ~= nil then
-		profileCoinsValueLbl.Text = tostring(coins)
+		profileCoinsValueLbl.Text = formatAbbrev(coins)
 	end
 	if profileGemsValueLbl and gems ~= nil then
-		profileGemsValueLbl.Text = tostring(gems)
+		profileGemsValueLbl.Text = formatAbbrev(gems)
 	end
 end
 
@@ -875,7 +994,7 @@ function refreshProfile()
 	for _, ch in ipairs(sidebarContent:GetChildren()) do
 		if not ch:IsA("UIListLayout") then ch:Destroy() end
 	end
-	sidebarTitle.Text = "BASE FLOORS"
+	sidebarTitle.Text = "🏛️ BASE FLOORS"
 
 	if not getProfile then return end
 	local ok, data = pcall(function() return getProfile:InvokeServer() end)
@@ -890,22 +1009,22 @@ function refreshProfile()
 
 	-- Economy (coin/gem value labels kept for live Updates without full rebuild)
 	local economyBlock = mkSectionFrame(leftCol, 100)
-	mkSection(economyBlock, "ECONOMY", 10)
+	mkSection(economyBlock, "💰 ECONOMY", 10)
 	do
-		local _, coinsVal = mkStatRow(economyBlock, "Coins", tostring(data.coins or 0), C.gold, 11)
-		local _, gemsVal = mkStatRow(economyBlock, "Gems", tostring(data.gems or 0), C.blue, 12)
+		local _, coinsVal = mkStatRow(economyBlock, "💰 Coins", formatAbbrev(data.coins or 0), C.gold, 11)
+		local _, gemsVal = mkStatRow(economyBlock, "💎 Gems", formatAbbrev(data.gems or 0), C.blue, 12)
 		profileCoinsValueLbl = coinsVal
 		profileGemsValueLbl = gemsVal
 	end
 
 	-- Lifetime / progression (not pilot combat — avoids mixing with ATK/DEF/HP rows)
 	local statBlock = mkSectionFrame(leftCol, 200)
-	mkSection(statBlock, "PROGRESS", 10)
-	mkStatRow(statBlock, "Monsters Owned", tostring(data.monstersOwned or 0), C.text, 11)
-	mkStatRow(statBlock, "Total Captured", tostring(data.totalCaptured or 0), C.green, 12)
-	mkStatRow(statBlock, "Arena Wins", tostring(data.arenaWins or 0), C.gold, 13)
-	mkStatRow(statBlock, "Max Win Streak", tostring(data.arenaMaxStreak or 0), Color3.fromRGB(255, 130, 50), 14)
-	mkStatRow(statBlock, "Total Income Earned", tostring(data.totalIncome or 0), C.gold, 15)
+	mkSection(statBlock, "📊 PROGRESS", 10)
+	mkStatRow(statBlock, "👾 Monsters Owned", tostring(data.monstersOwned or 0), C.text, 11)
+	mkStatRow(statBlock, "🎯 Total Captured", tostring(data.totalCaptured or 0), C.green, 12)
+	mkStatRow(statBlock, "⚔️ Arena Wins", tostring(data.arenaWins or 0), C.gold, 13)
+	mkStatRow(statBlock, "🔥 Max Win Streak", tostring(data.arenaMaxStreak or 0), Color3.fromRGB(255, 130, 50), 14)
+	mkStatRow(statBlock, "📈 Total Coins Earned", formatAbbrev(data.totalIncome or 0), C.gold, 15)
 
 	-- Base Floors
 	local ownedFloors = data.ownedFloors or { 1 }
@@ -914,7 +1033,7 @@ function refreshProfile()
 		return false
 	end
 
-	-- Pilot combat — own section before base floors (scroll order); never a sibling between floor rows.
+	-- Pilot combat — own section before base floors (scroll order); never a sibling between floor rows..
 	local pc = data.pilotCombat
 	if pc then
 		local pct = math.floor((pc.statGainPerLevel or 0.08) * 100 + 0.5)
@@ -947,11 +1066,20 @@ function refreshProfile()
 		pilList.Padding = UDim.new(0, 6)
 		pilList.Parent = pilotInner
 
-		mkSection(pilotInner, "PILOT COMBAT STATS", 10)
-		mkStatRow(pilotInner, "ATK", tostring(pc.attack), Color3.fromRGB(255, 100, 80), 11)
-		mkStatRow(pilotInner, "DEF", tostring(pc.defense), Color3.fromRGB(80, 150, 255), 12)
-		mkStatRow(pilotInner, "Health (max)", tostring(pc.maxHealth), Color3.fromRGB(90, 220, 120), 13)
-		mkStatRow(pilotInner, "Speed (walk / sprint)", ("%d / %d studs/s"):format(pc.walkSpeed, pc.sprintSpeed), C.text, 14)
+		mkSection(pilotInner, "⚔️ KNIGHT COMBAT STATS", 10)
+		local pilotStatsBox = Instance.new("Frame")
+		pilotStatsBox.Name = "PilotStatsGrid"
+		pilotStatsBox.Size = UDim2.new(1, 0, 0, 96)
+		pilotStatsBox.BackgroundColor3 = C.card
+		pilotStatsBox.BorderSizePixel = 0
+		pilotStatsBox.LayoutOrder = 11
+		pilotStatsBox.Parent = pilotInner
+		Instance.new("UICorner", pilotStatsBox).CornerRadius = UDim.new(0, 12)
+		local spdStr = ("%d / %d"):format(pc.walkSpeed or 0, pc.sprintSpeed or 0)
+		mkPilotStatPill(pilotStatsBox, UDim2.new(0, 10, 0, 34), "ATK", Color3.fromRGB(255, 120, 120), tostring(pc.attack))
+		mkPilotStatPill(pilotStatsBox, UDim2.new(0.5, 2, 0, 34), "DEF", Color3.fromRGB(120, 180, 255), tostring(pc.defense))
+		mkPilotStatPill(pilotStatsBox, UDim2.new(0, 10, 0, 64), "HP", Color3.fromRGB(80, 220, 140), tostring(pc.maxHealth))
+		mkPilotStatPill(pilotStatsBox, UDim2.new(0.5, 2, 0, 64), "SPD", Color3.fromRGB(255, 220, 100), spdStr)
 		local pilotNote = Instance.new("TextLabel")
 		pilotNote.Size = UDim2.new(1, 0, 0, 0)
 		pilotNote.AutomaticSize = Enum.AutomaticSize.Y
@@ -974,14 +1102,14 @@ function refreshProfile()
 	-- Mobile: floors in their own section after pilot. Desktop: right sidebar only.
 	local floorsParent = isMobile and mkSectionFrame(leftCol, 300) or sidebarContent
 	if isMobile then
-		mkSection(floorsParent, "BASE FLOORS", 10)
+		mkSection(floorsParent, "🏛️ BASE FLOORS", 10)
 	end
 
 	local unlockHint = Instance.new("TextLabel")
 	unlockHint.Size = UDim2.new(1, 0, 0, 0)
 	unlockHint.AutomaticSize = Enum.AutomaticSize.Y
 	unlockHint.BackgroundTransparency = 1
-	unlockHint.Text = "Each floor adds space and a siege title. Floor 2 — Siege Squire (Battles & battle team). Floor 3 — Siege Knight (teleporters, Recycler, and Combiners). Floor 4 — Siegelord (Siegelord Arena)."
+	unlockHint.Text = "🏗️ Each floor adds space and a siege title. Floor 2 — Siege Squire (Battles & battle team). Floor 3 — Siege Knight (teleporters, Recycler, and Combiners). Floor 4 — Siegelord (Siegelord Arena)."
 	unlockHint.TextColor3 = C.textMut
 	unlockHint.Font = Enum.Font.GothamMedium
 	unlockHint.TextSize = 9
@@ -1024,6 +1152,16 @@ function refreshProfile()
 
 	for i, floorNum in ipairs({ 1, 2, 3, 4 }) do
 		local owned = ownsFloor(floorNum)
+		local floorCfg = FLOOR_UI_CONFIG[floorNum]
+		local reqLvl = floorCfg and floorCfg.levelReq or 1
+		local cost = floorCfg and floorCfg.cost or 0
+		local meetsLevel = lvl >= reqLvl
+		local meetsPrereq = (not floorCfg or not floorCfg.prereq) or ownsFloor(floorCfg.prereq)
+		local canBuy = false
+		if not owned and floorNum > 1 and floorCfg then
+			canBuy = meetsLevel and meetsPrereq and (data.coins or 0) >= cost
+		end
+
 		local isLocked = not owned and floorNum > 1
 		local benefitLine = FLOOR_BENEFITS[floorNum] or ""
 		local rowHeight = isLocked and 96 or (floorNum == 1 and 56 or 62)
@@ -1034,13 +1172,44 @@ function refreshProfile()
 		floorRow.LayoutOrder = i
 		floorRow.Parent = floorRowsHost
 		Instance.new("UICorner", floorRow).CornerRadius = UDim.new(0, 7)
+		local rowStroke = Instance.new("UIStroke")
+		rowStroke.Thickness = 1
+		rowStroke.Parent = floorRow
+
+		if owned or floorNum == 1 then
+			if owned then
+				floorRow.BackgroundColor3 = C.card:Lerp(Color3.fromRGB(45, 110, 75), 0.10)
+				rowStroke.Color = C.green
+				rowStroke.Transparency = 0.55
+			else
+				floorRow.BackgroundColor3 = C.card:Lerp(Color3.fromRGB(45, 110, 75), 0.06)
+				rowStroke.Color = C.green
+				rowStroke.Transparency = 0.72
+			end
+		elseif canBuy then
+			floorRow.BackgroundColor3 = C.card:Lerp(Color3.fromRGB(170, 130, 55), 0.11)
+			rowStroke.Color = C.gold
+			rowStroke.Transparency = 0.42
+		else
+			floorRow.BackgroundColor3 = Color3.fromRGB(24, 26, 32)
+			rowStroke.Color = C.divider
+			rowStroke.Transparency = 0.32
+		end
+
+		local baseTitle = FLOOR_DISPLAY_NAMES[floorNum] or ("Floor " .. floorNum)
+		local titleText = baseTitle
+		if owned and floorNum > 1 then
+			titleText = "✓ " .. baseTitle
+		elseif isLocked and not canBuy then
+			titleText = "🔒 " .. baseTitle
+		end
 
 		local fName = Instance.new("TextLabel")
 		fName.Size = UDim2.new(1, -12, 0, 18)
 		fName.Position = UDim2.new(0, 8, 0, 4)
 		fName.BackgroundTransparency = 1
-		fName.Text = FLOOR_DISPLAY_NAMES[floorNum] or ("Floor " .. floorNum)
-		fName.TextColor3 = owned and C.green or C.textMut
+		fName.Text = titleText
+		fName.TextColor3 = owned and C.green or (canBuy and C.gold or C.textMut)
 		fName.Font = Enum.Font.GothamBold
 		fName.TextSize = 12
 		fName.TextXAlignment = Enum.TextXAlignment.Left
@@ -1068,17 +1237,11 @@ function refreshProfile()
 			fStatus.TextSize = 9
 			fStatus.TextXAlignment = Enum.TextXAlignment.Left
 			fStatus.Parent = floorRow
-			fStatus.Text = owned and "OWNED" or "STARTER"
+			fStatus.Text = owned and "✓ OWNED" or "🏠 STARTER"
 			fStatus.TextColor3 = C.green
 		else
 			fBenefit.Size = UDim2.new(1, -16, 0, 22)
 			fBenefit.Position = UDim2.new(0, 8, 0, 22)
-
-			local floorCfg = FLOOR_UI_CONFIG[floorNum] or { cost = 0, levelReq = 1 }
-			local reqLvl = floorCfg.levelReq
-			local cost = floorCfg.cost
-			local meetsLevel = lvl >= reqLvl
-			local meetsPrereq = (not floorCfg.prereq) or ownsFloor(floorCfg.prereq)
 
 			local costLbl = Instance.new("TextLabel")
 			costLbl.Size = UDim2.new(1, -16, 0, 13)
@@ -1099,19 +1262,18 @@ function refreshProfile()
 			lvlLbl.TextSize = 9
 			lvlLbl.TextXAlignment = Enum.TextXAlignment.Left
 			local prereqText = ""
-			if floorCfg.prereq and not ownsFloor(floorCfg.prereq) then
+			if floorCfg and floorCfg.prereq and not ownsFloor(floorCfg.prereq) then
 				prereqText = " + Floor " .. floorCfg.prereq
 			end
 			lvlLbl.Text = "Requires Level " .. reqLvl .. prereqText
 			lvlLbl.TextColor3 = meetsLevel and C.green or C.textMut
 			lvlLbl.Parent = floorRow
 
-			local canBuy = meetsLevel and meetsPrereq and (data.coins or 0) >= cost
 			local buyBtn2 = Instance.new("TextButton")
 			buyBtn2.Size = UDim2.new(1, -16, 0, 22)
 			buyBtn2.Position = UDim2.new(0, 8, 0, 74)
 			buyBtn2.BackgroundColor3 = canBuy and C.green or C.divider
-			buyBtn2.Text = canBuy and ("BUY - " .. cost .. " Coins") or "BUY"
+			buyBtn2.Text = canBuy and ("BUY UPGRADE — " .. formatAbbrev(cost) .. " 💰") or "🔒 LOCKED"
 			buyBtn2.TextColor3 = canBuy and Color3.new(1, 1, 1) or C.textMut
 			buyBtn2.Font = Enum.Font.GothamBold
 			buyBtn2.TextSize = 10
@@ -1164,7 +1326,7 @@ if IncomeReceived then
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
--- Sigils tab refresh (ported from BossBackboardClient)
+-- Sigils tab — badge cards + Viewport silhouettes / colors.
 -- ══════════════════════════════════════════════════════════════════════════════
 
 local function getBossDisplayName(element)
@@ -1175,107 +1337,496 @@ local function getBossDisplayName(element)
 	return element .. " Boss"
 end
 
-local function addSigilRow(parent, layoutOrder, elementLabel, bossName, statusText, statusColor)
-	local row = Instance.new("Frame")
-	row.Size = UDim2.new(1, 0, 0, 56)
-	row.BackgroundColor3 = C.card
-	row.BorderSizePixel = 0
-	row.LayoutOrder = layoutOrder
-	row.ClipsDescendants = true
-	Instance.new("UICorner", row).CornerRadius = UDim.new(0, 10)
-	row.Parent = parent
-
-	-- Gradient tint
-	local tint = Instance.new("Frame")
-	tint.Size = UDim2.new(1, 0, 1, 0)
-	tint.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-	tint.BackgroundTransparency = 0.92
-	tint.BorderSizePixel = 0
-	tint.ZIndex = 0
-	tint.Parent = row
-	local grad = Instance.new("UIGradient")
-	grad.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-		ColorSequenceKeypoint.new(1, Color3.fromRGB(120, 130, 160)),
-	})
-	grad.Rotation = 90
-	grad.Parent = tint
-
-	-- Watermark
-	local watermark = Instance.new("TextLabel")
-	watermark.Size = UDim2.new(1, -24, 1, 0)
-	watermark.Position = UDim2.new(0, 12, 0, 0)
-	watermark.BackgroundTransparency = 1
-	watermark.RichText = true
-	watermark.Text = bossName and ("<i>" .. bossName .. "</i>") or ""
-	watermark.Visible = bossName ~= nil and bossName ~= ""
-	watermark.TextColor3 = C.textSec
-	watermark.TextTransparency = 0.92
-	watermark.Font = Enum.Font.GothamBlack
-	watermark.TextScaled = true
-	watermark.TextXAlignment = Enum.TextXAlignment.Center
-	watermark.ZIndex = 1
-	watermark.Parent = row
-
-	-- Element label
-	local elem = Instance.new("TextLabel")
-	elem.Size = UDim2.new(0, 72, 0, 18)
-	elem.Position = UDim2.new(0, 12, 0, 10)
-	elem.BackgroundTransparency = 1
-	elem.Text = tostring(elementLabel or "")
-	elem.TextColor3 = C.text
-	elem.Font = Enum.Font.GothamBold
-	elem.TextSize = 12
-	elem.TextXAlignment = Enum.TextXAlignment.Left
-	elem.ZIndex = 3
-	elem.Parent = row
-
-	-- Boss name
-	local bossLbl = Instance.new("TextLabel")
-	bossLbl.Size = UDim2.new(1, -190, 0, 18)
-	bossLbl.Position = UDim2.new(0, 88, 0, 10)
-	bossLbl.BackgroundTransparency = 1
-	bossLbl.Text = tostring(bossName or "")
-	bossLbl.TextColor3 = C.textSec
-	bossLbl.Font = Enum.Font.GothamMedium
-	bossLbl.TextSize = 11
-	bossLbl.TextXAlignment = Enum.TextXAlignment.Left
-	bossLbl.TextTruncate = Enum.TextTruncate.AtEnd
-	bossLbl.ZIndex = 3
-	bossLbl.Parent = row
-
-	-- Status pill
-	local pill = Instance.new("Frame")
-	pill.Size = UDim2.new(0, 118, 0, 26)
-	pill.Position = UDim2.new(1, -130, 0.5, -13)
-	pill.BackgroundColor3 = Color3.fromRGB(20, 22, 30)
-	pill.BackgroundTransparency = 0.15
-	pill.BorderSizePixel = 0
-	pill.ZIndex = 3
-	pill.Parent = row
-	Instance.new("UICorner", pill).CornerRadius = UDim.new(1, 0)
-	local pillStroke = Instance.new("UIStroke")
-	pillStroke.Color = C.divider
-	pillStroke.Thickness = 1
-	pillStroke.Transparency = 0.35
-	pillStroke.Parent = pill
-
-	local statusLbl = Instance.new("TextLabel")
-	statusLbl.Size = UDim2.new(1, -16, 1, 0)
-	statusLbl.Position = UDim2.new(0, 8, 0, 0)
-	statusLbl.BackgroundTransparency = 1
-	statusLbl.Text = tostring(statusText or "")
-	statusLbl.TextColor3 = statusColor or C.textMut
-	statusLbl.Font = Enum.Font.GothamMedium
-	statusLbl.TextSize = 11
-	statusLbl.TextXAlignment = Enum.TextXAlignment.Center
-	statusLbl.ZIndex = 4
-	statusLbl.Parent = pill
+local function resolveBossCreatureIdForElement(element)
+	if not element then return nil end
+	local id = CreatureData.GetBossCreatureId(element, false)
+	if id then return id end
+	return CreatureData.GetBossCreatureId("Fire", false)
 end
 
-function refreshSigils()
+local function gymShortName(zoneId)
+	local names = GameConfig.ZoneDoorGymNames
+	if names and zoneId and names[zoneId] then
+		return names[zoneId]
+	end
+	return (zoneId or "Zone") .. " Gym"
+end
+
+local function createSigilCreatureViewport(parent, creatureId)
+	if not CreatureModelLoader or not creatureId then return nil end
+	local info = CreatureData.GetById(creatureId)
+	if not info then return nil end
+
+	local ok, vf = pcall(function()
+		local vfInner = Instance.new("ViewportFrame")
+		vfInner.Name = "BossViewport"
+		vfInner.Size = UDim2.new(1, 0, 1, 0)
+		vfInner.Position = UDim2.new(0, 0, 0, 0)
+		vfInner.BackgroundTransparency = 1
+		vfInner.BorderSizePixel = 0
+		vfInner.ZIndex = 1
+		vfInner.Ambient = Color3.fromRGB(140, 140, 160)
+		vfInner.LightColor = Color3.new(1, 1, 1)
+		vfInner.LightDirection = Vector3.new(-0.4, -0.7, -0.5).Unit
+		vfInner.Parent = parent
+
+		local cam = Instance.new("Camera")
+		cam.CameraType = Enum.CameraType.Scriptable
+		cam.Parent = vfInner
+		vfInner.CurrentCamera = cam
+
+		local world = Instance.new("WorldModel")
+		world.Name = "SigilWorld"
+		world.Parent = vfInner
+
+		local tempModel = Instance.new("Model")
+		tempModel.Name = info.modelName or "ViewportClone"
+		local body, _, integrated = CreatureModelLoader.LoadAndIntegrate(tempModel, info.modelName, info.displayName, nil, {
+			targetSize = 4,
+			creatureId = creatureId,
+		})
+		if not integrated or not body then
+			vfInner:Destroy()
+			tempModel:Destroy()
+			return nil
+		end
+
+		for _, desc in ipairs(tempModel:GetDescendants()) do
+			if desc:IsA("Script") or desc:IsA("LocalScript") or desc:IsA("ModuleScript") then desc:Destroy() end
+			if desc:IsA("BasePart") then
+				desc.Anchored = true
+				desc.CanCollide = false
+			end
+		end
+
+		local cf, sz
+		pcall(function()
+			cf, sz = tempModel:GetBoundingBox()
+		end)
+		if not cf then cf = CFrame.new() end
+		if not sz then sz = Vector3.new(4, 4, 4) end
+		tempModel:PivotTo(CFrame.new(-cf.Position) * tempModel:GetPivot())
+		tempModel.Parent = world
+
+		local maxDim = math.max(sz.X, sz.Y, sz.Z)
+		local camDist = math.max(3.5, maxDim * 1.3)
+		local camAngleX = math.rad(10)
+		local camAngleY = math.pi * 1.5
+		local camPos = Vector3.new(
+			math.cos(camAngleY) * math.cos(camAngleX) * camDist,
+			math.sin(camAngleX) * camDist,
+			math.sin(camAngleY) * math.cos(camAngleX) * camDist
+		)
+		cam.CFrame = CFrame.new(camPos, Vector3.new(0, 0, 0))
+
+		return vfInner
+	end)
+
+	if ok and vf then
+		return vf
+	end
+	return nil
+end
+
+local function mkCouncilBanner(parent, layoutOrder, earnedTotal)
+	local wrap = Instance.new("Frame")
+	wrap.Name = "CouncilBanner"
+	wrap.LayoutOrder = layoutOrder
+	wrap.Size = UDim2.new(1, 0, 0, 58)
+	wrap.BackgroundColor3 = C.bgLight
+	wrap.BorderSizePixel = 0
+	wrap.Parent = parent
+	Instance.new("UICorner", wrap).CornerRadius = UDim.new(0, 12)
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = C.divider
+	stroke.Thickness = 1
+	stroke.Transparency = 0.55
+	stroke.Parent = wrap
+
+	local pad = Instance.new("UIPadding", wrap)
+	pad.PaddingLeft = UDim.new(0, 14)
+	pad.PaddingRight = UDim.new(0, 14)
+	pad.PaddingTop = UDim.new(0, 10)
+	pad.PaddingBottom = UDim.new(0, 10)
+
+	local title = Instance.new("TextLabel")
+	title.BackgroundTransparency = 1
+	title.Size = UDim2.new(1, -140, 0, 22)
+	title.Position = UDim2.new(0, 0, 0, 0)
+	title.Font = Enum.Font.GothamBlack
+	title.TextSize = 15
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.TextColor3 = C.text
+	title.Text = "Council of Houses"
+	title.Parent = wrap
+
+	local sub = Instance.new("TextLabel")
+	sub.BackgroundTransparency = 1
+	sub.Size = UDim2.new(1, -140, 0, 16)
+	sub.Position = UDim2.new(0, 0, 0, 26)
+	sub.Font = Enum.Font.GothamMedium
+	sub.TextSize = 10
+	sub.TextXAlignment = Enum.TextXAlignment.Left
+	sub.TextColor3 = C.textSec
+	sub.Text = "Earn sigils by defeating Legendary bosses, outer Gyms, and the Badlands trial."
+	sub.TextWrapped = true
+	sub.Parent = wrap
+
+	local prog = Instance.new("TextLabel")
+	prog.BackgroundTransparency = 1
+	prog.Size = UDim2.new(0, 200, 1, 0)
+	prog.Position = UDim2.new(1, -200, 0, 0)
+	prog.Font = Enum.Font.GothamBold
+	prog.TextSize = 11
+	prog.TextXAlignment = Enum.TextXAlignment.Right
+	prog.TextYAlignment = Enum.TextYAlignment.Center
+	prog.TextColor3 = C.sigilAccent
+	prog.Text = ("%d / %d SIGILS EARNED"):format(earnedTotal, TOTAL_SIGIL_COUNT)
+	prog.Parent = wrap
+end
+
+local function mkSigilsSectionHeader(parent, layoutOrder, title, subtitle, progressStr, showLocked)
+	local wrap = Instance.new("Frame")
+	wrap.LayoutOrder = layoutOrder
+	wrap.Size = UDim2.new(1, 0, 0, 0)
+	wrap.AutomaticSize = Enum.AutomaticSize.Y
+	wrap.BackgroundTransparency = 1
+	wrap.Parent = parent
+
+	local vlist = Instance.new("UIListLayout")
+	vlist.SortOrder = Enum.SortOrder.LayoutOrder
+	vlist.Padding = UDim.new(0, 4)
+	vlist.Parent = wrap
+
+	local row = Instance.new("Frame")
+	row.LayoutOrder = 1
+	row.Size = UDim2.new(1, 0, 0, 22)
+	row.BackgroundTransparency = 1
+	row.Parent = wrap
+
+	local ttl = Instance.new("TextLabel")
+	ttl.BackgroundTransparency = 1
+	ttl.Size = UDim2.new(1, -130, 1, 0)
+	ttl.Font = Enum.Font.GothamBold
+	ttl.TextSize = 13
+	ttl.TextXAlignment = Enum.TextXAlignment.Left
+	ttl.TextColor3 = C.text
+	ttl.Text = title
+	ttl.Parent = row
+
+	if showLocked then
+		local lk = Instance.new("TextLabel")
+		lk.BackgroundTransparency = 1
+		lk.Size = UDim2.new(0, 90, 1, 0)
+		lk.Position = UDim2.new(1, -90, 0, 0)
+		lk.Font = Enum.Font.GothamBold
+		lk.TextSize = 11
+		lk.TextXAlignment = Enum.TextXAlignment.Right
+		lk.TextColor3 = C.textMut
+		lk.Text = "🔒 Locked"
+		lk.Parent = row
+	elseif progressStr and progressStr ~= "" then
+		local pr = Instance.new("TextLabel")
+		pr.BackgroundTransparency = 1
+		pr.Size = UDim2.new(0, 130, 1, 0)
+		pr.Position = UDim2.new(1, -130, 0, 0)
+		pr.Font = Enum.Font.GothamBold
+		pr.TextSize = 11
+		pr.TextXAlignment = Enum.TextXAlignment.Right
+		pr.TextColor3 = C.sigilAccent
+		pr.Text = progressStr
+		pr.Parent = row
+	end
+
+	if subtitle and subtitle ~= "" then
+		local sub = Instance.new("TextLabel")
+		sub.LayoutOrder = 2
+		sub.BackgroundTransparency = 1
+		sub.Size = UDim2.new(1, 0, 0, 0)
+		sub.AutomaticSize = Enum.AutomaticSize.Y
+		sub.Font = Enum.Font.GothamMedium
+		sub.TextSize = 10
+		sub.TextXAlignment = Enum.TextXAlignment.Left
+		sub.TextColor3 = C.textMut
+		sub.TextWrapped = true
+		sub.Text = subtitle
+		sub.Parent = wrap
+	end
+end
+
+local SIGIL_CELL_W = 156
+local SIGIL_CELL_H = 178
+local SIGIL_GRID_PAD = 10
+local sigilRuntimeCellW = SIGIL_CELL_W
+
+local function computeSigilCellWidth()
+	local w = sigilsTab.AbsoluteWindowSize.X
+	if w < 100 then
+		w = sigilsTab.AbsoluteSize.X
+	end
+	w = math.max(320, w)
+	local inner = w - sigilsPadding.PaddingLeft.Offset - sigilsPadding.PaddingRight.Offset
+	local candidate = math.floor((inner - (SIGIL_GRID_PAD * 3)) / 4)
+	sigilRuntimeCellW = math.clamp(candidate, 120, SIGIL_CELL_W)
+end
+
+--- Horizontal strip of badge cards (avoids UIGridLayout + ScrollingFrame sizing bugs).
+local function mkSigilBadgeRow(parent, layoutOrder)
+	local row = Instance.new("Frame")
+	row.Name = "SigilBadgeRow"
+	row.BackgroundTransparency = 1
+	row.BorderSizePixel = 0
+	row.Size = UDim2.new(1, 0, 0, SIGIL_CELL_H + 16)
+	row.LayoutOrder = layoutOrder
+	row.Parent = parent
+	local hl = Instance.new("UIListLayout")
+	hl.Name = "RowLayout"
+	hl.FillDirection = Enum.FillDirection.Horizontal
+	hl.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	hl.VerticalAlignment = Enum.VerticalAlignment.Top
+	hl.Padding = UDim.new(0, SIGIL_GRID_PAD)
+	hl.SortOrder = Enum.SortOrder.LayoutOrder
+	hl.Wraps = false
+	hl.Parent = row
+	return row
+end
+
+local function syncSigilsCanvasSize()
+	if not sigilsTab or not sigilsLayout then return end
+	local wx = sigilsTab.AbsoluteWindowSize.X
+	if wx < 50 then
+		wx = sigilsTab.AbsoluteSize.X
+	end
+	wx = math.max(wx, 320)
+	local padExtra = 0
+	local pad = sigilsTab:FindFirstChildOfClass("UIPadding")
+	if pad then
+		padExtra = pad.PaddingTop.Offset + pad.PaddingBottom.Offset
+	end
+	local cy = sigilsLayout.AbsoluteContentSize.Y + padExtra + 24
+	sigilsTab.CanvasSize = UDim2.new(0, wx, 0, math.max(cy, 120))
+end
+
+--[[
+	opts: {
+		layoutOrder, title, subtitle, emojiTL,
+		creatureId,
+		requirementText,
+		tierLocked: bool — section gated (previous tier incomplete),
+		sigilEarned: bool,
+		accentEarned: Color3? — stroke glow when earned,
+		wideCard: bool — full-width Siege Lord layout,
+	}
+]]
+local function buildSigilBadgeCard(opts)
+	local tierLocked = opts.tierLocked == true
+	local earned = opts.sigilEarned == true and not tierLocked
+	local useViewport = opts.useViewport ~= false
+
+	local card = Instance.new("Frame")
+	card.Name = "SigilBadge"
+	card.BackgroundColor3 = C.card
+	card.BorderSizePixel = 0
+	card.ClipsDescendants = true
+	card.LayoutOrder = opts.layoutOrder or 0
+	if opts.wideCard then
+		card.Size = UDim2.new(1, 0, 0, 138)
+	else
+		card.Size = UDim2.new(0, sigilRuntimeCellW, 0, SIGIL_CELL_H)
+	end
+	Instance.new("UICorner", card).CornerRadius = UDim.new(0, 12)
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Thickness = earned and 2.6 or 1.2
+	if earned then
+		stroke.Color = opts.accentEarned or C.sigilAccent
+		stroke.Transparency = 0.05
+	elseif tierLocked then
+		stroke.Color = C.divider
+		stroke.Transparency = 0.45
+	else
+		stroke.Color = C.divider
+		stroke.Transparency = 0.35
+	end
+	stroke.Parent = card
+
+	-- Defer 3D load so frames + text appear even if CreatureModelLoader errors or yields.
+	local cidDefer = opts.creatureId
+	local earnedDefer = earned
+	local tierLockedDefer = tierLocked
+	if useViewport and cidDefer then
+		task.defer(function()
+			if not card.Parent then return end
+			local vf = createSigilCreatureViewport(card, cidDefer)
+			if not vf then return end
+			if earnedDefer then
+				vf.ImageColor3 = Color3.new(1, 1, 1)
+				vf.ImageTransparency = 0
+				local sc = Instance.new("UIScale")
+				sc.Scale = 1.045
+				sc.Parent = vf
+			else
+				vf.ImageColor3 = Color3.new(0, 0, 0)
+				vf.ImageTransparency = tierLockedDefer and 0.35 or 0.08
+			end
+		end)
+	end
+
+	if not useViewport then
+		local medallion = Instance.new("Frame")
+		medallion.Name = "BadgeMedallion"
+		medallion.Size = UDim2.new(0, 82, 0, 82)
+		medallion.AnchorPoint = Vector2.new(0.5, 0.5)
+		medallion.Position = UDim2.new(0.5, 0, 0.36, 0)
+		medallion.BackgroundColor3 = tierLocked and Color3.fromRGB(35, 38, 48) or Color3.fromRGB(28, 34, 56)
+		medallion.BorderSizePixel = 0
+		medallion.ZIndex = 2
+		medallion.Parent = card
+		Instance.new("UICorner", medallion).CornerRadius = UDim.new(1, 0)
+		local medStroke = Instance.new("UIStroke")
+		medStroke.Thickness = 2
+		medStroke.Color = earned and (opts.accentEarned or C.sigilAccent) or C.divider
+		medStroke.Transparency = earned and 0.12 or 0.42
+		medStroke.Parent = medallion
+
+		local glyph = Instance.new("TextLabel")
+		glyph.Size = UDim2.new(1, 0, 1, 0)
+		glyph.BackgroundTransparency = 1
+		glyph.Font = Enum.Font.GothamBlack
+		glyph.TextSize = 28
+		glyph.Text = opts.badgeGlyph or "◆"
+		glyph.TextColor3 = earned and (opts.accentEarned or C.sigilAccent) or C.textSec
+		glyph.ZIndex = 3
+		glyph.Parent = medallion
+	end
+
+	local shade = Instance.new("Frame")
+	shade.Name = "BottomShade"
+	shade.Size = UDim2.new(1, 0, 1, 0)
+	shade.BackgroundColor3 = Color3.new(0, 0, 0)
+	shade.BackgroundTransparency = 1
+	shade.BorderSizePixel = 0
+	shade.ZIndex = 3
+	shade.Parent = card
+	local shadeGrad = Instance.new("UIGradient")
+	shadeGrad.Rotation = 90
+	shadeGrad.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1),
+		NumberSequenceKeypoint.new(0.55, 0.82),
+		NumberSequenceKeypoint.new(1, 0.15),
+	})
+	shadeGrad.Parent = shade
+
+	if tierLocked then
+		local lockVeil = Instance.new("Frame")
+		lockVeil.Name = "LockVeil"
+		lockVeil.Size = UDim2.new(1, 0, 1, 0)
+		lockVeil.BackgroundColor3 = Color3.new(0, 0, 0)
+		lockVeil.BackgroundTransparency = 0.42
+		lockVeil.BorderSizePixel = 0
+		lockVeil.ZIndex = 7
+		lockVeil.Parent = card
+	end
+
+	local emojiTL = Instance.new("TextLabel")
+	emojiTL.Size = UDim2.new(0, 36, 0, 28)
+	emojiTL.Position = UDim2.new(0, 8, 0, 6)
+	emojiTL.BackgroundTransparency = 1
+	emojiTL.Font = Enum.Font.GothamBold
+	emojiTL.TextSize = 20
+	emojiTL.Text = opts.emojiTL or ""
+	emojiTL.TextXAlignment = Enum.TextXAlignment.Left
+	emojiTL.ZIndex = 8
+	emojiTL.Parent = card
+
+	local topRight = Instance.new("TextLabel")
+	topRight.Size = UDim2.new(0, 36, 0, 28)
+	topRight.Position = UDim2.new(1, -40, 0, 6)
+	topRight.BackgroundTransparency = 1
+	topRight.Font = Enum.Font.GothamBold
+	topRight.TextSize = 18
+	topRight.TextXAlignment = Enum.TextXAlignment.Right
+	topRight.ZIndex = 8
+	topRight.Parent = card
+	if earned then
+		topRight.Text = "✓"
+		topRight.TextColor3 = C.green
+	elseif tierLocked then
+		topRight.Text = "🔒"
+		topRight.TextColor3 = C.textMut
+	else
+		topRight.Text = ""
+	end
+
+	local title = Instance.new("TextLabel")
+	title.Size = opts.wideCard and UDim2.new(0.62, -16, 0, 24) or UDim2.new(1, -16, 0, 18)
+	title.Position = opts.wideCard and UDim2.new(0, 12, 0, 20) or UDim2.new(0, 8, 0, 86)
+	title.BackgroundTransparency = 1
+	title.Font = Enum.Font.GothamBlack
+	title.TextSize = opts.wideCard and 15 or 13
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.TextColor3 = earned and (opts.accentEarned or C.sigilAccent) or C.text
+	title.Text = opts.title or ""
+	title.ZIndex = 9
+	title.Parent = card
+
+	local sub = Instance.new("TextLabel")
+	sub.Size = opts.wideCard and UDim2.new(0.62, -16, 0, 18) or UDim2.new(1, -16, 0, 16)
+	sub.Position = opts.wideCard and UDim2.new(0, 12, 0, 46) or UDim2.new(0, 8, 0, 106)
+	sub.BackgroundTransparency = 1
+	sub.Font = Enum.Font.GothamMedium
+	sub.TextSize = 11
+	sub.TextXAlignment = Enum.TextXAlignment.Left
+	sub.TextColor3 = C.textSec
+	sub.TextTruncate = Enum.TextTruncate.AtEnd
+	sub.Text = opts.subtitle or ""
+	sub.ZIndex = 9
+	sub.Parent = card
+
+	local foot = Instance.new("Frame")
+	foot.Name = "Footer"
+	foot.AnchorPoint = Vector2.new(0, 1)
+	foot.Position = UDim2.new(0, 8, 1, -8)
+	foot.Size = opts.wideCard and UDim2.new(0.58, -16, 0, 26) or UDim2.new(1, -16, 0, 26)
+	foot.BackgroundColor3 = earned and Color3.fromRGB(22, 75, 42) or Color3.fromRGB(18, 20, 28)
+	foot.BackgroundTransparency = tierLocked and 0.35 or 0.12
+	foot.BorderSizePixel = 0
+	foot.ZIndex = 10
+	foot.Parent = card
+	Instance.new("UICorner", foot).CornerRadius = UDim.new(0, 8)
+
+	local footLbl = Instance.new("TextLabel")
+	footLbl.Size = UDim2.new(1, -12, 1, 0)
+	footLbl.Position = UDim2.new(0, 6, 0, 0)
+	footLbl.BackgroundTransparency = 1
+	footLbl.Font = Enum.Font.GothamBold
+	footLbl.TextSize = 10
+	footLbl.TextWrapped = true
+	footLbl.TextXAlignment = Enum.TextXAlignment.Center
+	footLbl.TextYAlignment = Enum.TextYAlignment.Center
+	footLbl.ZIndex = 11
+	footLbl.Parent = foot
+
+	if tierLocked then
+		footLbl.Text = "LOCKED"
+		footLbl.TextColor3 = C.textMut
+	elseif earned then
+		footLbl.Text = "EARNED"
+		footLbl.TextColor3 = Color3.new(1, 1, 1)
+	else
+		footLbl.Text = opts.requirementText or ""
+		footLbl.TextColor3 = C.textSec
+	end
+
+	return card
+end
+
+local function refreshSigilsCore()
+	computeSigilCellWidth()
 	for _, child in ipairs(sigilsTab:GetChildren()) do
-		if not child:IsA("UIListLayout") and not child:IsA("UIPadding") then child:Destroy() end
+		if not child:IsA("UIListLayout") and not child:IsA("UIPadding") then
+			child:Destroy()
+		end
 	end
 
 	local sigils = {}
@@ -1288,51 +1839,135 @@ function refreshSigils()
 		return sigils[zoneId] == true or sigils[zoneId] == "true"
 	end
 
+	local squireElList = getSquireElementList()
+	local earnedSquire = 0
+	for _, el in ipairs(squireElList) do
+		if hasSigil(el) then
+			earnedSquire = earnedSquire + 1
+		end
+	end
+
+	local earnedKnight = 0
+	for _, zid in ipairs(SIEGE_ZONE_IDS) do
+		if hasSigil(zid) then
+			earnedKnight = earnedKnight + 1
+		end
+	end
+
+	local lordEarned = hasSigil(SIEGE_LORD_ZONE_ID)
+	local totalEarned = earnedSquire + earnedKnight + (lordEarned and 1 or 0)
+
+	local nSquire = #squireElList
+	local nKnight = #SIEGE_ZONE_IDS
+	local squireComplete = earnedSquire >= nSquire
+	local knightComplete = earnedKnight >= nKnight
+
+	local knightTierLocked = not squireComplete
+	local lordTierLocked = not knightComplete
+
 	local order = 0
 
-	-- SiegeSquire Sigils
 	order = order + 1
-	mkSection(sigilsTab, "SiegeSquire Sigils", order)
-	for _, element in ipairs(ELEMENTAL_ELEMENTS) do
-		order = order + 1
+	mkCouncilBanner(sigilsTab, order, totalEarned)
+
+	order = order + 1
+	mkSigilsSectionHeader(
+		sigilsTab,
+		order,
+		"⚔️ Siege Squire Sigils",
+		"Defeat each inner-zone Legendary elemental boss.",
+		("%d / %d Earned"):format(earnedSquire, nSquire),
+		false
+	)
+
+	order = order + 1
+	local squireRow = mkSigilBadgeRow(sigilsTab, order)
+	local sqCell = 0
+	for _, element in ipairs(squireElList) do
+		sqCell = sqCell + 1
 		local defeated = hasSigil(element)
-		addSigilRow(sigilsTab, order, element, getBossDisplayName(element),
-			defeated and "Defeated" or "Not defeated",
-			defeated and C.income or C.textMut)
+		local cid = resolveBossCreatureIdForElement(element)
+		buildSigilBadgeCard({
+			layoutOrder = sqCell,
+			title = element .. " Sigil",
+			subtitle = getBossDisplayName(element),
+			emojiTL = SIGIL_ELEMENT_EMOJI[element] or "✦",
+			creatureId = cid,
+			requirementText = "REQUIREMENT: Capture Legendary",
+			tierLocked = false,
+			sigilEarned = defeated,
+			accentEarned = C.sigilAccent,
+			wideCard = false,
+		}).Parent = squireRow
 	end
 
-	order = order + 1  -- gap
-
-	-- SiegeKnight Sigils
 	order = order + 1
-	mkSection(sigilsTab, "SiegeKnight Sigils", order)
+	mkSigilsSectionHeader(
+		sigilsTab,
+		order,
+		"🛡️ Siege Knight Sigils",
+		"Win each outer-zone Gym to earn Knight sigils and passes.",
+		("%d / %d Earned"):format(earnedKnight, nKnight),
+		knightTierLocked
+	)
+
+	order = order + 1
+	local knightRow = mkSigilBadgeRow(sigilsTab, order)
+	local knCell = 0
 	for i, label in ipairs(SIEGE_LABELS) do
-		order = order + 1
-		local zoneId = SIEGE_ZONE_IDS and SIEGE_ZONE_IDS[i] or label
+		knCell = knCell + 1
+		local zoneId = SIEGE_ZONE_IDS[i]
+		local repEl = KNIGHT_ZONE_BOSS_ELEMENT[zoneId]
+		local cid = resolveBossCreatureIdForElement(repEl)
 		local earned = hasSigil(zoneId)
-		addSigilRow(sigilsTab, order, label, "Zone sigil",
-			earned and "Earned" or "Not earned",
-			earned and C.income or C.textMut)
+		buildSigilBadgeCard({
+			layoutOrder = knCell,
+			title = label .. " Sigil",
+			subtitle = gymShortName(zoneId),
+			emojiTL = KNIGHT_ZONE_EMOJI[zoneId] or "◇",
+			creatureId = nil,
+			useViewport = false,
+			badgeGlyph = KNIGHT_ZONE_EMOJI[zoneId] or "◆",
+			requirementText = ("WIN: %s"):format(gymShortName(zoneId)),
+			tierLocked = knightTierLocked,
+			sigilEarned = earned,
+			accentEarned = Color3.fromRGB(130, 200, 255),
+			wideCard = false,
+		}).Parent = knightRow
 	end
 
-	order = order + 1  -- gap
-
-	-- SiegeLord Sigils
 	order = order + 1
-	mkSection(sigilsTab, "SiegeLord Sigils", order)
-	order = order + 1
-	local lordEarned = hasSigil(SIEGE_LORD_ZONE_ID)
-	addSigilRow(sigilsTab, order, "Badlands", SIEGE_LORD_SUB,
-		lordEarned and "Earned" or "Not earned",
-		lordEarned and C.income or C.textMut)
+	mkSigilsSectionHeader(
+		sigilsTab,
+		order,
+		"👑 Siege Lord Sigil",
+		SIEGE_LORD_SUB .. ".",
+		lordEarned and "Earned" or "",
+		lordTierLocked
+	)
 
-	-- Hint
+	order = order + 1
+	local lordCid = resolveBossCreatureIdForElement("Shadow")
+	buildSigilBadgeCard({
+		layoutOrder = order,
+		title = "Badlands Extraction",
+		subtitle = "Successfully extract a Siegeling from the Badlands.",
+		emojiTL = "☠",
+		creatureId = lordCid,
+		requirementText = lordTierLocked and "REQUIRES ALL KNIGHT SIGILS" or "Complete a successful extraction run",
+		tierLocked = lordTierLocked,
+		sigilEarned = lordEarned,
+		accentEarned = C.gold,
+		wideCard = true,
+	}).Parent = sigilsTab
+
 	order = order + 1
 	local hint = Instance.new("TextLabel")
-	hint.Size = UDim2.new(1, 0, 0, 36)
+	hint.Size = UDim2.new(1, 0, 0, 0)
+	hint.AutomaticSize = Enum.AutomaticSize.Y
 	hint.BackgroundTransparency = 1
 	hint.Text = GameConfig.ZoneDoorModalSigilsHint
-		or "Inner zones: defeat Legendary Siegelings for SiegeSquire Sigils (one per element). Exterior: win each zone Gym for SiegeKnight Sigils — four unlock a Biome Pass; each Gym also awards a pass for another gate. SiegeLord: complete a successful Badlands extraction to earn your SiegeLord Sigil."
+		or "Inner zones: defeat Legendary Siegelings for Siege Squire sigils. Exterior: win each zone Gym for Siege Knight sigils and passes. Siege Lord: complete a successful Badlands extraction."
 	hint.TextColor3 = C.textMut
 	hint.Font = Enum.Font.Gotham
 	hint.TextSize = 10
@@ -1340,6 +1975,19 @@ function refreshSigils()
 	hint.TextXAlignment = Enum.TextXAlignment.Left
 	hint.LayoutOrder = order
 	hint.Parent = sigilsTab
+
+	task.defer(function()
+		sigilsTab.CanvasPosition = Vector2.zero
+		syncSigilsCanvasSize()
+	end)
+	task.delay(0.05, syncSigilsCanvasSize)
+end
+
+function refreshSigils()
+	local ok, err = pcall(refreshSigilsCore)
+	if not ok then
+		warn("[PlayerProfileClient] refreshSigils failed:", err)
+	end
 end
 
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -2919,6 +3567,15 @@ end)
 
 local currentRebirthData = nil
 
+local function tryOpenRebirthConfirm()
+	if not currentRebirthData then return end
+	if not currentRebirthData.canRebirth then
+		Notify.Toast(currentRebirthData.errorMessage or "Requirements not met", C.red, 3)
+		return
+	end
+	overlay.Visible = true
+end
+
 function refreshRebirth()
 	for _, ch in ipairs(rebirthScroll:GetChildren()) do
 		if not ch:IsA("UIListLayout") then ch:Destroy() end
@@ -2946,101 +3603,434 @@ function refreshRebirth()
 	local bonuses      = data.bonuses or {}
 	local nextBonuses  = data.nextBonuses or {}
 
-	-- Current rebirth
-	mkSection(rebirthScroll, "CURRENT REBIRTH", 0)
-	mkStatRow(rebirthScroll, "Rebirth Level", rebirthLevel, C.rebirthAccent, 1)
-	if bonuses.passiveGold and bonuses.passiveGold > 0 then
-		mkStatRow(rebirthScroll, "Passive gold/tick", "+" .. tostring(bonuses.passiveGold), C.gold, 2)
-	end
-	if bonuses.healthBonus and bonuses.healthBonus > 0 then
-		mkStatRow(rebirthScroll, "Bonus max health", "+" .. tostring(bonuses.healthBonus), C.green, 3)
-	end
-	if bonuses.damageMultiplier and bonuses.damageMultiplier > 1 then
-		mkStatRow(rebirthScroll, "World damage", string.format("%.0f%%", (bonuses.damageMultiplier - 1) * 100), C.blue, 4)
+	local dashboard = Instance.new("Frame")
+	dashboard.Name = "RebirthDashboard"
+	dashboard.Size = UDim2.new(1, 0, 1, 0)
+	dashboard.BackgroundTransparency = 1
+	dashboard.LayoutOrder = 1
+	dashboard.Parent = rebirthScroll
+
+	local colGap = 10
+	local topBlock = Instance.new("Frame")
+	topBlock.Size = UDim2.new(1, 0, 0, 84)
+	topBlock.BackgroundTransparency = 1
+	topBlock.Parent = dashboard
+
+	local mainTitle = Instance.new("TextLabel")
+	mainTitle.Size = UDim2.new(1, 0, 0, 34)
+	mainTitle.Position = UDim2.new(0, 0, 0, 4)
+	mainTitle.BackgroundTransparency = 1
+	mainTitle.Text = "SIEGEKNIGHT ASCENSION"
+	mainTitle.TextColor3 = C.text
+	mainTitle.Font = Enum.Font.GothamBlack
+	mainTitle.TextSize = 18
+	mainTitle.TextXAlignment = Enum.TextXAlignment.Center
+	mainTitle.Parent = topBlock
+
+	local levelPill = Instance.new("Frame")
+	levelPill.Size = UDim2.new(0, 180, 0, 34)
+	levelPill.Position = UDim2.new(0.5, -90, 0, 44)
+	levelPill.BackgroundColor3 = C.bgLight
+	levelPill.BorderSizePixel = 0
+	levelPill.Parent = topBlock
+	Instance.new("UICorner", levelPill).CornerRadius = UDim.new(1, 0)
+	local levelStroke = Instance.new("UIStroke")
+	levelStroke.Color = C.divider
+	levelStroke.Thickness = 1
+	levelStroke.Transparency = 0.2
+	levelStroke.Parent = levelPill
+	local levelLbl = Instance.new("TextLabel")
+	levelLbl.Size = UDim2.new(1, -16, 1, 0)
+	levelLbl.Position = UDim2.new(0, 8, 0, 0)
+	levelLbl.BackgroundTransparency = 1
+	levelLbl.Font = Enum.Font.GothamBold
+	levelLbl.TextSize = 12
+	levelLbl.TextXAlignment = Enum.TextXAlignment.Center
+	levelLbl.TextColor3 = C.textSec
+	levelLbl.Text = ("Rebirth Level  %d  ->  %d"):format(rebirthLevel, rebirthLevel + (nextReq and 1 or 0))
+	levelLbl.Parent = levelPill
+
+	local cols = Instance.new("Frame")
+	cols.Size = UDim2.new(1, 0, 1, -92)
+	cols.Position = UDim2.new(0, 0, 0, 92)
+	cols.BackgroundTransparency = 1
+	cols.Parent = dashboard
+
+	local colsLayout = Instance.new("UIListLayout")
+	colsLayout.FillDirection = Enum.FillDirection.Horizontal
+	colsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	colsLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+	colsLayout.Padding = UDim.new(0, colGap)
+	colsLayout.Parent = cols
+
+	local colWidth = math.floor((rebirthTab.AbsoluteSize.X - 2 * colGap) / 3)
+	colWidth = math.max(140, colWidth)
+	local colHeight = math.max(360, rebirthTab.AbsoluteSize.Y - 118)
+
+	local function mkCol(titleText, accentColor)
+		local f = Instance.new("Frame")
+		f.Size = UDim2.new(0, colWidth, 0, colHeight)
+		f.BackgroundColor3 = C.card
+		f.BorderSizePixel = 0
+		f.Parent = cols
+		Instance.new("UICorner", f).CornerRadius = UDim.new(0, 10)
+		local st = Instance.new("UIStroke")
+		st.Color = accentColor or C.divider
+		st.Thickness = 1
+		st.Transparency = 0.25
+		st.Parent = f
+		local h = Instance.new("TextLabel")
+		h.Size = UDim2.new(1, -18, 0, 22)
+		h.Position = UDim2.new(0, 9, 0, 10)
+		h.BackgroundTransparency = 1
+		h.Text = titleText
+		h.TextColor3 = accentColor or C.text
+		h.Font = Enum.Font.GothamBold
+		h.TextSize = 12
+		h.TextXAlignment = Enum.TextXAlignment.Left
+		h.Parent = f
+		return f
 	end
 
-	-- Requirements
-	mkSection(rebirthScroll, "REQUIREMENTS FOR NEXT REBIRTH", 10)
-	if not nextReq then
-		mkStatRow(rebirthScroll, "Status", "Max rebirth level reached", C.textMut, 11)
+	-- LEFT: Requirements
+	local reqCol = mkCol("📋  REQUIREMENTS", C.text)
+
+	local goldNeed = nextReq and (nextReq.gold or 0) or 0
+	local haveCoins = data.coins or 0
+	local goldMet = haveCoins >= goldNeed
+	local goldCard = Instance.new("Frame")
+	goldCard.Size = UDim2.new(1, -22, 0, 58)
+	goldCard.Position = UDim2.new(0, 11, 0, 44)
+	goldCard.BackgroundColor3 = C.bgLight
+	goldCard.BorderSizePixel = 0
+	goldCard.Parent = reqCol
+	Instance.new("UICorner", goldCard).CornerRadius = UDim.new(0, 8)
+	local goldStroke = Instance.new("UIStroke")
+	goldStroke.Color = goldMet and C.green or C.red
+	goldStroke.Thickness = 1
+	goldStroke.Transparency = 0.25
+	goldStroke.Parent = goldCard
+	local goldLabel = Instance.new("TextLabel")
+	goldLabel.Size = UDim2.new(1, -18, 0, 16)
+	goldLabel.Position = UDim2.new(0, 9, 0, 6)
+	goldLabel.BackgroundTransparency = 1
+	goldLabel.Font = Enum.Font.GothamBold
+	goldLabel.TextSize = 9
+	goldLabel.TextXAlignment = Enum.TextXAlignment.Left
+	goldLabel.TextColor3 = C.textSec
+	goldLabel.Text = "GOLD NEEDED"
+	goldLabel.Parent = goldCard
+	local goldValue = Instance.new("TextLabel")
+	goldValue.Size = UDim2.new(1, -40, 0, 18)
+	goldValue.Position = UDim2.new(0, 9, 0, 20)
+	goldValue.BackgroundTransparency = 1
+	goldValue.Font = Enum.Font.GothamBlack
+	goldValue.TextSize = 16
+	goldValue.TextXAlignment = Enum.TextXAlignment.Left
+	goldValue.TextColor3 = goldMet and C.green or C.red
+	goldValue.Text = "💰 " .. formatAbbrev(goldNeed)
+	goldValue.Parent = goldCard
+	local goldSub = Instance.new("TextLabel")
+	goldSub.Size = UDim2.new(1, -40, 0, 12)
+	goldSub.Position = UDim2.new(0, 9, 0, 40)
+	goldSub.BackgroundTransparency = 1
+	goldSub.Font = Enum.Font.GothamMedium
+	goldSub.TextSize = 9
+	goldSub.TextXAlignment = Enum.TextXAlignment.Left
+	goldSub.TextColor3 = goldMet and C.green or C.textSec
+	goldSub.Text = "You have: " .. formatAbbrev(haveCoins)
+	goldSub.Parent = goldCard
+	local goldCheck = Instance.new("TextLabel")
+	goldCheck.Size = UDim2.new(0, 20, 0, 20)
+	goldCheck.Position = UDim2.new(1, -26, 0, 18)
+	goldCheck.BackgroundTransparency = 1
+	goldCheck.Font = Enum.Font.GothamBlack
+	goldCheck.TextSize = 15
+	goldCheck.TextColor3 = goldMet and C.green or C.red
+	goldCheck.Text = goldMet and "✓" or "✕"
+	goldCheck.Parent = goldCard
+
+	local teamCard = Instance.new("Frame")
+	teamCard.Size = UDim2.new(1, -22, 0, 168)
+	teamCard.Position = UDim2.new(0, 11, 0, 110)
+	teamCard.BackgroundColor3 = C.bgLight
+	teamCard.BorderSizePixel = 0
+	teamCard.Parent = reqCol
+	Instance.new("UICorner", teamCard).CornerRadius = UDim.new(0, 8)
+	local teamStroke = Instance.new("UIStroke")
+	teamStroke.Color = canRebirth and C.green or C.red
+	teamStroke.Thickness = 1
+	teamStroke.Transparency = 0.3
+	teamStroke.Parent = teamCard
+	local teamTitle = Instance.new("TextLabel")
+	teamTitle.Size = UDim2.new(1, -16, 0, 16)
+	teamTitle.Position = UDim2.new(0, 8, 0, 6)
+	teamTitle.BackgroundTransparency = 1
+	teamTitle.Text = "MAX LEVEL TEAM"
+	teamTitle.TextColor3 = C.textSec
+	teamTitle.Font = Enum.Font.GothamBold
+	teamTitle.TextSize = 9
+	teamTitle.TextXAlignment = Enum.TextXAlignment.Left
+	teamTitle.Parent = teamCard
+
+	local teamY = 24
+	if nextReq and nextReq.team and type(nextReq.team) == "table" and #nextReq.team > 0 and #teamProgress > 0 then
+		for _, slot in ipairs(teamProgress) do
+			local row = Instance.new("TextLabel")
+			row.Size = UDim2.new(1, -16, 0, 24)
+			row.Position = UDim2.new(0, 8, 0, teamY)
+			row.BackgroundTransparency = 1
+			row.Font = Enum.Font.GothamBold
+			row.TextSize = 11
+			row.TextXAlignment = Enum.TextXAlignment.Left
+			row.TextColor3 = C.text
+			row.Text = tostring(slot.displayName or slot.creatureId or "?")
+			row.Parent = teamCard
+			local status = Instance.new("TextLabel")
+			status.Size = UDim2.new(0, 86, 0, 24)
+			status.Position = UDim2.new(1, -92, 0, teamY)
+			status.BackgroundTransparency = 1
+			status.Font = Enum.Font.GothamBold
+			status.TextSize = 10
+			status.TextXAlignment = Enum.TextXAlignment.Right
+			status.TextColor3 = slot.haveAtMaxLevel and C.green or C.red
+			status.Text = slot.haveAtMaxLevel and "✓ Max" or "✕ Need Max"
+			status.Parent = teamCard
+			teamY = teamY + 24
+		end
 	else
-		mkStatRow(rebirthScroll, "Gold needed",
-			(nextReq.gold or 0) .. " (you have " .. tostring(data.coins or 0) .. ")",
-			(data.coins or 0) >= (nextReq.gold or 0) and C.green or C.red, 11)
-
-		local reqOrder = 12
-		if nextReq.team and type(nextReq.team) == "table" and #nextReq.team > 0 and #teamProgress > 0 then
-			for i, slot in ipairs(teamProgress) do
-				local status = slot.haveAtMaxLevel and "\226\156\147 Max" or "\226\156\151 Need max"
-				local color = slot.haveAtMaxLevel and C.green or C.red
-				mkStatRow(rebirthScroll, "Slot " .. i .. ": " .. (slot.displayName or slot.creatureId), status, color, reqOrder)
-				reqOrder = reqOrder + 1
+		local rarityY = 24
+		for _, rarity in ipairs({ "Common", "Uncommon", "Rare", "Epic", "Legendary" }) do
+			local need = nextReq and (nextReq.creatures or {})[rarity]
+			if need and need > 0 then
+				local have = counts[rarity] or 0
+				local met = have >= need
+				local row = Instance.new("TextLabel")
+				row.Size = UDim2.new(1, -16, 0, 20)
+				row.Position = UDim2.new(0, 8, 0, rarityY)
+				row.BackgroundTransparency = 1
+				row.Font = Enum.Font.GothamMedium
+				row.TextSize = 10
+				row.TextXAlignment = Enum.TextXAlignment.Left
+				row.TextColor3 = RARITY_COLORS[rarity] or C.text
+				row.Text = ("%s: %d/%d"):format(rarity, have, need)
+				row.Parent = teamCard
+				local check = Instance.new("TextLabel")
+				check.Size = UDim2.new(0, 20, 0, 20)
+				check.Position = UDim2.new(1, -24, 0, rarityY)
+				check.BackgroundTransparency = 1
+				check.Font = Enum.Font.GothamBold
+				check.TextSize = 12
+				check.TextColor3 = met and C.green or C.red
+				check.Text = met and "✓" or "✕"
+				check.Parent = teamCard
+				rarityY = rarityY + 20
 			end
-		else
-			for _, rarity in ipairs({ "Common", "Uncommon", "Rare", "Epic", "Legendary" }) do
-				local need = (nextReq.creatures or {})[rarity]
-				if need and need > 0 then
-					local have = counts[rarity] or 0
-					local met = have >= need
-					mkStatRow(rebirthScroll, rarity .. " creatures", have .. " / " .. need,
-						met and (RARITY_COLORS[rarity] or C.text) or C.red, reqOrder)
-					reqOrder = reqOrder + 1
-				end
-			end
 		end
 	end
 
-	-- What you keep
-	mkSection(rebirthScroll, "YOU KEEP", 20)
-	if keepFavorite then
-		local rc = RARITY_COLORS[keepFavorite.rarity] or C.text
-		mkStatRow(rebirthScroll, "Favorite (equipped)", keepFavorite.name or "?", rc, 21)
-	else
-		mkStatRow(rebirthScroll, "Favorite (equipped)", "None", C.textMut, 21)
+	-- CENTER: Sacrifice
+	local sacCol = mkCol("⚖️  THE SACRIFICE", C.text)
+	local keepHdr = Instance.new("TextLabel")
+	keepHdr.Size = UDim2.new(1, -22, 0, 16)
+	keepHdr.Position = UDim2.new(0, 11, 0, 44)
+	keepHdr.BackgroundTransparency = 1
+	keepHdr.Text = "WHAT YOU KEEP"
+	keepHdr.TextColor3 = C.green
+	keepHdr.Font = Enum.Font.GothamBlack
+	keepHdr.TextSize = 10
+	keepHdr.TextXAlignment = Enum.TextXAlignment.Left
+	keepHdr.Parent = sacCol
+	local keepCard = Instance.new("Frame")
+	keepCard.Size = UDim2.new(1, -22, 0, 62)
+	keepCard.Position = UDim2.new(0, 11, 0, 62)
+	keepCard.BackgroundColor3 = Color3.fromRGB(20, 57, 49)
+	keepCard.BorderSizePixel = 0
+	keepCard.Parent = sacCol
+	Instance.new("UICorner", keepCard).CornerRadius = UDim.new(0, 8)
+	local keepStroke = Instance.new("UIStroke")
+	keepStroke.Color = C.green
+	keepStroke.Thickness = 1
+	keepStroke.Transparency = 0.3
+	keepStroke.Parent = keepCard
+	local favIcon = Instance.new("Frame")
+	favIcon.Size = UDim2.new(0, 34, 0, 34)
+	favIcon.Position = UDim2.new(0, 10, 0, 14)
+	favIcon.BackgroundColor3 = Color3.fromRGB(14, 20, 28)
+	favIcon.BorderSizePixel = 0
+	favIcon.Parent = keepCard
+	Instance.new("UICorner", favIcon).CornerRadius = UDim.new(0, 8)
+	local favTxt = Instance.new("TextLabel")
+	favTxt.Size = UDim2.new(1, 0, 1, 0)
+	favTxt.BackgroundTransparency = 1
+	favTxt.Font = Enum.Font.GothamBlack
+	favTxt.TextSize = 16
+	favTxt.Text = keepFavorite and string.sub(tostring(keepFavorite.name or "?"), 1, 1) or "?"
+	favTxt.TextColor3 = C.text
+	favTxt.Parent = favIcon
+	local keepLbl = Instance.new("TextLabel")
+	keepLbl.Size = UDim2.new(1, -56, 0, 16)
+	keepLbl.Position = UDim2.new(0, 50, 0, 16)
+	keepLbl.BackgroundTransparency = 1
+	keepLbl.Text = "EQUIPPED FAVORITE"
+	keepLbl.TextColor3 = C.green
+	keepLbl.Font = Enum.Font.GothamBold
+	keepLbl.TextSize = 10
+	keepLbl.TextXAlignment = Enum.TextXAlignment.Left
+	keepLbl.Parent = keepCard
+	local keepName = Instance.new("TextLabel")
+	keepName.Size = UDim2.new(1, -56, 0, 18)
+	keepName.Position = UDim2.new(0, 50, 0, 32)
+	keepName.BackgroundTransparency = 1
+	keepName.Text = keepFavorite and (keepFavorite.name or "?") or "None"
+	keepName.TextColor3 = C.text
+	keepName.Font = Enum.Font.GothamBlack
+	keepName.TextSize = 18 > colWidth and 12 or 14
+	keepName.TextXAlignment = Enum.TextXAlignment.Left
+	keepName.TextTruncate = Enum.TextTruncate.AtEnd
+	keepName.Parent = keepCard
+
+	local loseHdr = Instance.new("TextLabel")
+	loseHdr.Size = UDim2.new(1, -22, 0, 16)
+	loseHdr.Position = UDim2.new(0, 11, 1, -108)
+	loseHdr.BackgroundTransparency = 1
+	loseHdr.Text = "WHAT YOU LOSE"
+	loseHdr.TextColor3 = C.red
+	loseHdr.Font = Enum.Font.GothamBlack
+	loseHdr.TextSize = 10
+	loseHdr.TextXAlignment = Enum.TextXAlignment.Left
+	loseHdr.Parent = sacCol
+	local loseCard = Instance.new("Frame")
+	loseCard.Size = UDim2.new(1, -22, 0, 78)
+	loseCard.Position = UDim2.new(0, 11, 1, -88)
+	loseCard.BackgroundColor3 = Color3.fromRGB(50, 22, 30)
+	loseCard.BorderSizePixel = 0
+	loseCard.Parent = sacCol
+	Instance.new("UICorner", loseCard).CornerRadius = UDim.new(0, 8)
+	local loseStroke = Instance.new("UIStroke")
+	loseStroke.Color = C.red
+	loseStroke.Thickness = 1
+	loseStroke.Transparency = 0.35
+	loseStroke.Parent = loseCard
+	local loseRow1 = Instance.new("TextLabel")
+	loseRow1.Size = UDim2.new(1, -16, 0, 28)
+	loseRow1.Position = UDim2.new(0, 8, 0, 8)
+	loseRow1.BackgroundTransparency = 1
+	loseRow1.Text = ("⚠️  Creatures removed                      %d"):format(loseCount)
+	loseRow1.TextColor3 = C.text
+	loseRow1.Font = Enum.Font.GothamBold
+	loseRow1.TextSize = 11
+	loseRow1.TextXAlignment = Enum.TextXAlignment.Left
+	loseRow1.Parent = loseCard
+	local loseBattle = data.loseBattleCount or 0
+	local loseRow2 = Instance.new("TextLabel")
+	loseRow2.Size = UDim2.new(1, -16, 0, 28)
+	loseRow2.Position = UDim2.new(0, 8, 0, 36)
+	loseRow2.BackgroundTransparency = 1
+	loseRow2.Text = ("⚠️  From battle team                          %d"):format(loseBattle)
+	loseRow2.TextColor3 = C.text
+	loseRow2.Font = Enum.Font.GothamBold
+	loseRow2.TextSize = 11
+	loseRow2.TextXAlignment = Enum.TextXAlignment.Left
+	loseRow2.Parent = loseCard
+
+	-- RIGHT: Rewards / action
+	local ascCol = mkCol("✨  ASCENSION REWARDS", C.gold)
+	local glow = Instance.new("Frame")
+	glow.Size = UDim2.new(1, -8, 1, -8)
+	glow.Position = UDim2.new(0, 4, 0, 4)
+	glow.BackgroundColor3 = C.gold
+	glow.BackgroundTransparency = 0.94
+	glow.BorderSizePixel = 0
+	glow.ZIndex = 0
+	glow.Parent = ascCol
+	Instance.new("UICorner", glow).CornerRadius = UDim.new(0, 10)
+	local glowGrad = Instance.new("UIGradient")
+	glowGrad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 210, 90)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 145, 40)),
+	})
+	glowGrad.Rotation = 40
+	glowGrad.Parent = glow
+
+	local function mkRewardRow(y, icon, text, value, valColor)
+		local r = Instance.new("Frame")
+		r.Size = UDim2.new(1, -22, 0, 38)
+		r.Position = UDim2.new(0, 11, 0, y)
+		r.BackgroundColor3 = C.bgLight
+		r.BorderSizePixel = 0
+		r.Parent = ascCol
+		Instance.new("UICorner", r).CornerRadius = UDim.new(0, 8)
+		local tl = Instance.new("TextLabel")
+		tl.Size = UDim2.new(0, 18, 1, 0)
+		tl.Position = UDim2.new(0, 8, 0, 0)
+		tl.BackgroundTransparency = 1
+		tl.Text = icon
+		tl.Font = Enum.Font.GothamBold
+		tl.TextSize = 12
+		tl.TextXAlignment = Enum.TextXAlignment.Center
+		tl.TextColor3 = C.text
+		tl.Parent = r
+		local txt = Instance.new("TextLabel")
+		txt.Size = UDim2.new(1, -78, 1, 0)
+		txt.Position = UDim2.new(0, 28, 0, 0)
+		txt.BackgroundTransparency = 1
+		txt.Text = text
+		txt.Font = Enum.Font.GothamBold
+		txt.TextSize = 11
+		txt.TextXAlignment = Enum.TextXAlignment.Left
+		txt.TextColor3 = C.text
+		txt.Parent = r
+		local vv = Instance.new("TextLabel")
+		vv.Size = UDim2.new(0, 42, 1, 0)
+		vv.Position = UDim2.new(1, -48, 0, 0)
+		vv.BackgroundTransparency = 1
+		vv.Text = value
+		vv.Font = Enum.Font.GothamBlack
+		vv.TextSize = 20 > colWidth and 12 or 15
+		vv.TextXAlignment = Enum.TextXAlignment.Right
+		vv.TextColor3 = valColor
+		vv.Parent = r
 	end
 
-	-- What you lose
-	mkSection(rebirthScroll, "YOU LOSE", 30)
-	mkStatRow(rebirthScroll, "Creatures removed", loseCount, C.red, 31)
-	if (data.loseBaseCount or 0) > 0 then
-		mkStatRow(rebirthScroll, "From base (income)", data.loseBaseCount, C.textSec, 32)
-	end
-	if (data.loseDefenseCount or 0) > 0 then
-		mkStatRow(rebirthScroll, "From base (defense)", data.loseDefenseCount, C.textSec, 33)
-	end
-	if (data.loseBattleCount or 0) > 0 then
-		mkStatRow(rebirthScroll, "From battle team", data.loseBattleCount, C.textSec, 34)
-	end
+	local rewardPassive = nextBonuses.passiveGold or bonuses.passiveGold or 0
+	local rewardHP = nextBonuses.healthBonus or bonuses.healthBonus or 0
+	local rewardDmg = nextBonuses.damageMultiplier or bonuses.damageMultiplier or 1
+	mkRewardRow(52, "🪙", "Passive gold/tick", "+" .. tostring(rewardPassive), C.gold)
+	mkRewardRow(96, "💚", "Bonus max health", "+" .. tostring(rewardHP), C.green)
+	mkRewardRow(140, "⚔️", "World damage", "+" .. string.format("%.0f%%", math.max(0, (rewardDmg - 1) * 100)), C.blue)
 
-	-- Rewards after rebirth
-	if nextBonuses and nextBonuses.passiveGold then
-		mkSection(rebirthScroll, "REWARDS AFTER REBIRTH", 40)
-		mkStatRow(rebirthScroll, "Passive gold/tick", "+" .. tostring(nextBonuses.passiveGold), C.gold, 41)
-		if nextBonuses.healthBonus and nextBonuses.healthBonus > 0 then
-			mkStatRow(rebirthScroll, "Bonus max health", "+" .. tostring(nextBonuses.healthBonus), C.green, 42)
-		end
-		if nextBonuses.damageMultiplier and nextBonuses.damageMultiplier > 1 then
-			mkStatRow(rebirthScroll, "World damage", string.format("%.0f%%", (nextBonuses.damageMultiplier - 1) * 100), C.blue, 43)
-		end
-	end
+	local actionBtn = Instance.new("TextButton")
+	actionBtn.Name = "AscendButton"
+	actionBtn.Size = UDim2.new(1, -22, 0, 50)
+	actionBtn.Position = UDim2.new(0, 11, 1, -64)
+	actionBtn.BackgroundColor3 = canRebirth and C.rebirthAccent or C.divider
+	actionBtn.TextColor3 = canRebirth and Color3.new(0.2, 0.15, 0.1) or C.textMut
+	actionBtn.Font = Enum.Font.GothamBlack
+	actionBtn.TextSize = 17 > colWidth and 12 or 14
+	actionBtn.Text = canRebirth and "ASCEND NOW" or "REBIRTH LOCKED"
+	actionBtn.BorderSizePixel = 0
+	actionBtn.Parent = ascCol
+	Instance.new("UICorner", actionBtn).CornerRadius = UDim.new(0, 8)
+	actionBtn.MouseButton1Click:Connect(tryOpenRebirthConfirm)
 
-	-- Button state
-	rebirthBtn.Visible = nextReq ~= nil
-	if rebirthBtn.Visible then
-		rebirthBtn.BackgroundColor3 = canRebirth and C.rebirthAccent or C.divider
-		rebirthBtn.Text = canRebirth and "REBIRTH" or "REBIRTH (requirements not met)"
-		rebirthBtn.TextColor3 = canRebirth and Color3.new(0.2, 0.15, 0.1) or C.textMut
-	end
+	local actionSub = Instance.new("TextLabel")
+	actionSub.Size = UDim2.new(1, -22, 0, 12)
+	actionSub.Position = UDim2.new(0, 11, 1, -14)
+	actionSub.BackgroundTransparency = 1
+	actionSub.Font = Enum.Font.GothamBold
+	actionSub.TextSize = 9
+	actionSub.TextXAlignment = Enum.TextXAlignment.Center
+	actionSub.TextColor3 = canRebirth and C.green or C.red
+	actionSub.Text = canRebirth and "ALL REQUIREMENTS MET" or "REQUIREMENTS NOT MET"
+	actionSub.Parent = ascCol
+
+	rebirthBtn.Visible = false
 end
 
 -- Rebirth button + confirmation
 rebirthBtn.MouseButton1Click:Connect(function()
-	if not currentRebirthData then return end
-	if not currentRebirthData.canRebirth then
-		Notify.Toast(currentRebirthData.errorMessage or "Requirements not met", C.red, 3)
-		return
-	end
-	overlay.Visible = true
+	tryOpenRebirthConfirm()
 end)
 
 confirmNoBtn.MouseButton1Click:Connect(function()

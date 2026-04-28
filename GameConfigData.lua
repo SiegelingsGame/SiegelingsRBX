@@ -845,6 +845,11 @@ GameConfig.ENABLE_CODEX_UI      = true  -- set false to disable Codex and creatu
 GameConfig.ENABLE_CODEX_3D_VIEWER = true -- set false to use placeholder only (no ViewportFrame model viewer)
 GameConfig.ENABLE_BASE_LAYOUT_OVERVIEW = false -- legacy flag; base slot grid was removed from inventory (Bag tab now)
 
+-- Siegelings cinematic inventory cells: trait text under creature name (element + class/role).
+-- false = full words, e.g. "Wind Support", "Earth Bruiser", "Psychic Support"
+-- true  = compact codes, e.g. "WI SU", "EA BR", "PS SU"
+GameConfig.CinematicInventoryTraitsAbbreviated = false
+
 -- Targeting (E key)
 GameConfig.TargetScanRange      = 50    -- max range to scan for targetable creatures
 

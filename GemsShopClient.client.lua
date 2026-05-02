@@ -30,7 +30,8 @@ local WHITE = Color3.new(1, 1, 1)
 local sg = Instance.new("ScreenGui")
 sg.Name = "GemsShopGUI"
 sg.ResetOnSpawn = false
-sg.DisplayOrder = 100
+sg.DisplayOrder = 200
+sg.ZIndexBehavior = Enum.ZIndexBehavior.Global
 sg.Parent = playerGui
 
 local panel = Instance.new("Frame")

@@ -4,8 +4,8 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
 local MobileWindowLayout = require(ReplicatedStorage.Modules:WaitForChild("MobileWindowLayout"))
@@ -14,6 +14,11 @@ local WM = GameConfig.WorldMap
 if not WM or WM.Enabled ~= true then
 	return
 end
+
+local CLOSE_GLYPH = GameConfig.UICloseGlyph or "X"
+local UI_UPDATE_INTERVAL = 0.1 -- PERF: throttle map marker updates to 10Hz
+local UI_BUTTON_DEBOUNCE = 0.3 -- PERF: debounce UI button callbacks against double-fire
+local MAP_TWEEN_INFO = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out) -- FIX #20: smooth panel fade transitions
 
 -- Map-only mode: show only the map image (no pins, base markers, arrows, or calibration/capture UI).
 -- Re-enable markers/calibration later by flipping this to false.
@@ -688,8 +693,8 @@ local sg = Instance.new("ScreenGui")
 sg.Name = "WorldMapGUI"
 sg.ResetOnSpawn = false
 sg.Enabled = true
-sg.DisplayOrder = 96
-sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+sg.DisplayOrder = 200
+sg.ZIndexBehavior = Enum.ZIndexBehavior.Global
 sg.Parent = playerGui
 
 local backdrop = Instance.new("TextButton")
@@ -736,7 +741,7 @@ closeBtn.Size = UDim2.fromOffset(32, 32)
 closeBtn.Position = UDim2.new(1, -40, 0, 8)
 closeBtn.BackgroundColor3 = Color3.fromRGB(60, 40, 45)
 closeBtn.BackgroundTransparency = 0.2
-closeBtn.Text = "✕"
+closeBtn.Text = CLOSE_GLYPH
 closeBtn.TextColor3 = C.white
 closeBtn.Font = Enum.Font.GothamBold
 closeBtn.TextSize = 14
@@ -870,7 +875,7 @@ hint.BackgroundTransparency = 1
 hint.Font = Enum.Font.GothamMedium
 hint.TextSize = 11
 hint.TextColor3 = C.muted
-hint.Text = "[M] or HUD · Esc or ✕ to close"
+hint.Text = ("[M] or HUD · Esc or %s to close"):format(CLOSE_GLYPH)
 hint.ZIndex = 3
 hint.Parent = panel
 if MAP_ONLY then
@@ -992,7 +997,6 @@ local function getLocalRootPart()
 	return ch and (ch:FindFirstChild("HumanoidRootPart") or ch:FindFirstChildWhichIsA("BasePart")) or nil
 end
 
-local rsConn = nil
 local openBounds = nil
 local baseRetryAt = 0
 local affine = nil
@@ -1001,6 +1005,8 @@ local calibrating = false
 local calStep = 1
 local calAnchors = { nil, nil, nil } -- { world=Vector2(x,z), uv=Vector2(u,v) }
 local baseUvCapture = false
+local mapOpen = false
+local mapTweenToken = 0 -- FIX #20: invalidate stale hide tween completions when reopening quickly
 
 local function getAnchorWorldXZ(anchor)
 	if type(anchor) ~= "table" then
@@ -1195,13 +1201,13 @@ end
 local function updateCalHelp()
 	if not calibrating then
 		calHelp.Visible = false
-		hint.Text = "[M] or HUD · Esc or ✕ to close"
+		hint.Text = ("[M] or HUD · Esc or %s to close"):format(CLOSE_GLYPH)
 		return
 	end
 	calHelp.Visible = true
 	local stepName = ({ "A", "B", "C" })[calStep] or "?"
 	calHelp.Text = ("CALIBRATE: Stand on landmark %s, then click it on the map. (Click = set %s)"):format(stepName, stepName)
-	hint.Text = "[C] Exit calibrate · Esc/✕ close · After C, copy Output snippet"
+	hint.Text = ("[C] Exit calibrate · Esc/%s close · After C, copy Output snippet"):format(CLOSE_GLYPH)
 end
 
 local function updateBaseUvHelp()
@@ -1210,13 +1216,97 @@ local function updateBaseUvHelp()
 	end
 	calHelp.Visible = true
 	calHelp.Text = "BASE UV: Click where your BASE should appear. [B] exits and prints snippet."
-	hint.Text = "[B] Exit base UV · Esc/✕ close"
+	hint.Text = ("[B] Exit base UV · Esc/%s close"):format(CLOSE_GLYPH)
 end
 
+local function fadeShowMapContainers()
+	mapTweenToken += 1 -- FIX #20: mark new transition generation for tween completion safety
+	backdrop.Visible = true -- FIX #20: show backdrop before tween starts
+	panel.Visible = true -- FIX #20: show panel before tween starts
+	backdrop.BackgroundTransparency = 1 -- FIX #20: start hidden for fade-in
+	panel.BackgroundTransparency = 1 -- FIX #20: start hidden for fade-in
+	TweenService:Create(backdrop, MAP_TWEEN_INFO, { BackgroundTransparency = 0.45 }):Play() -- FIX #20: fade in backdrop
+	TweenService:Create(panel, MAP_TWEEN_INFO, { BackgroundTransparency = 0.02 }):Play() -- FIX #20: fade in panel
+end
+
+local function fadeHideMapContainers()
+	mapTweenToken += 1 -- FIX #20: increment token to cancel older completion handlers
+	local token = mapTweenToken -- FIX #20: capture token for this hide transition
+	local tBackdrop = TweenService:Create(backdrop, MAP_TWEEN_INFO, { BackgroundTransparency = 1 }) -- FIX #20: fade out backdrop
+	local tPanel = TweenService:Create(panel, MAP_TWEEN_INFO, { BackgroundTransparency = 1 }) -- FIX #20: fade out panel
+	tBackdrop:Play()
+	tPanel:Play()
+	tPanel.Completed:Connect(function()
+		if token ~= mapTweenToken then return end -- FIX #20: ignore stale completion from interrupted tween
+		if mapOpen then return end -- FIX #20: keep UI visible if map reopened during fade-out
+		panel.Visible = false -- FIX #20: hide panel only after fade completes
+		backdrop.Visible = false -- FIX #20: hide backdrop only after fade completes
+	end)
+end
+
+local function updateMapMarkers()
+	local root = getLocalRootPart()
+	if not root then
+		return
+	end
+
+	local b = openBounds
+	if not b then
+		return
+	end
+	local _spanX = math.max(1e-3, b.maxX - b.minX)
+	local _spanZ = math.max(1e-3, b.maxZ - b.minZ)
+	if _spanX <= 0 or _spanZ <= 0 then
+		return
+	end
+
+	-- Base marker: resolve occasionally (plot replication can lag behind character spawn)
+	if not baseMarker.Visible and tick() >= baseRetryAt then
+		baseRetryAt = tick() + 0.75
+		local plot = findMyPlot()
+		local basePos = plot and getPlotCenterWorldPosition(plot)
+		if basePos then
+			local markerPos, anchor = resolveBaseMarkerPosition(basePos)
+			local bx, bz = worldXZToUVWithBaseAnchor(markerPos, b, affine, anchor)
+			setGuiToUV(baseMarker, bx, bz)
+			baseMarker.Visible = true
+			baseLabel.Visible = true
+		end
+	end
+
+	local tx, tz = worldXZToUV(root.Position, b, affine)
+	setGuiToUV(marker, tx, tz)
+	setGuiToUV(facingArrow, tx, tz)
+	setGuiToUV(moveArrow, tx, tz)
+
+	local facingRotation = worldDirectionToMapRotation(root.Position, root.CFrame.LookVector, b, affine)
+	if facingRotation then
+		facingArrow.Rotation = facingRotation
+	end
+
+	local velocity = root.AssemblyLinearVelocity or root.Velocity
+	local moveRotation = worldDirectionToMapRotation(root.Position, velocity, b, affine)
+	local moving = Vector3.new(velocity.X, 0, velocity.Z).Magnitude >= 1.5
+	moveArrow.Visible = moving and moveRotation ~= nil
+	if moveRotation then
+		moveArrow.Rotation = moveRotation
+	end
+end
+
+task.spawn(function()
+	while true do
+		task.wait(UI_UPDATE_INTERVAL) -- PERF: update map markers at 10Hz instead of render frame
+		if not mapOpen then
+			continue -- PERF: skip all map marker work while map is hidden
+		end
+		updateMapMarkers()
+	end
+end)
+
 local function setOpen(open)
-	panel.Visible = open
-	backdrop.Visible = open
+	mapOpen = open
 	if open then
+		fadeShowMapContainers() -- FIX #20: tween-in map panel/backdrop to remove pop-in
 		-- In map-only mode, don't run any world->map transforms or show any markers.
 		if MAP_ONLY then
 			openBounds = nil
@@ -1231,10 +1321,6 @@ local function setOpen(open)
 			marker.Visible = false
 			facingArrow.Visible = false
 			MobileWindowLayout.NotifyMenuOpened()
-			if rsConn then
-				rsConn:Disconnect()
-				rsConn = nil
-			end
 			return
 		end
 
@@ -1251,52 +1337,9 @@ local function setOpen(open)
 		baseUvCapture = false
 		updateCalHelp()
 		MobileWindowLayout.NotifyMenuOpened()
-		if rsConn then
-			rsConn:Disconnect()
-		end
-		rsConn = RunService.RenderStepped:Connect(function()
-			local root = getLocalRootPart()
-			if not root then
-				return
-			end
-
-			local b = openBounds
-			local spanX = math.max(1e-3, b.maxX - b.minX)
-			local spanZ = math.max(1e-3, b.maxZ - b.minZ)
-
-			-- Base marker: resolve occasionally (plot replication can lag behind character spawn)
-			if not baseMarker.Visible and tick() >= baseRetryAt then
-				baseRetryAt = tick() + 0.75
-				local plot = findMyPlot()
-				local basePos = plot and getPlotCenterWorldPosition(plot)
-				if basePos then
-					local markerPos, anchor = resolveBaseMarkerPosition(basePos)
-					local bx, bz = worldXZToUVWithBaseAnchor(markerPos, b, affine, anchor)
-					setGuiToUV(baseMarker, bx, bz)
-					baseMarker.Visible = true
-					baseLabel.Visible = true
-				end
-			end
-
-			local tx, tz = worldXZToUV(root.Position, b, affine)
-			setGuiToUV(marker, tx, tz)
-			setGuiToUV(facingArrow, tx, tz)
-			setGuiToUV(moveArrow, tx, tz)
-
-			local facingRotation = worldDirectionToMapRotation(root.Position, root.CFrame.LookVector, b, affine)
-			if facingRotation then
-				facingArrow.Rotation = facingRotation
-			end
-
-			local velocity = root.AssemblyLinearVelocity or root.Velocity
-			local moveRotation = worldDirectionToMapRotation(root.Position, velocity, b, affine)
-			local moving = Vector3.new(velocity.X, 0, velocity.Z).Magnitude >= 1.5
-			moveArrow.Visible = moving and moveRotation ~= nil
-			if moveRotation then
-				moveArrow.Rotation = moveRotation
-			end
-		end)
+		updateMapMarkers() -- PERF: immediate first marker update, then throttled loop handles the rest
 	else
+		fadeHideMapContainers() -- FIX #20: tween-out map panel/backdrop to remove pop-out flash
 		openBounds = nil
 		affine = nil
 		calibrationInfo = nil
@@ -1308,10 +1351,6 @@ local function setOpen(open)
 		moveArrow.Visible = false
 		marker.Visible = not MAP_ONLY
 		facingArrow.Visible = not MAP_ONLY
-		if rsConn then
-			rsConn:Disconnect()
-			rsConn = nil
-		end
 		MobileWindowLayout.NotifyMenuClosed()
 	end
 end
@@ -1338,8 +1377,14 @@ local function toggle()
 	setOpen(not panel.Visible)
 end
 
-closeBtn.MouseButton1Click:Connect(function()
+local _uiDebounce = false
+closeBtn.Activated:Connect(function()
+	if _uiDebounce then return end -- PERF: debounce prevents open/close double-fire flashes
+	_uiDebounce = true -- PERF: lock close callback briefly
 	setOpen(false)
+	task.delay(UI_BUTTON_DEBOUNCE, function()
+		_uiDebounce = false -- PERF: release debounce lock after short cooldown
+	end)
 end)
 -- NOTE: Backdrop clicks do NOT close the map. This is required for calibration clicks on the map image.
 
@@ -1392,7 +1437,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
 			updateBaseUvHelp()
 		else
 			calHelp.Visible = false
-			hint.Text = "[M] or HUD · Esc or ✕ to close"
+			hint.Text = ("[M] or HUD · Esc or %s to close"):format(CLOSE_GLYPH)
 		end
 		return
 	end
@@ -1407,7 +1452,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
 			updateZDHelp()
 		else
 			calHelp.Visible = false
-			hint.Text = "[M] or HUD · Esc or ✕ to close"
+			hint.Text = ("[M] or HUD · Esc or %s to close"):format(CLOSE_GLYPH)
 			printZoneDoorUVBlock()
 			affine, calibrationInfo = resolveMapTransform()
 		end
@@ -1522,7 +1567,7 @@ mapFrame.InputBegan:Connect(function(input)
 		))
 		baseUvCapture = false
 		calHelp.Visible = false
-		hint.Text = "[M] or HUD · Esc or ✕ to close"
+		hint.Text = ("[M] or HUD · Esc or %s to close"):format(CLOSE_GLYPH)
 		return
 	end
 

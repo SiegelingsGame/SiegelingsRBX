@@ -1629,7 +1629,7 @@ function PlayerDataManager.AssignToBattle(player, uid, slotIndex)
 	-- Clear slot request
 	if not uid or uid == "" then
 		d.battleTeam[slotIndex] = nil
-		return true, "Cleared"
+		return true, "Cleared", { kind = "clear_slot", slot = slotIndex }
 	end
 
 	-- Verify creature exists
@@ -1647,30 +1647,27 @@ function PlayerDataManager.AssignToBattle(player, uid, slotIndex)
 		end
 	end
 
-	-- Count current team size (not counting this creature's current slot if moving)
-	local teamCount = 0
-	for key, val in pairs(d.battleTeam) do
-		if val and val ~= "" then
-			local k = tonumber(key) or key
-			if not (existingSlot and k == existingSlot and val == uid) then
-				teamCount = teamCount + 1
-			end
+	-- Target slot occupant before any mutations (needed for swap + full-team rules)
+	local targetOccupant = d.battleTeam[slotIndex] or d.battleTeam[tostring(slotIndex)]
+	local targetHadCreature = targetOccupant ~= nil and tostring(targetOccupant) ~= ""
+
+	local occupiedCount = countBattleTeam(d.battleTeam)
+
+	-- New roster creature (not yet on battle team):
+	-- - Into an empty slot → increases team size; cap at MAX_BATTLE_TEAM.
+	-- - Into an occupied slot → replacement; team size unchanged; always ok.
+	-- Already on team → moving/swap path; no size cap here.
+	if not existingSlot then
+		if not targetHadCreature and occupiedCount >= MAX_BATTLE_TEAM then
+			return false, ("Team full (%d/%d)"):format(MAX_BATTLE_TEAM, MAX_BATTLE_TEAM)
 		end
 	end
-
-	-- New creature joining team?
-	if not existingSlot and teamCount >= MAX_BATTLE_TEAM then
-		return false, "Team full (" .. teamCount .. "/" .. MAX_BATTLE_TEAM .. ")"
-	end
-
-	-- Who's currently in the target slot? (check both number and string key for serialization quirks)
-	local targetOccupant = d.battleTeam[slotIndex] or d.battleTeam[tostring(slotIndex)]
 
 	-- Remove creature from ALL other assignments (income/defense/favorite/battle)
 	removeFromAllSlots(d, uid)
 
 	-- Swap: if target was occupied AND creature was already on team
-	if targetOccupant and existingSlot and targetOccupant ~= uid then
+	if targetOccupant and existingSlot and tostring(targetOccupant) ~= su then
 		d.battleTeam[existingSlot] = targetOccupant
 	end
 
@@ -1678,7 +1675,38 @@ function PlayerDataManager.AssignToBattle(player, uid, slotIndex)
 	d.battleTeam[slotIndex] = uid
 	-- Keep only number keys so client/serialization never see mixed or string keys
 	d.battleTeam = normalizeBattleTeam(d.battleTeam)
-	return true, "Assigned"
+
+	-- Last line of defense: never persist more than MAX_BATTLE_TEAM creatures (legacy / edge cases).
+	while countBattleTeam(d.battleTeam) > MAX_BATTLE_TEAM do
+		local dropSlot = nil
+		for key, val in pairs(d.battleTeam) do
+			if val and tostring(val) ~= "" then
+				local n = tonumber(key)
+				if n and (not dropSlot or n > dropSlot) then
+					dropSlot = n
+				end
+			end
+		end
+		if not dropSlot then
+			break
+		end
+		d.battleTeam[dropSlot] = nil
+	end
+	d.battleTeam = normalizeBattleTeam(d.battleTeam)
+
+	-- Return a diff so callers can do incremental visual updates without refreshing the entire base.
+	-- Cases:
+	-- - Move into empty: existingSlot set, targetOccupant nil → moved from existingSlot to slotIndex
+	-- - Swap: existingSlot set, targetOccupant set → uid moves to slotIndex and displaced moves to existingSlot
+	-- - Replace: existingSlot nil, targetOccupant set → uid goes to slotIndex, displaced leaves team
+	return true, "Assigned", {
+		kind = "assign",
+		uid = uid,
+		fromSlot = (type(existingSlot) == "number") and existingSlot or tonumber(existingSlot),
+		toSlot = slotIndex,
+		displacedUid = (targetHadCreature and targetOccupant and tostring(targetOccupant) ~= su) and tostring(targetOccupant) or nil,
+		displacedToSlot = (targetHadCreature and existingSlot and targetOccupant and tostring(targetOccupant) ~= su) and ((type(existingSlot) == "number") and existingSlot or tonumber(existingSlot)) or nil,
+	}
 end
 
 function PlayerDataManager.GetBattleTeamEnabled(player)
@@ -1707,8 +1735,10 @@ function PlayerDataManager.RemoveFromBattle(player, uid)
 	local su = tostring(uid or "")
 	for key, val in pairs(d.battleTeam) do
 		if val and tostring(val) == su then
+			local slotNum = tonumber(key) or key
 			d.battleTeam[key] = nil
-			return true
+			d.battleTeam = normalizeBattleTeam(d.battleTeam)
+			return true, slotNum
 		end
 	end
 	return false

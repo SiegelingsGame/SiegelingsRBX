@@ -1,9 +1,9 @@
 -- AIRaidSystem.lua - ServerScriptService (ModuleScript)
 -- Wild creature packs periodically raid a random active player base.
 -- Raiders use CreatureSpawner + CreatureAI "raider" behavior (no duplicate HP/movement).
--- Defense turrets auto-target raiders via "WorldCreature" tag.
--- Raiders target BaseDefenseCreature first, then BaseIncomeCreature.
--- On attack, a dice roll can "free" a base creature (spawns it wild).
+-- Defense turrets auto-target raiders via "WorldCreature" tag
+-- Raiders target BaseDefenseCreature first, then BaseIncomeCreature
+-- On attack, a dice roll can "free" a base creature (spawns it wild)
 -- Last updated: 2026-04-23 21:35
 
 local Players = game:GetService("Players")

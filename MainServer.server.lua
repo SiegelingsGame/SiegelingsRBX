@@ -1759,6 +1759,54 @@ for _, plr in ipairs(Players:GetPlayers()) do
 	end)
 end
 
+local WORLD_COLLISION_ENFORCE_DELAY = 3 -- FIX #20: delay world collision audit until workspace replication settles
+local function enforceWorldCollision()
+	local creatureTags = { "WorldCreature", "BaseDefenseCreature", "BaseIncomeCreature", "FavoriteCreature" }
+	local creatureModels = {}
+	for _, tag in ipairs(creatureTags) do
+		for _, model in ipairs(CollectionService:GetTagged(tag)) do
+			if model and model.Parent then
+				creatureModels[model] = true -- FIX #20: exclude creature hierarchies from world collision enforcement
+			end
+		end
+	end
+
+	for _, obj in ipairs(Workspace:GetDescendants()) do
+		if obj:IsA("BasePart") then
+			local isCreaturePart = false
+			local parent = obj.Parent
+			while parent and parent ~= Workspace do
+				if creatureModels[parent] then
+					isCreaturePart = true
+					break
+				end
+				parent = parent.Parent
+			end
+			if isCreaturePart then
+				continue
+			end
+
+			local char = obj:FindFirstAncestorOfClass("Model")
+			if char and Players:GetPlayerFromCharacter(char) then
+				continue
+			end
+
+			if obj.Transparency < 0.9 and obj.Anchored then
+				-- Keep intentional shield/forcefield volumes non-collidable.
+				local lowerName = string.lower(obj.Name or "")
+				local isShieldVolume =
+					(lowerName:find("shield", 1, true) ~= nil)
+					or obj.Material == Enum.Material.ForceField
+				if isShieldVolume and obj.CanCollide == false then
+					continue
+				end
+				obj.CanCollide = true -- FIX #20: enforce collidable architectural geometry for player blocking
+			end
+		end
+	end
+end
+task.delay(WORLD_COLLISION_ENFORCE_DELAY, enforceWorldCollision)
+
 -- Start creature spawning independently (wait for any player to exist)
 task.spawn(function()
 	while #Players:GetPlayers() == 0 do
@@ -2001,6 +2049,9 @@ local function applyPlotCosmetics(plr, plot)
 	local bcEquipped = baseColor and baseColor.equipped
 	if BaseExteriorSystem.ApplyBaseColorToPlot then
 		BaseExteriorSystem.ApplyBaseColorToPlot(plot, (bcEquipped and bcEquipped ~= "") and bcEquipped or nil)
+	end
+	if LaserDoorSystem and LaserDoorSystem.RefreshForPlot then
+		LaserDoorSystem.RefreshForPlot(plot)
 	end
 end
 
@@ -2281,10 +2332,31 @@ assignToBattle.OnServerEvent:Connect(function(plr, uid, slotIndex)
 		warn("[MainServer] " .. plr.Name .. " tried battle without Floor 2")
 		return
 	end
-	local success, msg = PlayerDataManager.AssignToBattle(plr, uid, slotIndex)
+	local success, msg, changes = PlayerDataManager.AssignToBattle(plr, uid, slotIndex)
 	if success then
 		checkDespawnCompanion(plr)
-		refreshPlayerBase(plr)
+		-- Incremental update: only touch affected battle slots/orbs.
+		-- This avoids full base refresh (PlaceCreatures) which causes point-by-point flicker.
+		if BasePlacementSystem and BasePlacementSystem.PlaceBattleCreatureInSlot and BasePlacementSystem.ClearBattleCreatureAtSlot then
+			-- If a displaced creature was kicked out (replacement), clear its orb by UID.
+			if changes and changes.displacedUid and BasePlacementSystem.ClearOrbByUid then
+				BasePlacementSystem.ClearOrbByUid(plr, tostring(changes.displacedUid), true)
+			end
+			-- If a displaced creature moved to another slot (swap), place it there.
+			if changes and changes.displacedUid and changes.displacedToSlot then
+				BasePlacementSystem.PlaceBattleCreatureInSlot(plr, tonumber(changes.displacedToSlot), tostring(changes.displacedUid))
+			end
+			-- Always place/move the requested uid at its new slot.
+			local toSlot = changes and changes.toSlot and tonumber(changes.toSlot) or tonumber(slotIndex)
+			if toSlot then
+				BasePlacementSystem.PlaceBattleCreatureInSlot(plr, toSlot, uid)
+			end
+		elseif BasePlacementSystem and BasePlacementSystem.RespawnBattleCreatures then
+			-- Fallback: refresh battle visuals only (still better than full base refresh).
+			BasePlacementSystem.RespawnBattleCreatures(plr)
+		else
+			refreshPlayerBase(plr)
+		end
 	else
 		warn("[MainServer] AssignToBattle failed: " .. plr.Name .. " - " .. (msg or "?"))
 	end
@@ -2313,8 +2385,16 @@ end
 
 -- REMOVE FROM BATTLE - battle team only
 removeFromBattle.OnServerEvent:Connect(function(plr, uid)
-	if PlayerDataManager.RemoveFromBattle(plr, uid) then
-		refreshPlayerBase(plr)
+	local ok, removedSlot = PlayerDataManager.RemoveFromBattle(plr, uid)
+	if ok then
+		-- Incremental clear: remove only this battle orb/slot.
+		if BasePlacementSystem and BasePlacementSystem.ClearBattleCreatureAtSlot and type(removedSlot) == "number" then
+			BasePlacementSystem.ClearBattleCreatureAtSlot(plr, removedSlot)
+		elseif BasePlacementSystem and BasePlacementSystem.ClearOrbByUid then
+			BasePlacementSystem.ClearOrbByUid(plr, uid, true)
+		else
+			refreshPlayerBase(plr)
+		end
 	end
 end)
 
@@ -2479,18 +2559,20 @@ moveCreatureSlot.OnServerInvoke = function(plr, slotType, uid, targetPointIndex)
 	local ok, msg = PlayerDataManager.MoveSlotByUid(plr, slotType, uid, targetSlotIndex)
 	moveSlotLog(plr, "MoveSlotByUid: ok=" .. tostring(ok), msg and ("msg=" .. tostring(msg)) or "", "fromSlot=" .. tostring(fromSlotIndex), "targetSlot=" .. tostring(targetSlotIndex))
 	if ok then
-		-- Clear old visual and spawn at new position
-		BasePlacementSystem.ClearCreatureAtSlot(plr, slotType, fromSlotIndex)
-		-- ClearCreatureAtSlot also calls ClearSlotAt (which sets slot to ""), but we already moved
-		-- the data, so the slot is already "" at fromSlotIndex. Re-set the target in case ClearSlotAt
-		-- wiped it (it shouldn't since we moved, but be safe):
-		local d = PlayerDataManager.GetData(plr)
-		if d then
-			local slots = (slotType == "income") and d.baseSlots or d.defenseSlots
-			if slots then slots[targetSlotIndex] = uid end
-		end
-		local placeOk = BasePlacementSystem.PlaceCreatureInSlot(plr, slotType, targetSlotIndex, uid)
-		moveSlotLog(plr, "PlaceCreatureInSlot result:", placeOk and "ok" or "nil")
+		-- Perform visual clear/re-place asynchronously so InvokeServer returns fast.
+		task.spawn(function()
+			-- Clear old visual and spawn at new position
+			BasePlacementSystem.ClearCreatureAtSlot(plr, slotType, fromSlotIndex)
+			-- ClearCreatureAtSlot also calls ClearSlotAt (which sets slot to ""), but we already moved
+			-- the data, so restore target slot before re-place.
+			local d = PlayerDataManager.GetData(plr)
+			if d then
+				local slots = (slotType == "income") and d.baseSlots or d.defenseSlots
+				if slots then slots[targetSlotIndex] = uid end
+			end
+			local placeOk = BasePlacementSystem.PlaceCreatureInSlot(plr, slotType, targetSlotIndex, uid)
+			moveSlotLog(plr, "PlaceCreatureInSlot result:", placeOk and "ok" or "nil")
+		end)
 	end
 	return ok, msg or "Moved"
 end

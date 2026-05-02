@@ -74,7 +74,9 @@ local attachedPrompts = {} -- [model] = ProximityPrompt (to avoid duplicates on 
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "BaseInteractionUI"
 screenGui.ResetOnSpawn = false
-screenGui.DisplayOrder = 100
+-- Interaction prompts should stay below menus.
+screenGui.DisplayOrder = 60
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.Parent = playerGui
 
 -- ══════════════════════════════════════════════════════════════════════════════
@@ -89,11 +91,125 @@ local UI_GREEN = Color3.fromRGB(80, 200, 100)
 local UI_GREY = Color3.fromRGB(80, 85, 100)
 local UI_WHITE = Color3.fromRGB(255, 255, 255)
 
+local keyboardNavSelectedButton = nil
+local keyboardNavStroke = nil
+
+local function clearKeyboardSelection()
+	if keyboardNavStroke then
+		keyboardNavStroke:Destroy()
+		keyboardNavStroke = nil
+	end
+	keyboardNavSelectedButton = nil
+end
+
+local function isButtonNavigable(btn)
+	if not btn or not btn.Parent or not btn:IsA("GuiButton") then return false end
+	if not btn.Active or not btn.Visible then return false end
+	local size = btn.AbsoluteSize
+	if size.X <= 0 or size.Y <= 0 then return false end
+
+	local cursor = btn
+	while cursor and cursor ~= playerGui do
+		if cursor:IsA("GuiObject") and not cursor.Visible then
+			return false
+		end
+		if cursor:IsA("ScreenGui") and not cursor.Enabled then
+			return false
+		end
+		cursor = cursor.Parent
+	end
+
+	return btn:IsDescendantOf(playerGui)
+end
+
+local function getNavigableButtons()
+	local buttons = {}
+	for _, desc in ipairs(playerGui:GetDescendants()) do
+		if desc:IsA("GuiButton") and isButtonNavigable(desc) then
+			table.insert(buttons, desc)
+		end
+	end
+	table.sort(buttons, function(a, b)
+		local aPos, bPos = a.AbsolutePosition, b.AbsolutePosition
+		if math.abs(aPos.Y - bPos.Y) <= 6 then
+			return aPos.X < bPos.X
+		end
+		return aPos.Y < bPos.Y
+	end)
+	return buttons
+end
+
+local function setKeyboardSelection(btn)
+	if not isButtonNavigable(btn) then
+		clearKeyboardSelection()
+		return false
+	end
+
+	if keyboardNavStroke then
+		keyboardNavStroke:Destroy()
+		keyboardNavStroke = nil
+	end
+
+	keyboardNavSelectedButton = btn
+	local stroke = Instance.new("UIStroke")
+	stroke.Name = "KeyboardNavStroke"
+	stroke.Color = UI_WHITE
+	stroke.Thickness = 2
+	stroke.Transparency = 0.15
+	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	stroke.Parent = btn
+	keyboardNavStroke = stroke
+	return true
+end
+
+local function stepKeyboardSelection(delta)
+	local buttons = getNavigableButtons()
+	if #buttons == 0 then
+		clearKeyboardSelection()
+		return false
+	end
+
+	local currentIndex = table.find(buttons, keyboardNavSelectedButton) or 0
+	local nextIndex
+	if currentIndex == 0 then
+		nextIndex = (delta >= 0) and 1 or #buttons
+	else
+		nextIndex = ((currentIndex - 1 + delta) % #buttons) + 1
+	end
+	return setKeyboardSelection(buttons[nextIndex])
+end
+
+local function activateKeyboardSelection()
+	if not isButtonNavigable(keyboardNavSelectedButton) then
+		clearKeyboardSelection()
+		return false
+	end
+	keyboardNavSelectedButton:Activate()
+	return true
+end
+
+local function isFirstPersonCameraActive()
+	if player.CameraMode == Enum.CameraMode.LockFirstPerson then
+		return true
+	end
+
+	local camera = workspace.CurrentCamera
+	if not camera then
+		return false
+	end
+
+	local camPos = camera.CFrame.Position
+	local focusPos = camera.Focus.Position
+	-- In Roblox first-person, camera sits essentially at focus.
+	return (camPos - focusPos).Magnitude <= 1
+end
+
 local function clearMenu()
 	if activeMenuGui then
 		activeMenuGui:Destroy()
 		activeMenuGui = nil
 	end
+	clearKeyboardSelection()
 end
 
 local function clearGhost()
@@ -923,7 +1039,7 @@ attachPointPrompts = function()
 		local prompt = Instance.new("ProximityPrompt")
 		prompt.MaxActivationDistance = promptRange
 		prompt.RequiresLineOfSight = false
-		prompt.HoldDuration = tonumber(GameConfig.HoldInteractionDuration) or 0.6
+		prompt.HoldDuration = tonumber(GameConfig.BasePlacementHoldDuration) or 0.08
 		prompt.KeyboardKeyCode = Enum.KeyCode.E
 		prompt.Exclusivity = Enum.ProximityPromptExclusivity.AlwaysShow
 
@@ -951,8 +1067,15 @@ attachPointPrompts = function()
 			else
 				busy = true
 				clearMenu()
-				clearGhost()
 				clearPointPrompts()
+				-- Ensure the holding UI always disappears immediately on a successful place.
+				-- We intentionally do NOT call resetState() here because it would restore the hidden original
+				-- orb parts; the server will replicate the moved orb shortly after.
+				local function finalizeSuccessfulPlace()
+					clearGhost() -- destroys ghostModel + holdingBanner
+					heldData = nil
+					state = STATE_IDLE
+				end
 				local targetPointIndex = pointIndex
 				if type(targetPointIndex) ~= "number" then
 					Notify.Toast("Invalid point", UI_RED, 2)
@@ -965,8 +1088,7 @@ attachPointPrompts = function()
 					if assignToBattle then
 						assignToBattle:FireServer(heldData.uid, targetPointIndex)
 						Notify.Toast("Moved " .. getDisplayName(heldData.creatureId) .. "!", UI_GREEN, 2.5)
-						heldData = nil
-						state = STATE_IDLE
+						finalizeSuccessfulPlace()
 					else
 						Notify.Toast("Cannot place (battle not available). Try rejoining.", UI_RED, 3)
 						resetState()
@@ -982,8 +1104,7 @@ attachPointPrompts = function()
 							"Moved " .. getDisplayName(heldData.creatureId) .. "!",
 							UI_GREEN, 2.5
 						)
-						heldData = nil
-						state = STATE_IDLE
+						finalizeSuccessfulPlace()
 					else
 						Notify.Toast("Move failed: " .. (tostring(msg or "unknown")), UI_RED, 2)
 						resetState()
@@ -1154,6 +1275,21 @@ end)
 -- ══════════════════════════════════════════════════════════════════════════════
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if UserInputService:GetFocusedTextBox() then return end
+	if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+
+	if isFirstPersonCameraActive() then
+		if input.KeyCode == Enum.KeyCode.Up or input.KeyCode == Enum.KeyCode.Left then
+			if stepKeyboardSelection(-1) then return end
+		elseif input.KeyCode == Enum.KeyCode.Down or input.KeyCode == Enum.KeyCode.Right then
+			if stepKeyboardSelection(1) then return end
+		elseif input.KeyCode == Enum.KeyCode.Return or input.KeyCode == Enum.KeyCode.KeypadEnter then
+			if activateKeyboardSelection() then return end
+		end
+	else
+		clearKeyboardSelection()
+	end
+
 	if gameProcessed then return end
 	if input.KeyCode == Enum.KeyCode.X then
 		if state == STATE_HOLDING or state == STATE_SWAP_MENU or state == STATE_CONTEXT or state == STATE_SELL_CONFIRM then

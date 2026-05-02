@@ -126,7 +126,9 @@ end
 local sg = Instance.new("ScreenGui")
 sg.Name = "CodexGUI"
 sg.ResetOnSpawn = false
-sg.DisplayOrder = 50
+-- Must render above HUD elements (battle menu / recard / melee / sprint) and other menus.
+sg.DisplayOrder = 200
+sg.ZIndexBehavior = Enum.ZIndexBehavior.Global
 sg.Parent = playerGui
 
 local function syncCodexScreenGuiInset()
@@ -204,7 +206,7 @@ closeBtn.Size = UDim2.new(0, 32, 0, 32)
 closeBtn.Position = UDim2.new(1, -40, 0, 6)
 closeBtn.BackgroundColor3 = C.red
 closeBtn.BackgroundTransparency = 0.5
-closeBtn.Text = "X"
+closeBtn.Text = GameConfig.UICloseGlyph or "X"
 closeBtn.TextColor3 = C.white
 closeBtn.Font = Enum.Font.GothamBold
 closeBtn.TextSize = 14
@@ -1109,25 +1111,25 @@ visualContent.BackgroundTransparency = 1
 visualContent.Visible = false
 visualContent.Parent = panel
 
--- Filter row: Element and Rarity in horizontal ScrollingFrames so all fit on mobile; Search full width
+-- Cinematic filter rows + search/progress bar
 local filterRow = Instance.new("Frame")
-filterRow.Size = UDim2.new(1, 0, 0, 88)
+filterRow.Size = UDim2.new(1, 0, 0, 102)
 filterRow.BackgroundTransparency = 1
 filterRow.Parent = visualContent
 
 local elementFilterLabel = Instance.new("TextLabel")
-elementFilterLabel.Size = UDim2.new(0, 50, 0, 22)
+elementFilterLabel.Size = UDim2.new(0, 46, 0, 22)
 elementFilterLabel.Position = UDim2.new(0, 0, 0, 2)
 elementFilterLabel.BackgroundTransparency = 1
-elementFilterLabel.Text = "Element:"
+elementFilterLabel.Text = "Element"
 elementFilterLabel.TextColor3 = C.textSec
 elementFilterLabel.Font = Enum.Font.GothamMedium
 elementFilterLabel.TextSize = 10
 elementFilterLabel.Parent = filterRow
 
 local elementScroll = Instance.new("ScrollingFrame")
-elementScroll.Size = UDim2.new(1, -54, 0, 26)
-elementScroll.Position = UDim2.new(0, 52, 0, 2)
+elementScroll.Size = UDim2.new(1, -48, 0, 26)
+elementScroll.Position = UDim2.new(0, 48, 0, 2)
 elementScroll.BackgroundTransparency = 1
 elementScroll.BorderSizePixel = 0
 elementScroll.ScrollBarThickness = 4
@@ -1150,11 +1152,23 @@ elementLayout.Parent = elementList
 
 local elementButtons = {}
 local elements = {"All", "Fire", "Ice", "Wind", "Earth", "Shadow", "Light", "Lightning", "Water", "Psychic"}
+local elementGlyphs = {
+	All = "All",
+	Fire = "🔥 Fire",
+	Ice = "❄ Ice",
+	Wind = "🌪 Wind",
+	Earth = "🌍 Earth",
+	Shadow = "🌑 Shadow",
+	Light = "✨ Light",
+	Lightning = "⚡ Lightning",
+	Water = "💧 Water",
+	Psychic = "🧠 Psychic",
+}
 for i, el in ipairs(elements) do
 	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(0, 48, 0, 22)
+	btn.Size = UDim2.new(0, (el == "Lightning" or el == "Psychic") and 88 or 72, 0, 22)
 	btn.LayoutOrder = i
-	btn.Text = el
+	btn.Text = elementGlyphs[el] or el
 	btn.Font = Enum.Font.GothamBold
 	btn.TextSize = 9
 	btn.BorderSizePixel = 0
@@ -1164,18 +1178,18 @@ for i, el in ipairs(elements) do
 end
 
 local rarityFilterLabel = Instance.new("TextLabel")
-rarityFilterLabel.Size = UDim2.new(0, 45, 0, 22)
+rarityFilterLabel.Size = UDim2.new(0, 42, 0, 22)
 rarityFilterLabel.Position = UDim2.new(0, 0, 0, 28)
 rarityFilterLabel.BackgroundTransparency = 1
-rarityFilterLabel.Text = "Rarity:"
+rarityFilterLabel.Text = "Rarity"
 rarityFilterLabel.TextColor3 = C.textSec
 rarityFilterLabel.Font = Enum.Font.GothamMedium
 rarityFilterLabel.TextSize = 10
 rarityFilterLabel.Parent = filterRow
 
 local rarityScroll = Instance.new("ScrollingFrame")
-rarityScroll.Size = UDim2.new(1, -50, 0, 26)
-rarityScroll.Position = UDim2.new(0, 50, 0, 28)
+rarityScroll.Size = UDim2.new(1, -44, 0, 26)
+rarityScroll.Position = UDim2.new(0, 44, 0, 28)
 rarityScroll.BackgroundTransparency = 1
 rarityScroll.BorderSizePixel = 0
 rarityScroll.ScrollBarThickness = 4
@@ -1200,7 +1214,7 @@ local rarityButtons = {}
 local rarities = {"All", "Common", "Uncommon", "Rare", "Epic", "Legendary"}
 for i, r in ipairs(rarities) do
 	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(0, 58, 0, 22)
+	btn.Size = UDim2.new(0, r == "Legendary" and 76 or 62, 0, 22)
 	btn.LayoutOrder = i
 	btn.Text = r
 	btn.Font = Enum.Font.GothamBold
@@ -1212,18 +1226,18 @@ for i, r in ipairs(rarities) do
 end
 
 local searchLabel = Instance.new("TextLabel")
-searchLabel.Size = UDim2.new(0, 55, 0, 22)
+searchLabel.Size = UDim2.new(0, 42, 0, 22)
 searchLabel.Position = UDim2.new(0, 0, 0, 54)
 searchLabel.BackgroundTransparency = 1
-searchLabel.Text = "Search:"
+searchLabel.Text = "Search"
 searchLabel.TextColor3 = C.textSec
 searchLabel.Font = Enum.Font.GothamMedium
 searchLabel.TextSize = 10
 searchLabel.Parent = filterRow
 
 local searchBox = Instance.new("TextBox")
-searchBox.Size = UDim2.new(1, -60, 0, 24)
-searchBox.Position = UDim2.new(0, 58, 0, 54)
+searchBox.Size = UDim2.new(1, -176, 0, 24)
+searchBox.Position = UDim2.new(0, 44, 0, 54)
 searchBox.PlaceholderText = "Search by creature name..."
 searchBox.Text = ""
 searchBox.ClearTextOnFocus = false
@@ -1235,9 +1249,59 @@ searchBox.TextColor3 = C.text
 searchBox.Parent = filterRow
 Instance.new("UICorner", searchBox).CornerRadius = UDim.new(0, 4)
 
+local completionChip = Instance.new("Frame")
+completionChip.Size = UDim2.new(0, 126, 0, 24)
+completionChip.Position = UDim2.new(1, -126, 0, 54)
+completionChip.BackgroundColor3 = Color3.fromRGB(20, 24, 40)
+completionChip.BorderSizePixel = 0
+completionChip.Parent = filterRow
+Instance.new("UICorner", completionChip).CornerRadius = UDim.new(0, 4)
+local completionStroke = Instance.new("UIStroke")
+completionStroke.Color = Color3.fromRGB(72, 82, 120)
+completionStroke.Thickness = 1
+completionStroke.Transparency = 0.3
+completionStroke.Parent = completionChip
+
+local completionTitle = Instance.new("TextLabel")
+completionTitle.Size = UDim2.new(1, -8, 0, 10)
+completionTitle.Position = UDim2.new(0, 4, 0, 1)
+completionTitle.BackgroundTransparency = 1
+completionTitle.Text = "DISCOVERY"
+completionTitle.TextColor3 = Color3.fromRGB(177, 186, 220)
+completionTitle.Font = Enum.Font.GothamBold
+completionTitle.TextSize = 7
+completionTitle.TextXAlignment = Enum.TextXAlignment.Left
+completionTitle.Parent = completionChip
+
+local completionCount = Instance.new("TextLabel")
+completionCount.Size = UDim2.new(0, 34, 0, 10)
+completionCount.Position = UDim2.new(1, -36, 0, 1)
+completionCount.BackgroundTransparency = 1
+completionCount.Text = "0/0"
+completionCount.TextColor3 = Color3.fromRGB(255, 213, 96)
+completionCount.Font = Enum.Font.GothamBold
+completionCount.TextSize = 8
+completionCount.TextXAlignment = Enum.TextXAlignment.Right
+completionCount.Parent = completionChip
+
+local completionBar = Instance.new("Frame")
+completionBar.Size = UDim2.new(1, -8, 0, 5)
+completionBar.Position = UDim2.new(0, 4, 1, -7)
+completionBar.BackgroundColor3 = Color3.fromRGB(40, 45, 65)
+completionBar.BorderSizePixel = 0
+completionBar.Parent = completionChip
+Instance.new("UICorner", completionBar).CornerRadius = UDim.new(0, 99)
+
+local completionBarFill = Instance.new("Frame")
+completionBarFill.Size = UDim2.new(0, 0, 1, 0)
+completionBarFill.BackgroundColor3 = Color3.fromRGB(238, 187, 70)
+completionBarFill.BorderSizePixel = 0
+completionBarFill.Parent = completionBar
+Instance.new("UICorner", completionBarFill).CornerRadius = UDim.new(0, 99)
+
 local visualScroll = Instance.new("ScrollingFrame")
-visualScroll.Size = UDim2.new(1, 0, 1, -98)
-visualScroll.Position = UDim2.new(0, 0, 0, 92)
+visualScroll.Size = UDim2.new(1, 0, 1, -108)
+visualScroll.Position = UDim2.new(0, 0, 0, 104)
 visualScroll.BackgroundTransparency = 1
 visualScroll.BorderSizePixel = 0
 visualScroll.ScrollBarThickness = 6
@@ -1248,29 +1312,29 @@ visualScroll.ScrollBarImageTransparency = 0.5
 visualScroll.Parent = visualContent
 
 local gridLayout = Instance.new("UIGridLayout")
-gridLayout.CellSize = UDim2.new(0, 100, 0, 130)
-gridLayout.CellPadding = UDim2.new(0, 6, 0, 6)
+gridLayout.CellSize = UDim2.new(0, 108, 0, 135)
+gridLayout.CellPadding = UDim2.new(0, 8, 0, 8)
 gridLayout.SortOrder = Enum.SortOrder.LayoutOrder
 gridLayout.Parent = visualScroll
 
 local CELLS = {}
-local VIEWER_POOL_SIZE = 8
-local viewerPool = {}
-local viewerPoolInUse = {}
+local cellViewers = {} -- [creatureId] = { viewer = CodexModelViewer, mode = "full"|"silhouette", loaded = bool }
 
 local function setElementFilter(el)
 	filterElement = (el == "All") and nil or el
 	for name, btn in pairs(elementButtons) do
-		btn.BackgroundColor3 = (filterElement == nil and name == "All") or filterElement == name and Color3.fromRGB(50, 90, 140) or C.card
-		btn.TextColor3 = (filterElement == nil and name == "All") or filterElement == name and C.white or C.textSec
+		local selected = (filterElement == nil and name == "All") or (filterElement == name)
+		btn.BackgroundColor3 = selected and Color3.fromRGB(50, 90, 140) or C.card
+		btn.TextColor3 = selected and C.white or C.textSec
 	end
 	refreshVisualGrid()
 end
 local function setRarityFilter(r)
 	filterRarity = (r == "All") and nil or r
 	for name, btn in pairs(rarityButtons) do
-		btn.BackgroundColor3 = (filterRarity == nil and name == "All") or filterRarity == name and Color3.fromRGB(50, 90, 140) or C.card
-		btn.TextColor3 = (filterRarity == nil and name == "All") or filterRarity == name and C.white or C.textSec
+		local selected = (filterRarity == nil and name == "All") or (filterRarity == name)
+		btn.BackgroundColor3 = selected and Color3.fromRGB(50, 90, 140) or C.card
+		btn.TextColor3 = selected and C.white or C.textSec
 	end
 	refreshVisualGrid()
 end
@@ -1354,7 +1418,14 @@ local function switchToVisual()
 	detailsContent.Visible = false
 	visualContent.Visible = true
 	applyTabStyle()
+	task.spawn(function()
+		refreshOwnedCreatures()
+		if currentMode == "VISUAL" then
+			refreshVisualGrid()
+		end
+	end)
 	refreshVisualGrid()
+	preloadVisualViewers()
 	visualScroll.CanvasPosition = Vector2.new(0, visualScrollPosition)
 	task.defer(updateVisualViewerPool)
 end
@@ -1396,6 +1467,9 @@ showCreature = function(creatureId)
 		if detailsModelViewer then
 			local vf = detailsModelViewer:GetViewportFrame()
 			if vf then vf.Visible = true end
+			if detailsModelViewer.SetRenderMode then
+				detailsModelViewer:SetRenderMode(ownedCreatureIds[creatureId] and "full" or "silhouette")
+			end
 			detailsModelViewer:SetCreature(creatureId)
 		end
 		-- Optional static snapshot fallback (disabled by default to avoid hiding live viewer)
@@ -1483,116 +1557,172 @@ loreTab.MouseButton1Click:Connect(switchToLore)
 detailsTab.MouseButton1Click:Connect(switchToDetails)
 visualTab.MouseButton1Click:Connect(switchToVisual)
 
--- Filter application: build filtered list for Visual grid
-local function applyFilters()
-	filteredCreatures = {}
-	local searchLower = filterSearch and string.lower(filterSearch) or ""
+local rarityFrameColors = {
+	Common = Color3.fromRGB(145, 154, 178),
+	Uncommon = Color3.fromRGB(69, 189, 126),
+	Rare = Color3.fromRGB(78, 132, 255),
+	Epic = Color3.fromRGB(166, 92, 255),
+	Legendary = Color3.fromRGB(255, 193, 82),
+}
+
+local rarityBadgeText = {
+	Common = "C",
+	Uncommon = "UC",
+	Rare = "R",
+	Epic = "E",
+	Legendary = "L",
+}
+
+local function isDiscovered(creatureId)
+	return true
+end
+
+local function isOwnedCreature(creatureId)
+	return ownedCreatureIds[creatureId] == true
+end
+
+local function updateDiscoveryProgress()
+	local total = #allCreatures
+	local unlocked = 0
 	for _, c in ipairs(allCreatures) do
-		if filterElement and filterElement ~= "All" and c.element ~= filterElement then continue end
-		if filterRarity and filterRarity ~= "All" and c.rarity ~= filterRarity then continue end
-		if #searchLower > 0 then
-			local name = (c.displayName or c.id or ""):lower()
-			if not name:find(searchLower, 1, true) then continue end
+		if isOwnedCreature(c.id) then
+			unlocked = unlocked + 1
 		end
-		table.insert(filteredCreatures, c)
+	end
+	local percent = total > 0 and (unlocked / total) or 0
+	completionCount.Text = string.format("%d/%d", unlocked, total)
+	completionBarFill.Size = UDim2.fromScale(math.clamp(percent, 0, 1), 1)
+end
+
+local function setDashedFrame(frame, color)
+	local segment = 12
+	local gap = 8
+	for x = 6, 100, segment + gap do
+		local top = Instance.new("Frame")
+		top.Size = UDim2.new(0, segment, 0, 1)
+		top.Position = UDim2.new(0, x, 0, 4)
+		top.BackgroundColor3 = color
+		top.BorderSizePixel = 0
+		top.Parent = frame
+		local bottom = top:Clone()
+		bottom.Position = UDim2.new(0, x, 1, -5)
+		bottom.Parent = frame
+	end
+	for y = 10, 110, segment + gap do
+		local left = Instance.new("Frame")
+		left.Size = UDim2.new(0, 1, 0, segment)
+		left.Position = UDim2.new(0, 4, 0, y)
+		left.BackgroundColor3 = color
+		left.BorderSizePixel = 0
+		left.Parent = frame
+		local right = left:Clone()
+		right.Position = UDim2.new(1, -5, 0, y)
+		right.Parent = frame
 	end
 end
 
--- Build one cell (frame with placeholder/viewer slot, name, element, rarity). Click -> OpenCodex(id)
+local bottomSpacer = nil
+
 local function makeCell(creatureInfo, order)
 	local cell = Instance.new("Frame")
-	cell.Size = UDim2.new(0, 100, 0, 130)
-	cell.BackgroundColor3 = C.card
+	cell.Size = UDim2.new(0, 108, 0, 135)
+	cell.BackgroundColor3 = Color3.fromRGB(19, 24, 38)
 	cell.BorderSizePixel = 0
 	cell.LayoutOrder = order
 	cell.Parent = visualScroll
 	Instance.new("UICorner", cell).CornerRadius = UDim.new(0, 8)
+	local cellStroke = Instance.new("UIStroke")
+	cellStroke.Color = rarityFrameColors[creatureInfo.rarity] or Color3.fromRGB(96, 106, 130)
+	cellStroke.Thickness = 1.5
+	cellStroke.Transparency = 0.2
+	cellStroke.Parent = cell
 
 	local viewerSlot = Instance.new("Frame")
 	viewerSlot.Name = "ViewerSlot"
-	viewerSlot.Size = UDim2.new(1, -8, 0, 72)
+	viewerSlot.Size = UDim2.new(1, -8, 0, 94)
 	viewerSlot.Position = UDim2.new(0, 4, 0, 4)
-	viewerSlot.BackgroundColor3 = Color3.fromRGB(35, 38, 50)
+	viewerSlot.BackgroundColor3 = Color3.fromRGB(31, 36, 54)
 	viewerSlot.BorderSizePixel = 0
 	viewerSlot.Parent = cell
 	Instance.new("UICorner", viewerSlot).CornerRadius = UDim.new(0, 6)
 
-	local isCaught = ownedCreatureIds[creatureInfo.id] == true
-
 	local placeholder = Instance.new("Frame")
 	placeholder.Name = "Placeholder"
-	placeholder.Size = UDim2.new(0, 40, 0, 40)
-	placeholder.Position = UDim2.new(0.5, -20, 0.5, -20)
+	placeholder.Size = UDim2.new(0, 38, 0, 38)
+	placeholder.Position = UDim2.new(0.5, -19, 0.5, -19)
 	placeholder.BackgroundColor3 = creatureInfo.primaryColor or C.muted
 	placeholder.BorderSizePixel = 0
 	placeholder.Parent = viewerSlot
 	Instance.new("UICorner", placeholder).CornerRadius = UDim.new(1, 0)
-	placeholder.Visible = isCaught
 
-	-- Egg overlay (2D placeholder). No 3D viewer when uncaught.
-	local eggOverlay = Instance.new("Frame")
-	eggOverlay.Name = "EggOverlay"
-	eggOverlay.Size = UDim2.new(0, 40, 0, 40)
-	eggOverlay.Position = UDim2.new(0.5, -20, 0.5, -20)
-	eggOverlay.BackgroundColor3 = CODEX_EGG_BACKDROP
-	eggOverlay.BorderSizePixel = 0
-	eggOverlay.Parent = viewerSlot
-	eggOverlay.Visible = not isCaught
-	Instance.new("UICorner", eggOverlay).CornerRadius = UDim.new(1, 0)
+	local rarityBadge = Instance.new("TextLabel")
+	rarityBadge.Size = UDim2.new(0, 20, 0, 14)
+	rarityBadge.Position = UDim2.new(1, -24, 0, 4)
+	rarityBadge.BackgroundColor3 = Color3.fromRGB(8, 10, 18)
+	rarityBadge.Text = rarityBadgeText[creatureInfo.rarity] or "?"
+	rarityBadge.TextColor3 = C.white
+	rarityBadge.Font = Enum.Font.GothamBlack
+	rarityBadge.TextSize = 8
+	rarityBadge.BorderSizePixel = 0
+	rarityBadge.Parent = cell
+	Instance.new("UICorner", rarityBadge).CornerRadius = UDim.new(0, 3)
 
-	local eggImg = Instance.new("ImageLabel")
-	eggImg.Name = "EggImage"
-	eggImg.Size = UDim2.new(1, 0, 1, 0)
-	eggImg.BackgroundTransparency = 1
-	eggImg.ScaleType = Enum.ScaleType.Fit
-	eggImg.Image = CODEX_EGG_PLACEHOLDER_IMAGE_ID
-	eggImg.Visible = CODEX_EGG_PLACEHOLDER_IMAGE_ID ~= nil and CODEX_EGG_PLACEHOLDER_IMAGE_ID ~= ""
-	eggImg.Parent = eggOverlay
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Size = UDim2.new(1, -8, 0, 18)
+	nameLabel.Position = UDim2.new(0, 4, 0, 101)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Text = creatureInfo.displayName or creatureInfo.id or "?"
+	nameLabel.TextColor3 = C.text
+	nameLabel.Font = Enum.Font.GothamBold
+	nameLabel.TextSize = 10
+	nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+	nameLabel.Parent = cell
 
-	local eggText = Instance.new("TextLabel")
-	eggText.Name = "EggTextFallback"
-	eggText.Size = UDim2.new(1, 0, 1, 0)
-	eggText.BackgroundTransparency = 1
-	eggText.Text = "?"
-	eggText.Font = Enum.Font.GothamBlack
-	eggText.TextColor3 = CODEX_EGG_BORDER
-	eggText.TextScaled = true
-	eggText.TextXAlignment = Enum.TextXAlignment.Center
-	eggText.TextYAlignment = Enum.TextYAlignment.Center
-	eggText.Visible = not eggImg.Visible
-	eggText.Parent = eggOverlay
-
-	local nameLbl = Instance.new("TextLabel")
-	nameLbl.Size = UDim2.new(1, -8, 0, 18)
-	nameLbl.Position = UDim2.new(0, 4, 0, 78)
-	nameLbl.BackgroundTransparency = 1
-	nameLbl.Text = creatureInfo.displayName or creatureInfo.id or "?"
-	nameLbl.TextColor3 = C.text
-	nameLbl.Font = Enum.Font.GothamBold
-	nameLbl.TextSize = 10
-	nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
-	nameLbl.TextXAlignment = Enum.TextXAlignment.Left
-	nameLbl.Parent = cell
-
-	local metaLbl = Instance.new("TextLabel")
-	metaLbl.Size = UDim2.new(1, -8, 0, 14)
-	metaLbl.Position = UDim2.new(0, 4, 0, 96)
-	metaLbl.BackgroundTransparency = 1
-	metaLbl.Text = (creatureInfo.element or "?") .. " · " .. (creatureInfo.rarity or "?")
-	metaLbl.TextColor3 = C.textSec
-	metaLbl.Font = Enum.Font.GothamMedium
-	metaLbl.TextSize = 9
-	metaLbl.TextTruncate = Enum.TextTruncate.AtEnd
-	metaLbl.TextXAlignment = Enum.TextXAlignment.Left
-	metaLbl.Parent = cell
+	local metaLabel = Instance.new("TextLabel")
+	metaLabel.Size = UDim2.new(1, -8, 0, 12)
+	metaLabel.Position = UDim2.new(0, 4, 0, 117)
+	metaLabel.BackgroundTransparency = 1
+	metaLabel.Text = (creatureInfo.element or "?") .. " · " .. (creatureInfo.rarity or "?")
+	metaLabel.TextColor3 = C.textSec
+	metaLabel.Font = Enum.Font.GothamMedium
+	metaLabel.TextSize = 8
+	metaLabel.TextTruncate = Enum.TextTruncate.AtEnd
+	metaLabel.TextXAlignment = Enum.TextXAlignment.Left
+	metaLabel.Parent = cell
 
 	local lockedOverlay = Instance.new("Frame")
 	lockedOverlay.Name = "LockedOverlay"
 	lockedOverlay.Size = UDim2.new(1, 0, 1, 0)
-	lockedOverlay.BackgroundColor3 = Color3.new(0, 0, 0)
-	lockedOverlay.BackgroundTransparency = 0.6
+	lockedOverlay.BackgroundColor3 = Color3.fromRGB(10, 12, 18)
+	lockedOverlay.BackgroundTransparency = 0.35
+	lockedOverlay.BorderSizePixel = 0
 	lockedOverlay.Visible = false
 	lockedOverlay.Parent = cell
+	Instance.new("UICorner", lockedOverlay).CornerRadius = UDim.new(0, 8)
+	setDashedFrame(lockedOverlay, Color3.fromRGB(88, 98, 128))
+
+	local unknownWatermark = Instance.new("TextLabel")
+	unknownWatermark.Size = UDim2.new(0.7, 0, 0.6, 0)
+	unknownWatermark.Position = UDim2.new(0.15, 0, 0.18, 0)
+	unknownWatermark.BackgroundTransparency = 1
+	unknownWatermark.Text = "?"
+	unknownWatermark.Font = Enum.Font.GothamBlack
+	unknownWatermark.TextColor3 = Color3.fromRGB(86, 94, 120)
+	unknownWatermark.TextTransparency = 0.65
+	unknownWatermark.TextScaled = true
+	unknownWatermark.Parent = lockedOverlay
+
+	local unknownLabel = Instance.new("TextLabel")
+	unknownLabel.Size = UDim2.new(1, -8, 0, 16)
+	unknownLabel.Position = UDim2.new(0, 4, 1, -22)
+	unknownLabel.BackgroundTransparency = 1
+	unknownLabel.Text = "???"
+	unknownLabel.TextColor3 = Color3.fromRGB(132, 140, 168)
+	unknownLabel.Font = Enum.Font.GothamBold
+	unknownLabel.TextSize = 10
+	unknownLabel.TextXAlignment = Enum.TextXAlignment.Left
+	unknownLabel.Parent = lockedOverlay
 
 	local btn = Instance.new("TextButton")
 	btn.Size = UDim2.new(1, 0, 1, 0)
@@ -1605,115 +1735,182 @@ local function makeCell(creatureInfo, order)
 
 	return {
 		frame = cell,
+		creatureInfo = creatureInfo,
 		creatureId = creatureInfo.id,
 		viewerSlot = viewerSlot,
 		placeholder = placeholder,
-		eggOverlay = eggOverlay,
-		caught = isCaught,
+		nameLabel = nameLabel,
+		metaLabel = metaLabel,
 		lockedOverlay = lockedOverlay,
+		rarityBadge = rarityBadge,
+		cellStroke = cellStroke,
 	}
 end
 
--- Refresh Visual grid: apply filters, rebuild cells, update pool
-local bottomSpacer = nil
-function refreshVisualGrid()
-	applyFilters()
-	for _, cell in ipairs(CELLS) do
-		if cell and cell.frame then cell.frame:Destroy() end
+local function applyCellDiscoveryState(cellData)
+	local creatureInfo = cellData.creatureInfo
+	local discovered = isDiscovered(creatureInfo.id)
+	local owned = isOwnedCreature(creatureInfo.id)
+	cellData.discovered = discovered
+	cellData.owned = owned
+	cellData.lockedOverlay.Visible = false
+	cellData.nameLabel.Text = creatureInfo.displayName or creatureInfo.id or "?"
+	cellData.metaLabel.Text = (creatureInfo.element or "?") .. " · " .. (creatureInfo.rarity or "?")
+	cellData.rarityBadge.Text = rarityBadgeText[creatureInfo.rarity] or "?"
+	cellData.placeholder.BackgroundColor3 = owned and (creatureInfo.primaryColor or C.muted) or Color3.fromRGB(45, 50, 66)
+	cellData.cellStroke.Color = rarityFrameColors[creatureInfo.rarity] or Color3.fromRGB(96, 106, 130)
+end
+
+local function applyFilters()
+	filteredCreatures = {}
+	local searchLower = filterSearch and string.lower(filterSearch) or ""
+	local layoutOrder = 1
+	for _, cellData in ipairs(CELLS) do
+		local c = cellData.creatureInfo
+		local matches = true
+		if filterElement and filterElement ~= "All" and c.element ~= filterElement then
+			matches = false
+		end
+		if matches and filterRarity and filterRarity ~= "All" and c.rarity ~= filterRarity then
+			matches = false
+		end
+		if matches and #searchLower > 0 then
+			local name = (c.displayName or c.id or ""):lower()
+			if not name:find(searchLower, 1, true) then
+				matches = false
+			end
+		end
+		cellData.frame.Visible = matches
+		if matches then
+			cellData.frame.LayoutOrder = layoutOrder
+			layoutOrder = layoutOrder + 1
+			table.insert(filteredCreatures, c)
+		end
 	end
-	if bottomSpacer then bottomSpacer:Destroy() bottomSpacer = nil end
-	CELLS = {}
-	for i, c in ipairs(filteredCreatures) do
+	if bottomSpacer then
+		bottomSpacer.LayoutOrder = layoutOrder
+	end
+end
+
+local visualCellsBuilt = false
+local visualPreloadStarted = false
+local function ensureVisualCells()
+	if visualCellsBuilt then
+		return
+	end
+	for i, c in ipairs(allCreatures) do
 		local cellData = makeCell(c, i)
-		cellData.lockedOverlay.Visible = not seenCreatureIds[c.id] and not ownedCreatureIds[c.id]
+		applyCellDiscoveryState(cellData)
 		table.insert(CELLS, cellData)
 	end
-	-- Extra row of space at bottom so scroll can reach the last row and nothing is clipped
 	bottomSpacer = Instance.new("Frame")
 	bottomSpacer.Size = UDim2.new(1, 0, 0, 1)
 	bottomSpacer.BackgroundTransparency = 1
-	bottomSpacer.LayoutOrder = 99999
+	bottomSpacer.LayoutOrder = #allCreatures + 1
 	bottomSpacer.Parent = visualScroll
-	-- Release pool viewers when rebuilding
-	for _, v in ipairs(viewerPool) do
-		if v and v.SetCreature then v:SetCreature(nil) end
+	visualCellsBuilt = true
+end
+
+local function ensureCellViewerLoaded(cellData)
+	if not CodexModelViewer or not cellData then return nil end
+	local desiredMode = cellData.owned and "full" or "silhouette"
+	local entry = cellViewers[cellData.creatureId]
+	if not entry then
+		local viewer = CodexModelViewer.new(cellData.viewerSlot, {
+			size = UDim2.new(1, 0, 1, 0),
+			autoRotate = false,
+			autoRotateSpeed = 0.2,
+			zoomEnabled = false,
+			showFloor = false,
+			themedLighting = true,
+			playIdleAnimation = true,
+		})
+		entry = { viewer = viewer, mode = desiredMode, loaded = false }
+		cellViewers[cellData.creatureId] = entry
 	end
-	viewerPoolInUse = {}
+	if entry.viewer and entry.viewer.GetViewportFrame then
+		local vf = entry.viewer:GetViewportFrame()
+		if vf and vf.Parent ~= cellData.viewerSlot then
+			vf.Parent = cellData.viewerSlot
+		end
+	end
+	if entry.viewer and entry.viewer.SetRenderMode then
+		entry.viewer:SetRenderMode(desiredMode)
+	end
+	if (not entry.loaded) or entry.mode ~= desiredMode then
+		if entry.viewer then
+			entry.viewer:SetCreature(cellData.creatureId)
+		end
+		entry.mode = desiredMode
+		entry.loaded = true
+	end
+	return entry
+end
+
+local function preloadVisualViewers()
+	if visualPreloadStarted then return end
+	visualPreloadStarted = true
+	task.spawn(function()
+		local batch = 0
+		for _, cellData in ipairs(CELLS) do
+			ensureCellViewerLoaded(cellData)
+			batch = batch + 1
+			if batch >= 6 then
+				batch = 0
+				task.wait()
+			end
+		end
+	end)
+end
+
+function refreshVisualGrid()
+	ensureVisualCells()
+	for _, cellData in ipairs(CELLS) do
+		applyCellDiscoveryState(cellData)
+		local entry = cellViewers[cellData.creatureId]
+		if entry and entry.loaded and entry.mode ~= (cellData.owned and "full" or "silhouette") then
+			ensureCellViewerLoaded(cellData)
+		end
+	end
+	applyFilters()
+	updateDiscoveryProgress()
 	if currentMode == "VISUAL" then
+		preloadVisualViewers()
 		task.defer(updateVisualViewerPool)
 	end
 end
 
--- Assign pool viewers to cells that are in view (lazy 3D)
+-- Assign persistent viewers to visible cells (no re-parent shuffling).
 function updateVisualViewerPool()
 	if not CodexModelViewer or #CELLS == 0 then return end
-	-- Prevent stale viewer->cell bookkeeping from earlier scroll positions.
-	viewerPoolInUse = {}
 	local scrollAbs = visualScroll.AbsolutePosition
 	local scrollSize = visualScroll.AbsoluteWindowSize
-	local visible = {}
-	for idx, cellData in ipairs(CELLS) do
+	local visibleById = {}
+	for _, cellData in ipairs(CELLS) do
 		local f = cellData.frame
-		if f and f.AbsolutePosition and f.AbsoluteSize then
+		if f and f.Visible and f.AbsolutePosition and f.AbsoluteSize then
 			local cy = f.AbsolutePosition.Y
 			local ch = f.AbsoluteSize.Y
 			if cy + ch >= scrollAbs.Y and cy <= scrollAbs.Y + scrollSize.Y then
-				table.insert(visible, { idx = idx, cellData = cellData })
-			end
-		end
-	end
-	for i = 1, VIEWER_POOL_SIZE do
-		if visible[i] then
-			local cellData = visible[i].cellData
-			local caught = cellData.caught == true
-			if caught then
-				if not viewerPool[i] then
-					viewerPool[i] = CodexModelViewer.new(cellData.viewerSlot, {
-						size = UDim2.new(1, 0, 1, 0),
-						autoRotate = true,
-						autoRotateSpeed = 0.2,
-						zoomEnabled = false,
-						showFloor = false,
-						themedLighting = true,
-						playIdleAnimation = false,
-					})
+				local entry = ensureCellViewerLoaded(cellData)
+				visibleById[cellData.creatureId] = true
+				if entry and entry.loaded then
+					cellData.placeholder.Visible = false
+				else
+					cellData.placeholder.Visible = true
 				end
-				viewerPool[i]:GetViewportFrame().Parent = cellData.viewerSlot
-				viewerPool[i]:SetCreature(cellData.creatureId)
-				cellData.placeholder.Visible = false
-				if cellData.eggOverlay then cellData.eggOverlay.Visible = false end
-				viewerPoolInUse[i] = cellData.creatureId
 			else
-				-- Uncaught: don't show 3D creature; show egg overlay instead.
-				if viewerPool[i] then
-					viewerPool[i]:SetCreature(nil)
-					viewerPool[i]:GetViewportFrame().Parent = nil
-				end
-				cellData.placeholder.Visible = false
-				if cellData.eggOverlay then cellData.eggOverlay.Visible = true end
-				viewerPoolInUse[i] = nil
+				local entry = cellViewers[cellData.creatureId]
+				cellData.placeholder.Visible = not (entry and entry.loaded)
 			end
 		else
-			if viewerPool[i] then
-				viewerPool[i]:SetCreature(nil)
-				viewerPool[i]:GetViewportFrame().Parent = nil
-			end
-			viewerPoolInUse[i] = nil
+			local entry = cellViewers[cellData.creatureId]
+			cellData.placeholder.Visible = not (entry and entry.loaded)
 		end
 	end
-	-- Show placeholder again for cells that lost a viewer
-	for idx, cellData in ipairs(CELLS) do
-		local caught = cellData.caught == true
-		local hasViewer = false
-		if caught then
-			for i = 1, VIEWER_POOL_SIZE do
-				if viewerPoolInUse[i] == cellData.creatureId then hasViewer = true break end
-			end
-			cellData.placeholder.Visible = not hasViewer
-			if cellData.eggOverlay then cellData.eggOverlay.Visible = false end
-		else
-			cellData.placeholder.Visible = false
-			if cellData.eggOverlay then cellData.eggOverlay.Visible = true end
+	for creatureId, entry in pairs(cellViewers) do
+		if entry and entry.viewer and entry.viewer.SetAutoRotate then
+			entry.viewer:SetAutoRotate(visibleById[creatureId] == true)
 		end
 	end
 end
@@ -1742,6 +1939,12 @@ function OpenCodex(creatureId)
 	if not GameConfig.ENABLE_CODEX_UI then return end
 	applyPanelScale(panel)
 	if creatureId == "guide" or creatureId == "lore" or creatureId == nil or creatureId == "" then
+		task.spawn(function()
+			refreshOwnedCreatures()
+			if currentMode == "VISUAL" then
+				refreshVisualGrid()
+			end
+		end)
 		if creatureId == "lore" then switchToLore() else switchToGuide() end
 		panel.Visible = true
 		MobileWindowLayout.NotifyMenuOpened()
@@ -1753,9 +1956,11 @@ function OpenCodex(creatureId)
 
 	task.spawn(function()
 		refreshOwnedCreatures()
-		-- Update Visual mode egg placeholders + locked overlay once inventory lands.
+		-- Update visual/details once inventory lands so silhouettes flip to full models for owned entries.
 		if currentMode == "VISUAL" then
 			refreshVisualGrid()
+		elseif currentMode == "DETAILS" and currentCreatureId == creatureId then
+			showCreature(creatureId)
 		end
 	end)
 	switchToDetails()

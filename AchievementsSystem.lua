@@ -1,6 +1,6 @@
 -- AchievementsSystem.lua - ServerScriptService (ModuleScript)
 -- Scalable achievement tracking, metric storage, and live unlock dispatch.
--- Last updated: 2026-04-25 00:22..
+-- Last updated: 2026-04-25 00:22
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -10,7 +10,8 @@ local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 
 local AchievementsSystem = {}
 
-local Events = ReplicatedStorage:WaitForChild("Events")
+local Events = ReplicatedStorage:
+WaitForChild("Events")
 local getAchievementsRF = Events:WaitForChild("GetAchievements")
 local achievementProgressRE = Events:WaitForChild("AchievementProgress")
 local achievementUnlockedRE = Events:WaitForChild("AchievementUnlocked")

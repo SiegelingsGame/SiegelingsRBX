@@ -47,6 +47,13 @@ local COMPANION_TAG = "FavoriteCreature"
 local BASE_DEFENSE_TAG = "BaseDefenseCreature"
 local BASE_INCOME_TAG = "BaseIncomeCreature"
 
+local STUCK_PROGRESS_THRESHOLD = 0.3 -- FIX #20: stuck progress threshold in studs
+local STUCK_TIME_WINDOW = 0.4 -- FIX #20: stuck detection window in seconds
+local WANDER_TIMEOUT_SECONDS = 5 -- FIX #20: wander timeout to repick bad targets
+local CREATURE_MOVE_DT_CLAMP = 1 / 15 -- PERF: clamp move dt to smooth large frame spikes
+local MOVE_STEP_BODY_FACTOR = 0.8 -- FIX #20: cap move step by body radius to reduce tunneling
+local WATER_CHECK_INTERVAL = 0.1 -- PERF: cache swimmable water checks in update loop
+
 -- State for each creature model
 local creatureStates = {} -- [model] = { id, hp, maxHp, behavior, state, spawnPos, target, lastAttack, packId, faintTime }
 
@@ -65,6 +72,7 @@ end
 -- PERFORMANCE: getCreatureExcludeList builds list once per frame via getCachedExcludeList().
 local _cachedExcludeList = nil
 local _cachedExcludeTick = -1
+local _cachedExcludeCount = 0 -- PERF: cache exclude count to avoid reassigning ray params every frame
 local function getCachedExcludeList()
 	local now = tick()
 	if _cachedExcludeList and _cachedExcludeTick == now then
@@ -82,6 +90,7 @@ local function getCachedExcludeList()
 		if p.Character and not seen[p.Character] then seen[p.Character] = true; list[#list + 1] = p.Character end
 	end
 	_cachedExcludeList = list
+	_cachedExcludeCount = #list -- PERF: keep list size for cheap ray param update checks
 	return list
 end
 -- Ocean: only water object in game (Biomes -> OceanBiome -> Ocean -> Ocean). Creatures move vertically only when inside it.
@@ -265,12 +274,17 @@ end
 --   (c) Idle ground snap added in updateCreature (see below) — creatures periodically
 --       re-snap to ground even when not moving, so any residual float is corrected.
 local _groundRaycastParams = nil
+local _groundRaycastExcludeCount = -1 -- PERF: only update ground ray excludes when list size changes
 local function getGroundY(x, z, fromY, excludeModel)
 	if not _groundRaycastParams then
 		_groundRaycastParams = RaycastParams.new()
 		_groundRaycastParams.FilterType = Enum.RaycastFilterType.Exclude
 	end
-	_groundRaycastParams.FilterDescendantsInstances = getCachedExcludeList()
+	local excludeList = getCachedExcludeList() -- PERF: reuse cached exclude list for ground rays
+	if _groundRaycastExcludeCount ~= _cachedExcludeCount then -- PERF: avoid reassignment when unchanged
+		_groundRaycastParams.FilterDescendantsInstances = excludeList -- PERF: update only on size change
+		_groundRaycastExcludeCount = _cachedExcludeCount -- PERF: track last applied exclude size
+	end
 	-- Primary raycast: from slightly above current Y, down 200 studs
 	local origin = Vector3.new(x, fromY + 2, z)
 	local hit = Workspace:Raycast(origin, Vector3.new(0, -200, 0), _groundRaycastParams)
@@ -334,6 +348,21 @@ local function distBetween(a, b)
 	return (a.Position - b.Position).Magnitude
 end
 
+-- When a movement segment completes, switch to idle immediately unless another queued segment should start right away.
+local function finishMovementSegmentToIdle(state, idleMin, idleMax, hasQueuedSegment)
+	if hasQueuedSegment then
+		state.forceIdleOnArrival = nil
+		return false
+	end
+	state.state = "idle"
+	state.wanderTarget = nil
+	if idleMin and idleMax then
+		state.idleUntil = tick() + math.random(idleMin, idleMax)
+	end
+	state.forceIdleOnArrival = true
+	return true
+end
+
 -- Line of sight: raycast from fromModel to toModel; if anything blocks (e.g. base walls), return false.
 -- Used so attacks cannot hit through walls — creatures must have clear line of sight to deal damage.
 local function hasLineOfSight(fromModel, toModel)
@@ -362,9 +391,21 @@ pcall(function() ArenaShieldSystem = require(game:GetService("ServerScriptServic
 
 local function moveTowards(body, target, speed, dt, creatureId)
 	local model = body and body.Parent and body.Parent:IsA("Model") and body.Parent
+	local state = model and creatureStates[model] or nil -- FIX #20: movement state for stuck detection/escape
 	-- Water creatures move in 3D inside any swimmable volume (Ocean, WaterBlock, Terrain water); otherwise ground level.
-	local isWater3D = creatureId and CreatureData.IsWaterType(creatureId)
-		and CreatureAI.IsPositionInSwimmableWater(body.Position)
+	local cachedWater = false -- PERF: avoid repeating expensive water checks in one move call
+	if state then
+		local timer = (state._waterCheckTimer or 0) + dt -- PERF: throttle swimmable water checks
+		if timer >= WATER_CHECK_INTERVAL or state._isInWaterCached == nil then
+			timer = 0 -- PERF: reset throttle timer after check
+			state._isInWaterCached = creatureId and CreatureData.IsWaterType(creatureId) and CreatureAI.IsPositionInSwimmableWater(body.Position) or false -- PERF: cache terrain/ocean water result
+		end
+		state._waterCheckTimer = timer -- PERF: persist water-check timer per creature
+		cachedWater = state._isInWaterCached == true -- PERF: use cached water result for this frame
+	else
+		cachedWater = creatureId and CreatureData.IsWaterType(creatureId) and CreatureAI.IsPositionInSwimmableWater(body.Position)
+	end
+	local isWater3D = cachedWater
 	local dir
 	if isWater3D then
 		dir = target - body.Position
@@ -372,7 +413,41 @@ local function moveTowards(body, target, speed, dt, creatureId)
 		dir = (target - body.Position) * Vector3.new(1, 0, 1)
 	end
 	if dir.Magnitude < 0.5 then return end
-	local newPos = body.Position + dir.Unit * math.min(speed * dt, dir.Magnitude)
+	local desiredDir = dir.Unit -- FIX #20: normalized desired direction for slide/stuck handling
+	local stepDt = math.min(dt, CREATURE_MOVE_DT_CLAMP) -- PERF: clamp move dt for smooth movement math
+	local moveStep = math.min(speed * stepDt, dir.Magnitude) -- PERF: use clamped dt in all move step math
+	local bodySize = body.Size.Magnitude * 0.5 -- FIX #20: approximate creature body radius
+	moveStep = math.min(moveStep, bodySize * MOVE_STEP_BODY_FACTOR) -- FIX #20: cap move step to reduce wall tunneling
+	if state and state._stuckEscapeDir and state._stuckEscapeDir.Magnitude > 0.01 then
+		desiredDir = state._stuckEscapeDir.Unit -- FIX #20: apply stored one-frame escape heading
+		state._stuckEscapeDir = nil -- FIX #20: consume escape heading so AI re-evaluates naturally
+	end
+
+	-- FIX #20: Stuck detection — no meaningful progress over STUCK_TIME_WINDOW means redirect.
+	if state then
+		if state._stuckLastPos == nil then
+			state._stuckLastPos = body.Position -- FIX #20: initialize stuck progress checkpoint
+		end
+		local moved = (body.Position - state._stuckLastPos).Magnitude -- FIX #20: progress distance from checkpoint
+		if moved < STUCK_PROGRESS_THRESHOLD then
+			state._stuckTimer = (state._stuckTimer or 0) + stepDt -- FIX #20: accumulate low-progress time
+		else
+			state._stuckTimer = 0 -- FIX #20: reset stuck timer after real movement
+			state._stuckLastPos = body.Position -- FIX #20: refresh progress checkpoint
+			state._stuckEscapeDir = nil -- FIX #20: clear stale escape direction after progress
+		end
+		if (state._stuckTimer or 0) >= STUCK_TIME_WINDOW then
+			if not state._stuckEscapeDir then
+				local angle = math.random() * math.pi * 2 -- FIX #20: random lateral escape heading
+				state._stuckEscapeDir = Vector3.new(math.cos(angle), 0, math.sin(angle)) -- FIX #20: persist escape heading to use next frame
+			end
+			state._stuckTimer = 0 -- FIX #20: reset timer for a fresh detection window
+			state._stuckLastPos = nil -- FIX #20: force fresh position baseline after stuck event
+			return -- FIX #20: skip normal movement this frame and re-evaluate next frame
+		end
+	end
+
+	local newPos = body.Position + desiredDir * moveStep
 
 	-- Water creatures: move on all axes (no ground snap). Ground/flying: set Y from surface or hover.
 	if not isWater3D and model and creatureId then
@@ -381,7 +456,22 @@ local function moveTowards(body, target, speed, dt, creatureId)
 
 	-- Face movement direction. Water: full 3D look; others: horizontal.
 	local pos = body.Position
-	local lookTarget = isWater3D and (pos + dir.Unit) or Vector3.new(target.X, newPos.Y, target.Z)
+	local lookTarget
+	if isWater3D then
+		local waterDir = desiredDir
+		local waterFlat = waterDir * Vector3.new(1, 0, 1)
+		if waterFlat.Magnitude < 0.2 then
+			-- Prevent near-vertical facing vectors that can leave swimmers visually stuck upright.
+			local currentFlat = body.CFrame.LookVector * Vector3.new(1, 0, 1)
+			lookTarget = (currentFlat.Magnitude > 0.05) and (pos + currentFlat.Unit) or (pos + Vector3.new(0, 0, -1))
+		else
+			local maxPitchY = waterFlat.Magnitude * 0.75
+			local clampedY = math.clamp(waterDir.Y, -maxPitchY, maxPitchY)
+			lookTarget = pos + Vector3.new(waterDir.X, clampedY, waterDir.Z).Unit
+		end
+	else
+		lookTarget = Vector3.new(target.X, newPos.Y, target.Z)
+	end
 	local rotOffset = creatureId and CreatureData.GetModelRotationOffset(creatureId, "world", true) or CFrame.identity
 	body.CFrame = CFrame.lookAt(pos, lookTarget) * rotOffset
 
@@ -419,18 +509,40 @@ local function moveTowards(body, target, speed, dt, creatureId)
 	local toNew = newPos - pos
 	local moveDist = toNew.Magnitude
 	if not isWater3D and moveDist > 0.01 then
-		local rayParams = RaycastParams.new()
-		rayParams.FilterType = Enum.RaycastFilterType.Exclude
-		rayParams.FilterDescendantsInstances = getCachedExcludeList()
+		if not CreatureAI._moveRaycastParams then
+			CreatureAI._moveRaycastParams = RaycastParams.new() -- PERF: allocate movement ray params once
+			CreatureAI._moveRaycastParams.FilterType = Enum.RaycastFilterType.Exclude -- PERF: static filter type
+			CreatureAI._moveRaycastExcludeCount = -1 -- PERF: initialize move ray exclude count tracker
+		end
+		local excludeList = getCachedExcludeList() -- PERF: reuse cached exclude list for move rays
+		if CreatureAI._moveRaycastExcludeCount ~= _cachedExcludeCount then -- PERF: update only if list size changed
+			CreatureAI._moveRaycastParams.FilterDescendantsInstances = excludeList -- PERF: avoid per-frame reassignment
+			CreatureAI._moveRaycastExcludeCount = _cachedExcludeCount -- PERF: persist applied exclude size
+		end
+		local rayParams = CreatureAI._moveRaycastParams
 		local rayDir = toNew.Unit
 		local bodyRadius = math.max(body.Size.X, body.Size.Y, body.Size.Z) * 0.5
 		local hit = Workspace:Raycast(pos, rayDir * (moveDist + bodyRadius * 0.5), rayParams)
 		if hit and hit.Distance < moveDist + 0.1 then
-			-- Stop short of wall; stay just outside surface
-			newPos = hit.Position - hit.Normal * (bodyRadius + 0.2)
-			if model and creatureId then
-				newPos = Vector3.new(newPos.X, getDesiredBodyY(body, model, creatureId, newPos.X, newPos.Z), newPos.Z)
+			local hitNormal = hit.Normal -- FIX #20: wall normal for slide projection
+			local slideDir = desiredDir - desiredDir:Dot(hitNormal) * hitNormal -- FIX #20: project desired direction onto wall plane
+			if slideDir.Magnitude > 0.01 then
+				slideDir = slideDir.Unit -- FIX #20: normalized slide direction
+				local slideRay = Workspace:Raycast(pos + Vector3.new(0, 0.5, 0), slideDir * moveStep, rayParams) -- FIX #20: verify slide path clearance
+				if not slideRay then
+					local slidePos = pos + slideDir * moveStep -- FIX #20: move along wall when forward path is blocked
+					if model and creatureId then
+						slidePos = Vector3.new(slidePos.X, getDesiredBodyY(body, model, creatureId, slidePos.X, slidePos.Z), slidePos.Z) -- FIX #20: keep grounded during wall slide
+					end
+					body.CFrame = CFrame.lookAt(slidePos, Vector3.new(slidePos.X + slideDir.X, slidePos.Y, slidePos.Z + slideDir.Z)) * rotOffset -- FIX #20: face slide direction while escaping wall
+					if state then
+						state._stuckLastPos = slidePos -- FIX #20: refresh progress checkpoint after successful slide
+						state._stuckTimer = 0 -- FIX #20: clear stuck timer after wall slide movement
+					end
+					return -- FIX #20: slide applied for this frame
+				end
 			end
+			return -- FIX #20: forward and slide paths blocked; hold position this frame
 		end
 	end
 
@@ -447,6 +559,33 @@ local function getRandomWanderPoint(center, radius, creatureId)
 		offset = Vector3.new(offset.X, (math.random() * 2 - 1) * radius * 0.4, offset.Z)
 	end
 	return center + offset
+end
+
+local function isValidGroundWanderTarget(targetPos)
+	if typeof(targetPos) ~= "Vector3" then return false end -- FIX #20: reject invalid wander targets
+	if not _groundRaycastParams then
+		_groundRaycastParams = RaycastParams.new() -- PERF: initialize shared ground params for wander validation
+		_groundRaycastParams.FilterType = Enum.RaycastFilterType.Exclude -- PERF: fixed ray filter type
+	end
+	local excludeList = getCachedExcludeList() -- PERF: reuse cached exclude list in wander validation
+	if _groundRaycastExcludeCount ~= _cachedExcludeCount then -- PERF: avoid unnecessary reassignment
+		_groundRaycastParams.FilterDescendantsInstances = excludeList -- PERF: update excludes only when size changed
+		_groundRaycastExcludeCount = _cachedExcludeCount -- PERF: sync applied exclude count
+	end
+	local origin = targetPos + Vector3.new(0, 40, 0) -- FIX #20: validate candidate from above the point
+	local hit = Workspace:Raycast(origin, Vector3.new(0, -120, 0), _groundRaycastParams) -- FIX #20: ensure target has supporting ground
+	return hit ~= nil -- FIX #20: reject wander points with no ground support
+end
+
+local function chooseValidWanderTarget(center, radius, creatureId)
+	for _ = 1, 6 do
+		local candidate = getRandomWanderPoint(center, radius, creatureId) -- FIX #20: generate wander candidate
+		local needsGround = not (creatureId and CreatureData.IsWaterType(creatureId) and CreatureAI.IsPositionInSwimmableWater(center))
+		if not needsGround or isValidGroundWanderTarget(candidate) then
+			return candidate -- FIX #20: accept only grounded/valid wander targets
+		end
+	end
+	return nil -- FIX #20: signal failure so caller can retry later
 end
 
 	local function findNearestCompanion(pos, range)
@@ -996,6 +1135,37 @@ local function updateCreature(model, state, dt)
 	end
 
 	local speedMult = info.speed / 10
+	local now = tick()
+
+	-- FIX #20: Keep mirror wander metadata in sync so timeout can detect stuck wander targets.
+	if state.wanderTarget then
+		local changed = (not state._wanderTarget) or ((state._wanderTarget - state.wanderTarget).Magnitude > 0.05)
+		if changed then
+			state._wanderTarget = state.wanderTarget -- FIX #20: mirror active wander target
+			state._wanderStarted = now -- FIX #20: reset wander timer when target changes
+		end
+	else
+		state._wanderTarget = nil -- FIX #20: clear mirrored wander target when none is active
+		state._wanderStarted = 0 -- FIX #20: reset wander start when idle/non-wander
+	end
+
+	-- FIX #20: Wander timeout prevents infinite walk animation when target is unreachable.
+	if state._wanderTarget and (now - (state._wanderStarted or 0)) > WANDER_TIMEOUT_SECONDS then
+		state.state = "idle" -- FIX #20: break out of stale wander and repick next tick
+		state.wanderTarget = nil -- FIX #20: clear stale wander target
+		state._wanderTarget = nil -- FIX #20: clear mirrored wander target
+		state._wanderStarted = 0 -- FIX #20: reset wander timeout timer
+		return -- FIX #20: skip movement this frame after timeout reset
+	end
+	if state.state == "wander" and state.wanderTarget and not (CreatureData.IsWaterType(state.id) and CreatureAI.IsPositionInSwimmableWater(state.wanderTarget)) then
+		if not isValidGroundWanderTarget(state.wanderTarget) then
+			state.state = "idle" -- FIX #20: target is invalid/in geometry; repick on next update
+			state.wanderTarget = nil -- FIX #20: clear invalid wander target
+			state._wanderTarget = nil -- FIX #20: clear mirrored invalid target
+			state._wanderStarted = 0 -- FIX #20: reset wander timer after invalid target
+			return -- FIX #20: avoid animating in place toward invalid target
+		end
+	end
 
 	-- Idle delay: if model hasn't moved for 2 seconds, prefer Idle over Move
 	local posDelta = (pos - (state.lastAnimPos or pos)).Magnitude
@@ -1008,7 +1178,8 @@ local function updateCreature(model, state, dt)
 
 	-- Animation: Attack when attacking, Move when chasing/wandering/fleeing (unless stationary 2s), Income on income slots, Idle otherwise. Water: Swimming when moving.
 	local animType
-	if state.state == "attack" then animType = "Attack"
+	if state.forceIdleOnArrival then animType = "Idle"
+	elseif state.state == "attack" then animType = "Attack"
 	elseif state.state == "loneHold" then animType = "Idle"
 	elseif (state.state == "chase" or state.state == "wander" or state.state == "flee") and not stationaryFor2s then
 		local useSwimAnim = CreatureData.IsWaterType(state.id) and CreatureAI.IsPositionInSwimmableWater(pos)
@@ -1022,6 +1193,9 @@ local function updateCreature(model, state, dt)
 		state._lastAnimType = animType
 		local opts = (animType == "Attack") and { speed = math.clamp(speedMult, 0.5, 2) } or nil
 		CreatureAnimation.PlayAnimation(model, animType, state.id, opts)
+	end
+	if animType == "Idle" and state.forceIdleOnArrival then
+		state.forceIdleOnArrival = nil
 	end
 
 	-- FIX #15 Crawling orientation reset: when a crawling creature stops moving (Idle/Attack/Income),
@@ -1059,7 +1233,6 @@ local function updateCreature(model, state, dt)
 	-- Aquatic WaterBlock AI: seek water, wander within bounds, surface to breathe 10s (underwater time scales by rarity)
 	if state.aquaticWaterBlock and state.waterBlockPart and state.waterBlockPart.Parent and (state.state == "idle" or state.state == "wander") then
 		local wb = state.waterBlockPart
-		local now = tick()
 		local surfaceDuration = GameConfig.WaterBreathSurfaceDuration or 10
 		local surfaceY = getSurfaceYInWaterBlock(wb)
 
@@ -1068,7 +1241,7 @@ local function updateCreature(model, state, dt)
 			if CreatureAI.IsPositionInWaterBlock(pos) then
 				state.breathState = "underwater"
 				state.underwaterSince = now
-				state.wanderTarget = getRandomPointInWaterBlock(wb, false)
+				state.wanderTarget = getRandomPointInWaterBlock(wb, false) -- FIX #20: fresh in-water wander target
 			else
 				state.wanderTarget = targetPos
 			end
@@ -1080,7 +1253,7 @@ local function updateCreature(model, state, dt)
 				state.surfaceTarget = getSurfacePositionInWaterBlock(wb, pos)
 			else
 				if not state.wanderTarget or (body.Position - state.wanderTarget).Magnitude < 3 then
-					state.wanderTarget = getRandomPointInWaterBlock(wb, false)
+					state.wanderTarget = getRandomPointInWaterBlock(wb, false) -- FIX #20: refresh aquatic wander target
 				end
 				moveTowards(body, state.wanderTarget, GameConfig.AI_WanderSpeed * speedMult, dt, state.id)
 			end
@@ -1138,13 +1311,12 @@ local function updateCreature(model, state, dt)
 				else
 					-- Wander
 					if state.state ~= "wander" or not state.wanderTarget then
-						state.wanderTarget = getRandomWanderPoint(state.spawnPos, GameConfig.AI_WanderRadius, state.id)
+						state.wanderTarget = chooseValidWanderTarget(state.spawnPos, GameConfig.AI_WanderRadius, state.id) or state.spawnPos -- FIX #20: pick grounded wander target
 						state.state = "wander"
 					end
 					moveTowards(body, state.wanderTarget, GameConfig.AI_WanderSpeed * speedMult, dt, state.id)
 					if (body.Position - state.wanderTarget).Magnitude < 3 then
-						state.state = "idle"; state.wanderTarget = nil
-						state.idleUntil = tick() + math.random(2, 5)
+						finishMovementSegmentToIdle(state, 2, 5, false)
 					end
 				end
 				end
@@ -1174,14 +1346,12 @@ local function updateCreature(model, state, dt)
 						state.state = "flee"
 					else
 						if state.state ~= "wander" or not state.wanderTarget then
-							state.wanderTarget = getRandomWanderPoint(state.spawnPos, GameConfig.AI_WanderRadius * 0.8, state.id)
+							state.wanderTarget = chooseValidWanderTarget(state.spawnPos, GameConfig.AI_WanderRadius * 0.8, state.id) or state.spawnPos -- FIX #20: validate pack skittish wander target
 							state.state = "wander"
 						end
 						moveTowards(body, state.wanderTarget, GameConfig.AI_WanderSpeed * speedMult, dt, state.id)
 						if (body.Position - state.wanderTarget).Magnitude < 3 then
-							state.state = "idle"
-							state.wanderTarget = nil
-							state.idleUntil = tick() + math.random(2, 4)
+							finishMovementSegmentToIdle(state, 2, 4, false)
 						end
 					end
 				end
@@ -1191,13 +1361,12 @@ local function updateCreature(model, state, dt)
 			-- Normal pack: only engages when provoked or a packmate calls
 			if state.state == "idle" or state.state == "wander" then
 				if state.state ~= "wander" or not state.wanderTarget then
-					state.wanderTarget = getRandomWanderPoint(state.spawnPos, GameConfig.AI_WanderRadius * 0.6, state.id)
+					state.wanderTarget = chooseValidWanderTarget(state.spawnPos, GameConfig.AI_WanderRadius * 0.6, state.id) or state.spawnPos -- FIX #20: validate normal pack wander target
 					state.state = "wander"
 				end
 				moveTowards(body, state.wanderTarget, GameConfig.AI_WanderSpeed * speedMult * 0.8, dt, state.id)
 				if (body.Position - state.wanderTarget).Magnitude < 3 then
-					state.state = "idle"; state.wanderTarget = nil
-					state.idleUntil = tick() + math.random(3, 8)
+					finishMovementSegmentToIdle(state, 3, 8, false)
 				end
 			end
 		end
@@ -1206,13 +1375,12 @@ local function updateCreature(model, state, dt)
 		-- Peaceful wander, only fights back
 		if state.state == "idle" or state.state == "wander" then
 			if state.state ~= "wander" or not state.wanderTarget then
-				state.wanderTarget = getRandomWanderPoint(state.spawnPos, GameConfig.AI_WanderRadius * 0.4, state.id)
+				state.wanderTarget = chooseValidWanderTarget(state.spawnPos, GameConfig.AI_WanderRadius * 0.4, state.id) or state.spawnPos -- FIX #20: validate gentle wander target
 				state.state = "wander"
 			end
 			moveTowards(body, state.wanderTarget, GameConfig.AI_WanderSpeed * speedMult * 0.5, dt, state.id)
 			if (body.Position - state.wanderTarget).Magnitude < 3 then
-				state.state = "idle"; state.wanderTarget = nil
-				state.idleUntil = tick() + math.random(5, 12)
+				finishMovementSegmentToIdle(state, 5, 12, false)
 			end
 		end
 
@@ -1229,13 +1397,12 @@ local function updateCreature(model, state, dt)
 				state.loneHoldGround = true
 			else
 				if state.state ~= "wander" or not state.wanderTarget then
-					state.wanderTarget = getRandomWanderPoint(state.spawnPos, GameConfig.AI_WanderRadius * 0.5, state.id)
+					state.wanderTarget = chooseValidWanderTarget(state.spawnPos, GameConfig.AI_WanderRadius * 0.5, state.id) or state.spawnPos -- FIX #20: validate lone wander target
 					state.state = "wander"
 				end
 				moveTowards(body, state.wanderTarget, GameConfig.AI_WanderSpeed * speedMult * 0.7, dt, state.id)
 				if (body.Position - state.wanderTarget).Magnitude < 3 then
-					state.state = "idle"; state.wanderTarget = nil
-					state.idleUntil = tick() + math.random(3, 7)
+					finishMovementSegmentToIdle(state, 3, 7, false)
 				end
 			end
 		end
@@ -1249,13 +1416,12 @@ local function updateCreature(model, state, dt)
 				state.target = comp or plr; state.state = "flee"
 			else
 				if state.state ~= "wander" or not state.wanderTarget then
-					state.wanderTarget = getRandomWanderPoint(state.spawnPos, GameConfig.AI_WanderRadius * 0.8, state.id)
+					state.wanderTarget = chooseValidWanderTarget(state.spawnPos, GameConfig.AI_WanderRadius * 0.8, state.id) or state.spawnPos -- FIX #20: validate skittish wander target
 					state.state = "wander"
 				end
 				moveTowards(body, state.wanderTarget, GameConfig.AI_WanderSpeed * speedMult, dt, state.id)
 				if (body.Position - state.wanderTarget).Magnitude < 3 then
-					state.state = "idle"; state.wanderTarget = nil
-					state.idleUntil = tick() + math.random(2, 4)
+					finishMovementSegmentToIdle(state, 2, 4, false)
 				end
 			end
 		end
@@ -1275,13 +1441,12 @@ local function updateCreature(model, state, dt)
 			else
 				-- No targets left, wander toward plot center
 				if state.state ~= "wander" or not state.wanderTarget then
-					state.wanderTarget = getRandomWanderPoint(raidCenter, 15, state.id)
+					state.wanderTarget = chooseValidWanderTarget(raidCenter, 15, state.id) or raidCenter -- FIX #20: validate raider fallback wander target
 					state.state = "wander"
 				end
 				moveTowards(body, state.wanderTarget, GameConfig.AI_WanderSpeed * speedMult * 1.2, dt, state.id)
 				if (body.Position - state.wanderTarget).Magnitude < 3 then
-					state.state = "idle"; state.wanderTarget = nil
-					state.idleUntil = tick() + math.random(1, 3)
+					finishMovementSegmentToIdle(state, 1, 3, false)
 				end
 			end
 		end
@@ -1548,7 +1713,7 @@ local function updateCreature(model, state, dt)
 			local isWater3D = CreatureData.IsWaterType(state.id) and CreatureAI.IsPositionInSwimmableWater(body.Position)
 			local away = isWater3D and (pos - fleeFrom.Position) or (pos - fleeFrom.Position) * Vector3.new(1, 0, 1)
 			if away.Magnitude > 0.1 then
-				local newPos = body.Position + away.Unit * GameConfig.AI_FleeSpeed * speedMult * dt
+				local newPos = body.Position + away.Unit * GameConfig.AI_FleeSpeed * speedMult * math.min(dt, CREATURE_MOVE_DT_CLAMP) -- PERF: clamp flee movement dt for smoother motion
 				if not isWater3D then
 					newPos = Vector3.new(newPos.X, getDesiredBodyY(body, model, state.id, newPos.X, newPos.Z), newPos.Z)
 				end
@@ -1570,11 +1735,49 @@ local function updateCreature(model, state, dt)
 			state.state = "wander"; state.target = nil; state.wanderTarget = nil
 		end
 	end
+
+	-- Arrival fallback: if a segment finished after initial animation selection, force Idle this same frame.
+	if state.forceIdleOnArrival then
+		local prevAnim = state._lastAnimType or ""
+		if prevAnim ~= "Idle" then
+			if CreatureData.IsCrawling(state.id) and prevAnim == "Move" then
+				-- Keep crawling creatures from staying pitched forward on forced Move -> Idle arrival transitions.
+				local currentPos = body.Position
+				local uprightRot = CreatureData.GetModelRotationOffset(state.id, "world", false)
+				local lookTarget = state.target and typeof(state.target) == "Instance" and state.target.Parent
+					and (CreatureModelLoader.GetBodyPart(state.target) or state.target:FindFirstChild("Body") or state.target:FindFirstChild("HumanoidRootPart"))
+				if lookTarget then
+					local targetFlat = Vector3.new(lookTarget.Position.X, currentPos.Y, lookTarget.Position.Z)
+					body.CFrame = CFrame.lookAt(currentPos, targetFlat) * uprightRot
+				else
+					local currentLook = body.CFrame.LookVector * Vector3.new(1, 0, 1)
+					if currentLook.Magnitude > 0.1 then
+						body.CFrame = CFrame.lookAt(currentPos, currentPos + currentLook.Unit) * uprightRot
+					else
+						body.CFrame = CFrame.new(currentPos) * uprightRot
+					end
+				end
+			end
+			state._lastAnimType = "Idle"
+			CreatureAnimation.PlayAnimation(model, "Idle", state.id)
+		end
+		state.forceIdleOnArrival = nil
+	end
 end
 
 -- ------ PUBLIC API ------
 
 local nextPackId = 0
+local function setCreatureCollision(model)
+	for _, part in ipairs(model:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.CanCollide = false -- FIX #20: creatures should not block players/other creatures
+			part.CanQuery = true -- FIX #20: keep creatures raycast-targetable for HP/targeting
+			part.Massless = true -- FIX #20: avoid physics mass interference on kinematic movers
+		end
+	end
+end
+
 function CreatureAI.RegisterCreature(model, creatureId, spawnPos, packId)
 	local info = CreatureData.GetById(creatureId)
 	if not info then return end
@@ -1607,7 +1810,16 @@ function CreatureAI.RegisterCreature(model, creatureId, spawnPos, packId)
 		faintTime = nil,
 		idleUntil = tick() + math.random(1, 4),
 		wanderTarget = nil,
+		_stuckTimer = 0, -- FIX #20: accumulated stuck time for no-progress detection
+		_stuckLastPos = nil, -- FIX #20: last sampled position for stuck detection
+		_stuckEscapeDir = nil, -- FIX #20: one-frame escape direction after stuck detection
+		_wanderStarted = 0, -- FIX #20: timestamp when current wander target was assigned
+		_wanderTarget = nil, -- FIX #20: mirrored wander target for timeout checks
+		_waterCheckTimer = 0, -- PERF: throttles expensive swimmable-water checks
+		_isInWaterCached = false, -- PERF: cached result of last swimmable-water check
 	}
+
+	setCreatureCollision(model) -- FIX #20: enforce non-colliding creature parts on registration
 
 	-- Aquatic WaterBlock behavior: water creatures spawned near OceanBiome seek out WaterBlock and wander within it, surfacing to breathe.
 	if CreatureData.IsWaterType(creatureId) then

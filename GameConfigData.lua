@@ -463,6 +463,8 @@ GameConfig.ArenaHealthBarShowDistance  = 10   -- studs; arena fighter HP bars on
 GameConfig.UIMenuSpawnOffsetYPx = -100
 GameConfig.UIMenuWindowHeightScale = 1.5
 GameConfig.UIMenuDesktopPanelScaleMultiplier = 1
+-- Close/dismiss buttons: Unicode U+2715 ("✕") often renders blank in Gotham on some devices; use ASCII everywhere.
+GameConfig.UICloseGlyph = "X"
 
 -- Mobile menus: stretch panel bounds to the device safe area (GuiService insets only, plus optional edge padding).
 -- When true, menus use the full width/height between safe top and bottom instead of aligning to the HUD coin strip.
@@ -857,6 +859,8 @@ GameConfig.TargetScanRange      = 50    -- max range to scan for targetable crea
 GameConfig.LaserDoorEnabled     = true
 GameConfig.LaserDoorDamage      = 20    -- damage to non-friends entering dome
 GameConfig.LaserDoorMaxFriends  = 10
+GameConfig.ShieldLaserDoorTransparency = 1 -- 1 = invisible (100%), 0 = opaque
+GameConfig.BaseShieldDomeEnabled = true -- toggle dome visual created by base shield button (protection logic still runs)
 GameConfig.DomeRadius           = 50    -- studs, horizontal (XZ) radius at base; dome is ellipsoid
 GameConfig.DomeHeightMultiplier = 1.5   -- vertical (Y) radius = DomeRadius * sdthis (taller ellipse, same footprint)
 GameConfig.ShieldDuration       = 50    -- seconds before shield expires and must be reactivated

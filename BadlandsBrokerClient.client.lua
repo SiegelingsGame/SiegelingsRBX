@@ -453,8 +453,8 @@ local function showBrokerUI(data)
 	screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "BadlandsBrokerUI"
 	screenGui.ResetOnSpawn = false
-	screenGui.DisplayOrder = 100
-	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	screenGui.DisplayOrder = 200
+	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
 	screenGui.Parent = playerGui
 
 	-- ── Main panel (centered, dark bg with purple accent stroke) ──

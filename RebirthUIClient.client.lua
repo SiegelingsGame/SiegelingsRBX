@@ -58,8 +58,8 @@ local RARITY_COLORS = {
 local sg = Instance.new("ScreenGui")
 sg.Name = "RebirthUI"
 sg.ResetOnSpawn = false
-sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-sg.DisplayOrder = 100
+sg.ZIndexBehavior = Enum.ZIndexBehavior.Global
+sg.DisplayOrder = 200
 sg.Parent = playerGui
 
 -- Main panel

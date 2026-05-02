@@ -880,14 +880,14 @@ CreatureData.Creatures = {
 		spawnWeight = 20, baseIncome = 1, captureTime = 0.5, packSize = {2, 4},
 		description = "A blobby little creature made of mysterious goo. Travels in packs.",
 		modelName = "Cacty", primaryColor = Color3.fromRGB(120, 200, 80),
-		evolvesTo = "jackedty",modelDisplaySize = 2.0,modelScaleMultiplier = 1.0
+		evolvesTo = "jackedty",
 	},
 	{
 		id = "applehead", displayName = "Applehead", rarity = "Common",
 		element = "Earth", class = "Guardian", behavior = "gentle",
 		spawnWeight = 20, baseIncome = 1, captureTime = 0.5,
 		description = "A tiny rock creature that rolls around aimlessly. Only fights back when provoked..",
-		modelName = "AppleHead", primaryColor = Color3.fromRGB(160, 140, 110),
+		modelName = "AppleHead", primaryColor = Color3.fromRGB(160, 140, 110), 
 	},
 	{
 		id = "sleaf", displayName = "Sleaf", rarity = "Common",
@@ -1491,11 +1491,12 @@ CreatureData.Creatures = {
 	},
 	-- Poison stand-ins (evolve chain only for this element among stand-ins).
 	{
-		id = "toxleaf", displayName = "Toxleaf", rarity = "Common",
+		id = "toxleaf", displayName = "Toxleaf", rarity = "Legendary",
 		element = "Poison", class = "Assassin", behavior = "aggressive",
 		spawnWeight = 1, baseIncome = 1, captureTime = 0.5,
 		description = "A toxic placeholder Siegeling. Full Poison roster coming soon.",
 		modelName = "Toxleaf", primaryColor = Color3.fromRGB(120, 220, 80),modelDisplaySize = 8,modelScaleMultiplier = 1.5,
+		spawnPointType = "boss",
 	},
 	{
 		id = "slandy", displayName = "Slandy", rarity = "Common",
@@ -1536,7 +1537,7 @@ CreatureData.Creatures = {
 		element = "Undead", class = "Mage", behavior = "pack",
 		spawnWeight = 16, baseIncome = 1, captureTime = 0.55, packSize = {2, 3},
 		description = "Twin embers of unquiet spirits, bound back-to-back. They finish each other's curses in crackling whispers.",
-		modelName = "Embertwins", primaryColor = Color3.fromRGB(255, 120, 60),
+		modelName = "EmberTwins", primaryColor = Color3.fromRGB(255, 120, 60),
 		modelDisplaySize = 5.0, modelScaleMultiplier = 1.5,
 	},
 	{

@@ -168,10 +168,12 @@ local function isGlassBattlePointSafetyWall(desc)
 	return false
 end
 
--- Set BattlePoint + BattlePointWall parts (Floor2/BattleTeam): ForceField, transparency 0.
--- Skips glass safety barriers (fully transparent Glass). Inactive team: black; active team: white.
+-- Set BattlePoint + BattlePointWall colors in Floor2/BattleTeam.
+-- IMPORTANT: only used for battle-team active toggle state.
+-- Inactive = base white, Active = green.
+-- Do NOT change materials here (preserve authored material).
 local function setBattlePointColors(plotModel, battleTeamActive)
-	local color = battleTeamActive and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(0, 0, 0)
+	local color = battleTeamActive and Color3.fromRGB(80, 220, 120) or Color3.fromRGB(255, 255, 255)
 	local floor2 = resolveFloorFolder(plotModel, 2)
 	if not floor2 then return end
 	local battleTeam = floor2:FindFirstChild("BattleTeam")
@@ -182,13 +184,9 @@ local function setBattlePointColors(plotModel, battleTeamActive)
 			local isBattlePoint = desc.Name:match("^BattlePoint%d+$")
 			local isBattlePointWall = nl:find("battlepointwall", 1, true)
 			if isGlassBattlePointSafetyWall(desc) then
-				desc.Material = Enum.Material.Glass
-				desc.Transparency = 1
-				desc.CanCollide = true
+				-- Preserve glass safety walls as-authored.
 			elseif isBattlePoint or isBattlePointWall then
 				desc.Color = color
-				desc.Material = Enum.Material.ForceField
-				desc.Transparency = 0
 			end
 		end
 	end
@@ -527,14 +525,14 @@ local function spawnBaseOrb(creatureId, pointPart, uid, plotModel, slotType, slo
 		body, core = CreatureModelLoader.LoadAndIntegrate(model, info.modelName, info.displayName, spawnPos, options)
 		if body then
 			hasCustomModel = true
-			-- BasePlot additive rotation: Group A (4,5)=0°, B (2,3)=+180°Y, C (1,7)=-90°Y, D (6,8)=+90°Yes
+			-- BasePlot additive rotation: Group A (1,2)=0°, B (5,6)=+180°Y, C (3,4)=-90°Y, D (7,8)=+90°Yes
 			local basePlotId = tonumber(plotModel.Name:match("%d+")) or 1
 			local baseRotation = CFrame.identity
-			if basePlotId == 1 or basePlotId == 7 then
+			if basePlotId == 7 or basePlotId == 8 then
 				baseRotation = CFrame.Angles(0, math.rad(90), 0)
-			elseif basePlotId == 2 or basePlotId == 3 then
+			elseif basePlotId == 5 or basePlotId == 6 then
 				baseRotation = CFrame.Angles(0, math.rad(180), 0)
-			elseif basePlotId == 6 or basePlotId == 8 then
+			elseif basePlotId == 3 or basePlotId == 4 then
 				baseRotation = CFrame.Angles(0, math.rad(-90), 0)
 			end
 			-- FIX #18: Income AND Battle monsters share the same rotation pipeline.
@@ -723,6 +721,16 @@ local function spawnBaseOrb(creatureId, pointPart, uid, plotModel, slotType, slo
 
 	model.PrimaryPart = body
 	model.Parent = plotModel
+	for _, part in ipairs(model:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.CanCollide = false -- FIX #20: placed creatures should not block players/companions
+			if part.Name == "Body" or part.Name == "HitBox" then
+				part.CanQuery = true -- FIX #20: keep Body/HitBox targetable by raycasts
+			else
+				part.CanQuery = false -- FIX #20: reduce raycast noise from decorative parts
+			end
+		end
+	end
 
 	-- Place custom models so bottom sits on point top (avoids clipping on Floor 2/3)
 	-- Meshy AI / rigged: GetBoundingBox can miss mesh extent; use part-based bottom (lowest part bottom)
@@ -901,6 +909,37 @@ local function setFloorVisibility(plotModel, floorNum, visible)
 		.. " (inc=" .. incCount .. " def=" .. defCount .. " btl=" .. btlCount .. " glass=" .. glassCount .. ")")
 end
 
+local function setFloor2RoofState(plotModel, floor2Owned)
+	local floor1 = resolveFloorFolder(plotModel, 1)
+	if not floor1 then return end
+	local roofNode = floor1:FindFirstChild("NewPlotFloor2", true)
+	if not roofNode then return end
+
+	local parts = {}
+	if roofNode:IsA("BasePart") then
+		table.insert(parts, roofNode)
+	else
+		for _, desc in ipairs(roofNode:GetDescendants()) do
+			if desc:IsA("BasePart") then
+				table.insert(parts, desc)
+			end
+		end
+	end
+
+	for _, part in ipairs(parts) do
+		part.Anchored = true
+		if floor2Owned then
+			part.Transparency = 1
+			part.CanCollide = false
+			part.CanTouch = false
+		else
+			part.Transparency = 0
+			part.CanCollide = true
+			part.CanTouch = true
+		end
+	end
+end
+
 -- normalizedOwnedFloors: output of normalizeOwnedFloorsForPlacement (sorted array including 1)
 local function applyOwnedFloorsVisibility(plotModel, normalizedOwnedFloors)
 	local function ownsFloor(n)
@@ -912,6 +951,7 @@ local function applyOwnedFloorsVisibility(plotModel, normalizedOwnedFloors)
 	for _, floorNum in ipairs({ 1, 2, 3, 4 }) do
 		setFloorVisibility(plotModel, floorNum, ownsFloor(floorNum))
 	end
+	setFloor2RoofState(plotModel, ownsFloor(2))
 end
 
 -- Declared AFTER normalizeOwnedFloorsForPlacement + applyOwnedFloorsVisibility so locals resolve (Lua: no forward local refs).
@@ -1403,11 +1443,6 @@ function BasePlacementSystem.PlaceCreatures(player)
 			end
 		end
 	end
-	-- BattlePoint / BattlePointWall: ForceField white when team active, black when inactive (Floor 2 owned)
-	if ownsBattle then
-		setBattlePointColors(plotModel, data.battleTeamEnabled ~= false)
-	end
-
 	print("[BasePlacement] " .. player.Name .. ": " ..
 		defPlaced .. " defense, " ..
 		incPlaced .. " income, " ..
@@ -1466,6 +1501,7 @@ function BasePlacementSystem.ActivateFloor(player, floorNum)
 
 	-- ── Step 1: Make the new floor visible ──────────────────────────────────
 	setFloorVisibility(plotModel, floorNum, true)
+	setFloor2RoofState(plotModel, floorNum >= 2)
 
 	-- ── Step 2: Place creatures only on the NEW floor's points ──────────────
 	-- We pass a single-element ownedFloors table so getPointsForOwnedFloors
@@ -1544,7 +1580,6 @@ function BasePlacementSystem.ActivateFloor(player, floorNum)
 				end
 			end
 		end
-		setBattlePointColors(plotModel, data.battleTeamEnabled ~= false)
 	end
 
 	-- Floor 3: set up combiner/recycler prompts (parts live in Floor3 folder)
@@ -1571,6 +1606,74 @@ function BasePlacementSystem.ClearBattleCreatures(player)
 	if plotModel then clearTaggedCreatures(plotModel, BATTLE_TAG) end
 end
 
+-- Clear a single battle creature at a battle slot index (1..9). Does not touch other slots.
+function BasePlacementSystem.ClearBattleCreatureAtSlot(player, slotIndex)
+	if type(slotIndex) ~= "number" then return false end
+	local data = PlayerDataManager.GetData(player)
+	if not data or not data.plotId or data.plotId == 0 then return false end
+	local plotModel = findPlotModel(data.plotId)
+	if not plotModel then return false end
+	clearCreatureAtSlot(plotModel, BATTLE_TAG, slotIndex)
+	return true
+end
+
+-- Place one battle creature at a battle slot index (1..9) on Floor2/BattleTeam/BattlePointX.
+-- Incremental: clears only that slot's existing model, then spawns the new one.
+function BasePlacementSystem.PlaceBattleCreatureInSlot(player, slotIndex, uid)
+	if runWhenPlacementIdle(player, function()
+		BasePlacementSystem.PlaceBattleCreatureInSlot(player, slotIndex, uid)
+	end) then
+		return false
+	end
+	if type(slotIndex) ~= "number" or slotIndex < 1 or slotIndex > 9 then return false end
+	if not uid or uid == "" then return false end
+
+	local data = PlayerDataManager.GetData(player)
+	if not data or not data.plotId or data.plotId == 0 then return false end
+	local plotModel = findPlotModel(data.plotId)
+	if not plotModel then return false end
+
+	-- Ensure Floor2 exists; if not owned, skip (no battle visuals).
+	local ownedFloors = normalizeOwnedFloorsForPlacement(data.ownedFloors)
+	local ownsBattle = false
+	for _, f in ipairs(ownedFloors) do
+		if f == 2 then ownsBattle = true break end
+	end
+	if not ownsBattle then return false end
+
+	local battlePointMap = getBattlePointMap(plotModel)
+	local pointPart = battlePointMap[slotIndex]
+	if not pointPart then return false end
+
+	-- Clear anything currently at this battle slot
+	clearCreatureAtSlot(plotModel, BATTLE_TAG, slotIndex)
+
+	-- Spawn new battle orb from inventory entry
+	local su = tostring(uid)
+	for _, entry in ipairs(data.inventory or {}) do
+		if entry.uid and tostring(entry.uid) == su then
+			spawnBaseOrb(
+				entry.id,
+				pointPart,
+				uid,
+				plotModel,
+				"battle",
+				tostring(slotIndex),
+				entry.level,
+				player.UserId,
+				nil,
+				nil,
+				nil,
+				slotIndex,
+				entry.variant,
+				entry.nickname
+			)
+			return true
+		end
+	end
+	return false
+end
+
 function BasePlacementSystem.RespawnBattleCreatures(player)
 	local data = PlayerDataManager.GetData(player)
 	if not data or not data.plotId or data.plotId == 0 then return end
@@ -1595,9 +1698,6 @@ function BasePlacementSystem.RespawnBattleCreatures(player)
 				end
 			end
 		end
-	end
-	if ownsBattle then
-		setBattlePointColors(plotModel, data.battleTeamEnabled ~= false)
 	end
 end
 

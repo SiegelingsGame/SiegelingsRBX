@@ -83,7 +83,8 @@ end
 local sg = Instance.new("ScreenGui")
 sg.Name = "LeaderboardGUI"
 sg.ResetOnSpawn = false
-sg.DisplayOrder = 100
+sg.DisplayOrder = 200
+sg.ZIndexBehavior = Enum.ZIndexBehavior.Global
 sg.Parent = playerGui
 
 local function applyPanelScale(pnl)

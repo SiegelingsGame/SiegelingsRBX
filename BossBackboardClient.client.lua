@@ -47,8 +47,8 @@ local C = {
 local sg = Instance.new("ScreenGui")
 sg.Name = "BossBackboardUI"
 sg.ResetOnSpawn = false
-sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-sg.DisplayOrder = 100
+sg.ZIndexBehavior = Enum.ZIndexBehavior.Global
+sg.DisplayOrder = 200
 sg.Parent = playerGui
 
 -- Backboard panel (tall for three sections)

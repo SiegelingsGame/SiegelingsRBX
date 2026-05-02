@@ -56,10 +56,18 @@ local activeRentals = {}
 -- Discovered knight base PlotCenter parts from workspace
 -- Key: "BiomeName_SlotIndex", Value: BasePart (the PlotCenter in KnightBases)
 local knightBaseParts = {}
+-- Raw slot instance (BasePart or Model). Used for accurate center alignment.
+local knightBaseTargets = {}
 
 -- ProximityPrompts created on knight base PlotCenters
 -- Key: "BiomeName_SlotIndex", Value: ProximityPrompt
 local knightBasePrompts = {}
+-- Original transparency for each rental point part so visibility can be restored.
+local knightBasePartTransparency = {}
+-- Canonical home pivots captured near server start: [plotId] = CFrame
+local homePlotPivots = {}
+-- Canonical home PlotCenter positions captured near server start: [plotId] = Vector3
+local homePlotCenters = {}
 
 -- Events folder reference
 local eventsFolder = nil
@@ -87,6 +95,12 @@ local function findPlotModel(data)
 		or plotsFolder:FindFirstChild("Part" .. data.plotId)
 end
 
+local function getPlotIdFromModel(plotModel)
+	if not plotModel then return nil end
+	local id = plotModel.Name:match("^Plot(%d+)$") or plotModel.Name:match("^Part(%d+)$")
+	return tonumber(id)
+end
+
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- Helper: Get a friendly biome display name from the folder name
 -- @param biome  e.g. "DesertBiome"
@@ -94,6 +108,21 @@ end
 -- ═══════════════════════════════════════════════════════════════════════════════
 local function getBiomeDisplayName(biome)
 	return string.gsub(biome, "Biome$", "")
+end
+
+local function setKnightBasePointVisible(slotKey, isVisible)
+	local part = knightBaseParts[slotKey]
+	if not part or not part.Parent then return end
+
+	if knightBasePartTransparency[slotKey] == nil then
+		knightBasePartTransparency[slotKey] = part.Transparency
+	end
+
+	if isVisible then
+		part.Transparency = knightBasePartTransparency[slotKey] or 0
+	else
+		part.Transparency = 1
+	end
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -140,10 +169,80 @@ local LOCKED_TELE_FOLDER_NAMES = {
 	OceanTele    = true,
 }
 
---- Collect only the TeleportPart2 parts (and their BasePart descendants) under
+local function getModelLikeWorldPosition(inst)
+	if not inst then return nil end
+	if inst:IsA("BasePart") then
+		return inst.Position
+	end
+	if inst:IsA("Model") then
+		local namedCenter = inst:FindFirstChild("PlotCenter", true)
+		if namedCenter and namedCenter:IsA("BasePart") then
+			return namedCenter.Position
+		end
+		if inst.PrimaryPart then
+			return inst.PrimaryPart.Position
+		end
+		local any = inst:FindFirstChildWhichIsA("BasePart", true)
+		if any then
+			return any.Position
+		end
+		local ok, pos = pcall(function() return inst:GetPivot().Position end)
+		if ok then return pos end
+	end
+	return nil
+end
+
+local function getPlotCenterWorldPosition(plotModel)
+	if not plotModel then return nil end
+	local centerInst = plotModel:FindFirstChild("PlotCenter", true) or plotModel:FindFirstChild("PlotCenter")
+	local pos = getModelLikeWorldPosition(centerInst)
+	if pos then return pos end
+	local ok, pivotPos = pcall(function() return plotModel:GetPivot().Position end)
+	if ok then return pivotPos end
+	return nil
+end
+
+local function captureHomePlotPivots()
+	local plotsFolder = Workspace:FindFirstChild("BasePlots")
+	if not plotsFolder then return 0 end
+	local count = 0
+	for _, plotModel in ipairs(plotsFolder:GetChildren()) do
+		if plotModel:IsA("Model") then
+			local plotId = getPlotIdFromModel(plotModel)
+			if plotId then
+				if not homePlotPivots[plotId] then
+					homePlotPivots[plotId] = plotModel:GetPivot()
+					count += 1
+				end
+				if not homePlotCenters[plotId] then
+					local centerPos = getPlotCenterWorldPosition(plotModel)
+					if centerPos then
+						homePlotCenters[plotId] = centerPos
+					end
+				end
+			end
+		end
+	end
+	return count
+end
+
+local function movePlotCenterTo(plotModel, targetCenterPos)
+	if not plotModel or not targetCenterPos then return false end
+	local currentCenter = getPlotCenterWorldPosition(plotModel)
+	if not currentCenter then return false end
+	local delta = targetCenterPos - currentCenter
+	local currentPivot = plotModel:GetPivot()
+	plotModel:PivotTo(currentPivot + delta)
+	return true
+end
+
+--- Collect only the TeleportPart2 parts (plus explicitly opted-in descendants) under
 --- the four Tele folders in plot.Floor3. TeleportPart1 and any other siblings
 --- are intentionally excluded — they live relative to the plot and must move
---- with it. Only the biome-entrance landing targets (TeleportPart2 + nested)
+--- with it. Only the biome-entrance landing targets should stay world-fixed.
+--- Descendants are included only when they explicitly opt in via
+--- LockToWorldWithTeleportTarget=true, so cosmetic extras (ramps/decor) don't
+--- get stranded at the rental location.
 --- are world-fixed.
 --- @param plotModel Model — the player's plot model
 --- @return BasePart[] — flat list of parts to world-lock across a PivotTo
@@ -159,11 +258,10 @@ local function collectLockedTeleParts(plotModel)
 					if child:IsA("BasePart") then
 						table.insert(out, child)
 					end
-					-- Include every BasePart nested inside TeleportPart2
-					-- (decorations, detail parts, etc.) so the whole landing
-					-- pad stays pinned in world space.
+					-- Include only opted-in descendants to avoid locking
+					-- unrelated cosmetic parts (e.g., ramps) to world space.
 					for _, d in ipairs(child:GetDescendants()) do
-						if d:IsA("BasePart") then
+						if d:IsA("BasePart") and d:GetAttribute("LockToWorldWithTeleportTarget") == true then
 							table.insert(out, d)
 						end
 					end
@@ -309,7 +407,7 @@ local startRentalTimer
 -- slot, cancels the timer, and optionally teleports the player home.
 --
 -- @param player       Player  The player whose rental is ending
--- @param skipTeleport bool    If true, skip player teleport (used for disconnect cleanup)
+-- @param skipTeleport bool    If true, skip client notify on end (used for disconnect cleanup)
 -- ═══════════════════════════════════════════════════════════════════════════════
 returnToHome = function(player, skipTeleport)
 	local userId = player.UserId
@@ -326,13 +424,40 @@ returnToHome = function(player, skipTeleport)
 	local data = PlayerDataManager.GetData(player)
 	local plotModel = findPlotModel(data)
 
-	if plotModel and rental.originalPivot then
+	if plotModel then
+		local plotId = getPlotIdFromModel(plotModel)
+		local targetHomePivot = (plotId and homePlotPivots[plotId]) or rental.originalPivot
+		local targetHomeCenter = (plotId and homePlotCenters[plotId]) or rental.originalPlotCenterPos
+		if plotId and not homePlotPivots[plotId] then
+			homePlotPivots[plotId] = plotModel:GetPivot()
+			targetHomePivot = homePlotPivots[plotId]
+		end
+		if plotId and not homePlotCenters[plotId] then
+			local centerPos = getPlotCenterWorldPosition(plotModel)
+			if centerPos then
+				homePlotCenters[plotId] = centerPos
+			end
+		end
+		if plotId and not targetHomeCenter then
+			targetHomeCenter = homePlotCenters[plotId]
+		end
+		if not targetHomePivot then
+			targetHomePivot = plotModel:GetPivot()
+		end
+		if not targetHomeCenter then
+			targetHomeCenter = targetHomePivot.Position
+		end
+
 		-- Lock Floor3 teleport pads to their world positions so the PivotTo does
 		-- not drag TeleportPart2 and friends off their intended zone-entry spots.
 		local teleSnap = snapshotTelePartCFrames(collectLockedTeleParts(plotModel))
 
-		-- PivotTo back to original home position
-		plotModel:PivotTo(rental.originalPivot)
+		-- Move by exact PlotCenter delta to avoid vertical drift from model pivot changes.
+		local moved = movePlotCenterTo(plotModel, targetHomeCenter)
+		if not moved then
+			-- Fallback: at least return to the canonical home pivot if center-based move fails.
+			plotModel:PivotTo(targetHomePivot)
+		end
 
 		restoreTelePartCFrames(teleSnap)
 
@@ -343,6 +468,7 @@ returnToHome = function(player, skipTeleport)
 	-- Free the occupied slot
 	local slotKey = rental.biome .. "_" .. rental.slotIndex
 	occupiedSlots[slotKey] = nil
+	setKnightBasePointVisible(slotKey, true)
 
 	-- Re-enable the ProximityPrompt on the freed slot
 	local prompt = knightBasePrompts[slotKey]
@@ -366,29 +492,10 @@ returnToHome = function(player, skipTeleport)
 		pcall(function() BasePlacementSystem.PlaceCreatures(player) end)
 	end
 
-	-- Teleport player home (unless they disconnected)
+	-- Do not force-teleport the player (or companion) when the base returns home.
+
+	-- Notify client (unless they already left — skipTeleport)
 	if not skipTeleport then
-		local char = player.Character
-		if char then
-			local root = char:FindFirstChild("HumanoidRootPart")
-			if root and plotModel then
-				local center = plotModel:FindFirstChild("PlotCenter")
-				if center and center:IsA("BasePart") then
-					root.CFrame = CFrame.new(center.Position + Vector3.new(0, 5, 0))
-				end
-			end
-		end
-
-		-- Teleport companion with player
-		local FCS = nil
-		pcall(function()
-			FCS = require(game:GetService("ServerScriptService").FavoriteCreatureSystem)
-		end)
-		if FCS and FCS.TeleportCompanionWithPlayer then
-			pcall(function() FCS.TeleportCompanionWithPlayer(player) end)
-		end
-
-		-- Notify client
 		local returnedEvt = eventsFolder and eventsFolder:FindFirstChild("KnightBaseReturned")
 		if returnedEvt then
 			returnedEvt:FireClient(player)
@@ -475,25 +582,30 @@ local function moveBaseToSlot(player, biome, slotIndex)
 	end
 
 	local slotKey = biome .. "_" .. slotIndex
-	local knightCenter = knightBaseParts[slotKey]
-	if not knightCenter then
+	local knightTarget = knightBaseTargets[slotKey] or knightBaseParts[slotKey]
+	local knightCenterPos = getModelLikeWorldPosition(knightTarget)
+	if not knightCenterPos then
 		notifyClient(player, "Knight base slot not found!", "error")
 		return false
 	end
 
-	-- Find the plot's own PlotCenter part (used to compute offset)
-	local plotCenter = plotModel:FindFirstChild("PlotCenter")
-	if not plotCenter or not plotCenter:IsA("BasePart") then
+	-- Find the plot's own PlotCenter world position (supports nested Model/Part)
+	local plotCenterPos = getPlotCenterWorldPosition(plotModel)
+	if not plotCenterPos then
 		notifyClient(player, "Your base is missing a PlotCenter!", "error")
 		return false
 	end
 
 	-- Save original position for return + original PlotCenter position for placeholder sign
 	local originalPivot = plotModel:GetPivot()
-	local originalPlotCenterPos = plotCenter.Position
-
-	-- Compute translation offset: align plot's PlotCenter with knight base PlotCenter
-	local offset = knightCenter.CFrame.Position - plotCenter.Position
+	local originalPlotCenterPos = plotCenterPos
+	local plotId = getPlotIdFromModel(plotModel)
+	if plotId and not homePlotPivots[plotId] then
+		homePlotPivots[plotId] = originalPivot
+	end
+	if plotId and not homePlotCenters[plotId] then
+		homePlotCenters[plotId] = originalPlotCenterPos
+	end
 
 	-- Lock Floor3 teleport pads to their world positions so the PivotTo does
 	-- not drag TeleportPart2 and friends along with the plot. These parts
@@ -501,7 +613,11 @@ local function moveBaseToSlot(player, biome, slotIndex)
 	-- not relative to the plot — without this, renters end up off the map.
 	local teleSnap = snapshotTelePartCFrames(collectLockedTeleParts(plotModel))
 
-	plotModel:PivotTo(originalPivot + offset)
+	local moved = movePlotCenterTo(plotModel, knightCenterPos)
+	if not moved then
+		notifyClient(player, "Could not move base to rental slot!", "error")
+		return false
+	end
 
 	restoreTelePartCFrames(teleSnap)
 
@@ -511,6 +627,7 @@ local function moveBaseToSlot(player, biome, slotIndex)
 
 	-- Mark slot as occupied
 	occupiedSlots[slotKey] = userId
+	setKnightBasePointVisible(slotKey, false)
 
 	-- Create a placeholder sign at the ORIGINAL plot location so other players
 	-- see a countdown ("PlayerName returns in M:SS") instead of an empty lot.
@@ -527,6 +644,7 @@ local function moveBaseToSlot(player, biome, slotIndex)
 		biome = biome,
 		slotIndex = slotIndex,
 		originalPivot = originalPivot,
+		originalPlotCenterPos = originalPlotCenterPos,
 		expiresAt = tick() + RENTAL_DURATION,
 		timerThread = nil,
 		placeholderSign = placeholderSign,
@@ -543,23 +661,7 @@ local function moveBaseToSlot(player, biome, slotIndex)
 		pcall(function() BasePlacementSystem.PlaceCreatures(player) end)
 	end
 
-	-- Teleport player to the knight base location
-	local char = player.Character
-	if char then
-		local root = char:FindFirstChild("HumanoidRootPart")
-		if root then
-			root.CFrame = CFrame.new(knightCenter.CFrame.Position + Vector3.new(0, 5, 0))
-		end
-	end
-
-	-- Teleport companion
-	local FCS = nil
-	pcall(function()
-		FCS = require(game:GetService("ServerScriptService").FavoriteCreatureSystem)
-	end)
-	if FCS and FCS.TeleportCompanionWithPlayer then
-		pcall(function() FCS.TeleportCompanionWithPlayer(player) end)
-	end
+	-- Do not force-teleport the player (or companion) to the outpost; they can travel there on their own.
 
 	-- Fire KnightBaseRented event to client (biome name + duration for HUD)
 	local rentedEvt = eventsFolder and eventsFolder:FindFirstChild("KnightBaseRented")
@@ -712,6 +814,7 @@ local function discoverKnightBases(options)
 			local center = resolveKnightSlotToBasePart(raw)
 			if center then
 				knightBaseParts[key] = center
+				knightBaseTargets[key] = raw or center
 				count += 1
 				print("[KnightBaseSystem] Found " .. key .. " at " .. tostring(center.Position) .. " (" .. (raw and raw.ClassName or "?") .. ")")
 			elseif not quiet and not knightBaseParts[key] then
@@ -760,6 +863,9 @@ local function setupProximityPrompts()
 
 		if occupiedSlots[key] then
 			prompt.Enabled = false
+			setKnightBasePointVisible(key, false)
+		else
+			setKnightBasePointVisible(key, true)
 		end
 
 		-- Connect the prompt's Triggered event
@@ -825,6 +931,9 @@ function KnightBaseSystem.Init(playerDataMgr, basePlacementSys, laserDoorSys)
 	local found = discoverKnightBases()
 	print("[KnightBaseSystem] Discovered " .. found .. " knight base slots")
 
+	local capturedHomes = captureHomePlotPivots()
+	print("[KnightBaseSystem] Captured " .. capturedHomes .. " home plot pivots")
+
 	if found == 0 then
 		warn("[KnightBaseSystem] No knight base slots yet — will keep scanning (streaming / CaveBiome may load late)")
 	end
@@ -838,6 +947,7 @@ function KnightBaseSystem.Init(playerDataMgr, basePlacementSys, laserDoorSys)
 			task.wait(3)
 			discoverKnightBases({ quiet = true })
 			setupProximityPrompts()
+			captureHomePlotPivots()
 		end
 	end)
 

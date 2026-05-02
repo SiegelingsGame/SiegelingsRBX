@@ -23,7 +23,8 @@ end
 local ui = Instance.new("ScreenGui")
 ui.Name = "ShopHubGUI"
 ui.ResetOnSpawn = false
-ui.DisplayOrder = 100
+ui.DisplayOrder = 200
+ui.ZIndexBehavior = Enum.ZIndexBehavior.Global
 ui.IgnoreGuiInset = false
 ui.Parent = playerGui
 

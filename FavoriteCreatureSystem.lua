@@ -36,6 +36,9 @@ local WORLD_CREATURE_TAG = "WorldCreature"
 local BASE_DEFENSE_TAG = "BaseDefenseCreature"
 local BASE_INCOME_TAG = "BaseIncomeCreature"
 local FAINTED_BASE_TAG = "FaintedBaseCreature"
+local WATER_CHECK_INTERVAL = 0.1 -- PERF: throttle expensive water checks to 10Hz
+local TARGET_SCAN_INTERVAL = 0.2 -- PERF: throttle CollectionService target scans to 5Hz
+local FOLLOW_SPEED_ALPHA_MAX = 0.3 -- PERF: cap follow speed smoothing on large dt spikes
 
 local activeCompanions = {}  -- [userId] = { model, creatureId, uid, attackMode, targetModel, hp, maxHp, alive, carrying }
 -- World creature selected in target menu (blocks auto-despawn; tracked even when companion is not out)
@@ -127,7 +130,7 @@ local function doRecall(player, reason)
 		comp._waterRecallConn:Disconnect()
 		comp._waterRecallConn = nil
 	end
-	local bodyForPos = comp.model and (CreatureModelLoader.GetBodyPart(comp.model) or comp.model:FindFirstChild("Body"))
+	local bodyForPos = comp._cachedBody -- PERF: use cached body part in recall hot path
 	local creaturePos = bodyForPos and bodyForPos.Position or comp.model:GetPivot().Position
 	local evt = ReplicatedStorage:FindFirstChild("Events") and ReplicatedStorage.Events:FindFirstChild("CompanionRecalled")
 	if evt then evt:FireClient(player, creaturePos, comp.creatureId, reason) end
@@ -302,7 +305,9 @@ local COMPANION_STAND_UP_ANGLES = {
 	bleetstrike = {-180, 0, 0},
 	joltram = {-180, 0, 0},
 	staticap = {-180, 0, 0},
-
+	draco = {-180, 0, 0},
+	dracoil = {-180, 0, 0},
+	firsky = {-180, 0, 0},
 }
 
 local function needsFacingCorrection(model)
@@ -1233,14 +1238,30 @@ local function startCompanionBehavior(player, model, creatureId)
 			if not root then continue end
 
 			-- Water recall: when player is in water, non-water favorites must be carded (card animation at creature pos, flies to player)
-			local isPlayerInWaterNow = isPlayerInWater(player)
+			comp._waterCheckTimer = (comp._waterCheckTimer or 0) + dt -- PERF: update water check throttle timer
+			local isPlayerInWaterNow = comp._isInWater == true -- PERF: use cached water state by default
+			if comp._waterCheckTimer >= WATER_CHECK_INTERVAL then
+				comp._waterCheckTimer = 0 -- PERF: reset throttle timer after check
+				local rootPos = root.Position
+				local playerHumanoid = character:FindFirstChildOfClass("Humanoid")
+				local humanoidSwimming = playerHumanoid and playerHumanoid:GetState() == Enum.HumanoidStateType.Swimming or false
+				local isOcean = CreatureAI and CreatureAI.IsPositionInOcean and CreatureAI.IsPositionInOcean(rootPos) or false
+				local isBlock = isPositionInWaterBlock(rootPos)
+				local isTerrain = CreatureAI and CreatureAI.IsPositionInTerrainWater and CreatureAI.IsPositionInTerrainWater(rootPos) or false
+				isPlayerInWaterNow = isOcean or isBlock or isTerrain or humanoidSwimming -- PERF: cached combined water state
+				comp._isInWater = isPlayerInWaterNow -- PERF: store combined water state
+				comp._isPlayerInOcean = isOcean -- PERF: cache ocean test result
+				comp._isPlayerInWaterBlock = isBlock -- PERF: cache WaterBlock test result
+				comp._isTerrainSwim = isTerrain -- PERF: cache terrain water test result
+				comp._isHumanoidSwimming = humanoidSwimming -- PERF: cache humanoid swim state
+			end
 			if isPlayerInWaterNow and not CreatureData.IsWaterType(creatureId) then
 				doWaterRecall(player)
 				break
 			end
 
 			-- Distance recall: if companion gets too far from player, auto-card and force resummon
-			local bodyPartForDist = comp.model and (CreatureModelLoader.GetBodyPart(comp.model) or comp.model:FindFirstChild("Body"))
+			local bodyPartForDist = comp._cachedBody -- PERF: use cached body part for per-frame distance checks
 			if bodyPartForDist then
 				local maxDist = GameConfig.CompanionAutoRecallDistance or 150
 				local distToPlayer = (root.Position - bodyPartForDist.Position).Magnitude
@@ -1250,9 +1271,10 @@ local function startCompanionBehavior(player, model, creatureId)
 				end
 			end
 
-			-- Resolve body from current comp model each frame (avoids stale reference if model was replaced)
-			local bodyPart = comp.model and (CreatureModelLoader.GetBodyPart(comp.model) or comp.model:FindFirstChild("Body"))
-			if not bodyPart then break end
+			local bodyPart = comp._cachedBody -- PERF: reuse cached body part instead of per-frame lookup
+			if not bodyPart or not bodyPart.Parent then
+				break -- PERF: companion model/body removed; exit behavior loop cleanly
+			end
 
 			-- Stun (e.g. ElectricBiome ElectroBall): skip movement while StunnedUntil > tick()
 			local su = comp.model:GetAttribute("StunnedUntil")
@@ -1263,14 +1285,10 @@ local function startCompanionBehavior(player, model, creatureId)
 			-- FIX #20 + FIX #26: Follow target behind player. Water creature follows in 3D when player is in any water.
 			-- FIX #26: Also detect Roblox terrain water (Humanoid Swimming state) as valid water,
 			-- not just tagged WaterBlock/Ocean parts. Previously water creatures couldn't follow in terrain water.
-			local isPlayerInOcean = CreatureAI and CreatureAI.IsPositionInOcean and CreatureAI.IsPositionInOcean(root.Position)
-			local isPlayerInWaterBlock = isPositionInWaterBlock(root.Position)
-			local isTerrainSwim = CreatureAI and CreatureAI.IsPositionInTerrainWater and CreatureAI.IsPositionInTerrainWater(root.Position)
-			local humanoidSwimming = false
-			local playerHumanoid = character:FindFirstChildOfClass("Humanoid")
-			if playerHumanoid and playerHumanoid:GetState() == Enum.HumanoidStateType.Swimming then
-				humanoidSwimming = true
-			end
+			local isPlayerInOcean = comp._isPlayerInOcean == true -- PERF: use cached ocean check result
+			local isPlayerInWaterBlock = comp._isPlayerInWaterBlock == true -- PERF: use cached WaterBlock check result
+			local isTerrainSwim = comp._isTerrainSwim == true -- PERF: use cached terrain-water check result
+			local humanoidSwimming = comp._isHumanoidSwimming == true -- PERF: use cached humanoid swimming state
 			local isWaterFollowing = (isPlayerInOcean or isPlayerInWaterBlock or isTerrainSwim or humanoidSwimming) and CreatureData.IsWaterType(creatureId)
 			-- Cache the water volume part for Y-clamping (Ocean part or WaterBlock part)
 			local waterVolumePart = nil
@@ -1284,9 +1302,21 @@ local function startCompanionBehavior(player, model, creatureId)
 			end
 			local targetPos
 			local followSign = getCompanionFollowOffsetSign(player)
+			local followForward = root.CFrame.LookVector
+			if isWaterFollowing then
+				-- Swimming root can pitch up/down sharply; keep follow direction mostly horizontal
+				-- so companions do not get trapped in vertical-only follow/facing states.
+				local flatForward = followForward * Vector3.new(1, 0, 1)
+				if flatForward.Magnitude > 0.05 then
+					followForward = flatForward.Unit
+				else
+					local bodyForward = bodyPart.CFrame.LookVector * Vector3.new(1, 0, 1)
+					followForward = (bodyForward.Magnitude > 0.05) and bodyForward.Unit or Vector3.new(0, 0, -1)
+				end
+			end
 			if isWaterFollowing then
 				-- Clamp companion Y to water volume bounds so they stay within the water volume
-				local behind = root.Position + root.CFrame.LookVector * (GameConfig.CompanionFollowDist * followSign)
+				local behind = root.Position + followForward * (GameConfig.CompanionFollowDist * followSign)
 				local maxY = root.Position.Y + (GameConfig.WaterCompanionMaxSurfaceOffset or 1.5)
 				if waterVolumePart then
 					local topY = waterVolumePart.Position.Y + waterVolumePart.Size.Y * 0.5
@@ -1296,7 +1326,7 @@ local function startCompanionBehavior(player, model, creatureId)
 				end
 				targetPos = Vector3.new(behind.X, math.min(behind.Y, maxY), behind.Z)
 			else
-				local followXZ = root.Position + root.CFrame.LookVector * (GameConfig.CompanionFollowDist * followSign)
+				local followXZ = root.Position + followForward * (GameConfig.CompanionFollowDist * followSign)
 				local groundYAtTarget = getGroundY(Vector3.new(followXZ.X, root.Position.Y, followXZ.Z), { character })
 				local desiredY = CreatureData.IsFlying(creatureId)
 					and (groundYAtTarget + (GameConfig.FlyingHoverHeight or 5))
@@ -1325,7 +1355,8 @@ local function startCompanionBehavior(player, model, creatureId)
 			-- Lerp applied speed toward target so it never jumps frame-to-frame (removes choppy catch-up)
 			local smoothRate = (GameConfig.CompanionFollowSpeedSmooth or 10) * dt
 			comp._followSpeed = comp._followSpeed or playerSpeed
-			comp._followSpeed = comp._followSpeed + (targetSpeed - comp._followSpeed) * math.min(1, smoothRate)
+			local alpha = math.min(math.min(1, smoothRate), FOLLOW_SPEED_ALPHA_MAX) -- PERF: cap smoothing alpha to prevent catch-up jolts on frame spikes
+			comp._followSpeed = comp._followSpeed + (targetSpeed - comp._followSpeed) * alpha -- PERF: smoother follow acceleration changes
 			local followSpeed = comp._followSpeed
 
 			-- After delivering a stolen creature, snap to correct position to fix floating/stuck
@@ -1380,6 +1411,28 @@ local function startCompanionBehavior(player, model, creatureId)
 				end
 			end
 			-- Check for attack targets in range FIRST. Attack whenever in range, even when moving (cooldown only affects damage).
+			comp._targetScanTimer = (comp._targetScanTimer or 0) + dt -- PERF: throttle target scans
+			if comp._targetScanTimer >= TARGET_SCAN_INTERVAL or not comp._nearbyTargets then
+				comp._targetScanTimer = 0 -- PERF: reset target scan timer after refresh
+				local nearbyTargets = {}
+				for _, tagged in ipairs(CollectionService:GetTagged(WORLD_CREATURE_TAG)) do
+					if tagged.Parent and not tagged:GetAttribute("Fainted") and not CollectionService:HasTag(tagged, "ArenaCreature") then
+						nearbyTargets[#nearbyTargets + 1] = tagged
+					end
+				end
+				for _, tag in ipairs({ BASE_DEFENSE_TAG, BASE_INCOME_TAG }) do
+					for _, tagged in ipairs(CollectionService:GetTagged(tag)) do
+						if tagged.Parent and not tagged:GetAttribute("Fainted") then
+							local ownerId = tagged:GetAttribute("OwnerUserId")
+							if ownerId and ownerId ~= player.UserId then
+								nearbyTargets[#nearbyTargets + 1] = tagged
+							end
+						end
+					end
+				end
+				comp._nearbyTargets = nearbyTargets -- PERF: cache merged target list for this scan window
+			end
+			local targets = comp._nearbyTargets or {} -- PERF: reuse cached target candidates across attack checks
 			local hasAttackTargetInRange = false
 			if comp.attackMode and not comp.carrying then
 				if comp.targetModel and comp.targetModel.Parent and not comp.targetModel:GetAttribute("Fainted") then
@@ -1388,25 +1441,11 @@ local function startCompanionBehavior(player, model, creatureId)
 					end
 				end
 				if not hasAttackTargetInRange then
-					for _, tagged in ipairs(CollectionService:GetTagged(WORLD_CREATURE_TAG)) do
-						if tagged.Parent and not tagged:GetAttribute("Fainted") and not CollectionService:HasTag(tagged, "ArenaCreature") then
-							if getDistanceToModel(bodyPart.Position, tagged) <= GameConfig.CompanionAttackRange then
-								hasAttackTargetInRange = true; break
-							end
+					for _, tagged in ipairs(targets) do
+						if getDistanceToModel(bodyPart.Position, tagged) <= GameConfig.CompanionAttackRange then
+							hasAttackTargetInRange = true
+							break
 						end
-					end
-				end
-				if not hasAttackTargetInRange then
-					for _, tag in ipairs({BASE_DEFENSE_TAG, BASE_INCOME_TAG}) do
-						for _, tagged in ipairs(CollectionService:GetTagged(tag)) do
-							if tagged.Parent and not tagged:GetAttribute("Fainted") then
-								local ownerId = tagged:GetAttribute("OwnerUserId")
-								if ownerId and ownerId ~= player.UserId and getDistanceToModel(bodyPart.Position, tagged) <= GameConfig.CompanionAttackRange then
-									hasAttackTargetInRange = true; break
-								end
-							end
-						end
-						if hasAttackTargetInRange then break end
 					end
 				end
 			end
@@ -1457,25 +1496,9 @@ local function startCompanionBehavior(player, model, creatureId)
 				end
 				if not attackTarget then
 					local nearDist = GameConfig.CompanionAttackRange * 1.2
-					for _, tagged in ipairs(CollectionService:GetTagged(WORLD_CREATURE_TAG)) do
-						if tagged.Parent and not tagged:GetAttribute("Fainted") and not CollectionService:HasTag(tagged, "ArenaCreature") then
-							local d2 = getDistanceToModel(newPos, tagged)
-							if d2 < nearDist then nearDist = d2; attackTarget = tagged end
-						end
-					end
-					if not attackTarget then
-						for _, tag in ipairs({BASE_DEFENSE_TAG, BASE_INCOME_TAG}) do
-							for _, tagged in ipairs(CollectionService:GetTagged(tag)) do
-								if tagged.Parent and not tagged:GetAttribute("Fainted") then
-									local ownerId = tagged:GetAttribute("OwnerUserId")
-									if ownerId and ownerId ~= player.UserId then
-										local d2 = getDistanceToModel(newPos, tagged)
-										if d2 < nearDist then nearDist = d2; attackTarget = tagged end
-									end
-								end
-							end
-							if attackTarget then break end
-						end
+					for _, tagged in ipairs(targets) do
+						local d2 = getDistanceToModel(newPos, tagged)
+						if d2 < nearDist then nearDist = d2; attackTarget = tagged end
 					end
 				end
 				if attackTarget then
@@ -1506,7 +1529,21 @@ local function startCompanionBehavior(player, model, creatureId)
 			local rotOffset = getCompanionRotationOffset(comp.creatureId, animType == "Move" or animType == "Swimming", comp.model)
 			local pivot = model:GetPivot()
 			local bodyOffsetInPivot = pivot:PointToObjectSpace(bodyPart.Position)
-			local lookAtPos = isWaterFollowing and faceToward or Vector3.new(faceToward.X, newPos.Y, faceToward.Z)
+			local lookAtPos
+			if isWaterFollowing then
+				local swimDir = faceToward - newPos
+				local swimFlat = swimDir * Vector3.new(1, 0, 1)
+				if swimFlat.Magnitude < 0.2 then
+					-- Avoid nearly vertical lookAt vectors that can leave swimmers "stuck" upright.
+					lookAtPos = newPos + followForward
+				else
+					local maxPitchY = swimFlat.Magnitude * 0.75
+					local clampedY = math.clamp(swimDir.Y, -maxPitchY, maxPitchY)
+					lookAtPos = newPos + Vector3.new(swimDir.X, clampedY, swimDir.Z)
+				end
+			else
+				lookAtPos = Vector3.new(faceToward.X, newPos.Y, faceToward.Z)
+			end
 			local dir = lookAtPos - newPos
 			if not isWaterFollowing then dir = dir * Vector3.new(1, 0, 1) end
 			local rotCf = (dir.Magnitude > 0.5)
@@ -1568,29 +1605,9 @@ local function startCompanionBehavior(player, model, creatureId)
 				end
 				if not targetCreature then
 					local nearest, nearDist = nil, GameConfig.CompanionAttackRange
-					-- Scan world creatures (use bbox so tall creatures are in range when companion is underneath)
-					for _, tagged in ipairs(CollectionService:GetTagged(WORLD_CREATURE_TAG)) do
-						if tagged.Parent and not tagged:GetAttribute("Fainted")
-							and not CollectionService:HasTag(tagged, "ArenaCreature") then
-							local d2 = getDistanceToModel(bodyPart.Position, tagged)
-							if d2 < nearDist then nearDist = d2; nearest = tagged end
-						end
-					end
-					-- Also scan other players' base creatures (defense + income)
-					if not nearest then
-						for _, tag in ipairs({BASE_DEFENSE_TAG, BASE_INCOME_TAG}) do
-							for _, tagged in ipairs(CollectionService:GetTagged(tag)) do
-								if tagged.Parent and not tagged:GetAttribute("Fainted") then
-									local ownerId = tagged:GetAttribute("OwnerUserId")
-									-- Don't attack your own base creatures
-									if ownerId and ownerId ~= player.UserId then
-										local d2 = getDistanceToModel(bodyPart.Position, tagged)
-										if d2 < nearDist then nearDist = d2; nearest = tagged end
-									end
-								end
-							end
-							if nearest then break end
-						end
+					for _, tagged in ipairs(targets) do
+						local d2 = getDistanceToModel(bodyPart.Position, tagged)
+						if d2 < nearDist then nearDist = d2; nearest = tagged end
 					end
 					targetCreature = nearest
 				end
@@ -1801,6 +1818,12 @@ function FavoriteCreatureSystem.SpawnCompanion(player)
 		carrying = nil,
 		lastAnimPos = spawnPos,
 		lastAnimPosTime = tick(),
+		_cachedBody = bodyPart, -- PERF: cache body part to avoid per-frame FindFirstChild/GetBodyPart
+		_waterCheckTimer = 0, -- PERF: throttle water state checks
+		_isInWater = false, -- PERF: cached water-state result
+		_targetScanTimer = 0, -- PERF: throttle CollectionService scans
+		_nearbyTargets = {}, -- PERF: cached nearby target list
+		_followSpeed = 0, -- FIX #20: reset follow speed on spawn to prevent first-frame speed spikes
 	}
 	startCompanionBehavior(player, model, entry.id)
 
@@ -1892,6 +1915,7 @@ function FavoriteCreatureSystem.TeleportCompanionWithPlayer(player)
 	c.model:PivotTo(CFrame.new(pivotPos) * (rotCf - rotCf.Position))
 	c.lastAnimPos = spawnPos
 	c.lastAnimPosTime = tick()
+	c._followSpeed = 0 -- FIX #20: reset smoothed speed after teleport to avoid launch/jolt
 end
 
 -- Used by CreatureAI: returns true only if model is a companion and its owner has it alive

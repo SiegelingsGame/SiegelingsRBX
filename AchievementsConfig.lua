@@ -1,5 +1,5 @@
 -- AchievementsConfig.lua - ReplicatedStorage.Modules (ModuleScript)
--- Generated achievement definitions and chain metadata for Siegelings.
+-- Generated achievement definitions and chain metadata for Siegelings
 
 local CreatureData = require(script.Parent:WaitForChild("CreatureData"))
 local GameConfig = require(script.Parent:WaitForChild("GameConfig"))
@@ -13,7 +13,7 @@ local function defaultRewardData(tierIndex, titleEarned)
 	local coinsTable = GameConfig.AchievementCoinsByTier or { 150, 400, 900, 1800, 3500 }
 	local gems = gemsTable[tier] or gemsTable[#gemsTable]
 	local xp = xpTable[tier] or xpTable[#xpTable]
-	-- Coins (gold) promoted from the old `future` placeholder to a real reward.
+	-- Coins (gold) promoted from the old `future` placeholder to a real reward
 	-- grantAchievementRewards now reads this field and credits the player.
 	local coins = coinsTable[tier] or coinsTable[#coinsTable]
 	return {

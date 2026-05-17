@@ -13,6 +13,9 @@
         "EleminionData": { "$path": "EleminionData.lua" },
         "GameConfig": { "$path": "GameConfig.lua" },
         "GameConfigData": { "$path": "GameConfigData.lua" },
+        "ServerLog": { "$path": "ServerLog.lua" },
+        "CollectorPlatformAnimator": { "$path": "CollectorPlatformAnimator.lua" },
+        "CookKitchenAnimator": { "$path": "CookKitchenAnimator.lua" },
         "BiomeZone": { "$path": "BiomeZone.lua" },
         "IngredientData": { "$path": "IngredientData.lua" },
         "NotificationManager": { "$path": "NotificationManager.lua" },
@@ -116,6 +119,12 @@
       },
       "CombinerRecyclerSystem": {
         "$path": "CombinerRecyclerSystem.lua"
+      },
+      "CollectorPlatformAnimation": {
+        "$path": "CollectorPlatformAnimation.server.lua"
+      },
+      "CookKitchenAnimation": {
+        "$path": "CookKitchenAnimation.server.lua"
       },
       "CosmeticSystem": {
         "$path": "CosmeticSystem.lua"

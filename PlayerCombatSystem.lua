@@ -96,19 +96,21 @@ local function doRangedAttack(player, origin, direction, targetUniqueId)
 		end
 		end
 	else
-		-- Find closest creature in direction cone (legacy auto-aim, no longer used)
-		local bestDist = GameConfig.PlayerRangedRange
-		for _, model in ipairs(CollectionService:GetTagged(WORLD_TAG)) do
-			if model.Parent and not model:GetAttribute("Fainted") then
-				local body = model.PrimaryPart or model:FindFirstChild("Body")
-				if body then
-					local toCreature = body.Position - origin
-					local dot = toCreature.Unit:Dot(direction.Unit)
-					if dot > 0.6 then
-						local dist = toCreature.Magnitude
-						if dist < bestDist and dist <= GameConfig.PlayerRangedRange then
-							bestDist = dist
-							bestTarget = model
+		-- Legacy fallback auto-aim is disabled by default to avoid unnecessary world scans.
+		if GameConfig.EnableLegacyAutoAim == true then
+			local bestDist = GameConfig.PlayerRangedRange
+			for _, model in ipairs(CollectionService:GetTagged(WORLD_TAG)) do
+				if model.Parent and not model:GetAttribute("Fainted") then
+					local body = model.PrimaryPart or model:FindFirstChild("Body")
+					if body then
+						local toCreature = body.Position - origin
+						local dot = toCreature.Unit:Dot(direction.Unit)
+						if dot > 0.6 then
+							local dist = toCreature.Magnitude
+							if dist < bestDist and dist <= GameConfig.PlayerRangedRange then
+								bestDist = dist
+								bestTarget = model
+							end
 						end
 					end
 				end

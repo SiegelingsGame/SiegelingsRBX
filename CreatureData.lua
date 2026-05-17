@@ -1156,7 +1156,7 @@ CreatureData.Creatures = {
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
 		description = "A serpent of pure plasma that moves like living lightning. Its strikes paralyze, and it never stops hunting once it has a target.",
 		modelName = "Kilokong", primaryColor = Color3.fromRGB(160, 120, 255),
-		spawnPointType = "dungeon",modelDisplaySize = 12,modelScaleMultiplier = 1.5,
+		spawnPointType = "dungeon",modelDisplaySize = 10,modelScaleMultiplier = 1.5,
 		mountable = true, mountOffset = {0, 3.5, -2}, mountScale = 2.0,
 	},
 	{
@@ -1172,7 +1172,7 @@ CreatureData.Creatures = {
 		spawnWeight = 4, baseIncome = 8, captureTime = 2.0,
 		description = "A floating jellyfish-like creature that drifts through mountain peaks, weaving devastating chain-lightning between its tendrils.",
 		modelName = "Bleetstrike", primaryColor = Color3.fromRGB(140, 100, 255),
-		spawnPointType = "dungeon",evolvesFrom="joltram",modemodelDisplaySize = 12,modelScaleMultiplier = 1.5,
+		spawnPointType = "dungeon",evolvesFrom="joltram",modemodelDisplaySize = 10,modelScaleMultiplier = 1.5,
 	},
 
 	-- Lightning Epic (2)
@@ -1305,7 +1305,7 @@ CreatureData.Creatures = {
 		spawnWeight = 2, baseIncome = 20, captureTime = 2.5,
 		description = "Commands storm surges and lightning-struck seas. Its tidal blasts devastate entire shorelines.",
 		modelName = "Clawqueen", primaryColor = Color3.fromRGB(50, 100, 200),
-		spawnPointType = "dungeon",modelDisplaySize = 12,modelScaleMultiplier = 1.5,
+		spawnPointType = "dungeon",modelDisplaySize = 10,modelScaleMultiplier = 1.5,
 		mountable = true, mountType = "Swimming", mountOffset = {0, 3.5, -1.5}, mountScale = 2.2,
 		evolvesFrom = "clawkid",
 	},
@@ -1469,7 +1469,7 @@ CreatureData.Creatures = {
 		spawnWeight = 5, baseIncome = 8, captureTime = 1.8,
 		description = "A reinforced placeholder Siegeling. Full Metal roster coming soon.",
 		modelName = "Bearzooka", primaryColor = Color3.fromRGB(175, 185, 195),
-		spawnPointType = "dungeon",evolvesFrom = "bearnade",modelDisplaySize = 12,modelScaleMultiplier = 1.5,
+		spawnPointType = "dungeon",evolvesFrom = "bearnade",modelDisplaySize = 10,modelScaleMultiplier = 1.5,
 	},
 	-- Metal Epic (2)
 	{

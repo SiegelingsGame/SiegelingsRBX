@@ -12,6 +12,7 @@
 --   2. FLOOR ACCESS: Stairs (or equivalent) live inside Floor2 and Floor3.
 --      setFloorVisibility toggles visibility/collision only; do not remove Stairs.
 --   3. POINT NAMES & CONTINUITY: DefensePoint1..6 (Floor1), 7..12 (Floor2), 13..18 (Floor3);
+--      With DefensePremiumPointsEnabled=false, DefensePremiumPointNames are ignored for slots/placement (still in world).
 --      IncomePoint same numbering; BattlePoint1..9 inside Floor2 (e.g. Floor2/BattleTeam/).
 --      Do NOT reparent or rename point parts; discovery uses GetDescendants + name match.
 --   4. PLOT ANCHORS: Point parts and floor structure parts are anchored in code when
@@ -53,6 +54,11 @@ local CreatureData = require(game.ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(game.ReplicatedStorage.Modules.GameConfig)
 local CreatureModelLoader = require(game.ReplicatedStorage.Modules.CreatureModelLoader)
 local PlayerWorldStats = require(game.ReplicatedStorage.Modules:WaitForChild("PlayerWorldStats"))
+local PerformanceMetrics = nil
+local CombatFXPool = nil
+pcall(function() PerformanceMetrics = require(game:GetService("ServerScriptService"):FindFirstChild("PerformanceMetrics")) end)
+pcall(function() CombatFXPool = require(game:GetService("ServerScriptService"):FindFirstChild("CombatFXPool")) end)
+local PERF_ENABLED = PerformanceMetrics and PerformanceMetrics.IsEnabled and PerformanceMetrics.IsEnabled()
 
 -- Set true to log placement/slot resolution for troubleshooting
 local PLACEMENT_DEBUG = false
@@ -391,6 +397,27 @@ local function normalizeOwnedFloorsForPlacement(raw)
 	return out
 end
 
+local function isDefensePointPremiumLocked(part)
+	if not part or not part:IsA("BasePart") then return false end
+	if GameConfig.DefensePremiumPointsEnabled then return false end
+	local names = GameConfig.DefensePremiumPointNames
+	if type(names) ~= "table" then return false end
+	for _, n in ipairs(names) do
+		if part.Name == n then return true end
+	end
+	return false
+end
+
+local function filterDefensePointsArray(points)
+	local out = {}
+	for _, p in ipairs(points) do
+		if not isDefensePointPremiumLocked(p.part) then
+			table.insert(out, p)
+		end
+	end
+	return out
+end
+
 -- Returns points matching prefix but ONLY from owned floors.
 -- excludeFolder: if set (e.g. "DefensePoints"), skip parts inside that folder so income/defense stay separate.
 -- CONTINUITY: Slot index maps to array position (1-based). Point names DefensePoint1..6 (Floor1),
@@ -430,6 +457,9 @@ local function getPointsForOwnedFloors(plotModel, prefix, ownedFloors, excludeFo
 		end
 	end
 	table.sort(points, function(a, b) return a.index < b.index end)
+	if prefix == "DefensePoint" then
+		points = filterDefensePointsArray(points)
+	end
 	return points
 end
 
@@ -813,28 +843,6 @@ local function spawnBaseOrb(creatureId, pointPart, uid, plotModel, slotType, slo
 		end
 	end)
 
-	-- Hover animation (bob up and down)
-	-- For custom models: only bobs the body, no core pulse.
-	-- For placeholder orbs: bobs both body and core with transparency pulse.
-	task.spawn(function()
-		local startY = body.Position.Y
-		local coreStartY = core and core.Parent and core.Position.Y or nil
-		local t = math.random() * math.pi * 2
-		local bobSpeed = isDefense and 1.5 or (isBattle and 1.8 or 1.2)
-		local bobHeight = isDefense and 0.8 or (isBattle and 0.6 or 0.5)
-
-		while model.Parent and body.Parent do
-			local dt = RunService.Heartbeat:Wait()
-			t = t + dt * bobSpeed * math.pi * 2
-			local bob = math.sin(t) * bobHeight
-			body.Position = Vector3.new(body.Position.X, startY + bob, body.Position.Z)
-			if core and core.Parent and coreStartY then
-				core.Position = Vector3.new(core.Position.X, coreStartY + bob, core.Position.Z)
-				core.Transparency = 0.3 + math.sin(t * 2) * 0.15
-			end
-		end
-	end)
-
 	return model
 end
 
@@ -902,6 +910,27 @@ local function setFloorVisibility(plotModel, floorNum, visible)
 			if desc.Name:match("^DefensePoint") then defCount = defCount + 1 end
 			if desc.Name:match("^IncomePoint") then incCount = incCount + 1 end
 			if desc.Name:match("^BattlePoint") then btlCount = btlCount + 1 end
+		end
+	end
+	-- Premium defense parts: when disabled, never show as usable slots even if this floor is visible (e.g. new purchase).
+	if visible and not GameConfig.DefensePremiumPointsEnabled then
+		local nameSet = {}
+		for _, n in ipairs(GameConfig.DefensePremiumPointNames or {}) do
+			nameSet[n] = true
+		end
+		for _, desc in ipairs(floorFolder:GetDescendants()) do
+			if desc:IsA("BasePart") and nameSet[desc.Name] then
+				desc.Anchored = true
+				desc.Transparency = 1
+				desc.CanCollide = false
+				desc.CanQuery = false
+				desc.CanTouch = false
+				for _, ch in ipairs(desc:GetChildren()) do
+					if ch:IsA("ProximityPrompt") then
+						ch.Enabled = false
+					end
+				end
+			end
 		end
 	end
 	print("[BasePlacement] setFloorVisibility: " .. plotModel.Name .. " Floor" .. floorNum
@@ -1076,6 +1105,7 @@ function BasePlacementSystem.PlaceCreatureInSlot(player, slotType, slotIndex, ui
 			for _, p in ipairs(raw) do
 				if not isPartInFolderNamed(p.part, "IncomePoints") then table.insert(points, p) end
 			end
+			points = filterDefensePointsArray(points)
 		end
 	else
 		points = getPointsForOwnedFloors(plotModel, "IncomePoint", ownedFloors, "DefensePoints")
@@ -1252,6 +1282,7 @@ function BasePlacementSystem.GetSlotIndexForPoint(player, slotType, pointIndex)
 			for _, p in ipairs(raw) do
 				if not isPartInFolderNamed(p.part, "IncomePoints") then table.insert(points, p) end
 			end
+			points = filterDefensePointsArray(points)
 		end
 	else
 		points = getPointsForOwnedFloors(plotModel, "IncomePoint", ownedFloors, "DefensePoints")
@@ -1352,7 +1383,10 @@ function BasePlacementSystem.PlaceCreatures(player)
 				table.insert(defensePoints, p)
 			end
 		end
-		local maxSlots = (GameConfig and GameConfig.MaxDefenseSlots) or (#ownedFloors * 6)
+		defensePoints = filterDefensePointsArray(defensePoints)
+		local maxSlots = PlayerDataManager.GetMaxSlots and PlayerDataManager.GetMaxSlots(player, "defense")
+			or (GameConfig and GameConfig.MaxDefenseSlots)
+			or (#ownedFloors * (GameConfig.DefensePointsPerFloor or 4))
 		while #defensePoints > maxSlots do table.remove(defensePoints) end
 		if #defensePoints > 0 then
 			print("[BasePlacement] Fallback: using getPointsByPrefix for DefensePoint on " .. plotModel.Name .. " (" .. #defensePoints .. " points)")
@@ -1504,30 +1538,41 @@ function BasePlacementSystem.ActivateFloor(player, floorNum)
 	setFloor2RoofState(plotModel, floorNum >= 2)
 
 	-- ── Step 2: Place creatures only on the NEW floor's points ──────────────
-	-- We pass a single-element ownedFloors table so getPointsForOwnedFloors
-	-- only returns points that live inside the newly purchased FloorX folder.
-	local newFloorOnly = { floorNum }
+	-- Uses full ownedFloors list so slot indices match defenseSlots/baseSlots; filters by floor when placing.
 
-	-- Defense creatures on new floor
-	local defensePoints = getPointsForOwnedFloors(plotModel, "DefensePoint", newFloorOnly, "IncomePoints")
+	-- Defense on new floor: slot indices are global positions in the sorted active defense list (not DefensePoint N).
+	local allDefensePoints = getPointsForOwnedFloors(plotModel, "DefensePoint", ownedFloors, "IncomePoints")
+	if #allDefensePoints == 0 then
+		local raw = getPointsByPrefix(plotModel, "DefensePoint")
+		allDefensePoints = {}
+		for _, p in ipairs(raw) do
+			if not isPartInFolderNamed(p.part, "IncomePoints") then
+				table.insert(allDefensePoints, p)
+			end
+		end
+		allDefensePoints = filterDefensePointsArray(allDefensePoints)
+		local md = PlayerDataManager.GetMaxSlots and PlayerDataManager.GetMaxSlots(player, "defense") or #allDefensePoints
+		while #allDefensePoints > md do table.remove(allDefensePoints) end
+	end
 	local defPlaced = 0
-	local maxDefSlots = PlayerDataManager.GetMaxSlots and PlayerDataManager.GetMaxSlots(player, "defense") or (#ownedFloors * 6)
-	for _, pt in ipairs(defensePoints) do
-		local slotIdx = pt.index
-		if slotIdx > maxDefSlots then continue end
-		local uid = data.defenseSlots and data.defenseSlots[slotIdx]
+	local maxDefSlots = PlayerDataManager.GetMaxSlots and PlayerDataManager.GetMaxSlots(player, "defense") or #allDefensePoints
+	for i, pt in ipairs(allDefensePoints) do
+		local ptFloor = getFloorForPart(pt.part)
+		if ptFloor ~= floorNum then continue end
+		if i > maxDefSlots then break end
+		local uid = data.defenseSlots and data.defenseSlots[i]
 		if not uid or uid == "" then continue end
 		local egg = PlayerDataManager.GetEggByUid and PlayerDataManager.GetEggByUid(player, uid)
 		if egg then
 			local hatchAt = egg.createdAt + egg.hatchMinutes * 60
 			if (os.time() or 0) < hatchAt then
-				spawnBaseOrb(egg.creatureId, pt.part, uid, plotModel, "defense", nil, egg.level, player.UserId, true, hatchAt, pt.index, slotIdx, "Normal", nil, egg.inspected == true)
+				spawnBaseOrb(egg.creatureId, pt.part, uid, plotModel, "defense", nil, egg.level, player.UserId, true, hatchAt, pt.index, i, "Normal", nil, egg.inspected == true)
 				defPlaced = defPlaced + 1
 			end
 		else
 			for _, entry in ipairs(data.inventory) do
 				if entry.uid and tostring(entry.uid) == tostring(uid) then
-					spawnBaseOrb(entry.id, pt.part, uid, plotModel, "defense", nil, entry.level, player.UserId, nil, nil, pt.index, slotIdx, entry.variant, entry.nickname)
+					spawnBaseOrb(entry.id, pt.part, uid, plotModel, "defense", nil, entry.level, player.UserId, nil, nil, pt.index, i, entry.variant, entry.nickname)
 					defPlaced = defPlaced + 1
 					break
 				end
@@ -1535,26 +1580,38 @@ function BasePlacementSystem.ActivateFloor(player, floorNum)
 		end
 	end
 
-	-- Income creatures on new floor
-	local incomePoints = getPointsForOwnedFloors(plotModel, "IncomePoint", newFloorOnly, "DefensePoints")
+	-- Income on new floor: same global slot indexing as PlaceCreatures.
+	local allIncomePoints = getPointsForOwnedFloors(plotModel, "IncomePoint", ownedFloors, "DefensePoints")
+	if #allIncomePoints == 0 then
+		local raw = getPointsByPrefix(plotModel, "IncomePoint")
+		allIncomePoints = {}
+		for _, p in ipairs(raw) do
+			if not isPartInFolderNamed(p.part, "DefensePoints") then
+				table.insert(allIncomePoints, p)
+			end
+		end
+		local mi = PlayerDataManager.GetMaxSlots and PlayerDataManager.GetMaxSlots(player, "income") or #allIncomePoints
+		while #allIncomePoints > mi do table.remove(allIncomePoints) end
+	end
 	local incPlaced = 0
-	local maxIncSlots = PlayerDataManager.GetMaxSlots and PlayerDataManager.GetMaxSlots(player, "income") or (#ownedFloors * 6)
-	for _, pt in ipairs(incomePoints) do
-		local slotIdx = pt.index
-		if slotIdx > maxIncSlots then continue end
-		local uid = data.baseSlots and data.baseSlots[slotIdx]
+	local maxIncSlots = PlayerDataManager.GetMaxSlots and PlayerDataManager.GetMaxSlots(player, "income") or #allIncomePoints
+	for i, pt in ipairs(allIncomePoints) do
+		local ptFloor = getFloorForPart(pt.part)
+		if ptFloor ~= floorNum then continue end
+		if i > maxIncSlots then break end
+		local uid = data.baseSlots and data.baseSlots[i]
 		if not uid or uid == "" then continue end
 		local egg = PlayerDataManager.GetEggByUid and PlayerDataManager.GetEggByUid(player, uid)
 		if egg then
 			local hatchAt = egg.createdAt + egg.hatchMinutes * 60
 			if (os.time() or 0) < hatchAt then
-				spawnBaseOrb(egg.creatureId, pt.part, uid, plotModel, "income", nil, egg.level, player.UserId, true, hatchAt, nil, slotIdx, "Normal", nil, egg.inspected == true)
+				spawnBaseOrb(egg.creatureId, pt.part, uid, plotModel, "income", nil, egg.level, player.UserId, true, hatchAt, nil, i, "Normal", nil, egg.inspected == true)
 				incPlaced = incPlaced + 1
 			end
 		else
 			for _, entry in ipairs(data.inventory) do
 				if entry.uid and tostring(entry.uid) == tostring(uid) then
-					spawnBaseOrb(entry.id, pt.part, uid, plotModel, "income", nil, entry.level, player.UserId, nil, nil, nil, slotIdx, entry.variant, entry.nickname)
+					spawnBaseOrb(entry.id, pt.part, uid, plotModel, "income", nil, entry.level, player.UserId, nil, nil, nil, i, entry.variant, entry.nickname)
 					incPlaced = incPlaced + 1
 					break
 				end
@@ -1809,6 +1866,13 @@ local WORLD_CREATURE_TAG = "WorldCreature"
 local COMPANION_TAG = "FavoriteCreature"
 
 local function defenseAttackEffect(fromPos, toPos, color)
+	if PERF_ENABLED then
+		PerformanceMetrics.Count("BaseDefense.Attacks", "projectiles_spawned", 1)
+	end
+	if CombatFXPool and CombatFXPool.FireBolt then
+		CombatFXPool.FireBolt(fromPos, toPos, color, 0.15, nil, Vector3.new(1.2, 1.2, 1.2))
+		return
+	end
 	task.spawn(function()
 		local bolt = Instance.new("Part")
 		bolt.Size = Vector3.new(1.2, 1.2, 1.2); bolt.Shape = Enum.PartType.Ball
@@ -1825,6 +1889,10 @@ local function defenseAttackEffect(fromPos, toPos, color)
 end
 
 local function defenseShowDamage(pos, dmg)
+	if CombatFXPool and CombatFXPool.ShowDamage then
+		CombatFXPool.ShowDamage(pos, dmg, Color3.fromRGB(220, 60, 70))
+		return
+	end
 	local att = Instance.new("Part")
 	att.Size = Vector3.new(0.1,0.1,0.1); att.Position = pos + Vector3.new(0,2,0)
 	att.Anchored = true; att.CanCollide = false; att.Transparency = 1; att.Parent = Workspace
@@ -1871,14 +1939,37 @@ end
 local function runDefenseTurretLoop()
 	-- CreatureAI is already set at module level by Init()
 	local loopCount = 0
+	local defenseCursor = 1
+	local maxPerTick = math.max(1, tonumber(GameConfig.DefenseTurretBatchSize) or 20)
 	while true do
+		local loopToken = PERF_ENABLED and PerformanceMetrics.Begin()
 		task.wait(0.5)
 		loopCount = loopCount + 1
 		if loopCount % 20 == 0 then pruneStaleInvaders() end
 
 		-- FIX #28: For each defense creature, check for hostile targets.
 		-- Wrapped in pcall so one turret erroring doesn't kill the entire loop.
-		for _, defModel in ipairs(CollectionService:GetTagged(DEFENSE_TAG)) do
+		local defenses = CollectionService:GetTagged(DEFENSE_TAG)
+		local defenseCount = #defenses
+		local processed = 0
+		if defenseCount == 0 then
+			if PERF_ENABLED then
+				PerformanceMetrics.Observe("BaseDefense.Loop", "defense_count", 0)
+				PerformanceMetrics.End("BaseDefense.Loop", loopToken)
+			end
+			continue
+		end
+		-- One snapshot per 0.5s loop (not per defense in the batch). Previously each turret re-scanned
+		-- every companion + world creature tag — O(batch × worldCount) and a common freeze with big maps.
+		local allCompanions = CollectionService:GetTagged(COMPANION_TAG)
+		local allWorldCreatures = CollectionService:GetTagged(WORLD_CREATURE_TAG)
+		local batchCount = math.min(maxPerTick, defenseCount)
+		for _ = 1, batchCount do
+			local defModel = defenses[defenseCursor]
+			defenseCursor += 1
+			if defenseCursor > defenseCount then defenseCursor = 1 end
+			if not defModel then continue end
+			processed += 1
 			local okTurret, errTurret = pcall(function()
 			if not defModel.Parent then return end
 
@@ -2040,7 +2131,7 @@ local function runDefenseTurretLoop()
 			if not bestTarget then
 				local bestDist = attackRange
 				-- 1) Enemy companions first
-				for _, comp in ipairs(CollectionService:GetTagged(COMPANION_TAG)) do
+				for _, comp in ipairs(allCompanions) do
 					if comp.Parent then
 						local ownerIdRaw = comp:GetAttribute("OwnerUserId")
 						local ownerId = (type(ownerIdRaw) == "number") and ownerIdRaw or tonumber(ownerIdRaw)
@@ -2067,7 +2158,7 @@ local function runDefenseTurretLoop()
 				end
 				-- 3) World creatures (not arena)
 				if not bestTarget then
-					for _, wc in ipairs(CollectionService:GetTagged(WORLD_CREATURE_TAG)) do
+					for _, wc in ipairs(allWorldCreatures) do
 						if wc.Parent and not wc:GetAttribute("Fainted")
 							and not CollectionService:HasTag(wc, "ArenaCreature") then
 							local wb = wc.PrimaryPart or CreatureModelLoader.GetBodyPart(wc) or wc:FindFirstChild("Body")
@@ -2192,6 +2283,11 @@ local function runDefenseTurretLoop()
 		for model, _ in pairs(defenseLOSFailCount) do
 			if not model.Parent then defenseLOSFailCount[model] = nil end
 		end
+		if PERF_ENABLED then
+			PerformanceMetrics.Observe("BaseDefense.Loop", "defense_count", defenseCount)
+			PerformanceMetrics.Observe("BaseDefense.Loop", "defense_processed", processed)
+			PerformanceMetrics.End("BaseDefense.Loop", loopToken)
+		end
 	end
 end
 
@@ -2257,7 +2353,13 @@ function BasePlacementSystem.Init(playerDataMgr, creatureAIRef)
 
 	local minDef = 999
 	for _, plot in ipairs(PLOTS_FOLDER:GetChildren()) do
-		local count = #getPointsByPrefix(plot, "DefensePoint")
+		local raw = getPointsByPrefix(plot, "DefensePoint")
+		local count = 0
+		for _, p in ipairs(raw) do
+			if not isPartInFolderNamed(p.part, "IncomePoints") and not isDefensePointPremiumLocked(p.part) then
+				count = count + 1
+			end
+		end
 		if count > 0 and count < minDef then minDef = count end
 	end
 	if minDef < 999 then GameConfig.MaxDefenseSlots = minDef end

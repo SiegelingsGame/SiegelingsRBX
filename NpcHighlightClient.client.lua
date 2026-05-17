@@ -105,6 +105,12 @@ local function isNpcHighlight(highlight)
 	return true, root
 end
 
+local function setHighlightVisible(highlight, visible)
+	if highlight and highlight.Parent and highlight.Enabled ~= visible then
+		highlight.Enabled = visible
+	end
+end
+
 local function refreshHighlightRegistration(highlight)
 	local isNpc, root = isNpcHighlight(highlight)
 	if isNpc then
@@ -118,12 +124,6 @@ local function refreshHighlightRegistration(highlight)
 	end
 end
 
-local function setHighlightVisible(highlight, visible)
-	if highlight and highlight.Parent and highlight.Enabled ~= visible then
-		highlight.Enabled = visible
-	end
-end
-
 local function getCharacterRoot()
 	local character = player.Character
 	if not character then
@@ -132,24 +132,54 @@ local function getCharacterRoot()
 	return character:FindFirstChild("HumanoidRootPart")
 end
 
-for _, desc in ipairs(Workspace:GetDescendants()) do
-	if desc:IsA("Highlight") then
-		refreshHighlightRegistration(desc)
+-- Initial scan: GetDescendants() is one large allocation; spread iteration + highlight work across frames.
+local HIGHLIGHT_BATCH = 60
+local DESCENDANT_YIELD_EVERY = 2500
+task.defer(function()
+	local all = Workspace:GetDescendants()
+	local hlSinceYield = 0
+	local steps = 0
+	for _, desc in ipairs(all) do
+		steps += 1
+		if steps >= DESCENDANT_YIELD_EVERY then
+			steps = 0
+			task.wait()
+		end
+		if desc:IsA("Highlight") then
+			refreshHighlightRegistration(desc)
+			hlSinceYield += 1
+			if hlSinceYield >= HIGHLIGHT_BATCH then
+				hlSinceYield = 0
+				task.wait()
+			end
+		end
 	end
-end
+end)
 
 Workspace.DescendantAdded:Connect(function(desc)
 	if desc:IsA("Highlight") then
 		refreshHighlightRegistration(desc)
 	elseif desc:IsA("ProximityPrompt") then
-		local current = desc.Parent
-		while current and current ~= Workspace do
-			for _, child in ipairs(current:GetDescendants()) do
+		-- One bounded scan under the owning model (was: GetDescendants on every ancestor — O(n²) path work).
+		local model = desc:FindFirstAncestorOfClass("Model")
+		if model then
+			for _, child in ipairs(model:GetDescendants()) do
 				if child:IsA("Highlight") then
 					refreshHighlightRegistration(child)
 				end
 			end
-			current = current.Parent
+		else
+			local depth = 0
+			local current = desc.Parent
+			while current and current ~= Workspace and depth < 12 do
+				for _, child in ipairs(current:GetChildren()) do
+					if child:IsA("Highlight") then
+						refreshHighlightRegistration(child)
+					end
+				end
+				current = current.Parent
+				depth += 1
+			end
 		end
 	end
 end)

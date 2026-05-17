@@ -23,7 +23,7 @@ GameConfig.ShinySpawnChance = 0.02        -- chance any spawned world creature b
 -- World creatures with evolutions: at night randomly evolve (base→evolved), at dawn devolve
 GameConfig.NightWorldEvolutionChance   = 0.20  -- per creature per check (base form with evolvesTo)
 GameConfig.NightWorldEvolutionInterval = 30     -- seconds .between evolution checks
-GameConfig.NightSpawnBonus             = 100   -- extra max world creatures at night (for rare/night spawns)
+GameConfig.NightSpawnBonus             = 0    -- keep world cap flat at MaxWorldCreatures (no night population spike)
 
 -- Debug / Dev toggles (set true for testing)ff
 GameConfig.SpawnOnlyCreaturesWithModels = true  -- true = only spawn creatures that have models in CreatureModels
@@ -36,13 +36,23 @@ GameConfig.DebugBrokerGoldOnly = false             -- true = The Broker only ask
 GameConfig.DebugBrokerCacty = false                -- true = The Broker always asks for a Lv1 Common Earth Cacty (for testing)
 GameConfig.ZoneDoorsDisabled = true
 
+-- Logging: false = quiet production (no duplicate startup warn/print); true = verbose diagnostics
+GameConfig.DebugServerLogging = false
+-- Client: false = do not warn on transient InvokeServer failures during loading/retries
+GameConfig.DebugClientInvokeWarnings = false
+
+-- Performance telemetry ([PerformanceMetrics.lua]): keep false in published games (extra Heartbeat + GetTagged cost when true).
+GameConfig.PerfMetricsEnabled = false
+
 -- Economy
 GameConfig.StartingCoins       = 100
 GameConfig.IncomeTickSeconds   = 10
+-- Server: spread each player's income/defense-XP work across frames (0 = legacy: all players same frame)
+GameConfig.IncomeTickStaggerSeconds = 0.018
 GameConfig.MaxInventorySize    = 50
 GameConfig.EggCost             = 50
 GameConfig.MaxIncomeSlots      = 6   -- matches IncomePoints on plot.
-GameConfig.MaxDefenseSlots     = 6   -- matches DefensePoints on plot (auto-detected too)
+GameConfig.MaxDefenseSlots     = 4   -- active defense slots per floor when premium points disabled; Init may set from plot count
 
 -- Leveling (creature levels; max level depends on evolution stage)
 GameConfig.MaxCreatureLevel    = 10   -- legacy/fallbackd
@@ -72,7 +82,7 @@ GameConfig.PlayerXPScaling        = 1.4    -- each level needs 1.4x more
 GameConfig.PlayerXP_Capture       = 10     -- XP for capturing a creature
 GameConfig.PlayerXP_ArenaWin      = 50     -- XP for winning arena battle
 GameConfig.PlayerXP_ArenaKill     = 10     -- XP per arena kill
-GameConfig.PlayerXP_IncomeTick    = 1      -- XP per income tick (if income > 0)
+GameConfig.PlayerXP_IncomeTick    = 1      -- XP per income tick (if income > 0).
 GameConfig.PlayerXP_RaidWin       = 30     -- XP for successful raid
 GameConfig.PlayerXP_DungeonKill   = 20     -- XP for killing a dungeon creature
 GameConfig.PlayerXP_BossKill      = 100    -- XP for killing a boss creature
@@ -100,8 +110,8 @@ GameConfig.Floor2Cost             = 500   -- coins to buy Floor 2
 GameConfig.Floor2LevelReq         = 5      -- player level required
 GameConfig.Floor3Cost             = 5000  -- coins to buy Floor 3
 GameConfig.Floor3LevelReq         = 10     -- player level required
-GameConfig.Floor4Cost             = 25000 -- coins to buy Floor 4 (Siegelord Arena)
-GameConfig.Floor4LevelReq         = 25    -- player level required for Floor 4...
+GameConfig.Floor4Cost             = 25 -- coins to buy Floor 4 (Siegelord Arena)
+GameConfig.Floor4LevelReq         = 10    -- player level required for Floor 4...
 
 -- Evolution & Combine (monster duplication / variant tiers)
 GameConfig.EvolutionMinLevel      = 10      -- level required for 1st evolution (base form).
@@ -126,11 +136,23 @@ GameConfig.HoldInteractionDuration = 0.6   -- seconds to hold [E] for ProximityP
 
 -- Per-floor slot limits (total across all owned floors)
 GameConfig.IncomePointsPerFloor   = 6
-GameConfig.DefensePointsPerFloor  = 6
+GameConfig.DefensePointsPerFloor  = 4 -- active defense slots per owned floor (6 income + 4 defense = 10 siegelings/floor when premium off)
+
+-- Optional extra DefensePoint parts in the world (same names on each floor tier). When disabled they stay in the map but are
+-- invisible, non-interactive, and excluded from slot counts/placements. Toggle on to treat them as normal defense slots again.
+GameConfig.DefensePremiumPointsEnabled = false
+GameConfig.DefensePremiumPointNames = {
+	"DefensePoint2",
+	"DefensePoint6",
+	"DefensePoint8",
+	"DefensePoint11",
+	"DefensePoint14",
+	"DefensePoint17",
+}
 
 -- Loading screen: critical-first startup + background world warmup
 GameConfig.LoadingCriticalMaxWait = 18 -- max seconds client waits for critical gameplay readiness
-GameConfig.LoadingSpawnTarget  = 30   -- world creatures target for non-critical "world ready" signal
+GameConfig.LoadingSpawnTarget  = 15   -- initial random spawns before SpawnPoint burst (keep low for server perf)
 GameConfig.LoadingMinWait      = 2    -- minimum world warmup signal delay (non-blocking for control release)
 GameConfig.LoadingMaxWait      = 25   -- max seconds for world warmup signal before fallback
 -- Loading gate: stay up until character reaches assigned plot (server teleport can lag behind HRP creation)
@@ -353,27 +375,28 @@ GameConfig.Cooking = {
 	},
 }
 
--- Spawning (SpawnPoints should stay full; common creatures prioritized)
--- Reduced from 200 to 150 for performance (night bonus +100 still applies)
-GameConfig.MaxWorldCreatures   = 150
-GameConfig.SpawnIntervalMin    = 0.5   -- faster spawns so SpawnPoints stay full
-GameConfig.SpawnIntervalMax    = 1.5
-GameConfig.SpawnsPerCycle      = 4     -- spawn this many per cycle when under 50% capacity (else 1-2)
+-- Spawning (SpawnPoints: one creature per point unless pack; cap 100 world creatures)
+-- Lower = less CreatureAI + spawner load on published servers (tradeoff: fewer roaming spawns).
+GameConfig.MaxWorldCreatures   = 100
+GameConfig.SpawnIntervalMin    = 1.0
+GameConfig.SpawnIntervalMax    = 2.5
+GameConfig.SpawnsPerCycle      = 2     -- extra random spawns per cycle when under capacity
 GameConfig.SpawnPointFillTarget = 0.5  -- run dungeon spawns when creature count above this fraction (lower = more dungeon spawns)
-GameConfig.CreatureDespawnTime = 300
+GameConfig.CreatureDespawnTime = 86400 -- unused when CreatureWorldAutoDespawnEnabled is false
+GameConfig.CreatureWorldAutoDespawnEnabled = false -- stay until killed/captured/faint cleanup (no age despawn churn)
 GameConfig.SpawnRadius         = 200
 GameConfig.SpawnHeightOffset   = 1
 GameConfig.FlyingHoverHeight   = 10   -- studs above ground for flying creatures (player model height)
-GameConfig.SpawnPointSpread    = 25     -- studs radius around a biome SpawnPoint
--- Cover empty SpawnPoints: no world creature within this horizontal (XZ) radius of the part (nil = SpawnPointSpread * 1.6)
-GameConfig.SpawnPointCoverageRadius = nil
-GameConfig.SpawnPointFillPerCycle   = 12 -- max SpawnPoints to try filling each spawn loop cycle
-GameConfig.SpawnPointBurstFillMax   = 64 -- after initial loading burst, pass over empty SpawnPoints (capped by MaxWorldCreatures)
+GameConfig.SpawnPointSpread    = 0      -- 0 = spawn exactly on SpawnPoint part (non-pack); packs still use small offsets
+-- Cover empty SpawnPoints: horizontal (XZ) radius to treat a point as "occupied" (keep small when Spread is 0)
+GameConfig.SpawnPointCoverageRadius = 10
+GameConfig.SpawnPointFillPerCycle   = 6
+GameConfig.SpawnPointBurstFillMax   = 16 -- initial burst: fewer fill passes (server perf)
 -- Weight divisor for species already in the world: w /= (1 + strength * count). 0 = off.
 GameConfig.SpawnDiversityStrength   = 0.55
 GameConfig.DungeonPointSpread  = 15     -- studs radius around a DungeonPoint (tighter for dungeon encounters)
 GameConfig.BossPointSpread     = 10     -- studs radius around a BossPoint (tight cluster for boss arena).
-GameConfig.DungeonSpawnCount   = {2, 4} -- min/max creatures per DungeonPoint per cycle (guarantee at least 1 rare+ always)
+GameConfig.DungeonSpawnCount   = {1, 1} -- one spawn per DungeonPoint per cycle (pack types may still spawn multiples)
 GameConfig.BossRespawnTime     = 300    -- seconds before a boss can respawn at the same BossPoint..
 
 -- Capture (creatures must be fainted first)
@@ -382,6 +405,11 @@ GameConfig.CaptureHoldTime     = 0
 GameConfig.CaptureAnimationTime = 2.5   -- card throw + warp animation duration
 GameConfig.CaptureGracePeriod   = 10     -- seconds to return when out of range before capture fails
 GameConfig.CaptureCooldown     = 0.5
+-- Client CaptureClient: full-workspace descendant scan when no tagged targets in range (very expensive on large maps).
+-- 0 = never run fallback (recommended published); >0 = max instances visited per fallback pass (yields every 400 steps).
+GameConfig.CaptureWorkspaceFallbackMaxSteps = 0
+-- Client: if workspace descendant count exceeds this at startup, warn once (cheap early-exit scan). 0 = off.
+GameConfig.WorkspaceDescendantWarnThreshold = 100000
 GameConfig.FaintDuration       = 10   -- seconds a fainted world creature stays before despawning (unclaimed = disappears so others can spawn)
 
 -- Base
@@ -536,6 +564,9 @@ GameConfig.ArenaRoc = {
 -- Eleminion affinity “battle pass” milestones.
 -- As you gain affinity with ANY Eleminion element, you earn these one-time rewards per element.
 -- Thresholds are expressed as a fraction (0..1) of that element’s max affinity.
+-- Eleminion NPC respawn check interval (ensure missing NPCs respawn)
+GameConfig.EleminionEnsureNpcIntervalSeconds = 10
+
 GameConfig.EleminionAffinityPass = {
 	{ id = "25", pct = 0.25, rewards = { coins = 1000 }, label = "25% — 1,000 Gold" },
 	{ id = "50", pct = 0.50, rewards = { egg = "Rare" }, label = "50% — Rare Egg" },
@@ -676,9 +707,13 @@ GameConfig.ElementalAdvantageMultiplier   = 1.5   -- damage when attacker elemen
 GameConfig.ElementalDisadvantageMultiplier = 0.5   -- damage when defender element beats attacker
 
 -- World Creature AI
+GameConfig.AI_StationaryUntilEngaged = true -- wild creatures idle at spawn; move only for chase/attack/flee (not wander)
+GameConfig.AI_FrameBuckets     = 10    -- time-slice distant creatures across more frames (lower server spikes; higher = smoother)
+-- Hard-anchored stationary (not skittish / not pack-fear): how often to raycast Y + snap XZ (every frame is expensive).
+GameConfig.AI_StationaryGroundSnapInterval = 0.25
 GameConfig.AI_TickRate         = 0.5    -- seconds between AI updates
-GameConfig.AI_WanderRadius     = 60     -- max wander distance from spawn
-GameConfig.AI_WanderSpeed      = 5      -- studs/sec for wandering
+GameConfig.AI_WanderRadius     = 60     -- legacy; unused for wild creatures when AI_StationaryUntilEngaged
+GameConfig.AI_WanderSpeed      = 5      -- studs/sec for raiders / engaged movement
 GameConfig.AI_AggroRange       = 40     -- distance to detect targets
 GameConfig.AI_AttackRange      = 40      -- distance to start attacking
 GameConfig.AI_AttackCooldown   = 2.0    -- seconds between attacks
@@ -755,8 +790,10 @@ GameConfig.MountShieldRechargeDelay  = 3    -- seconds after shield breaks befor
 -- Visual
 GameConfig.MountModelScale           = 2.0  -- default scale for mount models (overridden per-creature)
 
--- ElectricBiome hazards (ElectroBall AOE)
-GameConfig.ElectroBallCount          = 50   -- total placed (grid + 1 per SpawnPoint/DungeonPoint/BossPoint)
+-- ElectricBiome hazards (ElectroBall AOE) — only near world spawn markers, not full grid
+GameConfig.ElectroBallCount          = 12   -- max orbs per activation cycle (capped near spawn points)
+GameConfig.ElectroBallOnlyNearSpawnPoints = true -- no random grid fill; hazards only within ElectroBallNearSpawnStuds of SpawnPoint/Dungeon/Boss parts
+GameConfig.ElectroBallNearSpawnStuds = 40   -- ~10 classic 4-stud blocks radius around each spawn-type part
 GameConfig.ElectroBallSpawnInterval  = 30   -- seconds between activations
 GameConfig.ElectroBallRadius         = 20   -- studs (10 foot) AOE radius
 GameConfig.ElectroBallChargeSeconds  = 3    -- seconds for red fill (FF14-style)
@@ -773,6 +810,8 @@ GameConfig.DefenseAttackCD      = 2.5   -- seconds between shots
 GameConfig.DefenseBaseDamage    = 12    -- multiplied by creature attack stat / 10
 GameConfig.DefensePassiveXP     = 3     -- XP per creature in defense slot per income tick (while stationed)
 GameConfig.DefenseKillXP        = 15    -- XP to the defense creature when it gets a kill (world creature or enemy companion)
+-- Defense AI loop ([BasePlacementSystem.lua]): max defense models processed per 0.5s tick (lower = spread CPU).
+GameConfig.DefenseTurretBatchSize = 12
 
 -- Placeholder Visuals
 GameConfig.PlaceholderSize     = Vector3.new(4, 4, 4)
@@ -1081,9 +1120,12 @@ GameConfig.BadlandsLootBagBeaconRange   = 200   -- visible distance (studs)
 -- Badlands: Creature Spawning
 -- ALL Badlands creatures are Gold/Legend variant, 1.5–2x scale, stat-boosted.09
 -- Every rarity can spawn (Common through Legendary) but they are ALL elite versions.
-GameConfig.BadlandsInitialSpawnCount    = 20    -- creatures spawned on run startbj
-GameConfig.BadlandsSpawnInterval        = 8     -- seconds between new spawns
-GameConfig.BadlandsMaxCreatures         = 40    -- creature cap in zone
+GameConfig.BadlandsStarterCreatureCount = 5     -- placed on first spawn points when a run starts (easy finds)
+GameConfig.BadlandsRoamingHighLevelCount = 10 -- additional Epic/Legend-heavy spawns (fixed pool = 15 with cap below)
+GameConfig.BadlandsInitialSpawnCount    = 5     -- legacy compat: starters only; full wave uses Starter + Roaming counts
+GameConfig.BadlandsSpawnInterval        = 90    -- only used if BadlandsPeriodicRefillEnabled
+GameConfig.BadlandsMaxCreatures         = 15    -- hard cap: 5 starters + 10 high-tier to find in the run
+GameConfig.BadlandsPeriodicRefillEnabled = false -- no drip spawns; creatures persist until killed/captured
 GameConfig.BadlandsCreatureScaleMin     = 1.5   -- minimum model scale multiplier (1.5x normal)
 GameConfig.BadlandsCreatureScaleMax     = 2.0   -- maximum model scale multiplier (2x normal)
 GameConfig.BadlandsCreatureStatMult     = 2.0   -- stat multiplier (HP, ATK, DEF, SPD all 2x)

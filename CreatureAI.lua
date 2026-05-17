@@ -16,6 +16,11 @@ local GameConfig = require(game.ReplicatedStorage.Modules.GameConfig)
 local CreatureModelLoader = require(game.ReplicatedStorage.Modules.CreatureModelLoader)
 local CreatureAnimation = require(game.ReplicatedStorage.Modules.CreatureAnimation)
 local PlayerWorldStats = require(game.ReplicatedStorage.Modules:WaitForChild("PlayerWorldStats"))
+local PerformanceMetrics = nil
+local CombatFXPool = nil
+pcall(function() PerformanceMetrics = require(game:GetService("ServerScriptService"):FindFirstChild("PerformanceMetrics")) end)
+pcall(function() CombatFXPool = require(game:GetService("ServerScriptService"):FindFirstChild("CombatFXPool")) end)
+local PERF_ENABLED = PerformanceMetrics and PerformanceMetrics.IsEnabled and PerformanceMetrics.IsEnabled()
 
 local cachedShowNotification -- nil = unchecked; RemoteEvent once resolved; false = missing
 
@@ -379,9 +384,12 @@ local function hasLineOfSight(fromModel, toModel)
 	if dist < 0.5 then return true end
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
-	local exclude = { fromModel, toModel }
-	params.FilterDescendantsInstances = exclude
+	params.FilterDescendantsInstances = { fromModel, toModel }
+	local perfToken = PERF_ENABLED and PerformanceMetrics.Begin()
 	local result = Workspace:Raycast(fromPos, dir * dist, params)
+	if PERF_ENABLED then
+		PerformanceMetrics.End("CreatureAI.LineOfSight", perfToken)
+	end
 	return result == nil
 end
 
@@ -676,11 +684,17 @@ end
 
 -- Fire a projectile from creature toward target; on hit, run the provided callback
 local function fireCreatureProjectile(fromPos, toPos, color, onHit)
+	local speed = GameConfig.AI_CreatureProjectileSpeed or 80
+	local dist = (toPos - fromPos).Magnitude
+	local dur = math.clamp(dist / speed, 0.1, 0.8)
+	if PERF_ENABLED then
+		PerformanceMetrics.Count("CreatureAI.Attacks", "projectiles_spawned", 1)
+	end
+	if CombatFXPool and CombatFXPool.FireBolt then
+		CombatFXPool.FireBolt(fromPos, toPos, color, dur, onHit, Vector3.new(1.2, 1.2, 1.2))
+		return
+	end
 	task.spawn(function()
-		local speed = GameConfig.AI_CreatureProjectileSpeed or 80
-		local dist = (toPos - fromPos).Magnitude
-		local dur = math.clamp(dist / speed, 0.1, 0.8)
-
 		local bolt = Instance.new("Part")
 		bolt.Shape = Enum.PartType.Ball
 		bolt.Size = Vector3.new(1.2, 1.2, 1.2)
@@ -691,21 +705,12 @@ local function fireCreatureProjectile(fromPos, toPos, color, onHit)
 		bolt.CastShadow = false
 		bolt.Position = fromPos
 		bolt.Parent = Workspace
-
-		local light = Instance.new("PointLight")
-		light.Color = color
-		light.Brightness = 2
-		light.Range = 8
-		light.Parent = bolt
-
 		local startT = tick()
 		while tick() - startT < dur do
 			if not bolt.Parent then return end
-			local t = (tick() - startT) / dur
-			bolt.Position = fromPos:Lerp(toPos, t)
+			bolt.Position = fromPos:Lerp(toPos, (tick() - startT) / dur)
 			RunService.Heartbeat:Wait()
 		end
-
 		bolt:Destroy()
 		if onHit then pcall(onHit) end
 	end)
@@ -1048,6 +1053,58 @@ end
 
 -- ------ AI UPDATE ------
 
+-- Wild WorldCreature idle-at-spawn: no patrol wander; still chase/attack/flee when engaged.
+local function wildStationaryWorld(model, state)
+	if GameConfig.AI_StationaryUntilEngaged == false then
+		return false
+	end
+	if not CollectionService:HasTag(model, CREATURE_TAG) then
+		return false
+	end
+	if CollectionService:HasTag(model, DEFENSE_TAG) or CollectionService:HasTag(model, INCOME_TAG) then
+		return false
+	end
+	if CollectionService:HasTag(model, COMPANION_TAG) then
+		return false
+	end
+	if state.behavior == "raider" or state.behavior == "stationary" then
+		return false
+	end
+	return true
+end
+
+-- Snap-to-spawn and aquatic "lock at spawn" only for non-skittish, non-fear-pack creatures.
+-- Skittish (and fearful packmates) must be able to flee without being pulled back to spawn each frame.
+local function wildStationaryHardAnchor(model, state)
+	if not wildStationaryWorld(model, state) then return false end
+	if state.behavior == "skittish" then return false end
+	if state.behavior == "pack" and state.fearUntil and tick() < (state.fearUntil or 0) then
+		return false
+	end
+	return true
+end
+
+local function snapWildCreatureToSpawnXZ(model, state, body)
+	if not wildStationaryHardAnchor(model, state) then return end
+	if state.state == "chase" or state.state == "attack" or state.state == "flee" then return end
+	local sp = state.spawnPos
+	local flatErr = ((body.Position - sp) * Vector3.new(1, 0, 1)).Magnitude
+	if flatErr < 0.25 then return end
+	local desiredY = getDesiredBodyY(body, model, state.id, sp.X, sp.Z)
+	body.CFrame = CFrame.new(Vector3.new(sp.X, desiredY, sp.Z)) * (CreatureData.GetModelRotationOffset(state.id, "world", false) or CFrame.new())
+end
+
+local function disengageStateForWild(model, state)
+	if wildStationaryWorld(model, state) then
+		state.state = "idle"
+	else
+		state.state = "wander"
+	end
+	state.wanderTarget = nil
+	state._wanderTarget = nil
+	state._wanderStarted = 0
+end
+
 local function updateCreature(model, state, dt)
 	if state.state == "faint" then
 		local body = getBody(model)
@@ -1112,7 +1169,16 @@ local function updateCreature(model, state, dt)
 	-- only if behavior is "stationary" AND currently at income/defense (they're placed by BasePlacementSystem).
 	local isWaterSwimming = CreatureData.IsWaterType(state.id)
 		and CreatureAI.IsPositionInSwimmableWater(pos)
-	if not isWaterSwimming and state.behavior ~= "stationary" then
+	local groundSnapInterval = tonumber(GameConfig.AI_StationaryGroundSnapInterval) or 0.25
+	local throttleHardAnchorGround = wildStationaryHardAnchor(model, state)
+		and (state.state == "idle" or state.state == "loneHold")
+	local tNow = tick()
+	local skipGroundRay = throttleHardAnchorGround
+		and ((state._lastIdleGroundYSnapCheck or 0) + groundSnapInterval > tNow)
+	if not isWaterSwimming and state.behavior ~= "stationary" and not skipGroundRay then
+		if throttleHardAnchorGround then
+			state._lastIdleGroundYSnapCheck = tNow
+		end
 		local desiredY = getDesiredBodyY(body, model, state.id, pos.X, pos.Z)
 		if math.abs(body.Position.Y - desiredY) > 0.1 then
 			body.Position = Vector3.new(pos.X, desiredY, pos.Z)
@@ -1165,6 +1231,13 @@ local function updateCreature(model, state, dt)
 			state._wanderStarted = 0 -- FIX #20: reset wander timer after invalid target
 			return -- FIX #20: avoid animating in place toward invalid target
 		end
+	end
+
+	if wildStationaryWorld(model, state) and state.state == "wander" then
+		state.state = "idle"
+		state.wanderTarget = nil
+		state._wanderTarget = nil
+		state._wanderStarted = 0
 	end
 
 	-- Idle delay: if model hasn't moved for 2 seconds, prefer Idle over Move
@@ -1231,7 +1304,16 @@ local function updateCreature(model, state, dt)
 	end
 
 	-- Aquatic WaterBlock AI: seek water, wander within bounds, surface to breathe 10s (underwater time scales by rarity)
-	if state.aquaticWaterBlock and state.waterBlockPart and state.waterBlockPart.Parent and (state.state == "idle" or state.state == "wander") then
+	if state.aquaticWaterBlock and state.waterBlockPart and state.waterBlockPart.Parent and wildStationaryHardAnchor(model, state) and (state.state == "idle" or state.state == "wander") then
+		-- Performance: stationary wild water creatures hold spawn XZ (no patrol / breath choreography).
+		local sp = state.spawnPos
+		local desiredY = getDesiredBodyY(body, model, state.id, sp.X, sp.Z)
+		body.CFrame = CFrame.new(Vector3.new(sp.X, desiredY, sp.Z)) * (CreatureData.GetModelRotationOffset(state.id, "world", false) or CFrame.new())
+		state.state = "idle"
+		state.wanderTarget = nil
+		state.lastAnimPos = body.Position
+		state.lastAnimPosTime = now
+	elseif state.aquaticWaterBlock and state.waterBlockPart and state.waterBlockPart.Parent and (state.state == "idle" or state.state == "wander") then
 		local wb = state.waterBlockPart
 		local surfaceDuration = GameConfig.WaterBreathSurfaceDuration or 10
 		local surfaceY = getSurfaceYInWaterBlock(wb)
@@ -1308,8 +1390,8 @@ local function updateCreature(model, state, dt)
 				local prey, preyDist = findNearestCreature(pos, GameConfig.AI_AggroRange * 0.7, model, "aggressive")
 				if prey then
 					state.target = prey; state.state = "chase"
-				else
-					-- Wander
+				elseif not wildStationaryWorld(model, state) then
+					-- Wander (disabled for stationary wild creatures)
 					if state.state ~= "wander" or not state.wanderTarget then
 						state.wanderTarget = chooseValidWanderTarget(state.spawnPos, GameConfig.AI_WanderRadius, state.id) or state.spawnPos -- FIX #20: pick grounded wander target
 						state.state = "wander"
@@ -1344,7 +1426,7 @@ local function updateCreature(model, state, dt)
 					if comp or plr then
 						state.target = comp or plr
 						state.state = "flee"
-					else
+					elseif not wildStationaryWorld(model, state) then
 						if state.state ~= "wander" or not state.wanderTarget then
 							state.wanderTarget = chooseValidWanderTarget(state.spawnPos, GameConfig.AI_WanderRadius * 0.8, state.id) or state.spawnPos -- FIX #20: validate pack skittish wander target
 							state.state = "wander"
@@ -1359,7 +1441,7 @@ local function updateCreature(model, state, dt)
 		end
 		if not state.fearUntil and not state.revengeTarget then
 			-- Normal pack: only engages when provoked or a packmate calls
-			if state.state == "idle" or state.state == "wander" then
+			if (state.state == "idle" or state.state == "wander") and not wildStationaryWorld(model, state) then
 				if state.state ~= "wander" or not state.wanderTarget then
 					state.wanderTarget = chooseValidWanderTarget(state.spawnPos, GameConfig.AI_WanderRadius * 0.6, state.id) or state.spawnPos -- FIX #20: validate normal pack wander target
 					state.state = "wander"
@@ -1373,7 +1455,7 @@ local function updateCreature(model, state, dt)
 
 	elseif state.behavior == "gentle" then
 		-- Peaceful wander, only fights back
-		if state.state == "idle" or state.state == "wander" then
+		if (state.state == "idle" or state.state == "wander") and not wildStationaryWorld(model, state) then
 			if state.state ~= "wander" or not state.wanderTarget then
 				state.wanderTarget = chooseValidWanderTarget(state.spawnPos, GameConfig.AI_WanderRadius * 0.4, state.id) or state.spawnPos -- FIX #20: validate gentle wander target
 				state.state = "wander"
@@ -1395,7 +1477,7 @@ local function updateCreature(model, state, dt)
 				state.target = prey
 				state.state = "loneHold"
 				state.loneHoldGround = true
-			else
+			elseif not wildStationaryWorld(model, state) then
 				if state.state ~= "wander" or not state.wanderTarget then
 					state.wanderTarget = chooseValidWanderTarget(state.spawnPos, GameConfig.AI_WanderRadius * 0.5, state.id) or state.spawnPos -- FIX #20: validate lone wander target
 					state.state = "wander"
@@ -1414,7 +1496,7 @@ local function updateCreature(model, state, dt)
 			local plr, plrDist = findNearestPlayer(pos, GameConfig.AI_AggroRange * 0.5)
 			if comp or plr then
 				state.target = comp or plr; state.state = "flee"
-			else
+			elseif not wildStationaryWorld(model, state) then
 				if state.state ~= "wander" or not state.wanderTarget then
 					state.wanderTarget = chooseValidWanderTarget(state.spawnPos, GameConfig.AI_WanderRadius * 0.8, state.id) or state.spawnPos -- FIX #20: validate skittish wander target
 					state.state = "wander"
@@ -1455,10 +1537,9 @@ local function updateCreature(model, state, dt)
 	-- Lone territorial hold: face another world creature in aggro range; attack at range; never advance (no chase)
 	if state.state == "loneHold" and state.target and state.behavior == "lone" then
 		if typeof(state.target) == "Instance" and state.target:GetAttribute("Fainted") then
-			state.state = "wander"
+			disengageStateForWild(model, state)
 			state.target = nil
 			state.loneHoldGround = nil
-			state.wanderTarget = nil
 		else
 			local targetBody = nil
 			if typeof(state.target) == "Instance" and state.target.Parent then
@@ -1467,18 +1548,16 @@ local function updateCreature(model, state, dt)
 					or state.target:FindFirstChild("HumanoidRootPart")
 			end
 			if not targetBody then
-				state.state = "wander"
+				disengageStateForWild(model, state)
 				state.target = nil
 				state.loneHoldGround = nil
-				state.wanderTarget = nil
 			else
 				local aggroR = GameConfig.AI_AggroRange * 0.6
 				local tdist = (pos - targetBody.Position).Magnitude
 				if tdist > aggroR then
-					state.state = "wander"
+					disengageStateForWild(model, state)
 					state.target = nil
 					state.loneHoldGround = nil
-					state.wanderTarget = nil
 				else
 					local targetFlat = Vector3.new(targetBody.Position.X, pos.Y, targetBody.Position.Z)
 					local rotOffset = state.id and CreatureData.GetModelRotationOffset(state.id) or CFrame.identity
@@ -1509,7 +1588,10 @@ local function updateCreature(model, state, dt)
 		if not state.idleUntil then
 			state.idleUntil = tick() + math.random(1, 3)
 		elseif tick() > state.idleUntil then
-			state.state = "wander"; state.wanderTarget = nil
+			if not wildStationaryWorld(model, state) then
+				state.state = "wander"
+				state.wanderTarget = nil
+			end
 		end
 	end
 
@@ -1517,7 +1599,7 @@ local function updateCreature(model, state, dt)
 	if state.state == "chase" and state.target then
 		-- Don't chase fainted targets (world creatures shouldn't attack monsters that are already fainted)
 		if typeof(state.target) == "Instance" and state.target:GetAttribute("Fainted") then
-			state.state = "wander"; state.target = nil; state.revengeTarget = nil; state.wanderTarget = nil; state.loneHoldGround = nil; return
+			disengageStateForWild(model, state); state.target = nil; state.revengeTarget = nil; state.loneHoldGround = nil; return
 		end
 		local targetBody = nil
 		if typeof(state.target) == "Instance" and state.target.Parent then
@@ -1525,14 +1607,14 @@ local function updateCreature(model, state, dt)
 		end
 		if not targetBody then
 			-- Target lost — return to wander (not bare idle which can get stuck)
-			state.state = "wander"; state.target = nil; state.revengeTarget = nil; state.wanderTarget = nil; state.loneHoldGround = nil; return
+			disengageStateForWild(model, state); state.target = nil; state.revengeTarget = nil; state.loneHoldGround = nil; return
 		end
 
 		local tdist = (pos - targetBody.Position).Magnitude
 		local maxChaseRange = state.revengeTarget and 800 or (state.behavior == "raider" and 200 or (GameConfig.AI_AggroRange * 1.5))
 		if tdist > maxChaseRange then
 			-- Lost target, return
-			state.state = "wander"; state.target = nil; state.revengeTarget = nil; state.wanderTarget = nil; state.loneHoldGround = nil
+			disengageStateForWild(model, state); state.target = nil; state.revengeTarget = nil; state.loneHoldGround = nil
 		elseif tdist > GameConfig.AI_AttackRange then
 			-- Raiders: waypoint sequence — door → plot center (up ramp) → then chase target (or path to door if no LOS)
 			local moveTarget = targetBody.Position
@@ -1586,14 +1668,14 @@ local function updateCreature(model, state, dt)
 	if state.state == "attack" and state.target then
 		-- Don't attack fainted targets (world creatures shouldn't attack monsters that are already fainted)
 		if typeof(state.target) == "Instance" and state.target:GetAttribute("Fainted") then
-			state.state = "wander"; state.target = nil; state.revengeTarget = nil; state.wanderTarget = nil; state.loneHoldGround = nil; return
+			disengageStateForWild(model, state); state.target = nil; state.revengeTarget = nil; state.loneHoldGround = nil; return
 		end
 		local targetBody = nil
 		if typeof(state.target) == "Instance" and state.target.Parent then
 			targetBody = CreatureModelLoader.GetBodyPart(state.target) or state.target:FindFirstChild("Body") or state.target:FindFirstChild("HumanoidRootPart")
 		end
 		if not targetBody then
-			state.state = "wander"; state.target = nil; state.revengeTarget = nil; state.wanderTarget = nil; state.loneHoldGround = nil; return
+			disengageStateForWild(model, state); state.target = nil; state.revengeTarget = nil; state.loneHoldGround = nil; return
 		end
 
 		-- Face target while attacking (apply model rotation offset for crawling/facing)
@@ -1729,12 +1811,14 @@ local function updateCreature(model, state, dt)
 				fleeRange = math.max(fleeRange or 0, 60)
 			end
 			if away.Magnitude > (fleeRange or GameConfig.AI_FleeRange) then
-				state.state = "wander"; state.target = nil; state.wanderTarget = nil
+				disengageStateForWild(model, state); state.target = nil
 			end
 		else
-			state.state = "wander"; state.target = nil; state.wanderTarget = nil
+			disengageStateForWild(model, state); state.target = nil
 		end
 	end
+
+	snapWildCreatureToSpawnXZ(model, state, body)
 
 	-- Arrival fallback: if a segment finished after initial animation selection, force Idle this same frame.
 	if state.forceIdleOnArrival then
@@ -1768,6 +1852,7 @@ end
 -- ------ PUBLIC API ------
 
 local nextPackId = 0
+local aiBucketCounter = 0
 local function setCreatureCollision(model)
 	for _, part in ipairs(model:GetDescendants()) do
 		if part:IsA("BasePart") then
@@ -1817,7 +1902,9 @@ function CreatureAI.RegisterCreature(model, creatureId, spawnPos, packId)
 		_wanderTarget = nil, -- FIX #20: mirrored wander target for timeout checks
 		_waterCheckTimer = 0, -- PERF: throttles expensive swimmable-water checks
 		_isInWaterCached = false, -- PERF: cached result of last swimmable-water check
+		_aiBucket = aiBucketCounter, -- PERF: stable bucket for cross-frame time slicing
 	}
+	aiBucketCounter = (aiBucketCounter + 1) % (tonumber(GameConfig.AI_FrameBuckets) or 4)
 
 	setCreatureCollision(model) -- FIX #20: enforce non-colliding creature parts on registration
 
@@ -1888,21 +1975,37 @@ function CreatureAI.Init(laserDoorRef)
 	-- IMPORTANT: Never modify creatureStates during pairs() iteration.
 	-- Collect removals in a separate list, then apply after iteration.
 	local lastTick = tick()
+	local frameBucketCursor = 0
+	local frameBuckets = math.max(1, tonumber(GameConfig.AI_FrameBuckets) or 4)
+	local cachedPlayerRoots = {}
+	local playerRootHeartbeat = 0
+	if CombatFXPool and CombatFXPool.Init then
+		CombatFXPool.Init()
+	end
 	RunService.Heartbeat:Connect(function()
+		local loopToken = PERF_ENABLED and PerformanceMetrics.Begin()
 		local now = tick()
 		local dt = math.min(now - lastTick, 1/15) -- clamp dt to avoid huge jumps after lag
 		lastTick = now
-		local playerRoots = {}
-		for _, p in ipairs(Players:GetPlayers()) do
-			local char = p.Character
-			local hum = char and char:FindFirstChildOfClass("Humanoid")
-			local root = char and char:FindFirstChild("HumanoidRootPart")
-			if root and hum and hum.Health > 0 then
-				table.insert(playerRoots, root.Position)
+		frameBucketCursor = (frameBucketCursor + 1) % frameBuckets
+		-- Rebuild player positions every other Heartbeat (LOD only needs ~10 Hz; halves Character lookups).
+		playerRootHeartbeat += 1
+		local playerRoots = cachedPlayerRoots
+		if playerRootHeartbeat % 2 == 1 then
+			playerRoots = {}
+			for _, p in ipairs(Players:GetPlayers()) do
+				local char = p.Character
+				local hum = char and char:FindFirstChildOfClass("Humanoid")
+				local root = char and char:FindFirstChild("HumanoidRootPart")
+				if root and hum and hum.Health > 0 then
+					table.insert(playerRoots, root.Position)
+				end
 			end
+			cachedPlayerRoots = playerRoots
 		end
 
 		local toRemove = {}
+		local updatedCount = 0
 		for model, state in pairs(creatureStates) do
 			if model.Parent then
 				local body = getBody(model)
@@ -1923,6 +2026,9 @@ function CreatureAI.Init(laserDoorRef)
 				else
 					updateInterval = 0.5
 				end
+				if nearest > 120 and (state._aiBucket or 0) ~= frameBucketCursor then
+					continue
+				end
 
 				local stepDt = dt
 				if updateInterval > 0 then
@@ -1939,8 +2045,13 @@ function CreatureAI.Init(laserDoorRef)
 					state._nextAiUpdateAt = now
 				end
 
+				local perCreatureToken = PERF_ENABLED and PerformanceMetrics.Begin()
 				local ok, err = pcall(updateCreature, model, state, stepDt)
 				if not ok then warn("[CreatureAI] Error: " .. tostring(err)) end
+				if PERF_ENABLED then
+					PerformanceMetrics.End("CreatureAI.UpdateCreature", perCreatureToken)
+				end
+				updatedCount += 1
 			else
 				table.insert(toRemove, model)
 			end
@@ -1949,6 +2060,11 @@ function CreatureAI.Init(laserDoorRef)
 		-- Clean up destroyed models outside of iteration
 		for _, model in ipairs(toRemove) do
 			creatureStates[model] = nil
+		end
+		if PERF_ENABLED then
+			PerformanceMetrics.Observe("CreatureAI.Heartbeat", "active_creatures", #CollectionService:GetTagged(CREATURE_TAG))
+			PerformanceMetrics.Observe("CreatureAI.Heartbeat", "updated_creatures", updatedCount)
+			PerformanceMetrics.End("CreatureAI.Heartbeat", loopToken)
 		end
 	end)
 

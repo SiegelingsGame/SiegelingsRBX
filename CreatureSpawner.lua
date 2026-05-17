@@ -1101,30 +1101,30 @@ end
 function CreatureSpawner.Init(creatureAIRef)
 	CreatureAI = creatureAIRef
 
-	-- Auto-despawn old uncaptured creatures (not fainted, not bosses)
-	task.spawn(function()
-		while true do
-			task.wait(15)
-			local now = os.time()
-			for model, data in pairs(activeCreatures) do
-				if model.Parent then
-					local age = now - data.spawnTime
-					local isFainted = model:GetAttribute("Fainted")
-					local isBoss = model:GetAttribute("IsBoss")
-					local favSys = getFavoriteCreatureSystem()
-					local combatLocked = favSys and favSys.IsWorldCreatureCombatTargeted
-						and favSys.IsWorldCreatureCombatTargeted(model)
-					-- Bosses don't auto-despawn from age (only from defeat/capture).
-					-- Don't despawn while any player has this creature as a combat/companion target.
-					if age > GameConfig.CreatureDespawnTime and not isFainted and not isBoss and not combatLocked then
-						CreatureSpawner.RemoveCreature(model)
+	-- Optional time-based despawn (off by default: creatures stay until killed/captured/faint cleanup)
+	if GameConfig.CreatureWorldAutoDespawnEnabled then
+		task.spawn(function()
+			while true do
+				task.wait(15)
+				local now = os.time()
+				for model, data in pairs(activeCreatures) do
+					if model.Parent then
+						local age = now - data.spawnTime
+						local isFainted = model:GetAttribute("Fainted")
+						local isBoss = model:GetAttribute("IsBoss")
+						local favSys = getFavoriteCreatureSystem()
+						local combatLocked = favSys and favSys.IsWorldCreatureCombatTargeted
+							and favSys.IsWorldCreatureCombatTargeted(model)
+						if age > (GameConfig.CreatureDespawnTime or 300) and not isFainted and not isBoss and not combatLocked then
+							CreatureSpawner.RemoveCreature(model)
+						end
+					else
+						activeCreatures[model] = nil
 					end
-				else
-					activeCreatures[model] = nil
 				end
 			end
-		end
-	end)
+		end)
+	end
 end
 
 return CreatureSpawner

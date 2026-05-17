@@ -14,9 +14,12 @@ local MobileWindowLayout = require(ReplicatedStorage.Modules:WaitForChild("Mobil
 local TopRightBadgeTray = require(ReplicatedStorage.Modules:WaitForChild("TopRightBadgeTray"))
 local CollectionService = game:GetService("CollectionService")
 local HttpService = game:GetService("HttpService")
+local PERF_LOG_UI = false
+local ENABLE_AGENT_LOG = false
 
 -- #region agent log
 local function _agentLog(hypothesisId, location, message, data)
+	if not ENABLE_AGENT_LOG then return end
 	local payload
 	local okEnc = pcall(function()
 		payload = HttpService:JSONEncode({
@@ -45,6 +48,14 @@ local function _agentLog(hypothesisId, location, message, data)
 end
 -- #endregion
 
+local function perfLog(scope, startAt)
+	if not PERF_LOG_UI or not startAt then return end
+	local elapsedMs = (os.clock() - startAt) * 1000
+	if elapsedMs >= 10 then
+		warn(string.format("[Perf][InventoryUI] %s %.2fms", scope, elapsedMs))
+	end
+end
+
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
@@ -69,6 +80,8 @@ ensureBindable("SprintStateChanged")
 
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+PERF_LOG_UI = GameConfig.PerfLogInventoryClient == true
+ENABLE_AGENT_LOG = GameConfig.EnableInventoryAgentLog == true
 local Notify = require(ReplicatedStorage.Modules.NotificationManager)
 local IngredientData = nil
 do
@@ -388,6 +401,7 @@ local latestInventoryLookup = {}
 local refreshSelectedInventoryDetails
 local renderInventoryDetails
 local refreshInventory, refreshBattle, refreshBattleFast, refreshBag, refreshCurrentTab
+local applyFavoriteStatePatch
 local badBagState = { count = 0, capacity = 0, activeIndex = nil, slots = {} }
 local lastFavoriteUid = nil   -- when user removes favorite, store here; Y or orb can re-equip it t
 local lastFavoriteName = nil  -- display name for ReCard label when favorite is unequipped
@@ -1490,7 +1504,7 @@ local function updateOverviewActions()
 
 	local numFloors = data.ownedFloors and #data.ownedFloors or 1
 	local maxInc = math.max(data.incomeMax or (numFloors * (GameConfig.IncomePointsPerFloor or 6)), 6)
-	local maxDef = math.max(data.defenseMax or (numFloors * (GameConfig.DefensePointsPerFloor or 6)), 6)
+	local maxDef = math.max(data.defenseMax or (numFloors * (GameConfig.DefensePointsPerFloor or 4)), 4)
 
 	local filledBase = data.filledBaseCount
 	if filledBase == nil then
@@ -1557,6 +1571,12 @@ do
 			if not entry or entry.isEgg == true or not Evt.setFavorite then return end
 			local data = latestInventoryData
 			local isFav = data and data.favoriteUid and tostring(data.favoriteUid) == tostring(entry.uid)
+			if data then
+				local oldFavUid = data.favoriteUid and tostring(data.favoriteUid) or nil
+				local newFavUid = isFav and nil or tostring(entry.uid)
+				data.favoriteUid = newFavUid
+				applyFavoriteStatePatch(oldFavUid, newFavUid)
+			end
 			Evt.setFavorite:FireServer(isFav and "" or entry.uid)
 		end)
 	end
@@ -1596,7 +1616,7 @@ do
 			local isBase = (data.baseUidSet and data.baseUidSet[uidStr]) == true
 			local isDef = (data.defenseUidSet and data.defenseUidSet[uidStr]) == true
 			local numFloors = data.ownedFloors and #data.ownedFloors or 1
-			local maxDef = math.max(data.defenseMax or (numFloors * (GameConfig.DefensePointsPerFloor or 6)), 6)
+			local maxDef = math.max(data.defenseMax or (numFloors * (GameConfig.DefensePointsPerFloor or 4)), 4)
 			local filledDef = data.filledDefenseCount
 			if filledDef == nil then
 				filledDef = 0
@@ -2064,6 +2084,88 @@ end
 -- --------------------------------------------
 -- INVENTORY CARD (no Battle button)
 -- --------------------------------------------
+local RARITY_ABBREV_FALLBACK = {
+	Common = "C", Uncommon = "UC", Rare = "R", Epic = "M", Mystic = "M", Legendary = "L",
+}
+
+local function computeInvCellAssignment(entry, data)
+	local uidStr = tostring(entry.uid or "")
+	local isEgg = entry.isEgg == true
+	local isBase, isDef, isFav, isBattle = false, false, false, false
+	local battleSlotNum = nil
+	if data then
+		if data.baseUidSet and data.baseUidSet[uidStr] then isBase = true end
+		if data.defenseUidSet and data.defenseUidSet[uidStr] then isDef = true end
+		if data.favoriteUid and tostring(data.favoriteUid) == tostring(entry.uid) then isFav = true end
+		if data.battleTeamSlots and #data.battleTeamSlots > 0 then
+			for _, t in ipairs(data.battleTeamSlots) do
+				if t and t.uid and tostring(t.uid) == uidStr then
+					isBattle = true
+					battleSlotNum = tonumber(t.slot)
+					break
+				end
+			end
+		elseif data.battleTeam then
+			for s, bu in pairs(data.battleTeam) do
+				if bu and tostring(bu) == uidStr then
+					isBattle = true
+					battleSlotNum = tonumber(s)
+					break
+				end
+			end
+		end
+	end
+	local optState = pendingOptimistic[uidStr]
+	if optState then
+		if optState.base ~= nil then isBase = optState.base end
+		if optState.def ~= nil then isDef = optState.def end
+	end
+	if isEgg then
+		isBase = false
+		isDef = false
+		isFav = false
+		isBattle = false
+		battleSlotNum = nil
+	end
+	return isBase, isDef, isFav, isBattle, battleSlotNum
+end
+
+local function invCellStrokeFromAssignment(isFav, isBattle, isDef, isBase)
+	if isFav then return C.favorite, "Favorite" end
+	if isBattle then return C.battle, "Battle" end
+	if isDef then return C.defense, "Defense" end
+	if isBase then return C.income, "Income" end
+	return C.divider, "None"
+end
+
+local function invCellPlacementLabel(isEgg, isFav, isBattle, battleSlotNum, isDef, isBase, entry)
+	if isEgg then
+		return "Egg", Color3.fromRGB(18, 20, 28)
+	end
+	if isFav then
+		return "★ Lv." .. tostring(entry.level or 1), C.favorite
+	end
+	if isBattle then
+		local sn = (battleSlotNum and battleSlotNum > 0) and tostring(battleSlotNum) or ""
+		return "B" .. sn, C.battle:Lerp(Color3.fromRGB(12, 14, 22), 0.42)
+	end
+	if isDef then
+		return "DEF", C.defense:Lerp(Color3.fromRGB(12, 14, 22), 0.42)
+	end
+	if isBase then
+		return "INC", C.income:Lerp(Color3.fromRGB(12, 14, 22), 0.42)
+	end
+	return "Lv." .. tostring(entry.level or 1), Color3.fromRGB(18, 20, 28)
+end
+
+local function getRarityAbbrevForCell(rarityName)
+	local r = tostring(rarityName or "Common")
+	if CinematicCellConfig and CinematicCellConfig.GetRarityAbbrev then
+		return CinematicCellConfig.GetRarityAbbrev(r)
+	end
+	return RARITY_ABBREV_FALLBACK[r] or "C"
+end
+
 local function mkInvCell(entry, creature, data, order)
 	local mobile = isMobileLayout()
 	local isEgg = entry.isEgg == true
@@ -2073,30 +2175,10 @@ local function mkInvCell(entry, creature, data, order)
 	local uidStr = tostring(entry.uid or "")
 	local isSelected = (selectedInventoryUid ~= nil) and tostring(selectedInventoryUid) == uidStr
 
-	-- Assignment highlights (Favorite / Income / Defense)
-	local isBase, isDef, isFav = false, false, false
-	if data then
-		if data.baseUidSet and data.baseUidSet[uidStr] then isBase = true end
-		if data.defenseUidSet and data.defenseUidSet[uidStr] then isDef = true end
-		if data.favoriteUid and tostring(data.favoriteUid) == tostring(entry.uid) then isFav = true end
-	end
-	local optState = pendingOptimistic[uidStr]
-	if optState then
-		if optState.base ~= nil then isBase = optState.base end
-		if optState.def  ~= nil then isDef  = optState.def  end
-	end
-	-- Eggs cannot be favorite/income/defense
-	if isEgg then
-		isBase = false
-		isDef = false
-		isFav = false
-	end
+	local isBase, isDef, isFav, isBattle, battleSlotNum = computeInvCellAssignment(entry, data)
 
 	local function statusColor()
-		if isFav then return C.favorite, "Favorite" end
-		if isDef then return C.defense, "Defense" end
-		if isBase then return C.income, "Income" end
-		return C.divider, "None"
+		return invCellStrokeFromAssignment(isFav, isBattle, isDef, isBase)
 	end
 
 	local cell = Instance.new("TextButton")
@@ -2158,41 +2240,51 @@ local function mkInvCell(entry, creature, data, order)
 	orb.BackgroundColor3 = creature.primaryColor or rc
 	orb.BackgroundTransparency = 0.35
 	orb.BorderSizePixel = 0
+	orb.ZIndex = 1
 	orb.Parent = viewerHost
 
-	local levelBadge = Instance.new("Frame")
-	levelBadge.Name = "LevelBadge"
-	levelBadge.AutomaticSize = Enum.AutomaticSize.X
-	levelBadge.Size = UDim2.fromOffset(0, 20)
-	levelBadge.Position = UDim2.new(0, 5, 0, 5)
-	levelBadge.BackgroundColor3 = Color3.fromRGB(18, 20, 28)
-	levelBadge.BackgroundTransparency = 0.12
-	levelBadge.BorderSizePixel = 0
-	levelBadge.ZIndex = 4
-	levelBadge.Parent = viewportContainer
-	Instance.new("UICorner", levelBadge).CornerRadius = UDim.new(0, 6)
+	local placeText, placeBg = invCellPlacementLabel(isEgg, isFav, isBattle, battleSlotNum, isDef, isBase, entry)
+	local placementBadge = Instance.new("Frame")
+	placementBadge.Name = "PlacementBadge"
+	placementBadge.AutomaticSize = Enum.AutomaticSize.X
+	placementBadge.Size = UDim2.fromOffset(0, 20)
+	placementBadge.Position = UDim2.new(0, 5, 0, 5)
+	placementBadge.BackgroundColor3 = placeBg
+	placementBadge.BackgroundTransparency = 0.1
+	placementBadge.BorderSizePixel = 0
+	placementBadge.ZIndex = 15
+	placementBadge.Parent = viewportContainer
+	Instance.new("UICorner", placementBadge).CornerRadius = UDim.new(0, 6)
 	do
 		local lp = Instance.new("UIPadding")
 		lp.PaddingLeft = UDim.new(0, 7)
 		lp.PaddingRight = UDim.new(0, 7)
 		lp.PaddingTop = UDim.new(0, 2)
 		lp.PaddingBottom = UDim.new(0, 2)
-		lp.Parent = levelBadge
+		lp.Parent = placementBadge
 	end
-	local lvlPill = Instance.new("TextLabel")
-	lvlPill.Name = "LevelLabel"
-	lvlPill.Size = UDim2.fromOffset(0, 14)
-	lvlPill.AutomaticSize = Enum.AutomaticSize.X
-	lvlPill.BackgroundTransparency = 1
-	lvlPill.Text = "Lv." .. tostring(entry.level or 1)
-	lvlPill.TextColor3 = Color3.fromRGB(250, 250, 255)
-	lvlPill.Font = Enum.Font.GothamBold
-	lvlPill.TextSize = 11
-	lvlPill.Parent = levelBadge
+	local placementLbl = Instance.new("TextLabel")
+	placementLbl.Name = "PlacementLabel"
+	placementLbl.Size = UDim2.fromOffset(0, 14)
+	placementLbl.AutomaticSize = Enum.AutomaticSize.X
+	placementLbl.BackgroundTransparency = 1
+	placementLbl.Text = placeText
+	placementLbl.TextColor3 = Color3.fromRGB(250, 250, 255)
+	placementLbl.Font = Enum.Font.GothamBold
+	placementLbl.TextSize = 11
+	placementLbl.ZIndex = 16
+	placementLbl.Parent = placementBadge
+	do
+		local ts = Instance.new("UIStroke")
+		ts.Thickness = 1
+		ts.Color = Color3.fromRGB(0, 0, 0)
+		ts.Transparency = 0.45
+		ts.Parent = placementLbl
+	end
 
 	local rarityName = tostring(creature.rarity or entry.rarity or "Common")
 	local rarColor = CinematicCellConfig and CinematicCellConfig.GetRarityColor(rarityName) or rc
-	local rarityAbbrev = CinematicCellConfig and CinematicCellConfig.GetRarityAbbrev(rarityName) or string.sub(rarityName, 1, 1)
+	local rarityAbbrev = getRarityAbbrevForCell(rarityName)
 	local rarityBadge = Instance.new("Frame")
 	rarityBadge.Name = "RarityBadge"
 	rarityBadge.AutomaticSize = Enum.AutomaticSize.X
@@ -2202,7 +2294,7 @@ local function mkInvCell(entry, creature, data, order)
 	rarityBadge.BackgroundColor3 = rarColor
 	rarityBadge.BackgroundTransparency = 0.08
 	rarityBadge.BorderSizePixel = 0
-	rarityBadge.ZIndex = 4
+	rarityBadge.ZIndex = 15
 	rarityBadge.Parent = viewportContainer
 	Instance.new("UICorner", rarityBadge).CornerRadius = UDim.new(0, 6)
 	do
@@ -2222,7 +2314,15 @@ local function mkInvCell(entry, creature, data, order)
 	rarPill.TextColor3 = Color3.new(1, 1, 1)
 	rarPill.Font = Enum.Font.GothamBold
 	rarPill.TextSize = 11
+	rarPill.ZIndex = 16
 	rarPill.Parent = rarityBadge
+	do
+		local ts = Instance.new("UIStroke")
+		ts.Thickness = 1
+		ts.Color = Color3.fromRGB(0, 0, 0)
+		ts.Transparency = 0.45
+		ts.Parent = rarPill
+	end
 
 	local infoContainer = Instance.new("Frame")
 	infoContainer.Name = "InfoContainer"
@@ -2331,6 +2431,7 @@ local function mkInvCell(entry, creature, data, order)
 					local statusName = ch:GetAttribute("InvStatus")
 					local baseCol = C.divider
 					if statusName == "Favorite" then baseCol = C.favorite end
+					if statusName == "Battle" then baseCol = C.battle end
 					if statusName == "Defense" then baseCol = C.defense end
 					if statusName == "Income" then baseCol = C.income end
 					st.Color = (chUid == uidStr) and C.accent or baseCol
@@ -2340,6 +2441,7 @@ local function mkInvCell(entry, creature, data, order)
 				else
 					local statusName = ch:GetAttribute("InvStatus")
 					local tintCol = (statusName == "Favorite" and C.favorite)
+						or (statusName == "Battle" and C.battle)
 						or (statusName == "Defense" and C.defense)
 						or (statusName == "Income" and C.income)
 						or nil
@@ -2415,7 +2517,7 @@ local function mkCard(entry, creature, data, order)
 	-- Dynamic slot limits based on owned floors
 	local numFloors = data.ownedFloors and #data.ownedFloors or 1
 	local maxIncome = numFloors * (GameConfig.IncomePointsPerFloor or 6)
-	local maxDefense = numFloors * (GameConfig.DefensePointsPerFloor or 6)
+	local maxDefense = numFloors * (GameConfig.DefensePointsPerFloor or 4)
 	local filledBase = data.filledBaseCount
 	if filledBase == nil then
 		filledBase = 0
@@ -2560,6 +2662,18 @@ end
 -- --------------------------------------------
 -- BATTLE TAB - YOUR FORMATION + AFFINITY
 -- --------------------------------------------
+
+local function playerOwnsFloor2(ownedFloors)
+	if not ownedFloors then
+		return false
+	end
+	for _, f in ipairs(ownedFloors) do
+		if tonumber(f) == 2 then
+			return true
+		end
+	end
+	return false
+end
 
 local function computeBattleTabSnapshot(invData)
 	local battleTeamEnabled = invData.battleTeamEnabled ~= false
@@ -4611,15 +4725,7 @@ refreshBattleFast = function(hints)
 	local refreshGen = battleRefreshGeneration
 	local restoreScroll = captureScrollPosition()
 
-	local invData = nil
-	if Evt.getInventory then
-		local ok, r = pcall(function()
-			return Evt.getInventory:InvokeServer()
-		end)
-		if ok and r then
-			invData = r
-		end
-	end
+	local invData = fetchInventoryData()
 	if refreshGen ~= battleRefreshGeneration then
 		return
 	end
@@ -4629,14 +4735,7 @@ refreshBattleFast = function(hints)
 	end
 
 	local ownedFloors = invData.ownedFloors or { 1 }
-	local ownsFloor2 = false
-	for _, f in ipairs(ownedFloors) do
-		if f == 2 then
-			ownsFloor2 = true
-			break
-		end
-	end
-	if not ownsFloor2 then
+	if not playerOwnsFloor2(ownedFloors) then
 		refreshBattle()
 		return
 	end
@@ -4733,11 +4832,7 @@ refreshBattle = function()
 	end
 	battleSceneUi = nil
 
-	local invData = nil
-	if Evt.getInventory then
-		local ok, r = pcall(function() return Evt.getInventory:InvokeServer() end)
-		if ok and r then invData = r end
-	end
+	local invData = fetchInventoryData()
 	if refreshGen ~= battleRefreshGeneration then
 		return
 	end
@@ -4751,10 +4846,8 @@ refreshBattle = function()
 	end
 
 	-- Floor 2 ownership gating — battle requires Floor 2
-	local ownedFloors = invData.ownedFloors or {1}
-	local ownsFloor2 = false
-	for _, f in ipairs(ownedFloors) do if f == 2 then ownsFloor2 = true; break end end
-	if not ownsFloor2 then
+	local ownedFloors = invData.ownedFloors or { 1 }
+	if not playerOwnsFloor2(ownedFloors) then
 		if refreshGen ~= battleRefreshGeneration then return end
 		local lockLbl = Instance.new("TextLabel")
 		lockLbl.Size = UDim2.new(1, 0, 0, 80); lockLbl.BackgroundTransparency = 1
@@ -4770,25 +4863,45 @@ refreshBattle = function()
 		return
 	end
 
-	renderBattle3Col({
-		content = content,
-		restoreScroll = restoreScroll,
-		invButtonDebounce = invButtonDebounce,
-		Notify = Notify,
-		isMobileLayout = isMobileLayout,
-		Evt = Evt,
-		C = C,
-		ELEMENT_COLOR = ELEMENT_COLOR,
-		CodexModelViewer = CodexModelViewer,
-		battleTeamEnabled = snap.battleTeamEnabled,
-		battleTeam = snap.battleTeam,
-		battleCreatureCap = snap.battleCreatureCap,
-		gridData = snap.gridData,
-		available = snap.available,
-		uidToEntry = snap.uidToEntry,
-		pendingBattleOptimistic = pendingBattleOptimistic,
-		activeSynergies = snap.activeSynergies,
-	})
+	local okRender, renderErr = pcall(function()
+		renderBattle3Col({
+			content = content,
+			restoreScroll = restoreScroll,
+			invButtonDebounce = invButtonDebounce,
+			Notify = Notify,
+			isMobileLayout = isMobileLayout,
+			Evt = Evt,
+			C = C,
+			ELEMENT_COLOR = ELEMENT_COLOR,
+			CodexModelViewer = CodexModelViewer,
+			battleTeamEnabled = snap.battleTeamEnabled,
+			battleTeam = snap.battleTeam,
+			battleCreatureCap = snap.battleCreatureCap,
+			gridData = snap.gridData,
+			available = snap.available,
+			uidToEntry = snap.uidToEntry,
+			pendingBattleOptimistic = pendingBattleOptimistic,
+			activeSynergies = snap.activeSynergies,
+		})
+	end)
+	if not okRender then
+		warn("[InventoryUI] renderBattle3Col failed:", renderErr)
+		local errLbl = Instance.new("TextLabel")
+		errLbl.Name = "BattleRenderError"
+		errLbl.Size = UDim2.new(1, -24, 0, 140)
+		errLbl.Position = UDim2.new(0, 12, 0, 12)
+		errLbl.BackgroundTransparency = 1
+		errLbl.Text = "Battle UI failed to load (see Output for details).\n\n" .. tostring(renderErr)
+		errLbl.TextColor3 = C.red or Color3.fromRGB(220, 60, 60)
+		errLbl.Font = Enum.Font.GothamMedium
+		errLbl.TextSize = 12
+		errLbl.TextWrapped = true
+		errLbl.TextXAlignment = Enum.TextXAlignment.Left
+		errLbl.TextYAlignment = Enum.TextYAlignment.Top
+		errLbl.Parent = content
+		restoreScroll()
+		return
+	end
 	do return end
 
 	-- LEGACY BATTLE UI (disabled)
@@ -6757,12 +6870,399 @@ end
 -- --------------------------------------------
 -- REFRESH INVENTORY
 -- --------------------------------------------
+local function buildSortedInventoryForGrid(data)
+	local ro = { Legendary = 1, Epic = 2, Rare = 3, Uncommon = 4, Common = 5 }
+	local statusOf = {}
+	if data.favoriteUid then statusOf[tostring(data.favoriteUid)] = { group = 0 } end
+	if data.battleTeamSlots and #data.battleTeamSlots > 0 then
+		for _, t in ipairs(data.battleTeamSlots) do
+			if t and t.uid then statusOf[tostring(t.uid)] = { group = 1 } end
+		end
+	elseif data.battleTeam then
+		for _, bu in pairs(data.battleTeam) do statusOf[tostring(bu)] = { group = 1 } end
+	end
+	for _, u in pairs(data.defenseSlots or {}) do if u and u ~= "" then statusOf[tostring(u)] = { group = 2 } end end
+	for _, u in pairs(data.baseSlots or {}) do if u and u ~= "" then statusOf[tostring(u)] = { group = 3 } end end
+
+	local sorted = {}
+	for _, e in ipairs(data.inventory or {}) do table.insert(sorted, e) end
+	for _, egg in ipairs(data.eggs or {}) do
+		if not statusOf[tostring(egg.uid)] and not statusOf[egg.uid] then
+			table.insert(sorted, {
+				uid = egg.uid,
+				id = egg.creatureId,
+				level = egg.level,
+				isEgg = true,
+				rarity = egg.rarity,
+				mystery = egg.mystery == true,
+				inspected = egg.inspected == true,
+			})
+		end
+	end
+	table.sort(sorted, function(a, b)
+		local ca, cb = CreatureData.GetById(a.id), CreatureData.GetById(b.id)
+		if not ca or not cb then return false end
+		local sa = statusOf[tostring(a.uid)] or statusOf[a.uid] or { group = 4 }
+		local sb = statusOf[tostring(b.uid)] or statusOf[b.uid] or { group = 4 }
+		if sa.group ~= sb.group then return sa.group < sb.group end
+		local ra2, rb2 = ro[ca.rarity] or 99, ro[cb.rarity] or 99
+		if ra2 ~= rb2 then return ra2 < rb2 end
+		return ca.displayName < cb.displayName
+	end)
+	return sorted
+end
+
+local function patchInvCellVisuals(cell, entry, creature, data, layoutOrder)
+	local uidStr = tostring(entry.uid or "")
+	cell.LayoutOrder = layoutOrder
+	local isBase, isDef, isFav, isBattle, battleSlotNum = computeInvCellAssignment(entry, data)
+	local strokeCol, statusName = invCellStrokeFromAssignment(isFav, isBattle, isDef, isBase)
+	cell:SetAttribute("InvStatus", statusName)
+	local stroke = cell:FindFirstChildOfClass("UIStroke")
+	local selectedNow = (selectedInventoryUid ~= nil) and tostring(selectedInventoryUid) == uidStr
+	if stroke then
+		stroke.Color = selectedNow and C.accent or strokeCol
+	end
+	local baseBg = Color3.fromRGB(18, 20, 30)
+	if not selectedNow and strokeCol ~= C.divider then
+		baseBg = baseBg:Lerp(strokeCol, 0.08)
+	end
+	cell.BackgroundColor3 = selectedNow and Color3.fromRGB(24, 24, 30) or baseBg
+
+	local vc = cell:FindFirstChild("ViewportContainer")
+	local placeText, placeBg = invCellPlacementLabel(entry.isEgg == true, isFav, isBattle, battleSlotNum, isDef, isBase, entry)
+	local pb = vc and vc:FindFirstChild("PlacementBadge")
+	local pl = pb and pb:FindFirstChild("PlacementLabel")
+	if pb then pb.BackgroundColor3 = placeBg end
+	if pl then pl.Text = placeText end
+
+	local rarityName = tostring(creature.rarity or entry.rarity or "Common")
+	local abbrev = getRarityAbbrevForCell(rarityName)
+	local rb = vc and vc:FindFirstChild("RarityBadge")
+	local rl = rb and rb:FindFirstChild("RarityLabel")
+	if rl then rl.Text = abbrev end
+	local rarColor = CinematicCellConfig and CinematicCellConfig.GetRarityColor(rarityName)
+		or RARITY[entry.rarity or creature.rarity]
+		or C.textMut
+	if rb then rb.BackgroundColor3 = rarColor end
+end
+
+local function patchInventoryCellByUid(uidStr)
+	if type(uidStr) ~= "string" or uidStr == "" then return end
+	local cell = invCardByUid[uidStr]
+	local entry = latestInventoryLookup and latestInventoryLookup[uidStr]
+	if not cell or not entry or not latestInventoryData then return end
+	local creature = CreatureData.GetById(entry.id)
+	if not creature then return end
+	patchInvCellVisuals(cell, entry, creature, latestInventoryData, cell.LayoutOrder or 0)
+end
+
+applyFavoriteStatePatch = function(oldFavUidStr, newFavUidStr)
+	if oldFavUidStr and oldFavUidStr ~= "" then
+		patchInventoryCellByUid(oldFavUidStr)
+	end
+	if newFavUidStr and newFavUidStr ~= "" then
+		patchInventoryCellByUid(newFavUidStr)
+	end
+	if selectedInventoryUid and selectedInventoryUid ~= "" then
+		refreshSelectedInventoryDetails()
+		updateOverviewActions()
+	end
+end
+
+local function inventoryRunViewportPoolDeferred(invCards)
+	if not CodexModelViewer then return end
+	invCards = invCards or {}
+	task.defer(function()
+		if not sg or not main or not main.Parent or not main.Visible then return end
+		if activeTab ~= "inventory" then return end
+		if #invCards == 0 then
+			for i = 1, INV_VIEWER_POOL_SIZE do
+				if invViewerPool[i] then
+					invViewerPool[i]:SetCreature(nil)
+					local vf = invViewerPool[i]:GetViewportFrame()
+					if vf and vf.Parent ~= nil then
+						pcall(function()
+							vf.Parent = nil
+						end)
+					end
+				end
+			end
+			return
+		end
+		for i = 1, math.min(INV_VIEWER_POOL_SIZE, #invCards) do
+			local card = invCards[i]
+			if not invViewerPool[i] then
+				invViewerPool[i] = CodexModelViewer.new(card.slot, {
+					size = UDim2.new(1, 0, 1, 0),
+					autoRotate = false,
+					zoomEnabled = false,
+					showFloor = false,
+					themedLighting = false,
+					fillZoomScale = 0.86,
+					playIdleAnimation = true,
+					interactable = false,
+				})
+			end
+			local vf = invViewerPool[i]:GetViewportFrame()
+			if vf and vf.Parent ~= card.slot then
+				local okParent = pcall(function()
+					vf.Parent = card.slot
+				end)
+				if not okParent then
+					pcall(function()
+						if invViewerPool[i].Destroy then invViewerPool[i]:Destroy() end
+					end)
+					invViewerPool[i] = CodexModelViewer.new(card.slot, {
+						size = UDim2.new(1, 0, 1, 0),
+						autoRotate = false,
+						zoomEnabled = false,
+						showFloor = false,
+						themedLighting = false,
+						fillZoomScale = 0.86,
+						playIdleAnimation = true,
+						interactable = false,
+					})
+				end
+			end
+			invViewerPool[i]:SetCreature(card.creatureId)
+			invViewerInUse[i] = card.creatureId
+			do
+				local vfPick = invViewerPool[i]:GetViewportFrame()
+				if vfPick then
+					vfPick.Active = false
+					vfPick.ZIndex = 1
+				end
+			end
+			local viewerHost = card.frame and card.frame:FindFirstChild("ViewerHost", true)
+			local orb = viewerHost and viewerHost:FindFirstChild("Orb")
+			if orb and orb:IsA("GuiObject") then
+				orb.Visible = false
+			end
+			local vfInv = invViewerPool[i]:GetViewportFrame()
+			if vfInv then
+				local crData = CreatureData.GetById(card.creatureId)
+				if crData then
+					local bright = (CinematicCellConfig and CinematicCellConfig.GetElementBrightBackground)
+						and CinematicCellConfig.GetElementBrightBackground(tostring(crData.element or "?"))
+						or Color3.fromRGB(200, 200, 210)
+					vfInv.BackgroundColor3 = bright
+					vfInv.Ambient = Color3.fromRGB(200, 200, 200)
+					vfInv.LightColor = Color3.fromRGB(255, 252, 245)
+					vfInv.LightDirection = Vector3.new(-0.35, -0.88, -0.28).Unit
+				end
+			end
+		end
+		for i = #invCards + 1, INV_VIEWER_POOL_SIZE do
+			if invViewerPool[i] then
+				invViewerPool[i]:SetCreature(nil)
+				local vf = invViewerPool[i]:GetViewportFrame()
+				if vf and vf.Parent ~= nil then
+					local okParent = pcall(function()
+						vf.Parent = nil
+					end)
+					if not okParent then
+						pcall(function()
+							if invViewerPool[i].Destroy then invViewerPool[i]:Destroy() end
+						end)
+						invViewerPool[i] = nil
+					end
+				end
+			end
+		end
+		for i = INV_VIEWER_POOL_SIZE + 1, #invCards do
+			local card = invCards[i]
+			local viewerHost = card.frame and card.frame:FindFirstChild("ViewerHost", true)
+			local orb = viewerHost and viewerHost:FindFirstChild("Orb")
+			if orb and orb:IsA("GuiObject") then
+				orb.Visible = true
+			end
+		end
+	end)
+end
+
+local function tryIncrementalInventoryGridUpdate(data, sorted)
+	if #sorted == 0 then return false end
+	local gridCells = {}
+	for _, ch in ipairs(invGridScroll:GetChildren()) do
+		if ch:IsA("TextButton") and ch.Name:sub(1, 8) == "InvCell_" then
+			gridCells[#gridCells + 1] = ch
+		end
+	end
+	if #gridCells ~= #sorted then return false end
+	for _, entry in ipairs(sorted) do
+		local uid = tostring(entry.uid or "")
+		if uid == "" then return false end
+		local cell = invGridScroll:FindFirstChild("InvCell_" .. uid)
+		if not cell then return false end
+	end
+
+	latestInventoryLookup = {}
+	local hasSelected = false
+	for _, entry in ipairs(sorted) do
+		local uidStr = tostring(entry.uid or "")
+		if uidStr ~= "" then
+			latestInventoryLookup[uidStr] = entry
+			if selectedInventoryUid and selectedInventoryUid == uidStr then hasSelected = true end
+		end
+	end
+	if not hasSelected then selectedInventoryUid = tostring(sorted[1].uid or "") end
+
+	table.clear(invCardByUid)
+	for i, entry in ipairs(sorted) do
+		local uidStr = tostring(entry.uid or "")
+		local cr = CreatureData.GetById(entry.id)
+		local cell = invGridScroll:FindFirstChild("InvCell_" .. uidStr)
+		if not cell or not cr then return false end
+		patchInvCellVisuals(cell, entry, cr, data, i)
+		invCardByUid[uidStr] = cell
+	end
+
+	local invCards = {}
+	for _, entry in ipairs(sorted) do
+		local uidStr = tostring(entry.uid or "")
+		local cr = CreatureData.GetById(entry.id)
+		if cr then
+			local cell = invCardByUid[uidStr]
+			local viewerHost = cell and cell:FindFirstChild("ViewerHost", true)
+			if viewerHost and CodexModelViewer and not (entry.isEgg == true) then
+				table.insert(invCards, { frame = cell, slot = viewerHost, creatureId = entry.id })
+			end
+		end
+	end
+	refreshSelectedInventoryDetails()
+	scrollSelectedCardIntoView(false)
+	inventoryRunViewportPoolDeferred(invCards)
+	return true
+end
+
+local function parseUidSetCsv(s)
+	local set = {}
+	if type(s) ~= "string" or s == "" then
+		return set
+	end
+	for part in string.gmatch(s, "[^,]+") do
+		local uid = tostring(part):gsub("^%s+", ""):gsub("%s+$", "")
+		if uid ~= "" then
+			set[uid] = true
+		end
+	end
+	return set
+end
+
+local function collectChangedUids(oldSet, newSet, out)
+	for uid in pairs(oldSet or {}) do
+		if not (newSet and newSet[uid]) then
+			out[uid] = true
+		end
+	end
+	for uid in pairs(newSet or {}) do
+		if not (oldSet and oldSet[uid]) then
+			out[uid] = true
+		end
+	end
+end
+
+local function updateIncomeLabelFromUidSet(data)
+	if not data then return end
+	local total = 0
+	local eggUids = {}
+	for _, egg in ipairs(data.eggs or {}) do
+		if egg and egg.uid then
+			eggUids[tostring(egg.uid)] = true
+		end
+	end
+	for uid in pairs(data.baseUidSet or {}) do
+		if not eggUids[uid] then
+			local entry = latestInventoryLookup and latestInventoryLookup[uid]
+			local c = entry and CreatureData.GetById(entry.id)
+			if c then
+				total += (c.baseIncome or 0)
+			end
+		end
+	end
+	incomeLbl.Text = math.floor(total * (60 / GameConfig.IncomeTickSeconds)) .. "/min"
+end
+
+local function tryPatchInventoryCellsForSlotUpdate(baseStr, defStr)
+	if activeTab ~= "inventory" then
+		return false
+	end
+	if not latestInventoryData then
+		return false
+	end
+	if next(invCardByUid) == nil then
+		return false
+	end
+
+	local oldBaseSet = latestInventoryData.baseUidSet or {}
+	local oldDefSet = latestInventoryData.defenseUidSet or {}
+	local newBaseSet = parseUidSetCsv(baseStr)
+	local newDefSet = parseUidSetCsv(defStr)
+	local changed = {}
+	collectChangedUids(oldBaseSet, newBaseSet, changed)
+	collectChangedUids(oldDefSet, newDefSet, changed)
+
+	latestInventoryData.baseSlotUidsStr = baseStr
+	latestInventoryData.defenseSlotUidsStr = defStr
+	latestInventoryData.baseUidSet = newBaseSet
+	latestInventoryData.defenseUidSet = newDefSet
+
+	-- Point moves within same slot membership can emit an update with no set changes.
+	if next(changed) == nil then
+		updateIncomeLabelFromUidSet(latestInventoryData)
+		if selectedInventoryUid and selectedInventoryUid ~= "" then
+			refreshSelectedInventoryDetails()
+		end
+		return true
+	end
+
+	for uid in pairs(changed) do
+		local cell = invCardByUid[uid]
+		local entry = latestInventoryLookup and latestInventoryLookup[uid]
+		if not cell or not entry then
+			return false
+		end
+		local creature = CreatureData.GetById(entry.id)
+		if not creature then
+			return false
+		end
+		patchInvCellVisuals(cell, entry, creature, latestInventoryData, cell.LayoutOrder or 0)
+	end
+
+	updateIncomeLabelFromUidSet(latestInventoryData)
+	if selectedInventoryUid and selectedInventoryUid ~= "" then
+		refreshSelectedInventoryDetails()
+	end
+	return true
+end
+
 local refreshLock = false
 local refreshQueued = false
+local lastInventoryFetchAt = 0
+local INVENTORY_FETCH_COOLDOWN = tonumber(GameConfig.InventoryFetchCooldown) or 0.2
 -- Last slot UID strings from SlotAssignComplete; used when refresh runs without overrides (e.g. deferred)
 local lastSlotBaseStr, lastSlotDefStr = nil, nil
 
+local function fetchInventoryData(force)
+	if not Evt.getInventory then return nil end
+	local now = tick()
+	if not force and latestInventoryData and (now - lastInventoryFetchAt) <= INVENTORY_FETCH_COOLDOWN then
+		return latestInventoryData
+	end
+	local invokeStart = os.clock()
+	local ok, data = pcall(function() return Evt.getInventory:InvokeServer() end)
+	perfLog("GetInventory.InvokeServer", invokeStart)
+	if ok and data then
+		lastInventoryFetchAt = now
+		latestInventoryData = data
+		return data
+	end
+	return nil
+end
+
 refreshInventory = function(overrideBaseStr, overrideDefStr)
+	local refreshStart = os.clock()
 	if refreshLock then
 		refreshQueued = true
 		return
@@ -6770,10 +7270,8 @@ refreshInventory = function(overrideBaseStr, overrideDefStr)
 	refreshLock = true
 	local restoreScroll = captureScrollPosition()
 
-	if not Evt.getInventory then refreshLock = false; restoreScroll(); return end
-	local ok, data = pcall(function() return Evt.getInventory:InvokeServer() end)
-	if not ok or not data then refreshLock = false; restoreScroll(); return end
-	latestInventoryData = data
+	local data = fetchInventoryData((overrideBaseStr ~= nil) or (overrideDefStr ~= nil))
+	if not data then refreshLock = false; restoreScroll(); return end
 	updateBaseUnderAttackBadgeVisibility(data.defenseRaidActive == true)
 	latestInventoryLookup = {}
 
@@ -6805,7 +7303,7 @@ refreshInventory = function(overrideBaseStr, overrideDefStr)
 	end
 	local numFloors = data.ownedFloors and #data.ownedFloors or 1
 	local maxInc = math.max(data.incomeMax or (numFloors * (GameConfig.IncomePointsPerFloor or 6)), 6)
-	local maxDef = math.max(data.defenseMax or (numFloors * (GameConfig.DefensePointsPerFloor or 6)), 6)
+	local maxDef = math.max(data.defenseMax or (numFloors * (GameConfig.DefensePointsPerFloor or 4)), 4)
 	data.baseSlots = normalizeSlots(data.baseSlots, maxInc)
 	data.defenseSlots = normalizeSlots(data.defenseSlots, maxDef)
 	-- Rem button: use slot UIDs from event (override or last from SlotAssignComplete), else GetInventory/slots.
@@ -6875,15 +7373,7 @@ refreshInventory = function(overrideBaseStr, overrideDefStr)
 		return
 	end
 
-	table.clear(invCardByUid)
-	for _, ch in ipairs(content:GetChildren()) do
-		if not ch:IsA("UIListLayout") then ch:Destroy() end
-	end
-	for _, ch in ipairs(invGridScroll:GetChildren()) do
-		if not ch:IsA("UIGridLayout") and not ch:IsA("UIPadding") then
-			ch:Destroy()
-		end
-	end
+	local sorted = buildSortedInventoryForGrid(data)
 
 	coinLbl.Text = "Coins: " .. tostring(data.coins)
 	countLbl.Text = #data.inventory .. "/" .. GameConfig.MaxInventorySize
@@ -6908,47 +7398,23 @@ refreshInventory = function(overrideBaseStr, overrideDefStr)
 	end
 	incomeLbl.Text = math.floor(ipt * (60 / GameConfig.IncomeTickSeconds)) .. "/min"
 
-	local ro = { Legendary=1, Epic=2, Rare=3, Uncommon=4, Common=5 }
-
-	-- Build status lookup: category order = Favorite, Battle Team, Defense, Income, Unassignedg
-	local statusOf = {} -- uid -> { group }
-	-- Group 0 = Favorite, 1 = Battle Team, 2 = Defense, 3 = Income, 4 = Unassigned
-	if data.favoriteUid then statusOf[tostring(data.favoriteUid)] = { group = 0 } end
-	if data.battleTeamSlots and #data.battleTeamSlots > 0 then
-		for _, t in ipairs(data.battleTeamSlots) do if t and t.uid then statusOf[tostring(t.uid)] = { group = 1 } end end
-	elseif data.battleTeam then
-		for _, bu in pairs(data.battleTeam) do statusOf[tostring(bu)] = { group = 1 } end
+	if tryIncrementalInventoryGridUpdate(data, sorted) then
+		refreshLock = false
+		restoreScroll()
+		perfLog("refreshInventory", refreshStart)
+		if refreshQueued then refreshQueued = false; task.defer(refreshInventory) end
+		return
 	end
-	for _, u in pairs(data.defenseSlots or {}) do if u and u ~= "" then statusOf[tostring(u)] = { group = 2 } end end
-	for _, u in pairs(data.baseSlots or {}) do if u and u ~= "" then statusOf[tostring(u)] = { group = 3 } end end
 
-	local sorted = {}
-	for _, e in ipairs(data.inventory) do table.insert(sorted, e) end
-	for _, egg in ipairs(data.eggs or {}) do
-		if not statusOf[tostring(egg.uid)] and not statusOf[egg.uid] then
-			table.insert(sorted, {
-				uid = egg.uid,
-				id = egg.creatureId,
-				level = egg.level,
-				isEgg = true,
-				rarity = egg.rarity,
-				mystery = egg.mystery == true,
-				inspected = egg.inspected == true,
-			})
+	table.clear(invCardByUid)
+	for _, ch in ipairs(content:GetChildren()) do
+		if not ch:IsA("UIListLayout") then ch:Destroy() end
+	end
+	for _, ch in ipairs(invGridScroll:GetChildren()) do
+		if not ch:IsA("UIGridLayout") and not ch:IsA("UIPadding") then
+			ch:Destroy()
 		end
 	end
-	table.sort(sorted, function(a, b)
-		local ca, cb = CreatureData.GetById(a.id), CreatureData.GetById(b.id)
-		if not ca or not cb then return false end
-		local sa = statusOf[tostring(a.uid)] or statusOf[a.uid] or { group = 4 }
-		local sb = statusOf[tostring(b.uid)] or statusOf[b.uid] or { group = 4 }
-		-- Sort by category first: Favorite, Battle Team, Defense, Income, Unassigned
-		if sa.group ~= sb.group then return sa.group < sb.group end
-		-- Within each category, sort by rarity then name
-		local ra2, rb2 = ro[ca.rarity] or 99, ro[cb.rarity] or 99
-		if ra2 ~= rb2 then return ra2 < rb2 end
-		return ca.displayName < cb.displayName
-	end)
 
 	if #sorted == 0 then
 		local e = Instance.new("TextLabel"); e.Size = UDim2.new(1, 0, 0, 70)
@@ -6993,107 +7459,11 @@ refreshInventory = function(overrideBaseStr, overrideDefStr)
 	scrollSelectedCardIntoView(true)
 
 	-- Populate visible inventory cards with 3D viewport models (pooled)
-	if CodexModelViewer and #invCards > 0 then
-		task.defer(function()
-			-- UI can be closed/destroyed before this runs; bail to avoid viewport reparent errors.
-			if not sg or not main or not main.Parent or not main.Visible then return end
-			if activeTab ~= "inventory" then return end
-			for i = 1, math.min(INV_VIEWER_POOL_SIZE, #invCards) do
-				local card = invCards[i]
-				if not invViewerPool[i] then
-					invViewerPool[i] = CodexModelViewer.new(card.slot, {
-						size = UDim2.new(1, 0, 1, 0),
-						autoRotate = false,
-						zoomEnabled = false,
-						showFloor = false,
-						themedLighting = false,
-						fillZoomScale = 0.86,
-						playIdleAnimation = true,
-						-- Preview must not capture taps; outer InvCell TextButton handles selection (touch + mouse).
-						interactable = false,
-					})
-				end
-				local vf = invViewerPool[i]:GetViewportFrame()
-				if vf and vf.Parent ~= card.slot then
-					local okParent = pcall(function()
-						vf.Parent = card.slot
-					end)
-					-- If the ViewportFrame was destroyed with its prior parent, recreate the pooled viewer.
-					if not okParent then
-						pcall(function()
-							if invViewerPool[i].Destroy then invViewerPool[i].Destroy() end
-						end)
-						invViewerPool[i] = CodexModelViewer.new(card.slot, {
-							size = UDim2.new(1, 0, 1, 0),
-							autoRotate = false,
-							zoomEnabled = false,
-							showFloor = false,
-							themedLighting = false,
-							fillZoomScale = 0.86,
-							playIdleAnimation = true,
-							interactable = false,
-						})
-					end
-				end
-				invViewerPool[i]:SetCreature(card.creatureId)
-				invViewerInUse[i] = card.creatureId
-				do
-					local vfPick = invViewerPool[i]:GetViewportFrame()
-					if vfPick then vfPick.Active = false end
-				end
-
-				-- Hide fallback orb when viewport is mounted (prevents “static circle” look).
-				local viewerHost = card.frame and card.frame:FindFirstChild("ViewerHost", true)
-				local orb = viewerHost and viewerHost:FindFirstChild("Orb")
-				if orb and orb:IsA("GuiObject") then
-					orb.Visible = false
-				end
-				local vfInv = invViewerPool[i]:GetViewportFrame()
-				if vfInv then
-					local crData = CreatureData.GetById(card.creatureId)
-					if crData then
-						local bright = (CinematicCellConfig and CinematicCellConfig.GetElementBrightBackground)
-							and CinematicCellConfig.GetElementBrightBackground(tostring(crData.element or "?"))
-							or Color3.fromRGB(200, 200, 210)
-						vfInv.BackgroundColor3 = bright
-						vfInv.Ambient = Color3.fromRGB(200, 200, 200)
-						vfInv.LightColor = Color3.fromRGB(255, 252, 245)
-						vfInv.LightDirection = Vector3.new(-0.35, -0.88, -0.28).Unit
-					end
-				end
-			end
-			for i = #invCards + 1, INV_VIEWER_POOL_SIZE do
-				if invViewerPool[i] then
-					invViewerPool[i]:SetCreature(nil)
-					local vf = invViewerPool[i]:GetViewportFrame()
-					if vf and vf.Parent ~= nil then
-						local okParent = pcall(function()
-							vf.Parent = nil
-						end)
-						if not okParent then
-							pcall(function()
-								if invViewerPool[i].Destroy then invViewerPool[i].Destroy() end
-							end)
-							invViewerPool[i] = nil
-						end
-					end
-				end
-			end
-
-			-- Restore fallback orb for cards not covered by the viewer pool.
-			for i = INV_VIEWER_POOL_SIZE + 1, #invCards do
-				local card = invCards[i]
-				local viewerHost = card.frame and card.frame:FindFirstChild("ViewerHost", true)
-				local orb = viewerHost and viewerHost:FindFirstChild("Orb")
-				if orb and orb:IsA("GuiObject") then
-					orb.Visible = true
-				end
-			end
-		end)
-	end
+	inventoryRunViewportPoolDeferred(invCards)
 
 	refreshLock = false
 	restoreScroll()
+	perfLog("refreshInventory", refreshStart)
 	if refreshQueued then refreshQueued = false; task.defer(refreshInventory) end
 end
 
@@ -7103,7 +7473,9 @@ task.spawn(function()
 	if evt and evt:IsA("RemoteEvent") then
 		evt.OnClientEvent:Connect(function(baseStr, defStr)
 			lastSlotBaseStr, lastSlotDefStr = baseStr, defStr
-			refreshInventory(baseStr, defStr)
+			if not tryPatchInventoryCellsForSlotUpdate(baseStr, defStr) then
+				refreshInventory(baseStr, defStr)
+			end
 			if activeTab == "bag" and refreshBag then refreshBag() end
 		end)
 	end
@@ -7225,6 +7597,7 @@ local function applyMainFrameLayout()
 end
 -- defaultTab: "inventory" (I / HUD Inventory button) or "battle" (B / B button) or "badbag" (Badlands)
 local function openUI(defaultTab)
+	local openStart = os.clock()
 	if not syncVisibleStateFromGui() then
 		_agentLog("H2", "openUI", "blocked_by_sync", { defaultTab = defaultTab or "inventory" })
 		return
@@ -7249,31 +7622,49 @@ local function openUI(defaultTab)
 	MobileWindowLayout.NotifyMenuOpened()
 	task.defer(updateFavOrb)
 	task.delay(0.5, updateFavOrb)
-	TweenService:Create(main, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		Size = UDim2.fromOffset(w, h)
-	}):Play()
-	-- FIX #21: Wrap tab switch + refresh in pcall so a rendering error in one tab
-	-- (e.g. mkCard button layout) doesn't kill the thread and leave the UI invisible.
-	local tabOk, tabErr = pcall(function()
-		if defaultTab == "badbag" then
-			setTab("badbag"); if refreshBadBag then refreshBadBag() end
-		elseif defaultTab == "battle" then
-			setTab("battle"); refreshBattle()
-		else
-			setTab("inventory"); refreshInventory()
-		end
-	end)
-	if not tabOk then
-		warn("[InventoryUI] openUI tab refresh error: " .. tostring(tabErr))
-	end
-	_agentLog("H3", "openUI", "after_open", {
-		defaultTab = defaultTab,
-		tabOk = tabOk,
-		tabErr = tabErr and tostring(tabErr) or nil,
-		mainVisible = main and main.Visible,
-		mainSize = main and tostring(main.Size),
-		isVis = isVis,
+	local openTweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+	local openTween = TweenService:Create(main, openTweenInfo, {
+		Size = UDim2.fromOffset(w, h),
 	})
+	-- Switch tab chrome immediately; defer heavy refresh until the panel reaches full height.
+	-- While `main` is still ~10px tall (grow tween), body `content` gets ~0 viewport height — building Battle/
+	-- Inventory there renders invisible until something refreshes again (e.g. clicking the tab).
+	if defaultTab == "badbag" then
+		setTab("badbag")
+	elseif defaultTab == "battle" then
+		setTab("battle")
+	else
+		setTab("inventory")
+	end
+	openTween.Completed:Once(function(playbackState)
+		-- Tween Completed may pass PlaybackState; tolerate older/no-arg handlers.
+		if playbackState and playbackState ~= Enum.PlaybackState.Completed then
+			return
+		end
+		if not isVis or not main.Visible then
+			return
+		end
+		task.defer(function()
+			local tabOk, tabErr = pcall(function()
+				if refreshCurrentTab then
+					refreshCurrentTab()
+				end
+			end)
+			if not tabOk then
+				warn("[InventoryUI] openUI tab refresh error: " .. tostring(tabErr))
+			end
+			_agentLog("H3", "openUI", "after_open", {
+				defaultTab = defaultTab,
+				tabOk = tabOk,
+				tabErr = tabErr and tostring(tabErr) or nil,
+				mainVisible = main and main.Visible,
+				mainSize = main and tostring(main.Size),
+				isVis = isVis,
+			})
+			perfLog("openUI.deferRefresh", openStart)
+		end)
+	end)
+	openTween:Play()
 end
 local function closeUI()
 	if not syncVisibleStateFromGui() then return end

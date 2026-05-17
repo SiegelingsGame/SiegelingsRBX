@@ -364,11 +364,21 @@ local function stopUnknownBackground(soundObj)
 end
 
 local function stopUnknownBackgroundNow()
-	for _, desc in ipairs(game:GetDescendants()) do
-		if desc:IsA("Sound") then
-			stopUnknownBackground(desc)
+	-- Sounds are authored under SoundService; avoid scanning the entire DataModel.
+	local function scan(container)
+		local n = 0
+		for _, desc in ipairs(container:GetDescendants()) do
+			n += 1
+			if n >= 800 then
+				n = 0
+				task.wait()
+			end
+			if desc:IsA("Sound") then
+				stopUnknownBackground(desc)
+			end
 		end
 	end
+	scan(SoundService)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════

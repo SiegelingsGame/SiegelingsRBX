@@ -10,6 +10,7 @@ local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local CreatureModelLoader = require(ReplicatedStorage.Modules.CreatureModelLoader)
 local EleminionData = require(ReplicatedStorage.Modules.EleminionData)
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+local ServerLog = require(ReplicatedStorage.Modules.ServerLog)
 
 local EleminionSystem = {}
 
@@ -46,7 +47,7 @@ local warnedMissingPoints = {}
 -- ══════════════════════════════════════════════════════════════════════════
 local npcSpawnPoints = {}  -- [element] = BasePart currently hosting that Eleminion NPC
 
-warn("[EleminionSystem] Module loaded")
+ServerLog.PrintDebug("[EleminionSystem] Module loaded")
 
 local function normalizeName(value)
 	return string.lower((tostring(value or "")):gsub("[%s%p_]+", ""))
@@ -1069,7 +1070,7 @@ local function spawnNpc(def, point)
 		model:SetAttribute("EleminionUsingFallback", true)
 	else
 		model:SetAttribute("EleminionUsingFallback", false)
-		print(string.format(
+		ServerLog.PrintDebug(string.format(
 			"[EleminionSystem] Loaded NPC model for %s using template %s",
 			tostring(def.element),
 			tostring(model:GetAttribute("TemplateName") or info.modelName)
@@ -1213,7 +1214,7 @@ local function ensureNpcForDefinition(def)
 	if npc and npc.Parent then
 		return npc
 	end
-	print(string.format("[EleminionSystem] Spawning %s at %s", tostring(def.npcCreatureId), point:GetFullName()))
+	ServerLog.PrintDebug(string.format("[EleminionSystem] Spawning %s at %s", tostring(def.npcCreatureId), point:GetFullName()))
 	return spawnNpc(def, point)
 end
 
@@ -1224,16 +1225,15 @@ local function ensureAllNpcs()
 end
 
 function EleminionSystem.Init(playerDataManager)
-	warn("[EleminionSystem] Init called")
+	ServerLog.PrintDebug("[EleminionSystem] Init called")
 	PlayerDataManager = playerDataManager
 	if PlayerDataManager and PlayerDataManager.BindEleminionObserver then
 		PlayerDataManager.BindEleminionObserver(EleminionSystem)
-		warn("[EleminionSystem] Bound to PlayerDataManager observer")
+		ServerLog.PrintDebug("[EleminionSystem] Bound to PlayerDataManager observer")
 	end
 
 	if not isEnabled() then
 		print("[EleminionSystem] Disabled via GameConfig.EleminionsEnabled")
-		warn("[EleminionSystem] Disabled via GameConfig.EleminionsEnabled")
 		return
 	end
 
@@ -1242,7 +1242,7 @@ function EleminionSystem.Init(playerDataManager)
 		warn("[EleminionSystem] Events folder not found")
 		return
 	end
-	warn("[EleminionSystem] Events folder found")
+	ServerLog.PrintDebug("[EleminionSystem] Events folder found")
 
 	openUiEvent = eventsFolder:FindFirstChild("OpenEleminionUI")
 	statusUpdateEvent = eventsFolder:FindFirstChild("EleminionStatusUpdated")
@@ -1273,9 +1273,10 @@ function EleminionSystem.Init(playerDataManager)
 	end
 
 	ensureAllNpcs()
+	local ensureInterval = math.max(1, tonumber(GameConfig.EleminionEnsureNpcIntervalSeconds) or 10)
 	task.spawn(function()
 		while true do
-			task.wait(10)
+			task.wait(ensureInterval)
 			ensureAllNpcs()
 		end
 	end)
@@ -1287,7 +1288,6 @@ function EleminionSystem.Init(playerDataManager)
 	end)
 
 	print("[EleminionSystem] Initialized")
-	warn("[EleminionSystem] Initialized")
 end
 
 return EleminionSystem

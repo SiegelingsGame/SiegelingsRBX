@@ -21,6 +21,7 @@ StarterGui.ResetPlayerGuiOnSpawn = false
 
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+local ServerLog = require(ReplicatedStorage.Modules.ServerLog)
 local NpcSpawnMarkers = require(ReplicatedStorage.Modules.NpcSpawnMarkers)
 local PlayerWorldStats = require(ReplicatedStorage.Modules:WaitForChild("PlayerWorldStats"))
 
@@ -454,7 +455,6 @@ do
 	if ok then
 		EleminionSystem = result
 		print("[MainServer] EleminionSystem require OK")
-		warn("[MainServer] EleminionSystem require OK")
 	else
 		warn("[MainServer] EleminionSystem require FAILED: " .. tostring(result))
 	end
@@ -770,12 +770,11 @@ if EleminionSystem then
 	end)
 	if ok then
 		print("[MainServer] EleminionSystem OK")
-		warn("[MainServer] EleminionSystem OK")
 	else
 		warn("[MainServer] EleminionSystem failed: " .. tostring(err))
 	end
 else
-	warn("[MainServer] EleminionSystem missing - Init skipped")
+	ServerLog.WarnOnce("eleminion_missing", "[MainServer] EleminionSystem missing — Init skipped")
 end
 if DecorSystem then
 	local ok, err = pcall(function() DecorSystem.Init(PlayerDataManager) end)
@@ -1102,39 +1101,44 @@ end
 -- Hide empty-plot sign UIs immediately so map assets do not show their default label text.
 refreshAllPlotSigns()
 
+--- Hatch ready eggs for all online players; incremental placement only (shared by income and fallback loops).
+local function runEggHatchForAllPlayers()
+	for _, p in ipairs(Players:GetPlayers()) do
+		local anyHatched, hatchedSlots = PlayerDataManager.ProcessEggHatches(p)
+		if anyHatched and BasePlacementSystem then
+			for _, h in ipairs(hatchedSlots) do
+				BasePlacementSystem.PlaceCreatureInSlot(p, h.slotType, h.slotIndex, h.newUid)
+			end
+		end
+	end
+end
 
 if BaseIncomeSystem then
 	BaseIncomeSystem.Init(PlayerDataManager)
 	print("[MainServer] BaseIncomeSystem OK")
 	-- Egg hatching: run separately (incremental placement, no full base refresh)
 	task.spawn(function()
+		-- Stagger from BaseIncomeSystem: both use IncomeTickSeconds; waking together doubled
+		-- server work on the same frame every ~10s. Half-period offset spreads the spike.
+		local tickSec = math.max(1, tonumber(GameConfig.IncomeTickSeconds) or 10)
+		task.wait(tickSec * 0.5)
 		while true do
-			task.wait(GameConfig.IncomeTickSeconds)
-			for _, p in ipairs(Players:GetPlayers()) do
-				local anyHatched, hatchedSlots = PlayerDataManager.ProcessEggHatches(p)
-				if anyHatched and BasePlacementSystem then
-					for _, h in ipairs(hatchedSlots) do
-						BasePlacementSystem.PlaceCreatureInSlot(p, h.slotType, h.slotIndex, h.newUid)
-					end
-				end
-			end
+			task.wait(tickSec)
+			runEggHatchForAllPlayers()
 		end
 	end)
 else
+	ServerLog.WarnOnce(
+		"mainserver_inline_economy",
+		"[MainServer] BaseIncomeSystem missing — inline economy fallback active (simplified income; no BaseIncomeSystem night/buff rules)."
+	)
 	task.spawn(function()
 		while true do
 			task.wait(GameConfig.IncomeTickSeconds)
+			runEggHatchForAllPlayers()
 			for _, p in ipairs(Players:GetPlayers()) do
 				local d = PlayerDataManager.GetData(p)
 				if d then
-					-- Hatch eggs that are ready (placed on base/defense points)
-					-- Use incremental PlaceCreatureInSlot per hatched slot instead of full PlaceCreatures
-					local anyHatched, hatchedSlots = PlayerDataManager.ProcessEggHatches(p)
-					if anyHatched and BasePlacementSystem then
-						for _, h in ipairs(hatchedSlots) do
-							BasePlacementSystem.PlaceCreatureInSlot(p, h.slotType, h.slotIndex, h.newUid)
-						end
-					end
 					-- Income: only from creatures on income slots (eggs generate nothing)
 					local inc = 0
 					for _, uid in ipairs(d.baseSlots or {}) do
@@ -1759,53 +1763,8 @@ for _, plr in ipairs(Players:GetPlayers()) do
 	end)
 end
 
-local WORLD_COLLISION_ENFORCE_DELAY = 3 -- FIX #20: delay world collision audit until workspace replication settles
-local function enforceWorldCollision()
-	local creatureTags = { "WorldCreature", "BaseDefenseCreature", "BaseIncomeCreature", "FavoriteCreature" }
-	local creatureModels = {}
-	for _, tag in ipairs(creatureTags) do
-		for _, model in ipairs(CollectionService:GetTagged(tag)) do
-			if model and model.Parent then
-				creatureModels[model] = true -- FIX #20: exclude creature hierarchies from world collision enforcement
-			end
-		end
-	end
-
-	for _, obj in ipairs(Workspace:GetDescendants()) do
-		if obj:IsA("BasePart") then
-			local isCreaturePart = false
-			local parent = obj.Parent
-			while parent and parent ~= Workspace do
-				if creatureModels[parent] then
-					isCreaturePart = true
-					break
-				end
-				parent = parent.Parent
-			end
-			if isCreaturePart then
-				continue
-			end
-
-			local char = obj:FindFirstAncestorOfClass("Model")
-			if char and Players:GetPlayerFromCharacter(char) then
-				continue
-			end
-
-			if obj.Transparency < 0.9 and obj.Anchored then
-				-- Keep intentional shield/forcefield volumes non-collidable.
-				local lowerName = string.lower(obj.Name or "")
-				local isShieldVolume =
-					(lowerName:find("shield", 1, true) ~= nil)
-					or obj.Material == Enum.Material.ForceField
-				if isShieldVolume and obj.CanCollide == false then
-					continue
-				end
-				obj.CanCollide = true -- FIX #20: enforce collidable architectural geometry for player blocking
-			end
-		end
-	end
-end
-task.delay(WORLD_COLLISION_ENFORCE_DELAY, enforceWorldCollision)
+-- World collision is not rewritten at runtime: parts keep Studio CanCollide/Material as authored.
+-- Players and world creatures (solid Body parts) therefore resolve against the same static geometry.
 
 -- Start creature spawning independently (wait for any player to exist)
 task.spawn(function()

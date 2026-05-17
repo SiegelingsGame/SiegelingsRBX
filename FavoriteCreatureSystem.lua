@@ -28,6 +28,11 @@ local BasePlacementSystem
 local ServerScriptService = game:GetService("ServerScriptService")
 local WorldCreatureHP = nil -- loaded lazily in Init or on first damage call
 local HttpService = game:GetService("HttpService")
+local PerformanceMetrics = nil
+local CombatFXPool = nil
+pcall(function() PerformanceMetrics = require(game:GetService("ServerScriptService"):FindFirstChild("PerformanceMetrics")) end)
+pcall(function() CombatFXPool = require(game:GetService("ServerScriptService"):FindFirstChild("CombatFXPool")) end)
+local PERF_ENABLED = PerformanceMetrics and PerformanceMetrics.IsEnabled and PerformanceMetrics.IsEnabled()
 
 local FavoriteCreatureSystem = {}
 
@@ -51,6 +56,11 @@ local respawnCooldowns = {}  -- [userId] = tick() when fainted
 local faintedCompanionModels = {}  -- unused: companion destroyed immediately on faint (card flies to player)
 local pvpFaintedPlayers = {} -- [userId] = true when creature fainted in PvP (must revive with coins/gems)
 local spawnLocks = {}  -- [userId] = true while SpawnCompanion is running (prevents double spawn / leftover models)
+local function countEntries(tbl)
+	local n = 0
+	for _ in pairs(tbl) do n += 1 end
+	return n
+end
 
 -- Distance from a point to the closest point on the model's bounding box (so tall creatures can be targeted/attacked from underneath).
 local function getDistanceToModel(point, creatureModel)
@@ -308,6 +318,8 @@ local COMPANION_STAND_UP_ANGLES = {
 	draco = {-180, 0, 0},
 	dracoil = {-180, 0, 0},
 	firsky = {-180, 0, 0},
+	icecuewee = {-180, 0, 0},
+	icewee = {-180, 0, 0},
 }
 
 local function needsFacingCorrection(model)
@@ -461,6 +473,13 @@ end
 -- -- EFFECTS --
 
 local function createAttackEffect(fromPos, toPos, color)
+	if PERF_ENABLED then
+		PerformanceMetrics.Count("FavoriteCompanion.Attacks", "projectiles_spawned", 1)
+	end
+	if CombatFXPool and CombatFXPool.FireBolt then
+		CombatFXPool.FireBolt(fromPos, toPos, color, 0.2, nil, Vector3.new(1.5, 1.5, 1.5))
+		return
+	end
 	task.spawn(function()
 		local bolt = Instance.new("Part")
 		bolt.Size = Vector3.new(1.5, 1.5, 1.5); bolt.Shape = Enum.PartType.Ball
@@ -1213,6 +1232,7 @@ local function startCompanionBehavior(player, model, creatureId)
 		local frameCount = 0
 		-- Use while true + explicit checks so we don't exit just because the closure 'body' was removed/replaced (e.g. during combat/effects)
 		while true do
+			local loopToken = PERF_ENABLED and PerformanceMetrics.Begin()
 			if not model.Parent then break end
 			local dt = RunService.Heartbeat:Wait(); t = t + dt
 			frameCount = frameCount + 1
@@ -1510,12 +1530,17 @@ local function startCompanionBehavior(player, model, creatureId)
 			local toNew = newPos - currentPos
 			local moveDist = toNew.Magnitude
 			if moveDist > 0.01 then
-				local rayParams = RaycastParams.new()
-				rayParams.FilterType = Enum.RaycastFilterType.Exclude
-				rayParams.FilterDescendantsInstances = getCreatureExcludeList({ character, comp.model })
+				comp._moveRayParams = comp._moveRayParams or RaycastParams.new()
+				comp._moveRayParams.FilterType = Enum.RaycastFilterType.Exclude
+				comp._moveExcludeTimer = (comp._moveExcludeTimer or 0) + dt
+				if comp._moveExcludeTimer >= 0.25 or not comp._moveExcludeList then
+					comp._moveExcludeTimer = 0
+					comp._moveExcludeList = getCreatureExcludeList({ character, comp.model })
+				end
+				comp._moveRayParams.FilterDescendantsInstances = comp._moveExcludeList
 				local rayDir = toNew.Unit
 				local bodyRadius = math.max(bodyPart.Size.X, bodyPart.Size.Y, bodyPart.Size.Z) * 0.5
-				local hit = Workspace:Raycast(currentPos, rayDir * (moveDist + bodyRadius * 0.5), rayParams)
+				local hit = Workspace:Raycast(currentPos, rayDir * (moveDist + bodyRadius * 0.5), comp._moveRayParams)
 				if hit and hit.Distance < moveDist + 0.1 then
 					newPos = hit.Position - hit.Normal * (bodyRadius + 0.2)
 					if not isWaterFollowing then
@@ -1627,7 +1652,11 @@ local function startCompanionBehavior(player, model, creatureId)
 						end
 						local finalDamage = math.floor(math.max(1, baseDamage * elemMult))
 						createAttackEffect(bodyPart.Position, tp.Position, attackColor)
-						fireDamageNumberToPlayer(player, tp.Position, finalDamage)
+						if CombatFXPool and CombatFXPool.ShowDamage then
+							CombatFXPool.ShowDamage(tp.Position, finalDamage, Color3.fromRGB(255, 120, 80))
+						else
+							fireDamageNumberToPlayer(player, tp.Position, finalDamage)
+						end
 						-- Route through CreatureAI first (authoritative HP system)
 						if CreatureAI and CreatureAI.DamageCreature then
 							CreatureAI.DamageCreature(targetCreature, finalDamage, model)
@@ -1658,6 +1687,9 @@ local function startCompanionBehavior(player, model, creatureId)
 						ml.Text = ml.Text .. " > " .. (tinfo and tinfo.displayName or "target")
 					end
 				end
+			end
+			if PERF_ENABLED then
+				PerformanceMetrics.End("FavoriteCompanion.UpdateLoop", loopToken)
 			end
 		end
 	end)
@@ -1821,7 +1853,7 @@ function FavoriteCreatureSystem.SpawnCompanion(player)
 		_cachedBody = bodyPart, -- PERF: cache body part to avoid per-frame FindFirstChild/GetBodyPart
 		_waterCheckTimer = 0, -- PERF: throttle water state checks
 		_isInWater = false, -- PERF: cached water-state result
-		_targetScanTimer = 0, -- PERF: throttle CollectionService scans
+		_targetScanTimer = math.random() * TARGET_SCAN_INTERVAL, -- PERF: stagger target scans across companions
 		_nearbyTargets = {}, -- PERF: cached nearby target list
 		_followSpeed = 0, -- FIX #20: reset follow speed on spawn to prevent first-frame speed spikes
 	}
@@ -2118,6 +2150,7 @@ function FavoriteCreatureSystem.Init(playerDataMgr, creatureSpawnerRef, creature
 
 	-- PERFORMANCE: Single Heartbeat for companion respawn + carry visual (was 2 separate loops)
 	RunService.Heartbeat:Connect(function()
+		local loopToken = PERF_ENABLED and PerformanceMetrics.Begin()
 		-- Respawn companion when player exits water (was recalled due to non-water type in water)
 		for userId, _ in pairs(companionRecalledDueToWater) do
 			local player = Players:GetPlayerByUserId(userId)
@@ -2166,6 +2199,11 @@ function FavoriteCreatureSystem.Init(playerDataMgr, creatureSpawnerRef, creature
 			end
 			end
 			end
+		end
+		if PERF_ENABLED then
+			PerformanceMetrics.Observe("FavoriteCompanion.GlobalHeartbeat", "active_companions", countEntries(activeCompanions))
+			PerformanceMetrics.Observe("FavoriteCompanion.GlobalHeartbeat", "active_carries", countEntries(playerCarryingSteal))
+			PerformanceMetrics.End("FavoriteCompanion.GlobalHeartbeat", loopToken)
 		end
 	end)
 

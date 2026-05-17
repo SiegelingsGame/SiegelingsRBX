@@ -1,6 +1,6 @@
 -- ArenaRewardsUI.lua - StarterPlayer.StarterPlayerScripts (LocalScript)
 -- Shows reward popup after arena battles and gym battle completion screens.
--- Kill feed and banners handled by InventoryUIManager + HUDClient via NotificationManager.
+-- Kill feed and banners handled by InventoryUIManager + HUDClient via NotificationManager
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")

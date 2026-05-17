@@ -214,7 +214,7 @@ end
 
 -- -- SCREEN GUI --
 sg = Instance.new("ScreenGui")
-sg.Name = "BuffShopGUI"; sg.ResetOnSpawn = false; sg.DisplayOrder = 30; sg.Parent = playerGui
+sg.Name = "BuffShopGUI"; sg.ResetOnSpawn = false; sg.DisplayOrder = 200; sg.ZIndexBehavior = Enum.ZIndexBehavior.Global; sg.Parent = playerGui
 
 local function applyPanelScale(pnl)
 	MobileWindowLayout.SyncNpcMenuScreenGui(sg, PANEL_DESIGN_W, PANEL_DESIGN_H)

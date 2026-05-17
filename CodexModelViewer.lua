@@ -5,11 +5,13 @@
 	- Mouse wheel to zoom
 	- Auto-rotate option
 	- Element-themed lighting, background, and floor
-	- Idle animation support for viewport models
+	- Creature animation support for viewport models (Idle by default; optional Income, etc.)
 	- Safe mount/unmount from ReplicatedStorage.CreatureModels
 	- LoadModelByAssetId(assetId) - load arbitrary models from catalog via InsertService
 	- Placeholder when model missing (no errors)
 ]]
+
+-- Last updated: 2026-04-22 22:45
 
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -54,7 +56,13 @@ local DEFAULTS = {
 	showFloor = true,
 	themedLighting = true,
 	playIdleAnimation = false,
+	-- When playIdleAnimation: first animation to play ("Idle", "Income", …)
+	defaultAnimType = "Idle",
 	interactable = true,
+	-- "full" (normal render) or "silhouette" (dark hidden-shape render).
+	renderMode = "full",
+	-- Multiplier applied to auto fit distance after model load (< 1 = camera closer / larger on screen).
+	fillZoomScale = 1,
 	-- If set (e.g. UDim.new(1, 0) for a circle on a square host), applies UICorner on the
 	-- ViewportFrame. Parent Frame clipping does not mask 3D viewport output; this does.
 	viewportCornerRadius = nil,
@@ -193,6 +201,8 @@ function CodexModelViewer.new(parent, options)
 	self.themedLighting = options.themedLighting == nil and DEFAULTS.themedLighting or options.themedLighting
 	self.playIdleAnimation = options.playIdleAnimation == nil and DEFAULTS.playIdleAnimation or options.playIdleAnimation
 	self.interactable = options.interactable == nil and DEFAULTS.interactable or options.interactable
+	self.renderMode = options.renderMode or DEFAULTS.renderMode
+	self._fillZoomScale = options.fillZoomScale == nil and DEFAULTS.fillZoomScale or options.fillZoomScale
 
 	self._angleY = START_ANGLE_Y
 	self._angleX = START_ANGLE_X
@@ -310,6 +320,37 @@ function CodexModelViewer.new(parent, options)
 	return self
 end
 
+function CodexModelViewer:_applyRenderModeToModel()
+	if not self._model then return end
+	if self.renderMode ~= "silhouette" then return end
+	for _, desc in ipairs(self._model:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			desc.Color = Color3.fromRGB(42, 47, 60)
+			desc.Material = Enum.Material.SmoothPlastic
+			desc.Transparency = math.max(desc.Transparency, 0)
+			if desc:IsA("MeshPart") then
+				desc.TextureID = ""
+			end
+		elseif desc:IsA("Decal") or desc:IsA("Texture") then
+			desc.Transparency = 1
+		elseif desc:IsA("SpecialMesh") then
+			desc.TextureId = ""
+		end
+	end
+end
+
+function CodexModelViewer:SetRenderMode(mode)
+	if mode == "silhouette" then
+		self.renderMode = "silhouette"
+	else
+		self.renderMode = "full"
+	end
+	-- Re-apply on current model only for silhouette; full is naturally restored on SetCreature reload.
+	if self._model and self.renderMode == "silhouette" then
+		self:_applyRenderModeToModel()
+	end
+end
+
 function CodexModelViewer:_updateCamera()
 	local r = self._zoom
 	local ay, ax = self._angleY, self._angleX
@@ -340,8 +381,13 @@ function CodexModelViewer:_tryPlayIdle(creatureId)
 	if not self.playIdleAnimation then return end
 	local anim = getCreatureAnimation()
 	if not anim or not self._model then return end
+	local animType = self.defaultAnimType or "Idle"
 	pcall(function()
-		anim.Setup(self._model, creatureId, "Idle")
+		if anim.PlayAnimation then
+			anim.PlayAnimation(self._model, animType, creatureId)
+		else
+			anim.Setup(self._model, creatureId, animType)
+		end
 	end)
 end
 
@@ -406,7 +452,7 @@ function CodexModelViewer:SetCreature(creatureId)
 			clone:PivotTo(clone:GetPivot() * rotOffset * faceForward)
 		end
 		self._model = clone
-		self._zoom = math.clamp(getModelFitZoom(clone), self.minZoom, self.maxZoom)
+		self._zoom = math.clamp(getModelFitZoom(clone) * (self._fillZoomScale or 1), self.minZoom, self.maxZoom)
 
 		if self.showFloor then
 			local sz = getModelBoundsSize(clone)
@@ -421,7 +467,10 @@ function CodexModelViewer:SetCreature(creatureId)
 		end
 
 		self:_updateCamera()
-		self:_tryPlayIdle(creatureId)
+		self:_applyRenderModeToModel()
+		if self.renderMode ~= "silhouette" then
+			self:_tryPlayIdle(creatureId)
+		end
 	else
 		local part = Instance.new("Part")
 		part.Name = "Placeholder"
@@ -439,8 +488,9 @@ function CodexModelViewer:SetCreature(creatureId)
 			self._floor, self._floorRing = createFloor(self._world or self._viewport, theme, Vector3.new(4, 4, 4), 0)
 		end
 
-		self._zoom = math.clamp(6, self.minZoom, self.maxZoom)
+		self._zoom = math.clamp(6 * (self._fillZoomScale or 1), self.minZoom, self.maxZoom)
 	end
+	self:_applyRenderModeToModel()
 	self:_updateCamera()
 end
 

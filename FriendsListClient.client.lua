@@ -55,15 +55,15 @@ local C = {
 local sg = Instance.new("ScreenGui")
 sg.Name = "FriendsListGUI"
 sg.ResetOnSpawn = false
-sg.DisplayOrder = 32
-sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+sg.DisplayOrder = 200
+sg.ZIndexBehavior = Enum.ZIndexBehavior.Global
 sg.Parent = playerGui
 
 -- ========= PROFILE POPUP in its own ScreenGui (independent movement from base allow list) =========
 local profileSg = Instance.new("ScreenGui")
 profileSg.Name = "ProfilePopupGUI"
 profileSg.ResetOnSpawn = false
-profileSg.DisplayOrder = 33
+profileSg.DisplayOrder = 200
 profileSg.ZIndexBehavior = Enum.ZIndexBehavior.Global
 profileSg.Parent = playerGui
 
@@ -101,7 +101,7 @@ ppClose.Size = UDim2.new(0, 28, 0, 28)
 ppClose.Position = UDim2.new(1, -34, 0, 6)
 ppClose.BackgroundColor3 = C.red
 ppClose.BackgroundTransparency = 0.5
-ppClose.Text = "✕"
+ppClose.Text = GameConfig.UICloseGlyph or "X"
 ppClose.TextColor3 = C.white
 ppClose.Font = Enum.Font.GothamBold
 ppClose.TextSize = 12
@@ -399,7 +399,8 @@ end)
 local tradeSg = Instance.new("ScreenGui")
 tradeSg.Name = "TradeGUI"
 tradeSg.ResetOnSpawn = false
-tradeSg.DisplayOrder = 40
+tradeSg.DisplayOrder = 200
+tradeSg.ZIndexBehavior = Enum.ZIndexBehavior.Global
 tradeSg.Parent = playerGui
 
 local tradeUI = Instance.new("Frame")
@@ -436,7 +437,7 @@ tradeClose.Size = UDim2.new(0, 28, 0, 28)
 tradeClose.Position = UDim2.new(1, -34, 0, 6)
 tradeClose.BackgroundColor3 = C.red
 tradeClose.BackgroundTransparency = 0.5
-tradeClose.Text = "✕"
+tradeClose.Text = GameConfig.UICloseGlyph or "X"
 tradeClose.TextColor3 = C.white
 tradeClose.Font = Enum.Font.GothamBold
 tradeClose.TextSize = 12
@@ -977,7 +978,7 @@ applyFriendsListTitleLayout = MobileWindowLayout.MenuHeaderTitleLayout(titleLbl,
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 30, 0, 30); closeBtn.Position = UDim2.new(1, -36, 0, 4)
 closeBtn.BackgroundColor3 = C.red; closeBtn.BackgroundTransparency = 0.5
-closeBtn.Text = "✕"; closeBtn.TextColor3 = C.white
+closeBtn.Text = GameConfig.UICloseGlyph or "X"; closeBtn.TextColor3 = C.white
 closeBtn.Font = Enum.Font.GothamBold; closeBtn.TextSize = 12; closeBtn.Parent = panel
 Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
 closeBtn.MouseButton1Click:Connect(function()

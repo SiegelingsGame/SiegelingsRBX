@@ -20,12 +20,15 @@ local LaserDoorSystem = {}
 local DOME_TAG = "BaseShieldDome"
 local activeDomes = {} -- plotId -> domeData
 local damageCooldowns = {}
+local DEFAULT_LASER_DOOR_COLOR = Color3.fromRGB(255, 0, 0)
+local SHIELD_DOME_COLOR = Color3.fromRGB(255, 70, 70)
+local SHIELD_INNER_COLOR = Color3.fromRGB(255, 110, 110)
+local SHIELD_BUTTON_COLOR = Color3.fromRGB(255, 60, 60)
 
--- FIX #25: Forward-declare ellipsoid math functions so runDomeLoop can reference them.
+-- FIX #25: Forward-declare shield volume math functions so runDomeLoop can reference them.
 -- Previously these were defined AFTER runDomeLoop, causing nil upvalues in Lua scoping.
--- Result: shield never pushed/damaged intruders because isInsideEllipsoid was nil.
-local isInsideEllipsoid
-local pushOutsideEllipsoid
+local isInsideShieldVolume
+local pushOutsideShieldVolume
 
 -- -- FIND PLOT CENTER --
 
@@ -83,6 +86,8 @@ end
 -- -- SHOW / HIDE SHIELD VISUALS --
 
 local hideShield -- forward declaration
+local setLaserDoorsState -- forward declaration
+local getShieldBarrierColor -- forward declaration
 
 local function getShieldDuration(ownerUserId)
 	local base = GameConfig.ShieldDuration or 50
@@ -97,32 +102,47 @@ local function getShieldDuration(ownerUserId)
 	return base + extraFromLevel + extraFromFloors
 end
 
+local function isBaseDomeVisualEnabled()
+	return GameConfig.BaseShieldDomeEnabled ~= false
+end
+
 local function showShield(data)
 	if data.shieldActive then return end
 	data.shieldActive = true
+	data.shieldBarrierColor = getShieldBarrierColor(data.ownerUserId)
 	local duration = getShieldDuration(data.ownerUserId)
 	data.shieldExpireTime = tick() + duration
 
-	-- Show dome parts
-	if data.dome then data.dome.Transparency = 0.75; data.dome.Parent = data.plotModel end
-	if data.innerGlow then data.innerGlow.Transparency = 0.92; data.innerGlow.Parent = data.plotModel end
-	if data.ring then data.ring.Parent = data.plotModel end
-	if data.beacon then data.beacon.Parent = data.plotModel end
-	if data.billboard then data.billboard.Parent = data.plotModel end
+	-- Show dome visual parts only when enabled in config.
+	if isBaseDomeVisualEnabled() then
+		if data.dome then data.dome.Color = data.shieldBarrierColor or SHIELD_DOME_COLOR end
+		if data.beacon then data.beacon.Color = data.shieldBarrierColor or SHIELD_DOME_COLOR end
+		if data.dome then data.dome.Transparency = 0.75; data.dome.Parent = data.plotModel end
+		if data.innerGlow then data.innerGlow.Transparency = 0.92; data.innerGlow.Parent = data.plotModel end
+		if data.ring then data.ring.Parent = data.plotModel end
+		if data.beacon then data.beacon.Parent = data.plotModel end
+		if data.billboard then data.billboard.Parent = data.plotModel end
+	end
+	setLaserDoorsState(data, true)
 
 	-- Update button text
 	if data.buttonLabel then
 		data.buttonLabel.Text = "SHIELD ACTIVE"
-		data.buttonLabel.TextColor3 = Color3.fromRGB(80, 255, 120)
+		data.buttonLabel.TextColor3 = Color3.fromRGB(255, 130, 130)
+	end
+	if data.btnTop and data.btnTop.Parent then
+		data.btnTop.Color = Color3.fromRGB(255, 90, 90)
 	end
 
 	-- Start pulse animation
 	if data.pulseThread then task.cancel(data.pulseThread) end
 	data.pulseThread = task.spawn(function()
 		local t = 0
-		while data.shieldActive and data.dome and data.dome.Parent do
+		while data.shieldActive do
 			t = t + RunService.Heartbeat:Wait() * 0.8
-			data.dome.Transparency = 0.72 + math.sin(t) * 0.08
+			if data.dome and data.dome.Parent then
+				data.dome.Transparency = 0.72 + math.sin(t) * 0.08
+			end
 			if data.innerGlow and data.innerGlow.Parent then
 				data.innerGlow.Transparency = 0.88 + math.sin(t * 1.5) * 0.04
 			end
@@ -162,6 +182,7 @@ hideShield = function(data)
 	if data.ring then data.ring.Parent = nil end
 	if data.beacon then data.beacon.Parent = nil end
 	if data.billboard then data.billboard.Parent = nil end
+	setLaserDoorsState(data, false)
 
 	-- Cancel animations
 	if data.pulseThread then pcall(task.cancel, data.pulseThread); data.pulseThread = nil end
@@ -170,7 +191,10 @@ hideShield = function(data)
 	-- Update button text
 	if data.buttonLabel then
 		data.buttonLabel.Text = "ACTIVATE SHIELD"
-		data.buttonLabel.TextColor3 = Color3.fromRGB(80, 200, 255)
+		data.buttonLabel.TextColor3 = Color3.fromRGB(255, 110, 110)
+	end
+	if data.btnTop and data.btnTop.Parent then
+		data.btnTop.Color = SHIELD_BUTTON_COLOR
 	end
 
 	-- Update timer
@@ -190,6 +214,179 @@ local function isAllowedThrough(ownerUserId, visitorPlayer)
 	local ownerPlayer = Players:GetPlayerByUserId(ownerUserId)
 	if not ownerPlayer then return false end
 	return PlayerDataManager.IsFriend(ownerPlayer, visitorPlayer.UserId)
+end
+
+local function isAllowedFavoriteSiegeling(data, model)
+	if not data or not model then return false end
+	if not CollectionService:HasTag(model, "FavoriteCreature") then
+		return false
+	end
+	local creatureOwnerUserId = tonumber(model:GetAttribute("OwnerUserId"))
+	if not creatureOwnerUserId then
+		return false
+	end
+	if creatureOwnerUserId == data.ownerUserId then
+		return true
+	end
+	local ownerOrFriendPlayer = Players:GetPlayerByUserId(creatureOwnerUserId)
+	if not ownerOrFriendPlayer then
+		return false
+	end
+	return isAllowedThrough(data.ownerUserId, ownerOrFriendPlayer)
+end
+
+local function collectDoorPartsFromNode(node, outParts)
+	if not node then return end
+	if node:IsA("BasePart") then
+		table.insert(outParts, node)
+		return
+	end
+	for _, desc in ipairs(node:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			table.insert(outParts, desc)
+		end
+	end
+end
+
+local function collectShieldLaserDoorParts(plotModel)
+	local parts = {}
+	local function addDoor(floorName, doorName)
+		local floorFolder = plotModel:FindFirstChild(floorName)
+		if not floorFolder then return end
+		local doorNode = floorFolder:FindFirstChild(doorName, true)
+		if not doorNode then return end
+		local tmp = {}
+		collectDoorPartsFromNode(doorNode, tmp)
+		local requiredFloor = tonumber(string.match(floorName, "^Floor(%d+)$"))
+		for _, p in ipairs(tmp) do
+			table.insert(parts, {
+				part = p,
+				requiredFloor = requiredFloor,
+				doorName = doorName,
+			})
+		end
+	end
+	addDoor("Floor1", "LaserDoor1")
+	addDoor("Floor4", "LaserDoor4")
+
+	local unique, seen = {}, {}
+	for _, entry in ipairs(parts) do
+		local p = entry.part
+		if not seen[p] then
+			seen[p] = true
+			table.insert(unique, entry)
+		end
+	end
+	return unique
+end
+
+local function getOwnedFloor(data, floorNum)
+	if floorNum == nil or floorNum <= 1 then return true end
+	if not PlayerDataManager or not PlayerDataManager.OwnsFloor then return false end
+	local owner = Players:GetPlayerByUserId(data.ownerUserId)
+	if not owner then return false end
+	return PlayerDataManager.OwnsFloor(owner, floorNum)
+end
+
+local function getLaserDoorColor(data)
+	if not PlayerDataManager or not PlayerDataManager.GetBaseColor then
+		return DEFAULT_LASER_DOOR_COLOR
+	end
+	local owner = Players:GetPlayerByUserId(data.ownerUserId)
+	if not owner then
+		return DEFAULT_LASER_DOOR_COLOR
+	end
+	local baseColorData = PlayerDataManager.GetBaseColor(owner)
+	local equippedId = baseColorData and baseColorData.equipped
+	if not equippedId or equippedId == "" then
+		return DEFAULT_LASER_DOOR_COLOR
+	end
+	for _, item in ipairs(GameConfig.BaseColorItems or {}) do
+		if item.id == equippedId and item.color then
+			return item.color
+		end
+	end
+	return DEFAULT_LASER_DOOR_COLOR
+end
+
+getShieldBarrierColor = function(ownerUserId)
+	if not PlayerDataManager or not PlayerDataManager.GetExterior then
+		return SHIELD_DOME_COLOR
+	end
+	local owner = Players:GetPlayerByUserId(ownerUserId)
+	if not owner then
+		return SHIELD_DOME_COLOR
+	end
+	local exteriorData = PlayerDataManager.GetExterior(owner)
+	local equippedId = exteriorData and exteriorData.equipped
+	if not equippedId or equippedId == "" then
+		return SHIELD_DOME_COLOR
+	end
+	for _, item in ipairs(GameConfig.BaseExteriorItems or {}) do
+		if item.id == equippedId and item.color then
+			return item.color
+		end
+	end
+	return SHIELD_DOME_COLOR
+end
+
+setLaserDoorsState = function(data, isActive)
+	if not data.laserDoors then return end
+	local laserColor = getLaserDoorColor(data)
+	local activeDoorTransparency = tonumber(GameConfig.ShieldLaserDoorTransparency)
+	if activeDoorTransparency == nil then activeDoorTransparency = 1 end
+	activeDoorTransparency = math.clamp(activeDoorTransparency, 0, 1)
+	local seen = {}
+	for _, info in ipairs(data.laserDoors) do
+		local part = info.part
+		if part and part.Parent then
+			seen[part] = true
+			local floorAllowed = getOwnedFloor(data, info.requiredFloor)
+			if isActive and floorAllowed then
+				part.Color = laserColor
+				part.Transparency = (info.doorName == "LaserDoor1") and 0 or activeDoorTransparency
+				part.CanCollide = false
+				part.CanTouch = true
+			else
+				part.Transparency = 1
+				part.CanCollide = false
+				part.CanTouch = false
+			end
+		end
+	end
+
+	-- Safety pass: apply state to any current LaserDoor1/LaserDoor4 descendants that were
+	-- added/replaced after initial shield setup so they never keep stale collision.
+	if data.plotModel and data.plotModel.Parent then
+		for _, doorInfo in ipairs(collectShieldLaserDoorParts(data.plotModel)) do
+			local part = doorInfo.part
+			if part and part.Parent and not seen[part] then
+				local floorAllowed = getOwnedFloor(data, doorInfo.requiredFloor)
+				if isActive and floorAllowed then
+					part.Color = laserColor
+					part.Transparency = (doorInfo.doorName == "LaserDoor1") and 0 or activeDoorTransparency
+					part.CanCollide = false
+					part.CanTouch = true
+				else
+					part.Transparency = 1
+					part.CanCollide = false
+					part.CanTouch = false
+				end
+			end
+		end
+	end
+end
+
+local function forceDoorPartsOffForPlot(plotModel)
+	if not plotModel then return end
+	for _, doorInfo in ipairs(collectShieldLaserDoorParts(plotModel)) do
+		local part = doorInfo.part
+		if part and part.Parent then
+			part.Transparency = 1
+			part.CanCollide = false
+			part.CanTouch = false
+		end
+	end
 end
 
 -- -- CREATE ACTIVATION BUTTON --
@@ -224,11 +421,11 @@ local function createActivationButton(plotModel, center, groundY, ownerUserId)
 	btnTop.CanCollide = false
 	btnTop.Shape = Enum.PartType.Cylinder
 	btnTop.Material = Enum.Material.Neon
-	btnTop.Color = Color3.fromRGB(40, 160, 255)
+	btnTop.Color = SHIELD_BUTTON_COLOR
 	btnTop.Parent = plotModel
 
 	local light = Instance.new("PointLight")
-	light.Color = Color3.fromRGB(60, 180, 255)
+	light.Color = Color3.fromRGB(255, 90, 90)
 	light.Brightness = 2; light.Range = 6
 	light.Parent = btnTop
 
@@ -246,7 +443,7 @@ local function createActivationButton(plotModel, center, groundY, ownerUserId)
 	lbl.Size = UDim2.new(1, 0, 0.6, 0)
 	lbl.BackgroundTransparency = 1
 	lbl.Text = "ACTIVATE SHIELD"
-	lbl.TextColor3 = Color3.fromRGB(80, 200, 255)
+	lbl.TextColor3 = Color3.fromRGB(255, 110, 110)
 	lbl.Font = Enum.Font.GothamBold; lbl.TextScaled = true
 	lbl.TextStrokeColor3 = Color3.new(0, 0, 0)
 	lbl.TextStrokeTransparency = 0.3
@@ -275,7 +472,7 @@ local function createActivationButton(plotModel, center, groundY, ownerUserId)
 	pp.ActionText = "Activate Shield"
 	pp.ObjectText = "Shield Generator"
 	pp.MaxActivationDistance = 10
-	pp.HoldDuration = 0
+	pp.HoldDuration = tonumber(GameConfig.HoldInteractionDuration) or 0.6
 	pp.RequiresLineOfSight = true
 	pp.KeyboardKeyCode = Enum.KeyCode.E
 	pp.Exclusivity = Enum.ProximityPromptExclusivity.AlwaysShow
@@ -301,50 +498,81 @@ local function createDome(plotModel, ownerPlayer)
 	local center = findPlotCenter(plotModel)
 	local groundY = findGroundY(center, plotModel)
 
-	-- Scale dome to cover highest floor in the plot
-	local maxFloorY = groundY
-	for _, floorNum in ipairs({1, 2, 3}) do
+	-- Use PlotCenter footprint exactly (X/Z), then extrude straight up.
+	local plotCenterPart = plotModel:FindFirstChild("PlotCenter")
+	local baseCenter = center
+	local baseSize = Vector3.new(50, 1, 50)
+	if plotCenterPart and plotCenterPart:IsA("BasePart") then
+		baseCenter = plotCenterPart.Position
+		baseSize = plotCenterPart.Size
+	end
+
+	-- Expand by 1 stud on each side (left/right/front/back), keeping center fixed.
+	local sidePadding = tonumber(GameConfig.ShieldSidePadding) or 1
+	local halfX = baseSize.X * 0.5 + sidePadding
+	local halfZ = baseSize.Z * 0.5 + sidePadding
+
+	-- Cap shield top to the highest owned floor walls (Floor1 -> Floor2 -> max Floor3).
+	local plotCenterY = baseCenter.Y
+	local topY = plotCenterY + (tonumber(GameConfig.ShieldVerticalHeight) or 240)
+	local ownedFloorCap = 1
+	if PlayerDataManager and PlayerDataManager.OwnsFloor then
+		if PlayerDataManager.OwnsFloor(ownerPlayer, 3) then
+			ownedFloorCap = 3
+		elseif PlayerDataManager.OwnsFloor(ownerPlayer, 2) then
+			ownedFloorCap = 2
+		end
+	end
+	for floorNum = ownedFloorCap, 1, -1 do
 		local floorFolder = plotModel:FindFirstChild("Floor" .. floorNum)
 		if floorFolder then
+			local highestY = -math.huge
 			for _, desc in ipairs(floorFolder:GetDescendants()) do
 				if desc:IsA("BasePart") then
-					local topY = desc.Position.Y + desc.Size.Y / 2
-					if topY > maxFloorY then maxFloorY = topY end
+					local partTopY = desc.Position.Y + desc.Size.Y * 0.5
+					if partTopY > highestY then
+						highestY = partTopY
+					end
 				end
+			end
+			if highestY > -math.huge then
+				topY = highestY
+				break
 			end
 		end
 	end
-	local floorHeight = maxFloorY - groundY
-	local radiusXZ = math.max(GameConfig.DomeRadius or 50, floorHeight + 10)
-	local heightMult = tonumber(GameConfig.DomeHeightMultiplier) or 1.5
-	local radiusY = radiusXZ * heightMult  -- taller ellipse, same horizontal footprint
 
-	local domeCenter = Vector3.new(center.X, center.Y, center.Z)  -- 50% point (equator) at plot center so it appears as a domez
+	local shieldHeight = math.max(8, topY - plotCenterY)
+	local halfY = shieldHeight * 0.5
+	local domeCenter = Vector3.new(baseCenter.X, plotCenterY + halfY, baseCenter.Z)
+	local shieldBarrierColor = getShieldBarrierColor(ownerPlayer.UserId)
 
-	-- Main dome ellipsoid (Ball with different X/Z vs Y size = taller, same width at base)
+	-- Main rectangular shield volume
 	local dome = Instance.new("Part")
 	dome.Name = "ShieldDome"
-	dome.Shape = Enum.PartType.Ball
-	dome.Size = Vector3.new(radiusXZ * 2, radiusY * 2, radiusXZ * 2)
+	dome.Size = Vector3.new(halfX * 2, halfY * 2, halfZ * 2)
 	dome.Position = domeCenter
 	dome.Anchored = true; dome.CanCollide = false; dome.CastShadow = false
 	dome.Material = Enum.Material.ForceField
-	dome.Color = Color3.fromRGB(40, 160, 255)
+	dome.Color = shieldBarrierColor
 	dome.Transparency = 0.75
 	CollectionService:AddTag(dome, DOME_TAG)
 	dome:SetAttribute("OwnerUserId", ownerPlayer.UserId)
 	-- Start HIDDEN (not parented) until activated
 	dome.Parent = nil
 
-	-- Inner glow (same ellipsoid shape, slightly smaller)
+	-- Inner glow (same rectangular shape, slightly smaller)
 	local innerGlow = Instance.new("Part")
 	innerGlow.Name = "ShieldInner"
-	innerGlow.Shape = Enum.PartType.Ball
-	innerGlow.Size = Vector3.new(radiusXZ * 2 - 2, radiusY * 2 - 2, radiusXZ * 2 - 2)
+	innerGlow.Size = Vector3.new(
+		math.max(1, halfX * 2 - 2),
+		math.max(1, halfY * 2 - 2),
+		math.max(1, halfZ * 2 - 2)
+	)
 	innerGlow.Position = domeCenter
 	innerGlow.Anchored = true; innerGlow.CanCollide = false; innerGlow.CastShadow = false
 	innerGlow.Material = Enum.Material.Neon
-	innerGlow.Color = Color3.fromRGB(60, 180, 255)
+	innerGlow.Color = SHIELD_INNER_COLOR
 	innerGlow.Transparency = 0.92
 	innerGlow.Parent = nil
 
@@ -367,28 +595,28 @@ local function createDome(plotModel, ownerPlayer)
 	local beacon = Instance.new("Part")
 	beacon.Name = "ShieldBeacon"
 	beacon.Size = Vector3.new(1.5, 120, 1.5)
-	beacon.Position = domeCenter + Vector3.new(0, radiusY + 10, 0)
+	beacon.Position = domeCenter + Vector3.new(0, halfY + 10, 0)
 	beacon.Anchored = true; beacon.CanCollide = false; beacon.CastShadow = false
 	beacon.Material = Enum.Material.Neon
-	beacon.Color = Color3.fromRGB(40, 160, 255)
+	beacon.Color = shieldBarrierColor
 	beacon.Transparency = 0.5
 	beacon.Parent = nil
 
 	local beaconLight = Instance.new("PointLight")
-	beaconLight.Color = Color3.fromRGB(60, 180, 255)
+	beaconLight.Color = SHIELD_INNER_COLOR
 	beaconLight.Brightness = 4; beaconLight.Range = 40
 	beaconLight.Parent = beacon
 
 	local topLight = Instance.new("PointLight")
-	topLight.Color = Color3.fromRGB(60, 200, 255)
-	topLight.Brightness = 2; topLight.Range = radiusXZ * 0.8
+	topLight.Color = SHIELD_INNER_COLOR
+	topLight.Brightness = 2; topLight.Range = math.max(halfX, halfZ) * 0.8
 	topLight.Parent = dome
 
 	-- Owner billboard
 	local bb = Instance.new("BillboardGui")
 	bb.Name = "ShieldLabel"
 	bb.Size = UDim2.new(0, 200, 0, 40)
-	bb.StudsOffset = Vector3.new(0, radiusY + 3, 0)
+	bb.StudsOffset = Vector3.new(0, halfY + 3, 0)
 	bb.AlwaysOnTop = true; bb.Adornee = dome
 	bb.Parent = nil
 
@@ -417,9 +645,11 @@ local function createDome(plotModel, ownerPlayer)
 		center = center,
 		domeCenter = domeCenter,
 		groundY = groundY,
-		radius = radiusXZ,        -- horizontal (for API / CreatureAI compatibility)
-		radiusXZ = radiusXZ,
-		radiusY = radiusY,
+		radius = math.max(halfX, halfZ), -- compatibility for systems that expect one horizontal radius
+		radiusX = halfX,
+		radiusY = halfY,
+		radiusZ = halfZ,
+		shieldBarrierColor = shieldBarrierColor,
 		ownerUserId = ownerPlayer.UserId,
 		shieldActive = false,
 		shieldExpireTime = 0,
@@ -431,9 +661,67 @@ local function createDome(plotModel, ownerPlayer)
 		timerLabel = btnData.timerLabel,
 		clickDetector = btnData.clickDetector,
 		proximityPrompt = btnData.proximityPrompt,
+		laserDoors = {},
+		laserDoorTouchConnections = {},
 		pulseThread = nil,
 		timerThread = nil,
 	}
+
+	-- Track floor laser walls that toggle with shield state.
+	local activeDoorTransparency = tonumber(GameConfig.ShieldLaserDoorTransparency)
+	if activeDoorTransparency == nil then activeDoorTransparency = 1 end
+	activeDoorTransparency = math.clamp(activeDoorTransparency, 0, 1)
+	for _, doorInfo in ipairs(collectShieldLaserDoorParts(plotModel)) do
+		local part = doorInfo.part
+		table.insert(data.laserDoors, {
+			part = part,
+			requiredFloor = doorInfo.requiredFloor,
+			doorName = doorInfo.doorName,
+			activeTransparency = activeDoorTransparency,
+		})
+
+		-- Keep laser walls hidden/inactive until shield is activated.
+		part.Transparency = 1
+		part.CanCollide = false
+		part.CanTouch = false
+
+		local conn = part.Touched:Connect(function(hit)
+			if not data.shieldActive then return end
+			if not hit then return end
+			local model = hit:FindFirstAncestorOfClass("Model")
+			if not model then return end
+			local humanoid = model:FindFirstChildOfClass("Humanoid")
+
+			local touchingPlayer = Players:GetPlayerFromCharacter(model)
+			if touchingPlayer then
+				if not humanoid or humanoid.Health <= 0 then return end
+				if isAllowedThrough(data.ownerUserId, touchingPlayer) then
+					return
+				end
+				humanoid.Health = 0
+				return
+			end
+
+			-- Non-player models: only FAVORITE siegelings owned by base owner/friends can pass.
+			if isAllowedFavoriteSiegeling(data, model) then
+				return
+			end
+
+			-- Unauthorized NPC/siegeling at the wall: push it outside the active shield volume.
+			local body = model:FindFirstChild("Body") or model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
+			if body and body:IsA("BasePart") then
+				local dc = (data.dome and data.dome.CFrame.Position) or data.domeCenter or body.Position
+				local rX = data.radiusX or data.radius or 25
+				local rY = data.radiusY or data.radius or 25
+				local rZ = data.radiusZ or data.radius or 25
+				local pushed = pushOutsideShieldVolume(dc, rX, rY, rZ, body.Position, 2)
+				body.CFrame = CFrame.new(pushed)
+			end
+		end)
+		table.insert(data.laserDoorTouchConnections, conn)
+	end
+	-- Force initial state to match shield/button condition at spawn (OFF by default).
+	setLaserDoorsState(data, data.shieldActive)
 
 	-- Connect button activation (owner + friends can activate)
 	btnData.clickDetector.MouseClick:Connect(function(plr)
@@ -469,14 +757,32 @@ local function runDomeLoop()
 	while true do
 		task.wait(0.4)
 
-		for plotId, data in pairs(activeDomes) do
-			if not data.shieldActive then continue end
-			if not data.dome or not data.dome.Parent then continue end
+		-- Global spawn safety: keep plot laser doors OFF by default unless an active shield
+		-- explicitly enables them through setLaserDoorsState.
+		local plotsRoot = workspace:FindFirstChild("BasePlots")
+		if plotsRoot then
+			for _, plotModel in ipairs(plotsRoot:GetChildren()) do
+				if plotModel and plotModel:IsA("Model") then
+					local data = activeDomes[plotModel.Name]
+					if not data or not data.shieldActive then
+						forceDoorPartsOffForPlot(plotModel)
+					end
+				end
+			end
+		end
 
-			-- Use dome's current world position so inside/damage check works (data.domeCenter may be in model space)
-			local domeCenter = data.dome.CFrame.Position
-			local radiusXZ = data.radiusXZ or data.radius
+		for plotId, data in pairs(activeDomes) do
+			-- Enforce laser door state every loop in case any script/layout update flips properties.
+			setLaserDoorsState(data, data.shieldActive)
+			if not data.shieldActive then continue end
+
+			-- Use dome position when present; otherwise use stored center so protection still works
+			-- when dome visuals are disabled via GameConfig.BaseShieldDomeEnabled.
+			local domeCenter = (data.dome and data.dome.Parent and data.dome.CFrame.Position) or data.domeCenter or data.center
+			if not domeCenter then continue end
+			local radiusX = data.radiusX or data.radius
 			local radiusY = data.radiusY or data.radius
+			local radiusZ = data.radiusZ or data.radius
 			local ownerUserId = data.ownerUserId
 
 			-- Push and damage non-owner, non-friend PLAYERS inside the dome
@@ -487,7 +793,7 @@ local function runDomeLoop()
 				local humanoid = char:FindFirstChild("Humanoid")
 				if not root or not humanoid or humanoid.Health <= 0 then continue end
 
-				if isInsideEllipsoid(root.Position, domeCenter, radiusXZ, radiusY) then
+				if isInsideShieldVolume(root.Position, domeCenter, radiusX, radiusY, radiusZ) then
 					if not isAllowedThrough(ownerUserId, p) then
 						local now = tick()
 						local cdKey = p.UserId .. "_" .. plotId
@@ -495,7 +801,7 @@ local function runDomeLoop()
 							damageCooldowns[cdKey] = now
 							humanoid:TakeDamage(GameConfig.LaserDoorDamage or 20)
 
-							local pushPos = pushOutsideEllipsoid(domeCenter, radiusXZ, radiusY, root.Position, 3)
+							local pushPos = pushOutsideShieldVolume(domeCenter, radiusX, radiusY, radiusZ, root.Position, 3)
 							root.CFrame = CFrame.new(pushPos + Vector3.new(0, 2, 0))
 
 							task.spawn(function()
@@ -504,7 +810,7 @@ local function runDomeLoop()
 								d.Color = Color3.fromRGB(255, 50, 50); d.Transparency = 0.5
 								task.wait(0.3)
 								if d and d.Parent then
-									d.Color = Color3.fromRGB(40, 160, 255); d.Transparency = 0.75
+									d.Color = data.shieldBarrierColor or SHIELD_DOME_COLOR; d.Transparency = 0.75
 								end
 							end)
 						end
@@ -516,8 +822,8 @@ local function runDomeLoop()
 			for _, creature in ipairs(CollectionService:GetTagged("WorldCreature")) do
 				local body = creature:FindFirstChild("Body")
 				if not body then continue end
-				if isInsideEllipsoid(body.Position, domeCenter, radiusXZ, radiusY) then
-					body.Position = pushOutsideEllipsoid(domeCenter, radiusXZ, radiusY, body.Position, 2)
+				if isInsideShieldVolume(body.Position, domeCenter, radiusX, radiusY, radiusZ) then
+					body.Position = pushOutsideShieldVolume(domeCenter, radiusX, radiusY, radiusZ, body.Position, 2)
 					local core = creature:FindFirstChild("Core")
 					if core then core.Position = body.Position end
 				end
@@ -527,8 +833,8 @@ local function runDomeLoop()
 			for _, raider in ipairs(CollectionService:GetTagged("AIRaider")) do
 				local body = raider:FindFirstChild("Body")
 				if not body then continue end
-				if isInsideEllipsoid(body.Position, domeCenter, radiusXZ, radiusY) then
-					body.Position = pushOutsideEllipsoid(domeCenter, radiusXZ, radiusY, body.Position, 2)
+				if isInsideShieldVolume(body.Position, domeCenter, radiusX, radiusY, radiusZ) then
+					body.Position = pushOutsideShieldVolume(domeCenter, radiusX, radiusY, radiusZ, body.Position, 2)
 					local core = raider:FindFirstChild("Core")
 					if core then core.Position = body.Position end
 				end
@@ -539,36 +845,49 @@ end
 
 -- -- PUBLIC API --
 
--- Ellipsoid containment: (dx/rXZ)^2 + (dy/rY)^2 + (dz/rXZ)^2 <= 1
+-- Axis-aligned rectangular shield containment.
 -- FIX #25: Assign to forward-declared locals (not 'local function') so runDomeLoop sees them.
-isInsideEllipsoid = function(position, domeCenter, radiusXZ, radiusY)
-	local dx = position.X - domeCenter.X
-	local dy = position.Y - domeCenter.Y
-	local dz = position.Z - domeCenter.Z
-	local q = (dx / radiusXZ) ^ 2 + (dy / radiusY) ^ 2 + (dz / radiusXZ) ^ 2
-	return q <= 1
+isInsideShieldVolume = function(position, shieldCenter, halfX, halfY, halfZ)
+	local dx = math.abs(position.X - shieldCenter.X)
+	local dy = math.abs(position.Y - shieldCenter.Y)
+	local dz = math.abs(position.Z - shieldCenter.Z)
+	return dx <= halfX and dy <= halfY and dz <= halfZ
 end
 
--- Push position to just outside ellipsoid surface in direction of diff from domeCenter
-pushOutsideEllipsoid = function(domeCenter, radiusXZ, radiusY, fromPosition, margin)
+-- Push position to just outside nearest X/Z face of the rectangular shield.
+pushOutsideShieldVolume = function(shieldCenter, halfX, halfY, halfZ, fromPosition, margin)
 	margin = margin or 3
-	local diff = fromPosition - domeCenter
-	local len = diff.Magnitude
-	if len < 0.01 then diff = Vector3.new(1, 0, 0); len = 1 end
-	local ux, uy, uz = diff.X / len, diff.Y / len, diff.Z / len
-	local surfaceDist = 1 / math.sqrt((ux / radiusXZ) ^ 2 + (uy / radiusY) ^ 2 + (uz / radiusXZ) ^ 2)
-	return domeCenter + diff.Unit * (surfaceDist + margin)
+	local localPos = fromPosition - shieldCenter
+	local signX = (localPos.X >= 0) and 1 or -1
+	local signZ = (localPos.Z >= 0) and 1 or -1
+	local distX = halfX - math.abs(localPos.X)
+	local distZ = halfZ - math.abs(localPos.Z)
+
+	local outX = localPos.X
+	local outY = math.clamp(localPos.Y, -halfY, halfY)
+	local outZ = localPos.Z
+
+	if distX <= distZ then
+		outX = signX * (halfX + margin)
+		outZ = math.clamp(outZ, -halfZ - margin, halfZ + margin)
+	else
+		outZ = signZ * (halfZ + margin)
+		outX = math.clamp(outX, -halfX - margin, halfX + margin)
+	end
+
+	return shieldCenter + Vector3.new(outX, outY, outZ)
 end
 
 -- Check if a position is inside any active shield (for creature AI movement)
 function LaserDoorSystem.IsInsideActiveShield(position)
 	for _, data in pairs(activeDomes) do
 		if data.shieldActive and data.dome and data.dome.Parent then
-			local rXZ = data.radiusXZ or data.radius
+			local rX = data.radiusX or data.radius
 			local rY = data.radiusY or data.radius
+			local rZ = data.radiusZ or data.radius
 			local dc = data.domeCenter or data.center
-			if isInsideEllipsoid(position, dc, rXZ, rY) then
-				return true, dc, rXZ
+			if isInsideShieldVolume(position, dc, rX, rY, rZ) then
+				return true, dc, math.max(rX, rZ)
 			end
 		end
 	end
@@ -586,6 +905,13 @@ function LaserDoorSystem.GetDomeData(plotModel)
 	return { center = data.center, radius = data.radius, ownerUserId = data.ownerUserId }
 end
 
+function LaserDoorSystem.RefreshForPlot(plotModel)
+	if not plotModel then return end
+	local data = activeDomes[plotModel.Name]
+	if not data then return end
+	setLaserDoorsState(data, data.shieldActive)
+end
+
 function LaserDoorSystem.CreateForPlot(plotModel, player)
 	if not GameConfig.LaserDoorEnabled then return end
 	LaserDoorSystem.RemoveForPlot(plotModel)
@@ -600,6 +926,13 @@ function LaserDoorSystem.RemoveForPlot(plotModel)
 	local data = activeDomes[plotId]
 	if data then
 		hideShield(data)
+		if data.laserDoorTouchConnections then
+			for _, conn in ipairs(data.laserDoorTouchConnections) do
+				if conn then
+					pcall(function() conn:Disconnect() end)
+				end
+			end
+		end
 		for _, key in ipairs({"dome", "innerGlow", "ring", "beacon", "billboard", "pedestal", "btnTop", "buttonBB"}) do
 			if data[key] then
 				if data[key].Parent then data[key]:Destroy()

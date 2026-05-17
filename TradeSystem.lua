@@ -1,4 +1,5 @@
 -- TradeSystem.lua - ServerScriptService (ModuleScript)
+-- Last updated: 2026-04-23 22:45
 -- Secure player-to-player trading. Server-authoritative session state to prevent dupes/exploits.
 
 local Players = game:GetService("Players")
@@ -10,6 +11,8 @@ local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
 
 local FavoriteCreatureSystem = nil
 pcall(function() FavoriteCreatureSystem = require(ServerScriptService.FavoriteCreatureSystem) end)
+local BasePlacementSystem = nil
+pcall(function() BasePlacementSystem = require(ServerScriptService.BasePlacementSystem) end)
 
 local TradeSystem = {}
 
@@ -172,6 +175,16 @@ local function completeTrade(sess)
 		-- Spawn immediately so companions update right after trade
 		if aPlr.Parent then FavoriteCreatureSystem.SpawnCompanion(aPlr) end
 		if bPlr.Parent then FavoriteCreatureSystem.SpawnCompanion(bPlr) end
+	end
+
+	-- TransferCreature clears slots in data; remove only the traded creatures' models (not full PlaceCreatures).
+	if BasePlacementSystem and BasePlacementSystem.ClearOrbByUid then
+		for _, uid in ipairs(offerA) do
+			pcall(function() BasePlacementSystem.ClearOrbByUid(aPlr, uid, true) end)
+		end
+		for _, uid in ipairs(offerB) do
+			pcall(function() BasePlacementSystem.ClearOrbByUid(bPlr, uid, true) end)
+		end
 	end
 
 	sess.status = "completed"

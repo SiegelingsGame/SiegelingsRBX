@@ -23,6 +23,8 @@ local cached = {
 	hubCenter = nil,
 	innerWedges = nil,
 	innerMaxRadius = nil,
+	innerWallPartsBySky = nil, -- sky -> BasePart
+	innerBiomeXZBoundsBySky = nil, -- sky -> {minX,maxX,minZ,maxZ}
 	resolved = false,
 }
 
@@ -93,6 +95,107 @@ local function ensureResolved()
 		{ from = "WetRoad", to = "DesertRoad", sky = "IceSky" },
 		{ from = "DesertRoad", to = "ElectricRoad", sky = "WindSky" },
 	}
+
+	-- Inner biome wall parts (Workspace.ForestGround / Forestground)
+	local innerWallNameBySky = {
+		WindSky = "WindWall",
+		FireSky = "LavaWall",
+		EarthSky = "JungleWall",
+		IceSky = "IceWall",
+	}
+	cached.innerWallPartsBySky = {}
+	cached.innerBiomeXZBoundsBySky = {}
+	local function pickContainer(root)
+		if not root then return nil end
+		for _, name in ipairs({ "ForestGround", "Forestground", "ForestsGround" }) do
+			local found = root:FindFirstChild(name)
+			if found and (found:IsA("Model") or found:IsA("Folder")) then
+				return found
+			end
+		end
+		return nil
+	end
+	local fg = pickContainer(Workspace) or pickContainer(Workspace:FindFirstChild("Terrain"))
+	if fg then
+		for sky, wallName in pairs(innerWallNameBySky) do
+			local wall = fg:FindFirstChild(wallName, true)
+			if wall and (wall:IsA("BasePart") or wall:IsA("Model")) then
+				cached.innerWallPartsBySky[sky] = wall
+			end
+		end
+	end
+
+	-- Build inner biome XZ "box" bounds using (fromRoad + toRoad + wall + hubCenter).
+	local roadByName = {}
+	for _, part in ipairs(cached.roadPartList) do
+		roadByName[part.Name] = part
+	end
+	local function clampBoundsToSkyQuadrant(bounds, sky)
+		if sky == "EarthSky" then
+			bounds.maxX = math.min(bounds.maxX, hubCenter.X)
+			bounds.maxZ = math.min(bounds.maxZ, hubCenter.Z)
+		elseif sky == "FireSky" then
+			bounds.minX = math.max(bounds.minX, hubCenter.X)
+			bounds.maxZ = math.min(bounds.maxZ, hubCenter.Z)
+		elseif sky == "IceSky" then
+			bounds.minX = math.max(bounds.minX, hubCenter.X)
+			bounds.minZ = math.max(bounds.minZ, hubCenter.Z)
+		elseif sky == "WindSky" then
+			bounds.maxX = math.min(bounds.maxX, hubCenter.X)
+			bounds.minZ = math.max(bounds.minZ, hubCenter.Z)
+		end
+		return bounds
+	end
+	local function expandPartXZBounds(minX, maxX, minZ, maxZ, part)
+		if not part then
+			return minX, maxX, minZ, maxZ
+		end
+		local cf, size
+		if part:IsA("BasePart") then
+			cf, size = part.CFrame, part.Size
+		elseif part:IsA("Model") then
+			local ok, boxCf, boxSize = pcall(function()
+				return part:GetBoundingBox()
+			end)
+			if not ok then
+				return minX, maxX, minZ, maxZ
+			end
+			cf, size = boxCf, boxSize
+		else
+			return minX, maxX, minZ, maxZ
+		end
+		-- Rotation-aware world AABB for the part.
+		local hx, hy, hz = size.X * 0.5, size.Y * 0.5, size.Z * 0.5
+		local r = cf.RightVector
+		local u = cf.UpVector
+		local l = cf.LookVector
+		local ex = math.abs(r.X) * hx + math.abs(u.X) * hy + math.abs(l.X) * hz
+		local ez = math.abs(r.Z) * hx + math.abs(u.Z) * hy + math.abs(l.Z) * hz
+		local p = cf.Position
+		return math.min(minX, p.X - ex),
+			math.max(maxX, p.X + ex),
+			math.min(minZ, p.Z - ez),
+			math.max(maxZ, p.Z + ez)
+	end
+	for _, wedge in ipairs(cached.innerWedges) do
+		local wall = cached.innerWallPartsBySky[wedge.sky]
+		local fromRoad = roadByName[wedge.from]
+		local toRoad = roadByName[wedge.to]
+		if wall and fromRoad and toRoad then
+			local minX, maxX, minZ, maxZ = math.huge, -math.huge, math.huge, -math.huge
+			minX, maxX, minZ, maxZ = expandPartXZBounds(minX, maxX, minZ, maxZ, fromRoad)
+			minX, maxX, minZ, maxZ = expandPartXZBounds(minX, maxX, minZ, maxZ, toRoad)
+			minX, maxX, minZ, maxZ = expandPartXZBounds(minX, maxX, minZ, maxZ, wall)
+			minX = math.min(minX, hubCenter.X)
+			maxX = math.max(maxX, hubCenter.X)
+			minZ = math.min(minZ, hubCenter.Z)
+			maxZ = math.max(maxZ, hubCenter.Z)
+			cached.innerBiomeXZBoundsBySky[wedge.sky] = clampBoundsToSkyQuadrant(
+				{ minX = minX, maxX = maxX, minZ = minZ, maxZ = maxZ },
+				wedge.sky
+			)
+		end
+	end
 end
 
 local function isOverPart(position, part, verticalBuffer)
@@ -172,6 +275,24 @@ function BiomeZone.GetIngredientRegion(position)
 
 	local hubCenter = cached.hubCenter
 	if hubCenter and next(cached.roadAngles) then
+		-- Prefer inner biome "box" bounds (roads + wall) so inner back corners
+		-- don't fall through to hub/default when slightly outside innerMaxRadius.
+		for _, wedge in ipairs(cached.innerWedges) do
+			local b = cached.innerBiomeXZBoundsBySky and cached.innerBiomeXZBoundsBySky[wedge.sky]
+			if b
+				and position.X >= b.minX and position.X <= b.maxX
+				and position.Z >= b.minZ and position.Z <= b.maxZ
+			then
+				return wedge.sky
+			end
+		end
+
+		-- If wall-driven bounds exist, use box-based routing only for inner zones.
+		-- Keep angle wedges only as a fallback when no wall bounds were resolved.
+		if cached.innerBiomeXZBoundsBySky and next(cached.innerBiomeXZBoundsBySky) then
+			return nil
+		end
+
 		local dx = position.X - hubCenter.X
 		local dz = position.Z - hubCenter.Z
 		local distFromHub = math.sqrt(dx * dx + dz * dz)

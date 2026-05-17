@@ -1,9 +1,10 @@
 -- AIRaidSystem.lua - ServerScriptService (ModuleScript)
 -- Wild creature packs periodically raid a random active player base.
 -- Raiders use CreatureSpawner + CreatureAI "raider" behavior (no duplicate HP/movement).
--- Defense turrets auto-target raiders via "WorldCreature" tag.
--- Raiders target BaseDefenseCreature first, then BaseIncomeCreature.
--- On attack, a dice roll can "free" a base creature (spawns it wild).
+-- Defense turrets auto-target raiders via "WorldCreature" tag
+-- Raiders target BaseDefenseCreature first, then BaseIncomeCreature
+-- On attack, a dice roll can "free" a base creature (spawns it wild)
+-- Last updated: 2026-04-23 21:35.
 
 local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
@@ -13,6 +14,8 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+local CombatFXPool = nil
+pcall(function() CombatFXPool = require(game:GetService("ServerScriptService"):FindFirstChild("CombatFXPool")) end)
 local DayNightCycle = nil
 pcall(function() DayNightCycle = require(ServerScriptService.DayNightCycle) end)
 
@@ -34,6 +37,10 @@ local function raiderAttackEffect(raiderModel, targetModel)
 	local fromBody = raiderModel and raiderModel:FindFirstChild("Body")
 	local toBody = targetModel and targetModel:FindFirstChild("Body")
 	if not fromBody or not toBody then return end
+	if CombatFXPool and CombatFXPool.FireBolt then
+		CombatFXPool.FireBolt(fromBody.Position, toBody.Position, Color3.fromRGB(255, 40, 40), 0.25, nil, Vector3.new(1.5, 1.5, 1.5))
+		return
+	end
 	task.spawn(function()
 		local bolt = Instance.new("Part")
 		bolt.Size = Vector3.new(1.5, 1.5, 1.5); bolt.Shape = Enum.PartType.Ball
@@ -245,9 +252,7 @@ local function runRaid()
 	local events = ReplicatedStorage:FindFirstChild("Events")
 	local raidAlert = events and events:FindFirstChild("AIRaidAlert")
 	if raidAlert then
-		for _, p in ipairs(Players:GetPlayers()) do
-			raidAlert:FireClient(p, target.Name, packSize, "start")
-		end
+		raidAlert:FireAllClients(target.Name, packSize, "start")
 	end
 
 	-- Shared raid state for callbacks
@@ -363,9 +368,7 @@ local function runRaid()
 	-- (PlaceCreatures clears and respawns all models; prefer base stays as-is)
 
 	if raidAlert then
-		for _, p in ipairs(Players:GetPlayers()) do
-			raidAlert:FireClient(p, target.Name, 0, "end")
-		end
+		raidAlert:FireAllClients(target.Name, 0, "end")
 	end
 
 	if faintedConn then faintedConn:Disconnect() end

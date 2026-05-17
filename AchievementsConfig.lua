@@ -1,5 +1,5 @@
 -- AchievementsConfig.lua - ReplicatedStorage.Modules (ModuleScript)
--- Generated achievement definitions and chain metadata for Siegelings.
+-- Generated achievement definitions and chain metadata for Siegelings
 
 local CreatureData = require(script.Parent:WaitForChild("CreatureData"))
 local GameConfig = require(script.Parent:WaitForChild("GameConfig"))
@@ -13,7 +13,7 @@ local function defaultRewardData(tierIndex, titleEarned)
 	local coinsTable = GameConfig.AchievementCoinsByTier or { 150, 400, 900, 1800, 3500 }
 	local gems = gemsTable[tier] or gemsTable[#gemsTable]
 	local xp = xpTable[tier] or xpTable[#xpTable]
-	-- Coins (gold) promoted from the old `future` placeholder to a real reward.
+	-- Coins (gold) promoted from the old `future` placeholder to a real reward
 	-- grantAchievementRewards now reads this field and credits the player.
 	local coins = coinsTable[tier] or coinsTable[#coinsTable]
 	return {
@@ -796,6 +796,46 @@ addSingle({
 	description = "Unlock Floor 3 of your base.",
 	requiredProgress = 3,
 	metric = metricListCount({ "ownedFloors" }),
+})
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- NPC / affinity achievements (Eleminions + Roc)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+addSingle({
+	id = "exploration_eleminion_meet",
+	category = "Exploration",
+	subcategory = "NPCs & Affinity",
+	name = "Elemental Introductions",
+	badgeGlyph = "E",
+	titleEarned = "Elemental Friend",
+	description = "Meet an Eleminion and open their affinity path.",
+	requiredProgress = 1,
+	metric = metricSetCount("exploration.eleminionsMet"),
+})
+
+addSingle({
+	id = "exploration_eleminion_quest_complete",
+	category = "Exploration",
+	subcategory = "NPCs & Affinity",
+	name = "Quest Of Affinity",
+	badgeGlyph = "Q",
+	titleEarned = "Bondkeeper",
+	description = "Complete and claim an Eleminion quest reward.",
+	requiredProgress = 1,
+	metric = metricCounter("exploration.eleminionQuestClaims"),
+})
+
+addSingle({
+	id = "exploration_roc_interact",
+	category = "Exploration",
+	subcategory = "NPCs & Affinity",
+	name = "Roc's Attention",
+	badgeGlyph = "R",
+	titleEarned = "Roc's Associate",
+	description = "Interact with Roc in the arena hub.",
+	requiredProgress = 1,
+	metric = metricSetMember("exploration.npcsInteracted", "Roc"),
 })
 
 AchievementsConfig.Definitions = definitions

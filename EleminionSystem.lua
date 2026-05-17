@@ -661,6 +661,17 @@ function EleminionSystem.OnCreatureCaptured(_, player, creatureId, creatureLevel
 	end
 end
 
+-- Batched variant fired once per player per income tick (BaseIncomeSystem).
+-- `changes` is an array of { creatureId, uid, newLevel, amount, leveled }.
+function EleminionSystem.OnCreatureLevelChangedBatch(self, player, changes)
+	if type(changes) ~= "table" then return end
+	for _, change in ipairs(changes) do
+		if change and change.creatureId and change.newLevel then
+			EleminionSystem.OnCreatureLevelChanged(self, player, change.creatureId, change.uid, change.newLevel)
+		end
+	end
+end
+
 function EleminionSystem.OnCreatureLevelChanged(_, player, creatureId, _, newLevel)
 	for _, def in ipairs(EleminionData.GetAll()) do
 		local sync = syncActiveQuestProgress(player, def.element)

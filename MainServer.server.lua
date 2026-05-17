@@ -317,7 +317,12 @@ local PvPBattleSystem = nil
 pcall(function() PvPBattleSystem = require(ServerScriptService.PvPBattleSystem) end)
 
 local BaseIncomeSystem = nil
-pcall(function() BaseIncomeSystem = require(ServerScriptService.BaseIncomeSystem) end)
+do
+	local ok, err = pcall(function() BaseIncomeSystem = require(ServerScriptService.BaseIncomeSystem) end)
+	if not ok or not BaseIncomeSystem then
+		warn("[MainServer][CRITICAL] BaseIncomeSystem failed to load — using egg-hatch-only fallback. Error:", tostring(err))
+	end
+end
 
 local AIRaidSystem = nil
 pcall(function() AIRaidSystem = require(ServerScriptService.AIRaidSystem) end)
@@ -1053,59 +1058,37 @@ end
 refreshAllPlotSigns()
 
 
+-- Egg hatching runs in its own loop regardless of BaseIncomeSystem so we can
+-- defer the heavy PlaceCreatureInSlot model-spawn calls one-per-heartbeat
+-- instead of slamming several model instantiations into a single frame.
+local function runEggHatchLoop()
+	while true do
+		task.wait(GameConfig.IncomeTickSeconds)
+		for _, p in ipairs(Players:GetPlayers()) do
+			local anyHatched, hatchedSlots = PlayerDataManager.ProcessEggHatches(p)
+			if anyHatched and BasePlacementSystem then
+				for _, h in ipairs(hatchedSlots) do
+					task.defer(function()
+						if p and p.Parent then
+							BasePlacementSystem.PlaceCreatureInSlot(p, h.slotType, h.slotIndex, h.newUid)
+						end
+					end)
+				end
+			end
+		end
+	end
+end
+
 if BaseIncomeSystem then
 	BaseIncomeSystem.Init(PlayerDataManager)
 	print("[MainServer] BaseIncomeSystem OK")
-	-- Egg hatching: run separately (incremental placement, no full base refresh)
-	task.spawn(function()
-		while true do
-			task.wait(GameConfig.IncomeTickSeconds)
-			for _, p in ipairs(Players:GetPlayers()) do
-				local anyHatched, hatchedSlots = PlayerDataManager.ProcessEggHatches(p)
-				if anyHatched and BasePlacementSystem then
-					for _, h in ipairs(hatchedSlots) do
-						BasePlacementSystem.PlaceCreatureInSlot(p, h.slotType, h.slotIndex, h.newUid)
-					end
-				end
-			end
-		end
-	end)
+	task.spawn(runEggHatchLoop)
 else
-	task.spawn(function()
-		while true do
-			task.wait(GameConfig.IncomeTickSeconds)
-			for _, p in ipairs(Players:GetPlayers()) do
-				local d = PlayerDataManager.GetData(p)
-				if d then
-					-- Hatch eggs that are ready (placed on base/defense points)
-					-- Use incremental PlaceCreatureInSlot per hatched slot instead of full PlaceCreatures
-					local anyHatched, hatchedSlots = PlayerDataManager.ProcessEggHatches(p)
-					if anyHatched and BasePlacementSystem then
-						for _, h in ipairs(hatchedSlots) do
-							BasePlacementSystem.PlaceCreatureInSlot(p, h.slotType, h.slotIndex, h.newUid)
-						end
-					end
-					-- Income: only from creatures on income slots (eggs generate nothing)
-					local inc = 0
-					for _, uid in ipairs(d.baseSlots or {}) do
-						if not uid or uid == "" then continue end
-						if PlayerDataManager.GetEggByUid(p, uid) then continue end -- skip eggs
-						for _, e in ipairs(d.inventory or {}) do
-							if e.uid and tostring(e.uid) == tostring(uid) then
-								local info = CreatureData.GetById(e.id)
-								if info then inc = inc + info.baseIncome end; break
-							end
-						end
-					end
-					if inc > 0 then
-						PlayerDataManager.AddCoins(p, inc)
-						incomeReceived:FireClient(p, inc)
-					end
-				end
-			end
-		end
-	end)
-	print("[MainServer] Inline income running")
+	-- Fallback: ONLY egg hatching. The previous inline income calculation
+	-- duplicated BaseIncomeSystem's work and silently double-paid players if
+	-- the require above ever partially succeeded. Failure is now warned above.
+	warn("[MainServer] Running in EGG-HATCH-ONLY fallback mode — no passive income will be granted.")
+	task.spawn(runEggHatchLoop)
 end
 
 -- === STEP 4: Helpers ===

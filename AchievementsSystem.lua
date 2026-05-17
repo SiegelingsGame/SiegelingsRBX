@@ -1,6 +1,5 @@
 -- AchievementsSystem.lua - ServerScriptService (ModuleScript)
 -- Scalable achievement tracking, metric storage, and live unlock dispatch.
--- Last updated: 2026-04-25 00:22
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -10,8 +9,7 @@ local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 
 local AchievementsSystem = {}
 
-local Events = ReplicatedStorage:
-WaitForChild("Events")
+local Events = ReplicatedStorage:WaitForChild("Events")
 local getAchievementsRF = Events:WaitForChild("GetAchievements")
 local achievementProgressRE = Events:WaitForChild("AchievementProgress")
 local achievementUnlockedRE = Events:WaitForChild("AchievementUnlocked")
@@ -100,13 +98,7 @@ local function grantAchievementRewards(player, def)
 	-- Persist immediately so an abrupt disconnect before the 120s auto-save
 	-- cannot swallow the reward after the player has already seen the toast.
 	if PlayerDataManager.SavePlayer then
-		pcall(function()
-			if PlayerDataManager.RequestSave then
-				PlayerDataManager.RequestSave(player)
-			else
-				PlayerDataManager.SavePlayer(player)
-			end
-		end)
+		pcall(function() PlayerDataManager.SavePlayer(player) end)
 	end
 end
 
@@ -671,40 +663,6 @@ function AchievementsSystem.OnSigilEarned(player, zoneId)
 
 	markSetMember(getOrInitMetrics(data), "exploration.sigilsEarned", zoneId)
 	AchievementsSystem.RecomputeAndUnlock(player, "sigil")
-end
-
-function AchievementsSystem.OnEleminionMet(player, element)
-	if not PlayerDataManager then return end
-	local data = PlayerDataManager.GetData(player)
-	if not data then return end
-
-	if markSetMember(getOrInitMetrics(data), "exploration.eleminionsMet", tostring(element or "")) then
-		AchievementsSystem.RecomputeAndUnlock(player, "eleminion_met")
-	end
-end
-
-function AchievementsSystem.OnEleminionQuestClaimed(player, element, questIndex)
-	if not PlayerDataManager then return end
-	local data = PlayerDataManager.GetData(player)
-	if not data then return end
-
-	incrementCounter(getOrInitMetrics(data), "exploration.eleminionQuestClaims", 1)
-	-- Keep a set too (future-facing), but the achievement uses the counter.
-	markSetMember(getOrInitMetrics(data), "exploration.eleminionQuestClaimsByElement", tostring(element or ""))
-	if questIndex ~= nil then
-		markSetMember(getOrInitMetrics(data), "exploration.eleminionQuestClaimsByQuest", ("%s_%s"):format(tostring(element or ""), tostring(questIndex)))
-	end
-	AchievementsSystem.RecomputeAndUnlock(player, "eleminion_quest_claim")
-end
-
-function AchievementsSystem.OnRocInteracted(player)
-	if not PlayerDataManager then return end
-	local data = PlayerDataManager.GetData(player)
-	if not data then return end
-
-	if markSetMember(getOrInitMetrics(data), "exploration.npcsInteracted", "Roc") then
-		AchievementsSystem.RecomputeAndUnlock(player, "roc")
-	end
 end
 
 local function isOverPart(position, part, verticalBuffer)

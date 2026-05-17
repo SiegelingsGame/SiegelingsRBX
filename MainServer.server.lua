@@ -1,5 +1,5 @@
 -- MainServer.lua - ServerScriptService (Script)
--- Last updated: 2026-04-23 21:35
+-- Last updated: 2026-04-20 17:00
 -- THE SINGLE ENTRY POINT. All remote handlers live HERE.
 -- DELETE "EssentialdHandlers" and "BattleTeamSystem" if they exist....
 
@@ -21,7 +21,6 @@ StarterGui.ResetPlayerGuiOnSpawn = false
 
 local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
-local ServerLog = require(ReplicatedStorage.Modules.ServerLog)
 local NpcSpawnMarkers = require(ReplicatedStorage.Modules.NpcSpawnMarkers)
 local PlayerWorldStats = require(ReplicatedStorage.Modules:WaitForChild("PlayerWorldStats"))
 
@@ -37,29 +36,6 @@ local function makeEvent(n)
 	local existing = eventsFolder:FindFirstChild(n)
 	if existing then return existing end
 	local e = Instance.new("RemoteEvent"); e.Name = n; e.Parent = eventsFolder; return e
-end
-local function makeEventTyped(n, className)
-	local existing = eventsFolder:FindFirstChild(n)
-	if existing and existing.ClassName == className then
-		return existing
-	end
-	if existing then
-		existing:Destroy()
-	end
-	local ok, ev = pcall(function()
-		local created = Instance.new(className)
-		created.Name = n
-		created.Parent = eventsFolder
-		return created
-	end)
-	if ok and ev then
-		return ev
-	end
-	-- Fallback for engines that do not support requested class.
-	local fallback = Instance.new("RemoteEvent")
-	fallback.Name = n
-	fallback.Parent = eventsFolder
-	return fallback
 end
 local function makeFunc(n)
 	local existing = eventsFolder:FindFirstChild(n)
@@ -156,7 +132,7 @@ makeFunc("ClaimEleminionQuestReward")
 makeEvent("ShowNotification")
 
 -- Creature animations (server -> clients for multiplayer replication)
-makeEventTyped("PlayCreatureAnimation", "UnreliableRemoteEvent")
+makeEvent("PlayCreatureAnimation")
 
 -- Loading: server fires when creatures/models are ready; client LoadingGate waits for this
 makeEvent("LoadingReady")
@@ -168,8 +144,8 @@ makeEvent("PvPChallengeNotice"); makeEvent("PvPRevivePrompt"); makeEvent("PvPRev
 makeEvent("PvPChallengeInvite"); makeEvent("PvPAcceptChallenge"); makeEvent("PvPDeclineChallenge")
 
 -- Player Combat
-makeEvent("PlayerAttack"); makeEventTyped("PlayerAttackFX", "UnreliableRemoteEvent")
-makeEventTyped("ShowDamageNumber", "UnreliableRemoteEvent") -- S->C cosmetic; unreliable OK if a number occasionally drops
+makeEvent("PlayerAttack"); makeEvent("PlayerAttackFX")
+makeEvent("ShowDamageNumber")  -- S->C: (position, damage) only to attacker/companion owner for open-world
 
 -- FIX #27: Underwater drowning (client fires when breath runs out)
 local drownDamage = makeEvent("DrownDamage")
@@ -330,8 +306,6 @@ pcall(function() ArenaShieldSystem = require(ServerScriptService.ArenaShieldSyst
 
 local WaterGymSystem = nil
 pcall(function() WaterGymSystem = require(ServerScriptService.WaterGymSystem) end)
-local ArenaRocSystem = nil
-pcall(function() ArenaRocSystem = require(ServerScriptService.ArenaRocSystem) end)
 local CaveGymSystem = nil
 pcall(function() CaveGymSystem = require(ServerScriptService.CaveGymSystem) end)
 local DesertGymSystem = nil
@@ -343,12 +317,7 @@ local PvPBattleSystem = nil
 pcall(function() PvPBattleSystem = require(ServerScriptService.PvPBattleSystem) end)
 
 local BaseIncomeSystem = nil
-do
-	local ok, err = pcall(function() BaseIncomeSystem = require(ServerScriptService.BaseIncomeSystem) end)
-	if not ok or not BaseIncomeSystem then
-		warn("[MainServer][CRITICAL] BaseIncomeSystem failed to load — using egg-hatch-only fallback. Error:", tostring(err))
-	end
-end
+pcall(function() BaseIncomeSystem = require(ServerScriptService.BaseIncomeSystem) end)
 
 local AIRaidSystem = nil
 pcall(function() AIRaidSystem = require(ServerScriptService.AIRaidSystem) end)
@@ -460,6 +429,7 @@ do
 	if ok then
 		EleminionSystem = result
 		print("[MainServer] EleminionSystem require OK")
+		warn("[MainServer] EleminionSystem require OK")
 	else
 		warn("[MainServer] EleminionSystem require FAILED: " .. tostring(result))
 	end
@@ -581,10 +551,6 @@ end
 if PvPBattleSystem then
 	local ok, err = pcall(function() PvPBattleSystem.Init(PlayerDataManager, FavoriteCreatureSystem, LeaderboardSystem) end)
 	if ok then print("[MainServer] PvPBattleSystem OK") else warn("[MainServer] PvPBattleSystem failed: " .. tostring(err)) end
-end
-if ArenaRocSystem then
-	local ok, err = pcall(function() ArenaRocSystem.Init(PlayerDataManager) end)
-	if ok then print("[MainServer] ArenaRocSystem OK") else warn("[MainServer] ArenaRocSystem failed: " .. tostring(err)) end
 end
 if AIRaidSystem and GameConfig.AIRaidEnabled then
 	local ok, err = pcall(function() AIRaidSystem.Init(PlayerDataManager, BasePlacementSystem, CreatureSpawner, CreatureAI) end)
@@ -775,11 +741,12 @@ if EleminionSystem then
 	end)
 	if ok then
 		print("[MainServer] EleminionSystem OK")
+		warn("[MainServer] EleminionSystem OK")
 	else
 		warn("[MainServer] EleminionSystem failed: " .. tostring(err))
 	end
 else
-	ServerLog.WarnOnce("eleminion_missing", "[MainServer] EleminionSystem missing — Init skipped")
+	warn("[MainServer] EleminionSystem missing - Init skipped")
 end
 if DecorSystem then
 	local ok, err = pcall(function() DecorSystem.Init(PlayerDataManager) end)
@@ -1052,27 +1019,6 @@ local function resetPlotWorldState(plotModel)
 	plotModel:SetAttribute("KnightBaseRental", nil)
 end
 
--- Random plot each join: workspace may still show a *previous* plot as owned (Studio stop/start,
--- missed cleanup). Clear sign + OwnerUserId + runtime tags on any other plot marked for this player.
-local function resetStalePlotAssignmentsForPlayer(plr, assignedPlotId)
-	if not plr or not assignedPlotId or assignedPlotId <= 0 then
-		return
-	end
-	local plotsFolder = findBasePlotsFolder()
-	if not plotsFolder then
-		return
-	end
-	local uid = plr.UserId
-	for _, plot in ipairs(plotsFolder:GetChildren()) do
-		if tonumber(plot:GetAttribute("OwnerUserId")) == uid then
-			local pid = getPlotIdFromModel(plot)
-			if pid and pid ~= assignedPlotId then
-				resetPlotWorldState(plot)
-			end
-		end
-	end
-end
-
 local function setupPlotForPlayer(plr)
 	local ok, err = pcall(function()
 		local d = PlayerDataManager.GetData(plr)
@@ -1106,44 +1052,39 @@ end
 -- Hide empty-plot sign UIs immediately so map assets do not show their default label text.
 refreshAllPlotSigns()
 
---- Hatch ready eggs for all online players; incremental placement only (shared by income and fallback loops).
-local function runEggHatchForAllPlayers()
-	for _, p in ipairs(Players:GetPlayers()) do
-		local anyHatched, hatchedSlots = PlayerDataManager.ProcessEggHatches(p)
-		if anyHatched and BasePlacementSystem then
-			for _, h in ipairs(hatchedSlots) do
-				BasePlacementSystem.PlaceCreatureInSlot(p, h.slotType, h.slotIndex, h.newUid)
-			end
-		end
-	end
-end
 
 if BaseIncomeSystem then
 	BaseIncomeSystem.Init(PlayerDataManager)
 	print("[MainServer] BaseIncomeSystem OK")
 	-- Egg hatching: run separately (incremental placement, no full base refresh)
 	task.spawn(function()
-		-- Stagger from BaseIncomeSystem: both use IncomeTickSeconds; waking together doubled
-		-- server work on the same frame every ~10s. Half-period offset spreads the spike.
-		local tickSec = math.max(1, tonumber(GameConfig.IncomeTickSeconds) or 10)
-		task.wait(tickSec * 0.5)
 		while true do
-			task.wait(tickSec)
-			runEggHatchForAllPlayers()
+			task.wait(GameConfig.IncomeTickSeconds)
+			for _, p in ipairs(Players:GetPlayers()) do
+				local anyHatched, hatchedSlots = PlayerDataManager.ProcessEggHatches(p)
+				if anyHatched and BasePlacementSystem then
+					for _, h in ipairs(hatchedSlots) do
+						BasePlacementSystem.PlaceCreatureInSlot(p, h.slotType, h.slotIndex, h.newUid)
+					end
+				end
+			end
 		end
 	end)
 else
-	ServerLog.WarnOnce(
-		"mainserver_inline_economy",
-		"[MainServer] BaseIncomeSystem missing — inline economy fallback active (simplified income; no BaseIncomeSystem night/buff rules)."
-	)
 	task.spawn(function()
 		while true do
 			task.wait(GameConfig.IncomeTickSeconds)
-			runEggHatchForAllPlayers()
 			for _, p in ipairs(Players:GetPlayers()) do
 				local d = PlayerDataManager.GetData(p)
 				if d then
+					-- Hatch eggs that are ready (placed on base/defense points)
+					-- Use incremental PlaceCreatureInSlot per hatched slot instead of full PlaceCreatures
+					local anyHatched, hatchedSlots = PlayerDataManager.ProcessEggHatches(p)
+					if anyHatched and BasePlacementSystem then
+						for _, h in ipairs(hatchedSlots) do
+							BasePlacementSystem.PlaceCreatureInSlot(p, h.slotType, h.slotIndex, h.newUid)
+						end
+					end
 					-- Income: only from creatures on income slots (eggs generate nothing)
 					local inc = 0
 					for _, uid in ipairs(d.baseSlots or {}) do
@@ -1163,19 +1104,8 @@ else
 				end
 			end
 		end
-	end
-end
-
-if BaseIncomeSystem then
-	BaseIncomeSystem.Init(PlayerDataManager)
-	print("[MainServer] BaseIncomeSystem OK")
-	task.spawn(runEggHatchLoop)
-else
-	-- Fallback: ONLY egg hatching. The previous inline income calculation
-	-- duplicated BaseIncomeSystem's work and silently double-paid players if
-	-- the require above ever partially succeeded. Failure is now warned above.
-	warn("[MainServer] Running in EGG-HATCH-ONLY fallback mode — no passive income will be granted.")
-	task.spawn(runEggHatchLoop)
+	end)
+	print("[MainServer] Inline income running")
 end
 
 -- === STEP 4: Helpers ===
@@ -1640,15 +1570,8 @@ local function autoAssignAndSetup(plr)
 	local plotId = PlayerDataManager.AssignPlot(plr)
 	if plotId and plotId > 0 then
 		print("[MainServer] Assigned Plot " .. plotId .. " to " .. plr.Name)
-		resetStalePlotAssignmentsForPlayer(plr, plotId)
 	else
 		warn("[MainServer] No plots available for " .. plr.Name)
-	end
-
-	if BasePlacementSystem and BasePlacementSystem.DestroyTaggedCreaturesForOwnerUserId then
-		pcall(function()
-			BasePlacementSystem.DestroyTaggedCreaturesForOwnerUserId(plr.UserId)
-		end)
 	end
 
 	if BasePlacementSystem and BasePlacementSystem.RefreshAllPlotVisibility then
@@ -1778,9 +1701,6 @@ for _, plr in ipairs(Players:GetPlayers()) do
 		end
 	end)
 end
-
--- World collision is not rewritten at runtime: parts keep Studio CanCollide/Material as authored.
--- Players and world creatures (solid Body parts) therefore resolve against the same static geometry.
 
 -- Start creature spawning independently (wait for any player to exist)
 task.spawn(function()
@@ -1995,17 +1915,13 @@ local function getExteriorConfig(exteriorId)
 end
 
 local function savePlayerCustomization(plr)
-	if not plr or not PlayerDataManager then
+	if not plr or not PlayerDataManager or not PlayerDataManager.SavePlayer then
 		return
 	end
 
 	task.spawn(function()
 		pcall(function()
-			if PlayerDataManager.RequestSave then
-				PlayerDataManager.RequestSave(plr)
-			elseif PlayerDataManager.SavePlayer then
-				PlayerDataManager.SavePlayer(plr)
-			end
+			PlayerDataManager.SavePlayer(plr)
 		end)
 	end)
 end
@@ -2024,9 +1940,6 @@ local function applyPlotCosmetics(plr, plot)
 	local bcEquipped = baseColor and baseColor.equipped
 	if BaseExteriorSystem.ApplyBaseColorToPlot then
 		BaseExteriorSystem.ApplyBaseColorToPlot(plot, (bcEquipped and bcEquipped ~= "") and bcEquipped or nil)
-	end
-	if LaserDoorSystem and LaserDoorSystem.RefreshForPlot then
-		LaserDoorSystem.RefreshForPlot(plot)
 	end
 end
 
@@ -2307,31 +2220,10 @@ assignToBattle.OnServerEvent:Connect(function(plr, uid, slotIndex)
 		warn("[MainServer] " .. plr.Name .. " tried battle without Floor 2")
 		return
 	end
-	local success, msg, changes = PlayerDataManager.AssignToBattle(plr, uid, slotIndex)
+	local success, msg = PlayerDataManager.AssignToBattle(plr, uid, slotIndex)
 	if success then
 		checkDespawnCompanion(plr)
-		-- Incremental update: only touch affected battle slots/orbs.
-		-- This avoids full base refresh (PlaceCreatures) which causes point-by-point flicker.
-		if BasePlacementSystem and BasePlacementSystem.PlaceBattleCreatureInSlot and BasePlacementSystem.ClearBattleCreatureAtSlot then
-			-- If a displaced creature was kicked out (replacement), clear its orb by UID.
-			if changes and changes.displacedUid and BasePlacementSystem.ClearOrbByUid then
-				BasePlacementSystem.ClearOrbByUid(plr, tostring(changes.displacedUid), true)
-			end
-			-- If a displaced creature moved to another slot (swap), place it there.
-			if changes and changes.displacedUid and changes.displacedToSlot then
-				BasePlacementSystem.PlaceBattleCreatureInSlot(plr, tonumber(changes.displacedToSlot), tostring(changes.displacedUid))
-			end
-			-- Always place/move the requested uid at its new slot.
-			local toSlot = changes and changes.toSlot and tonumber(changes.toSlot) or tonumber(slotIndex)
-			if toSlot then
-				BasePlacementSystem.PlaceBattleCreatureInSlot(plr, toSlot, uid)
-			end
-		elseif BasePlacementSystem and BasePlacementSystem.RespawnBattleCreatures then
-			-- Fallback: refresh battle visuals only (still better than full base refresh).
-			BasePlacementSystem.RespawnBattleCreatures(plr)
-		else
-			refreshPlayerBase(plr)
-		end
+		refreshPlayerBase(plr)
 	else
 		warn("[MainServer] AssignToBattle failed: " .. plr.Name .. " - " .. (msg or "?"))
 	end
@@ -2345,10 +2237,8 @@ toggleBattleTeam.OnServerInvoke = function(plr)
 		return nil
 	end
 	local enabled = PlayerDataManager.ToggleBattleTeamEnabled(plr)
-	if PlayerDataManager.RequestSave then
-		PlayerDataManager.RequestSave(plr)
-	elseif PlayerDataManager.SavePlayer then
-		PlayerDataManager.SavePlayer(plr)
+	if PlayerDataManager.SavePlayer then
+		PlayerDataManager.SavePlayer(plr)  -- Persist immediately so state sticks
 	end
 	-- Toggle should be backend-only plus BattlePoint color feedback.
 	-- Do not full-refresh base models (prevents flicker/disappear-reappear).
@@ -2360,16 +2250,8 @@ end
 
 -- REMOVE FROM BATTLE - battle team only
 removeFromBattle.OnServerEvent:Connect(function(plr, uid)
-	local ok, removedSlot = PlayerDataManager.RemoveFromBattle(plr, uid)
-	if ok then
-		-- Incremental clear: remove only this battle orb/slot.
-		if BasePlacementSystem and BasePlacementSystem.ClearBattleCreatureAtSlot and type(removedSlot) == "number" then
-			BasePlacementSystem.ClearBattleCreatureAtSlot(plr, removedSlot)
-		elseif BasePlacementSystem and BasePlacementSystem.ClearOrbByUid then
-			BasePlacementSystem.ClearOrbByUid(plr, uid, true)
-		else
-			refreshPlayerBase(plr)
-		end
+	if PlayerDataManager.RemoveFromBattle(plr, uid) then
+		refreshPlayerBase(plr)
 	end
 end)
 
@@ -2534,20 +2416,18 @@ moveCreatureSlot.OnServerInvoke = function(plr, slotType, uid, targetPointIndex)
 	local ok, msg = PlayerDataManager.MoveSlotByUid(plr, slotType, uid, targetSlotIndex)
 	moveSlotLog(plr, "MoveSlotByUid: ok=" .. tostring(ok), msg and ("msg=" .. tostring(msg)) or "", "fromSlot=" .. tostring(fromSlotIndex), "targetSlot=" .. tostring(targetSlotIndex))
 	if ok then
-		-- Perform visual clear/re-place asynchronously so InvokeServer returns fast.
-		task.spawn(function()
-			-- Clear old visual and spawn at new position
-			BasePlacementSystem.ClearCreatureAtSlot(plr, slotType, fromSlotIndex)
-			-- ClearCreatureAtSlot also calls ClearSlotAt (which sets slot to ""), but we already moved
-			-- the data, so restore target slot before re-place.
-			local d = PlayerDataManager.GetData(plr)
-			if d then
-				local slots = (slotType == "income") and d.baseSlots or d.defenseSlots
-				if slots then slots[targetSlotIndex] = uid end
-			end
-			local placeOk = BasePlacementSystem.PlaceCreatureInSlot(plr, slotType, targetSlotIndex, uid)
-			moveSlotLog(plr, "PlaceCreatureInSlot result:", placeOk and "ok" or "nil")
-		end)
+		-- Clear old visual and spawn at new position
+		BasePlacementSystem.ClearCreatureAtSlot(plr, slotType, fromSlotIndex)
+		-- ClearCreatureAtSlot also calls ClearSlotAt (which sets slot to ""), but we already moved
+		-- the data, so the slot is already "" at fromSlotIndex. Re-set the target in case ClearSlotAt
+		-- wiped it (it shouldn't since we moved, but be safe):
+		local d = PlayerDataManager.GetData(plr)
+		if d then
+			local slots = (slotType == "income") and d.baseSlots or d.defenseSlots
+			if slots then slots[targetSlotIndex] = uid end
+		end
+		local placeOk = BasePlacementSystem.PlaceCreatureInSlot(plr, slotType, targetSlotIndex, uid)
+		moveSlotLog(plr, "PlaceCreatureInSlot result:", placeOk and "ok" or "nil")
 	end
 	return ok, msg or "Moved"
 end

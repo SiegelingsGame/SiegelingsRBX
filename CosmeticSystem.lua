@@ -1,5 +1,5 @@
 -- CosmeticSystem.lua - ServerScriptService (ModuleScript)
--- Last updated: 2026-04-23 19:35
+-- Last updated: 2026-04-18 19:30
 -- Handles cosmetic purchases, equipping, and visual application.
 -- Trails, auras, and name colors applied to player characters.
 
@@ -15,17 +15,13 @@ local CosmeticSystem = {}
 local PlayerDataManager
 
 local function savePlayerCustomization(player)
-	if not player or not PlayerDataManager then
+	if not player or not PlayerDataManager or not PlayerDataManager.SavePlayer then
 		return
 	end
 
 	task.spawn(function()
 		pcall(function()
-			if PlayerDataManager.RequestSave then
-				PlayerDataManager.RequestSave(player)
-			elseif PlayerDataManager.SavePlayer then
-				PlayerDataManager.SavePlayer(player)
-			end
+			PlayerDataManager.SavePlayer(player)
 		end)
 	end)
 end

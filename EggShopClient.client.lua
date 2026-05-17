@@ -71,8 +71,7 @@ end
 local sg = Instance.new("ScreenGui")
 sg.Name = "EggShopGUI"
 sg.ResetOnSpawn = false
-sg.DisplayOrder = 200
-sg.ZIndexBehavior = Enum.ZIndexBehavior.Global
+sg.DisplayOrder = 32
 sg.Parent = playerGui
 
 local function applyPanelScale(pnl)

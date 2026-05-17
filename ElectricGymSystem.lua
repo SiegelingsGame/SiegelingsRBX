@@ -149,7 +149,7 @@ function ElectricGymSystem.Init(playerDataMgr)
 		prompt.ActionText = "Summon Gym"
 		prompt.ObjectText = "Electric Gym (" .. entryFee .. " coins)"
 		prompt.MaxActivationDistance = promptRange
-		prompt.HoldDuration = tonumber(GameConfig.HoldInteractionDuration) or 0.6
+		prompt.HoldDuration = 0
 		prompt.KeyboardKeyCode = Enum.KeyCode.E
 		prompt.RequiresLineOfSight = false
 		prompt.Enabled = true

@@ -589,14 +589,8 @@ if not quickSpawnDebug then
 			if pc then center = pc end
 		end
 
-		-- Collect meshes, textures, decals, and sounds near the player (chunked — full tree is huge)
-		local scanSteps = 0
+		-- Collect meshes, textures, decals, and sounds near the player
 		for _, desc in ipairs(workspace:GetDescendants()) do
-			scanSteps += 1
-			if scanSteps >= 500 then
-				scanSteps = 0
-				task.wait()
-			end
 			if #toPreload >= 200 then break end -- cap to avoid long preload
 			if desc:IsA("BasePart") or desc:IsA("MeshPart") or desc:IsA("Decal")
 				or desc:IsA("Texture") or desc:IsA("SpecialMesh") then

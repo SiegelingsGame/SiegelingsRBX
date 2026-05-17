@@ -262,7 +262,7 @@ local function wireZoneDoor(zoneId, doorInst, partForPrompt, promptRange)
 		prompt.ObjectText = tostring(disp) .. " gate"
 	end
 	prompt.MaxActivationDistance = promptRange
-	prompt.HoldDuration = tonumber(GameConfig.HoldInteractionDuration) or 0.6
+	prompt.HoldDuration = 0
 	prompt.RequiresLineOfSight = false
 	prompt.Enabled = true
 	local uiOff = GameConfig.ZoneDoorPromptUIOffset

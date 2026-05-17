@@ -179,8 +179,8 @@ local function showTraderUI(payload)
 	screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "ArenaTraderUI"
 	screenGui.ResetOnSpawn = false
-	screenGui.DisplayOrder = 200
-	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+	screenGui.DisplayOrder = 46
+	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	screenGui.Parent = playerGui
 
 	mainFrame = Instance.new("Frame")
@@ -298,8 +298,6 @@ local function showTraderUI(payload)
 				size = UDim2.new(1, 0, 1, 0),
 				autoRotate = true,
 				interactable = true,
-				playIdleAnimation = true,
-				defaultAnimType = "Idle",
 			})
 			viewer:SetCreature(slot.creatureId)
 			if viewer.SetAutoRotate then

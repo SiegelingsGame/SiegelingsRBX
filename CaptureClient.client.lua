@@ -961,8 +961,6 @@ local lastInRangeModels = {}
 local lastSelectedTargetModel = nil
 local lastDisplayUniqueIds = {}  -- last shown creature uniqueIds (order) - used to avoid unnecessary rebuilds
 local lastFallbackDescendantScan = 0
-local warnedWorkspaceFallbackCap = false
-local workspaceDescendantWarnScheduled = false
 local ICON_SIZE = 56  -- larger icons for easier tap/click (especially on mobile)
 local MAX_TARGET_ICONS = 5  -- show closest 5 creatures
 
@@ -1058,31 +1056,10 @@ local function collectInRangeCreatures(rootPos)
 		end
 	end
 
-	-- Fallback: full workspace scan only when CaptureWorkspaceFallbackMaxSteps > 0 (see GameConfig).
-	-- Large maps: default 0 skips entirely — MCP timed ~31ms per ~151k descendants for one pass.
-	local maxFallbackSteps = tonumber(GameConfig.CaptureWorkspaceFallbackMaxSteps)
-	if maxFallbackSteps == nil then
-		maxFallbackSteps = 0
-	end
-	if #list == 0 and maxFallbackSteps > 0 and (tick() - lastFallbackDescendantScan) >= 2 then
+	-- Fallback full scan only when tagged sources found nothing, and only periodically.
+	if #list == 0 and (tick() - lastFallbackDescendantScan) >= 2 then
 		lastFallbackDescendantScan = tick()
-		local step = 0
 		for _, obj in ipairs(workspace:GetDescendants()) do
-			step += 1
-			if step > maxFallbackSteps then
-				if not warnedWorkspaceFallbackCap then
-					warnedWorkspaceFallbackCap = true
-					warn(
-						"[CaptureClient] Workspace descendant fallback stopped at CaptureWorkspaceFallbackMaxSteps ("
-							.. tostring(maxFallbackSteps)
-							.. "). Tag creatures with WorldCreature or raise the limit."
-					)
-				end
-				break
-			end
-			if step % 400 == 0 then
-				task.wait()
-			end
 			if obj:IsA("Model") then
 				addModel(obj)
 			end
@@ -2399,28 +2376,5 @@ if homeRecallCancel then
 	homeRecallCancel.OnClientEvent:Connect(function()
 		recallFrame.Visible = false
 		showNotif("Recall interrupted!", Color3.fromRGB(255, 120, 80), 2)
-	end)
-end
-
--- One-time large-map audit: cheap early exit while counting (stops right after threshold).
-if not workspaceDescendantWarnScheduled then
-	workspaceDescendantWarnScheduled = true
-	task.defer(function()
-		local th = tonumber(GameConfig.WorkspaceDescendantWarnThreshold)
-		if not th or th <= 0 then
-			return
-		end
-		local n = 0
-		for _ in workspace:GetDescendants() do
-			n += 1
-			if n > th then
-				warn(
-					("[CaptureClient] Workspace exceeds %d descendants; trim assets, merge meshes, or enable StreamingEnabled."):format(
-						th
-					)
-				)
-				return
-			end
-		end
 	end)
 end

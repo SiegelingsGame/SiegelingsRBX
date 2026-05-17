@@ -328,8 +328,7 @@ local function ensureScreenGui()
 	screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "BadlandsHUD"
 	screenGui.ResetOnSpawn = false
-	-- Keep Badlands HUD below menus (inventory/profile/codex/etc.).
-	screenGui.DisplayOrder = 60
+	screenGui.DisplayOrder = 46
 	screenGui.IgnoreGuiInset = true
 	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	screenGui.Parent = playerGui

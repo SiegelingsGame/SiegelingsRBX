@@ -20,17 +20,6 @@ local UI_SCALE = 2
 -- PvP wins/losses per server (in-memory only, resets when server restarts)
 local pvpSessionStats = {}  -- [userId] = { wins = number, losses = number }
 
-local function abbreviateCoins(value)
-	local n = tonumber(value) or 0
-	local absN = math.abs(n)
-	if absN >= 1000000 then
-		return string.format("%.1fM", n / 1000000):gsub("%.0M", "M")
-	elseif absN >= 1000 then
-		return string.format("%.1fK", n / 1000):gsub("%.0K", "K")
-	end
-	return tostring(math.floor(n))
-end
-
 -- Board definitions
 local BOARD_DEFS = {
 	{
@@ -38,7 +27,7 @@ local BOARD_DEFS = {
 		title = "TOP INCOME EARNERS",
 		titleColor = Color3.fromRGB(100, 220, 160),
 		getStat = function(data) return data.stats.totalIncome or 0 end,
-		formatValue = function(v) return abbreviateCoins(v) .. " coins" end,
+		formatValue = function(v) return tostring(v) .. " coins" end,
 	},
 	{
 		partName = "LeaderboardBattle",

@@ -74,21 +74,8 @@ local attachedPrompts = {} -- [model] = ProximityPrompt (to avoid duplicates on 
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "BaseInteractionUI"
 screenGui.ResetOnSpawn = false
--- Interaction prompts should stay below menus.
-screenGui.DisplayOrder = 60
-screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.DisplayOrder = 30
 screenGui.Parent = playerGui
-
-playerGui.DescendantAdded:Connect(function(desc)
-	if desc:IsA("GuiButton") then
-		navButtonsDirty = true
-	end
-end)
-playerGui.DescendantRemoving:Connect(function(desc)
-	if desc:IsA("GuiButton") then
-		navButtonsDirty = true
-	end
-end)
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- UI HELPERS
@@ -101,141 +88,12 @@ local UI_GOLD = Color3.fromRGB(255, 200, 50)
 local UI_GREEN = Color3.fromRGB(80, 200, 100)
 local UI_GREY = Color3.fromRGB(80, 85, 100)
 local UI_WHITE = Color3.fromRGB(255, 255, 255)
-local PERF_LOG_INTERACTION = GameConfig.PerfLogInteractionClient == true
-
-local keyboardNavSelectedButton = nil
-local keyboardNavStroke = nil
-local cachedNavigableButtons = {}
-local navButtonsDirty = true
-local pointPartsCache = {} -- [plot] = { income = {parts}, defense = {parts}, battle = {parts} }
-
-local function perfLog(scope, startAt)
-	if not PERF_LOG_INTERACTION or not startAt then return end
-	local elapsedMs = (os.clock() - startAt) * 1000
-	if elapsedMs >= 8 then
-		warn(string.format("[Perf][BaseInteraction] %s %.2fms", scope, elapsedMs))
-	end
-end
-
-local function clearKeyboardSelection()
-	if keyboardNavStroke then
-		keyboardNavStroke:Destroy()
-		keyboardNavStroke = nil
-	end
-	keyboardNavSelectedButton = nil
-end
-
-local function isButtonNavigable(btn)
-	if not btn or not btn.Parent or not btn:IsA("GuiButton") then return false end
-	if not btn.Active or not btn.Visible then return false end
-	local size = btn.AbsoluteSize
-	if size.X <= 0 or size.Y <= 0 then return false end
-
-	local cursor = btn
-	while cursor and cursor ~= playerGui do
-		if cursor:IsA("GuiObject") and not cursor.Visible then
-			return false
-		end
-		if cursor:IsA("ScreenGui") and not cursor.Enabled then
-			return false
-		end
-		cursor = cursor.Parent
-	end
-
-	return btn:IsDescendantOf(playerGui)
-end
-
-local function getNavigableButtons()
-	if navButtonsDirty then
-		table.clear(cachedNavigableButtons)
-		for _, desc in ipairs(playerGui:GetDescendants()) do
-			if desc:IsA("GuiButton") and isButtonNavigable(desc) then
-				cachedNavigableButtons[#cachedNavigableButtons + 1] = desc
-			end
-		end
-		table.sort(cachedNavigableButtons, function(a, b)
-			local aPos, bPos = a.AbsolutePosition, b.AbsolutePosition
-			if math.abs(aPos.Y - bPos.Y) <= 6 then
-				return aPos.X < bPos.X
-			end
-			return aPos.Y < bPos.Y
-		end)
-		navButtonsDirty = false
-	end
-	return cachedNavigableButtons
-end
-
-local function setKeyboardSelection(btn)
-	if not isButtonNavigable(btn) then
-		clearKeyboardSelection()
-		return false
-	end
-
-	if keyboardNavStroke then
-		keyboardNavStroke:Destroy()
-		keyboardNavStroke = nil
-	end
-
-	keyboardNavSelectedButton = btn
-	local stroke = Instance.new("UIStroke")
-	stroke.Name = "KeyboardNavStroke"
-	stroke.Color = UI_WHITE
-	stroke.Thickness = 2
-	stroke.Transparency = 0.15
-	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	stroke.Parent = btn
-	keyboardNavStroke = stroke
-	return true
-end
-
-local function stepKeyboardSelection(delta)
-	local buttons = getNavigableButtons()
-	if #buttons == 0 then
-		clearKeyboardSelection()
-		return false
-	end
-
-	local currentIndex = table.find(buttons, keyboardNavSelectedButton) or 0
-	local nextIndex
-	if currentIndex == 0 then
-		nextIndex = (delta >= 0) and 1 or #buttons
-	else
-		nextIndex = ((currentIndex - 1 + delta) % #buttons) + 1
-	end
-	return setKeyboardSelection(buttons[nextIndex])
-end
-
-local function activateKeyboardSelection()
-	if not isButtonNavigable(keyboardNavSelectedButton) then
-		clearKeyboardSelection()
-		return false
-	end
-	keyboardNavSelectedButton:Activate()
-	return true
-end
-
-local function isFirstPersonCameraActive()
-	if player.CameraMode == Enum.CameraMode.LockFirstPerson then
-		return true
-	end
-
-	local camera = workspace.CurrentCamera
-	if not camera then
-		return false
-	end
-
-	local camPos = camera.CFrame.Position
-	local focusPos = camera.Focus.Position
-	-- In Roblox first-person, camera sits essentially at focus.
-	return (camPos - focusPos).Magnitude <= 1
-end
 
 local function clearMenu()
 	if activeMenuGui then
 		activeMenuGui:Destroy()
 		activeMenuGui = nil
 	end
-	clearKeyboardSelection()
 end
 
 local function clearGhost()
@@ -400,7 +258,7 @@ local function createHoldingBanner(creatureName, level)
 	lbl.Size = UDim2.new(1, -50, 1, 0)
 	lbl.Position = UDim2.new(0, 12, 0, 0)
 	lbl.BackgroundTransparency = 1
-	lbl.Text = "Holding: " .. creatureName .. " Lv." .. level .. "  |  Walk to a point & hold [E]"
+	lbl.Text = "Holding: " .. creatureName .. " Lv." .. level .. "  |  Walk to a point & press [E]"
 	lbl.TextColor3 = UI_WHITE
 	lbl.Font = Enum.Font.GothamMedium
 	lbl.TextSize = 14
@@ -569,7 +427,7 @@ local function showContextMenu(model)
 		-- Attach [E] prompts to all matching-type base points so the player
 		-- can walk to any point and press E to place / swap. Works on mobile too.
 		attachPointPrompts()
-		Notify.Toast("Picked up " .. displayName .. "! Walk to a point & hold [E] to place.", UI_BLUE, 2.5)
+		Notify.Toast("Picked up " .. displayName .. "! Walk to a point & press [E] to place.", UI_BLUE, 2.5)
 	end)
 
 	if sellBtn then
@@ -940,41 +798,6 @@ local function findOwnPlot()
 	return nil
 end
 
-local function getCachedPointParts(plot, slotType)
-	if not plot then return {} end
-	local cache = pointPartsCache[plot]
-	if not cache then
-		cache = { income = nil, defense = nil, battle = nil }
-		pointPartsCache[plot] = cache
-		plot.AncestryChanged:Connect(function()
-			if not plot.Parent then
-				pointPartsCache[plot] = nil
-			end
-		end)
-	end
-	if cache[slotType] then
-		return cache[slotType]
-	end
-	local prefix = (slotType == "income") and "IncomePoint" or ((slotType == "battle") and "BattlePoint" or "DefensePoint")
-	local parts = {}
-	for _, desc in ipairs(plot:GetDescendants()) do
-		if desc:IsA("BasePart") and desc.Name:match("^" .. prefix .. "%d+$") then
-			parts[#parts + 1] = desc
-		end
-	end
-	if slotType == "defense" and not GameConfig.DefensePremiumPointsEnabled then
-		local nameSet = {}
-		for _, n in ipairs(GameConfig.DefensePremiumPointNames or {}) do
-			nameSet[n] = true
-		end
-		for i = #parts, 1, -1 do
-			if nameSet[parts[i].Name] then table.remove(parts, i) end
-		end
-	end
-	cache[slotType] = parts
-	return parts
-end
-
 --- Find point index from a model's body position (used when we need the point
 --- number for a creature that's sitting on a point).
 -- @param model Model the creature model
@@ -985,13 +808,16 @@ function findPointIndexNearPos(model, slotType)
 	if not body then return nil end
 	local plot = findOwnPlot()
 	if not plot then return nil end
+	local prefix = (slotType == "income") and "IncomePoint" or ((slotType == "battle") and "BattlePoint" or "DefensePoint")
 	local bestDist, bestIdx = 8, nil
-	for _, desc in ipairs(getCachedPointParts(plot, slotType)) do
-		local num = tonumber(desc.Name:match("%d+$"))
-		local dist = (body.Position - desc.Position).Magnitude
-		if num and dist < bestDist then
-			bestDist = dist
-			bestIdx = num
+	for _, desc in ipairs(plot:GetDescendants()) do
+		if desc:IsA("BasePart") and desc.Name:match("^" .. prefix .. "%d+$") then
+			local num = tonumber(desc.Name:match("%d+$"))
+			local dist = (body.Position - desc.Position).Magnitude
+			if num and dist < bestDist then
+				bestDist = dist
+				bestIdx = num
+			end
 		end
 	end
 	return bestIdx
@@ -1088,28 +914,16 @@ attachPointPrompts = function()
 	end
 
 	local wantFolder = (heldData.slotType == "income") and "IncomePoints" or ((heldData.slotType == "battle") and "BattleTeam" or "DefensePoints")
-	local occupancyByPoint = {}
-	do
-		local tag = (heldData.slotType == "defense") and DEFENSE_TAG or ((heldData.slotType == "battle") and BATTLE_TAG or INCOME_TAG)
-		for _, tagged in ipairs(CollectionService:GetTagged(tag)) do
-			if tagged.Parent and isOwnCreature(tagged) then
-				local idx = findPointIndexNearPos(tagged, heldData.slotType)
-				if idx then
-					occupancyByPoint[idx] = tagged
-				end
-			end
-		end
-	end
 
 	local function addPromptForPoint(desc, pointIndex)
 		-- Include the point we picked up from so standing on any Floor 1 point shows [E] (Place Here / Put Back) like walking up to a model
-		local occupant = occupancyByPoint[pointIndex] or findCreatureAtPoint(desc, heldData.slotType)
+		local occupant = findCreatureAtPoint(desc, heldData.slotType)
 		local isOccupied = occupant ~= nil and occupant:GetAttribute("UID") ~= heldData.uid
 
 		local prompt = Instance.new("ProximityPrompt")
 		prompt.MaxActivationDistance = promptRange
 		prompt.RequiresLineOfSight = false
-		prompt.HoldDuration = tonumber(GameConfig.BasePlacementHoldDuration) or 0.08
+		prompt.HoldDuration = 0
 		prompt.KeyboardKeyCode = Enum.KeyCode.E
 		prompt.Exclusivity = Enum.ProximityPromptExclusivity.AlwaysShow
 
@@ -1137,15 +951,8 @@ attachPointPrompts = function()
 			else
 				busy = true
 				clearMenu()
+				clearGhost()
 				clearPointPrompts()
-				-- Ensure the holding UI always disappears immediately on a successful place.
-				-- We intentionally do NOT call resetState() here because it would restore the hidden original
-				-- orb parts; the server will replicate the moved orb shortly after.
-				local function finalizeSuccessfulPlace()
-					clearGhost() -- destroys ghostModel + holdingBanner
-					heldData = nil
-					state = STATE_IDLE
-				end
 				local targetPointIndex = pointIndex
 				if type(targetPointIndex) ~= "number" then
 					Notify.Toast("Invalid point", UI_RED, 2)
@@ -1158,25 +965,25 @@ attachPointPrompts = function()
 					if assignToBattle then
 						assignToBattle:FireServer(heldData.uid, targetPointIndex)
 						Notify.Toast("Moved " .. getDisplayName(heldData.creatureId) .. "!", UI_GREEN, 2.5)
-						finalizeSuccessfulPlace()
+						heldData = nil
+						state = STATE_IDLE
 					else
 						Notify.Toast("Cannot place (battle not available). Try rejoining.", UI_RED, 3)
 						resetState()
 					end
 				elseif moveCreatureSlot then
 					print("[BaseInteraction] InvokeServer MoveCreatureSlot " .. tostring(heldData.slotType) .. " uid=" .. tostring(heldData.uid) .. " pointIndex=" .. tostring(targetPointIndex))
-					local invokeStart = os.clock()
 					local ok, msg = moveCreatureSlot:InvokeServer(
 						heldData.slotType, heldData.uid, targetPointIndex
 					)
-					perfLog("MoveCreatureSlot.InvokeServer", invokeStart)
 					print("[BaseInteraction] MoveCreatureSlot result: ok=" .. tostring(ok) .. " msg=" .. tostring(msg))
 					if ok then
 						Notify.Toast(
 							"Moved " .. getDisplayName(heldData.creatureId) .. "!",
 							UI_GREEN, 2.5
 						)
-						finalizeSuccessfulPlace()
+						heldData = nil
+						state = STATE_IDLE
 					else
 						Notify.Toast("Move failed: " .. (tostring(msg or "unknown")), UI_RED, 2)
 						resetState()
@@ -1194,17 +1001,21 @@ attachPointPrompts = function()
 	end
 
 	-- First pass: points in the correct folder (IncomePoints/DefensePoints)
-	for _, desc in ipairs(getCachedPointParts(plot, heldData.slotType)) do
-		if not isPartInFolderNamed(desc, wantFolder) then continue end
-		local pointIndex = tonumber(desc.Name:match("%d+$"))
-		if pointIndex then addPromptForPoint(desc, pointIndex) end
+	for _, desc in ipairs(plot:GetDescendants()) do
+		if desc:IsA("BasePart") and desc.Name:match("^" .. prefix .. "%d+$") then
+			if not isPartInFolderNamed(desc, wantFolder) then continue end
+			local pointIndex = tonumber(desc.Name:match("%d+$"))
+			if pointIndex then addPromptForPoint(desc, pointIndex) end
+		end
 	end
 
 	-- Fallback: if no prompts added (e.g. folder name differs), add for any point-named part in plot
 	if next(activePointPrompts) == nil then
-		for _, desc in ipairs(getCachedPointParts(plot, heldData.slotType)) do
-			local pointIndex = tonumber(desc.Name:match("%d+$"))
-			if pointIndex then addPromptForPoint(desc, pointIndex) end
+		for _, desc in ipairs(plot:GetDescendants()) do
+			if desc:IsA("BasePart") and desc.Name:match("^" .. prefix .. "%d+$") then
+				local pointIndex = tonumber(desc.Name:match("%d+$"))
+				if pointIndex then addPromptForPoint(desc, pointIndex) end
+			end
 		end
 	end
 	local n = 0
@@ -1256,7 +1067,7 @@ local function attachPromptToOrb(model)
 	prompt.ObjectText = displayName .. " Lv." .. level
 	prompt.MaxActivationDistance = GameConfig.BaseInteractionRange or 12
 	prompt.RequiresLineOfSight = false
-	prompt.HoldDuration = tonumber(GameConfig.HoldInteractionDuration) or 0.6
+	prompt.HoldDuration = 0
 	prompt.KeyboardKeyCode = Enum.KeyCode.E
 	prompt.Parent = body
 
@@ -1329,42 +1140,20 @@ end
 -- GHOST POSITION UPDATE (every frame while holding)
 -- ══════════════════════════════════════════════════════════════════════════════
 
-do
-	local ghostUpdateAccum = 0
-	local ghostUpdateInterval = tonumber(GameConfig.BaseGhostUpdateInterval) or (1 / 15)
-	RunService.Heartbeat:Connect(function(dt)
-		ghostUpdateAccum += dt
-		if ghostUpdateAccum < ghostUpdateInterval then return end
-		ghostUpdateAccum = 0
-		if state ~= STATE_HOLDING or not ghostModel then return end
-		local character = player.Character
-		local root = character and character:FindFirstChild("HumanoidRootPart")
-		if not root then return end
-		local pos = root.Position + root.CFrame.LookVector * 4 + Vector3.new(0, 3, 0)
-		ghostModel:PivotTo(CFrame.new(pos))
-	end)
-end
+RunService.RenderStepped:Connect(function()
+	if state ~= STATE_HOLDING or not ghostModel then return end
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+	local pos = root.Position + root.CFrame.LookVector * 4 + Vector3.new(0, 3, 0)
+	ghostModel:PivotTo(CFrame.new(pos))
+end)
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- KEYBOARD SHORTCUT: X to cancel holding
 -- ══════════════════════════════════════════════════════════════════════════════
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if UserInputService:GetFocusedTextBox() then return end
-	if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
-
-	if isFirstPersonCameraActive() then
-		if input.KeyCode == Enum.KeyCode.Up or input.KeyCode == Enum.KeyCode.Left then
-			if stepKeyboardSelection(-1) then return end
-		elseif input.KeyCode == Enum.KeyCode.Down or input.KeyCode == Enum.KeyCode.Right then
-			if stepKeyboardSelection(1) then return end
-		elseif input.KeyCode == Enum.KeyCode.Return or input.KeyCode == Enum.KeyCode.KeypadEnter then
-			if activateKeyboardSelection() then return end
-		end
-	else
-		clearKeyboardSelection()
-	end
-
 	if gameProcessed then return end
 	if input.KeyCode == Enum.KeyCode.X then
 		if state == STATE_HOLDING or state == STATE_SWAP_MENU or state == STATE_CONTEXT or state == STATE_SELL_CONFIRM then
@@ -1380,11 +1169,13 @@ end)
 
 -- Attach prompts to existing orbs after a brief delay (let BasePlacementSystem finish spawning)
 task.spawn(function()
-	local delays = { 0.5, 1.5, 3, 5 }
-	for _, d in ipairs(delays) do
-		task.wait(d)
-		scanAndAttachPrompts()
-	end
+	task.wait(3)
+	scanAndAttachPrompts()
+	-- Re-scan so defense/income orbs that spawn after 3s (e.g. late PlaceCreatures) still get [E]
+	task.wait(5)
+	scanAndAttachPrompts()
+	task.wait(7)
+	scanAndAttachPrompts()
 end)
 
 -- Re-scan when character respawns (prompts may need re-attachment)

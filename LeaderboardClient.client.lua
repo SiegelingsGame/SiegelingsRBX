@@ -83,8 +83,7 @@ end
 local sg = Instance.new("ScreenGui")
 sg.Name = "LeaderboardGUI"
 sg.ResetOnSpawn = false
-sg.DisplayOrder = 200
-sg.ZIndexBehavior = Enum.ZIndexBehavior.Global
+sg.DisplayOrder = 45
 sg.Parent = playerGui
 
 local function applyPanelScale(pnl)
@@ -254,17 +253,6 @@ for i, tab in ipairs(tabs) do
 	tabButtons[tab.key] = btn
 end
 
-local function abbreviateCoins(value)
-	local n = tonumber(value) or 0
-	local absN = math.abs(n)
-	if absN >= 1000000 then
-		return string.format("%.1fM", n / 1000000):gsub("%.0M", "M")
-	elseif absN >= 1000 then
-		return string.format("%.1fK", n / 1000):gsub("%.0K", "K")
-	end
-	return tostring(math.floor(n))
-end
-
 -- Format a stat value as display text
 local function formatEntryValue(entry, isBattle, isPvp)
 	if not entry then return "" end
@@ -277,7 +265,7 @@ local function formatEntryValue(entry, isBattle, isPvp)
 		end
 		return tostring(entry.value) .. " wins" .. streakText
 	elseif currentTab == "income" then
-		return abbreviateCoins(entry.value) .. " coins"
+		return tostring(entry.value) .. " coins"
 	else
 		return tostring(entry.value) .. " owned"
 	end
@@ -496,7 +484,7 @@ local function refreshLeaderboard()
 	-- Update own rank
 	if result.playerRank then
 		local valText = tostring(result.playerValue or 0)
-		if currentTab == "income" then valText = abbreviateCoins(result.playerValue or 0) .. " coins"
+		if currentTab == "income" then valText = valText .. " coins"
 		elseif currentTab == "battle" then valText = valText .. " wins"
 		elseif currentTab == "pvp" then
 			valText = valText .. " W / " .. tostring(result.playerLosses or 0) .. " L"

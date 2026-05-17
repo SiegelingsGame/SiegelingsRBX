@@ -1,4 +1,4 @@
--- Last updated: 2026-04-23 21:35
+-- Last updated: 2026-04-18 15:00
 -- PlayerCombatSystem.lua - ServerScriptService (ModuleScript)
 -- Handles player direct attacks against world creatures.
 -- Ranged (auto/manual aim) and Melee (AOE swing).
@@ -96,21 +96,19 @@ local function doRangedAttack(player, origin, direction, targetUniqueId)
 		end
 		end
 	else
-		-- Legacy fallback auto-aim is disabled by default to avoid unnecessary world scans.
-		if GameConfig.EnableLegacyAutoAim == true then
-			local bestDist = GameConfig.PlayerRangedRange
-			for _, model in ipairs(CollectionService:GetTagged(WORLD_TAG)) do
-				if model.Parent and not model:GetAttribute("Fainted") then
-					local body = model.PrimaryPart or model:FindFirstChild("Body")
-					if body then
-						local toCreature = body.Position - origin
-						local dot = toCreature.Unit:Dot(direction.Unit)
-						if dot > 0.6 then
-							local dist = toCreature.Magnitude
-							if dist < bestDist and dist <= GameConfig.PlayerRangedRange then
-								bestDist = dist
-								bestTarget = model
-							end
+		-- Find closest creature in direction cone (legacy auto-aim, no longer used)
+		local bestDist = GameConfig.PlayerRangedRange
+		for _, model in ipairs(CollectionService:GetTagged(WORLD_TAG)) do
+			if model.Parent and not model:GetAttribute("Fainted") then
+				local body = model.PrimaryPart or model:FindFirstChild("Body")
+				if body then
+					local toCreature = body.Position - origin
+					local dot = toCreature.Unit:Dot(direction.Unit)
+					if dot > 0.6 then
+						local dist = toCreature.Magnitude
+						if dist < bestDist and dist <= GameConfig.PlayerRangedRange then
+							bestDist = dist
+							bestTarget = model
 						end
 					end
 				end
@@ -156,7 +154,9 @@ local function doRangedAttack(player, origin, direction, targetUniqueId)
 	-- Send FX to all players
 	if attackEvent then
 		local didHit = bestTarget ~= nil or stealVictimHit
-		attackEvent:FireAllClients(player.UserId, origin, endPos, "ranged", didHit)
+		for _, p in ipairs(Players:GetPlayers()) do
+			attackEvent:FireClient(p, player.UserId, origin, endPos, "ranged", didHit)
+		end
 	end
 end
 
@@ -246,7 +246,9 @@ local function doMeleeAttack(player, origin, targetUniqueId)
 	local events = ReplicatedStorage:FindFirstChild("Events")
 	local attackEvent = events and events:FindFirstChild("PlayerAttackFX")
 	if attackEvent then
-		attackEvent:FireAllClients(player.UserId, origin, nil, "melee", hitCount > 0)
+		for _, p in ipairs(Players:GetPlayers()) do
+			attackEvent:FireClient(p, player.UserId, origin, nil, "melee", hitCount > 0)
+		end
 	end
 
 	return hitCount

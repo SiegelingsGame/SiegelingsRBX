@@ -99,7 +99,7 @@ end
 
 -- -- SCREEN GUI --
 sg = Instance.new("ScreenGui")
-sg.Name = "CosmeticShopGUI"; sg.ResetOnSpawn = false; sg.DisplayOrder = 200; sg.ZIndexBehavior = Enum.ZIndexBehavior.Global; sg.Parent = playerGui
+sg.Name = "CosmeticShopGUI"; sg.ResetOnSpawn = false; sg.DisplayOrder = 31; sg.Parent = playerGui
 
 -- Main panel (size/position set on open via applyPanelScale; draggable)
 local panel = Instance.new("Frame")

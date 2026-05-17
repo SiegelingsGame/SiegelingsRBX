@@ -16,7 +16,6 @@
 --       BattlePoint1..9
 --
 -- Dev mode: set DEV_MODE = true to spawn AI challenger teams for solo testing
--- Last updated: 2026-04-23 21:35
 
 local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
@@ -231,8 +230,8 @@ local function broadcastArenaState()
 		t = os.clock(),
 	}
 
-	if arenaEvents.ArenaStateUpdate then
-		arenaEvents.ArenaStateUpdate:FireAllClients(payload)
+	for _, p in ipairs(Players:GetPlayers()) do
+		arenaEvents.ArenaStateUpdate:FireClient(p, payload)
 	end
 end
 
@@ -1220,7 +1219,9 @@ local function runBattle()
 	if arenaEvents.BattleStart then
 		local kingName = currentKing and currentKing.Name or "AI King"
 		local challName = currentChallenger and currentChallenger.Name or "AI Challenger"
-		arenaEvents.BattleStart:FireAllClients(kingName, challName, #blueTeamCreatures, #redTeamCreatures)
+		for _, p in ipairs(Players:GetPlayers()) do
+			arenaEvents.BattleStart:FireClient(p, kingName, challName, #blueTeamCreatures, #redTeamCreatures)
+		end
 	end
 
 	task.wait(2) -- Pre-battle pause
@@ -1433,10 +1434,12 @@ local function runBattle()
 				if arenaEvents.BattleKill then
 					local aInfo = CreatureData.GetById(attacker.creatureId)
 					local dInfo = CreatureData.GetById(target.creatureId)
-					arenaEvents.BattleKill:FireAllClients(
-						aInfo and aInfo.displayName or "?",
-						dInfo and dInfo.displayName or "?",
-						attacker.team)
+					for _, p in ipairs(Players:GetPlayers()) do
+						arenaEvents.BattleKill:FireClient(p,
+							aInfo and aInfo.displayName or "?",
+							dInfo and dInfo.displayName or "?",
+							attacker.team)
+					end
 				end
 			end
 		end
@@ -1458,7 +1461,9 @@ local function runBattle()
 	-- Broadcast result
 	if arenaEvents.BattleEnd then
 		local winName = winnerPlayer and winnerPlayer.Name or ("AI " .. (winnerTeam == "blue" and "King" or "Challenger"))
-		arenaEvents.BattleEnd:FireAllClients(winName, winnerTeam, blueAlive, redAlive)
+		for _, p in ipairs(Players:GetPlayers()) do
+			arenaEvents.BattleEnd:FireClient(p, winName, winnerTeam, blueAlive, redAlive)
+		end
 	end
 
 	-- Final snapshot for UI
@@ -1560,7 +1565,9 @@ local function runBattle()
 			winnerBounty = winnerBounty,
 			loserBounty = loserBounty,
 		}
-		arenaEvents.ArenaReward:FireAllClients(payload)
+		for _, p in ipairs(Players:GetPlayers()) do
+			arenaEvents.ArenaReward:FireClient(p, payload)
+		end
 	end
 
 	-- Log
@@ -1676,7 +1683,9 @@ local function startRound()
 
 	if not challenger and not DEV_MODE then
 		if arenaEvents.ArenaAnnounce then
-			arenaEvents.ArenaAnnounce:FireAllClients(currentKing.Name .. " is the King! No suitable challengers found.")
+			for _, p in ipairs(Players:GetPlayers()) do
+				arenaEvents.ArenaAnnounce:FireClient(p, currentKing.Name .. " is the King! No suitable challengers found.")
+			end
 		end
 		print("[Arena] No challenger available - skipping")
 		return
@@ -1786,7 +1795,9 @@ local function startRound()
 				primaryColor = info and {info.primaryColor.R * 255, info.primaryColor.G * 255, info.primaryColor.B * 255} or {180, 180, 180},
 			})
 		end
-		arenaEvents.BattleTeamsPlaced:FireAllClients(blueData, redData, king.Name, challengerName)
+		for _, p in ipairs(Players:GetPlayers()) do
+			arenaEvents.BattleTeamsPlaced:FireClient(p, blueData, redData, king.Name, challengerName)
+		end
 	end
 
 	-- Initial state snapshot for UI (HP/SP start values)
@@ -1919,7 +1930,9 @@ function ArenaSystem.StartGymBattle(player, gymFolder)
 				primaryColor = info and {info.primaryColor.R*255, info.primaryColor.G*255, info.primaryColor.B*255} or {180,180,180},
 			})
 		end
-		arenaEvents.BattleTeamsPlaced:FireAllClients(blueData, redData, player.Name, "Gym Leader")
+		for _, p in ipairs(Players:GetPlayers()) do
+			arenaEvents.BattleTeamsPlaced:FireClient(p, blueData, redData, player.Name, "Gym Leader")
+		end
 	end
 	stateDirty = true
 	lastStateBroadcast = 0

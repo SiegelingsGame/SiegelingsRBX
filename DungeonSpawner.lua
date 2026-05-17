@@ -2,7 +2,6 @@
 -- Periodically spawns a "dungeon" landmark at the map outskirts.
 -- Dungeon contains 2-4 legendary creatures that can be fought and captured.
 -- Despawns after DungeonDuration seconds.
--- Last updated: 2026-04-23 21:35
 
 local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
@@ -192,7 +191,9 @@ local function spawnDungeon()
 	local events = ReplicatedStorage:FindFirstChild("Events")
 	local dungeonEvt = events and events:FindFirstChild("DungeonSpawned")
 	if dungeonEvt then
-		dungeonEvt:FireAllClients(spawnPos, creatureCount, GameConfig.DungeonDuration)
+		for _, p in ipairs(Players:GetPlayers()) do
+			dungeonEvt:FireClient(p, spawnPos, creatureCount, GameConfig.DungeonDuration)
+		end
 	end
 
 	-- Countdown timer update
@@ -245,7 +246,9 @@ local function spawnDungeon()
 	-- Notify despawn
 	local despawnEvt = events and events:FindFirstChild("DungeonDespawned")
 	if despawnEvt then
-		despawnEvt:FireAllClients()
+		for _, p in ipairs(Players:GetPlayers()) do
+			despawnEvt:FireClient(p)
+		end
 	end
 
 	activeDungeon = nil

@@ -10,9 +10,9 @@
 -- If MainServer already handles these remotes, this module's Init() event listeners
 -- will be secondary. Avoid running both simultaneously to prevent double-handling.
 --
--- Data model: player.battleTeam = { [slotIndex] = uid or nil }.
+-- Data model: player.battleTeam = { [slotIndex] = uid or nil }
 --   slotIndex 1-9 maps to BattlePoint1-9 (top-left to bottom-right)
---   max 5 of 9 slots can be filled..
+--   max 5 of 9 slots can be filled
 
 local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")

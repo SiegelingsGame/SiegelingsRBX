@@ -1,5 +1,5 @@
 -- WorldCreatureHP.lua - ServerScriptService (ModuleScript)
--- Tracks HP for world-spawned creatures. When HP reaches 0, sets Fainted attribute
+-- Tracks HP for world-spawned creatures. When HP reaches 0, sets Fainted attribute.
 -- Both PlayerCombatSystem and FavoriteCreatureSystem call DamageCreature here.
 
 local CollectionService = game:GetService("CollectionService")

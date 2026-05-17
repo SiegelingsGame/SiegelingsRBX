@@ -403,7 +403,7 @@ local function createTraderNPC()
 		prompt.Name = "TraderPrompt"
 		prompt.ObjectText = "The Curator"
 		prompt.ActionText = "Browse"
-		prompt.HoldDuration = tonumber(GameConfig.HoldInteractionDuration) or 0.6
+		prompt.HoldDuration = 0
 		prompt.MaxActivationDistance = 12
 		prompt.RequiresLineOfSight = false
 		prompt.KeyboardKeyCode = Enum.KeyCode.E

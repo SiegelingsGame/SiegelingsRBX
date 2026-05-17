@@ -11,9 +11,7 @@
       "WebFetch(domain:www.tungralore.com)",
       "mcp__Claude_Preview__preview_start",
       "Bash(git add .gitignore *.lua *.html *.txt *.toml *.json *.rbxm \"Roblox Scripts.rbxl\" *.md src/ website/ .claude/launch.json)",
-      "Bash(find '/a/New folder/OneDrive/Documents/Roblox Scripts' -type f -name *.html)",
-      "mcp__Blender__get_screenshot_of_window_as_image",
-      "mcp__Blender__execute_blender_code"
+      "Bash(find '/a/New folder/OneDrive/Documents/Roblox Scripts' -type f -name *.html)"
     ]
   }
 }

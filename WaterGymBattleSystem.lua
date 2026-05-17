@@ -1,6 +1,5 @@
 -- WaterGymBattleSystem.lua - ServerScriptService (ModuleScript)
 -- Separate gym battle runner for OceanBiome/WaterGym that does NOT share ArenaSystem state/round loop.
--- Last updated: 2026-04-23 21:35
 
 local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
@@ -462,8 +461,7 @@ local function clearArena()
 	redTeamCreatures = {}
 end
 
--- statsPlayer: passed to GetEffectiveStats (player buffs). Use nil for AI / gym red team.
-local function placeTeam(team, teamFolder, teamColor, sizeMultiplier, enemyFolder, statsPlayer)
+local function placeTeam(team, teamFolder, teamColor, sizeMultiplier, enemyFolder)
 	local points = getPointsSorted(teamFolder)
 	local faceTowardPos = enemyFolder and getTeamCenter(enemyFolder)
 	local pointMap = {}
@@ -489,7 +487,7 @@ local function placeTeam(team, teamFolder, teamColor, sizeMultiplier, enemyFolde
 			local model = spawnBattleCreature(entry.id, targetPoint, teamColor, sizeMultiplier, faceTowardPos)
 			if model then
 				local variant = entry.variant or "Normal"
-				local stats = PlayerDataManager.GetEffectiveStats(entry.id, entry.level or 1, variant, statsPlayer)
+				local stats = PlayerDataManager.GetEffectiveStats(entry.id, entry.level or 1, variant, currentKing)
 				local lvl = entry.level or 1
 				local maxFocus = GameConfig.FocusMax or 100
 				if stats then
@@ -549,7 +547,9 @@ end
 local function runBattle()
 	-- Broadcast battle start
 	if arenaEvents.BattleStart then
-		arenaEvents.BattleStart:FireAllClients(currentKing and currentKing.Name or "?", "Gym Leader", #blueTeamCreatures, #redTeamCreatures)
+		for _, p in ipairs(Players:GetPlayers()) do
+			arenaEvents.BattleStart:FireClient(p, currentKing and currentKing.Name or "?", "Gym Leader", #blueTeamCreatures, #redTeamCreatures)
+		end
 	end
 
 	task.wait(2)
@@ -659,7 +659,9 @@ local function runBattle()
 				if arenaEvents.BattleKill then
 					local aInfo = CreatureData.GetById(attacker.creatureId)
 					local dInfo = CreatureData.GetById(target.creatureId)
-					arenaEvents.BattleKill:FireAllClients(aInfo and aInfo.displayName or "?", dInfo and dInfo.displayName or "?", attacker.team)
+					for _, p in ipairs(Players:GetPlayers()) do
+						arenaEvents.BattleKill:FireClient(p, aInfo and aInfo.displayName or "?", dInfo and dInfo.displayName or "?", attacker.team)
+					end
 				end
 			end
 		end
@@ -676,7 +678,9 @@ local function runBattle()
 	local winnerName = (winnerTeam == "blue" and currentKing and currentKing.Name) or "Gym Leader"
 
 	if arenaEvents.BattleEnd then
-		arenaEvents.BattleEnd:FireAllClients(winnerName or "?", winnerTeam, blueAlive, redAlive)
+		for _, p in ipairs(Players:GetPlayers()) do
+			arenaEvents.BattleEnd:FireClient(p, winnerName or "?", winnerTeam, blueAlive, redAlive)
+		end
 	end
 
 	-- Gym reward: only if player wins
@@ -691,37 +695,25 @@ local function runBattle()
 			pcall(function() PlayerDataManager.AddPlayerXP(currentKing, winXP) end)
 		end
 		-- Zone door: gym pass (key) + SiegeKnight sigil for this outer biome
-		if not currentGymConfig.skipZoneRewards then
-			local zoneKey = (currentGymConfig and currentGymConfig.zoneKey) or "Ocean"
-			if PlayerDataManager.AddZoneKeyFromGym then
-				PlayerDataManager.AddZoneKeyFromGym(currentKing, zoneKey)
+		local zoneKey = (currentGymConfig and currentGymConfig.zoneKey) or "Ocean"
+		if PlayerDataManager.AddZoneKeyFromGym then
+			PlayerDataManager.AddZoneKeyFromGym(currentKing, zoneKey)
+		end
+		if PlayerDataManager.AddSigil then
+			local hadSigil = PlayerDataManager.HasSigil(currentKing, zoneKey)
+			PlayerDataManager.AddSigil(currentKing, zoneKey)
+			-- Persist immediately so gym-win sigils survive disconnect before 120s auto-save.
+			if PlayerDataManager.SavePlayer then
+				pcall(function() PlayerDataManager.SavePlayer(currentKing) end)
 			end
-			if PlayerDataManager.AddSigil then
-				local hadSigil = PlayerDataManager.HasSigil(currentKing, zoneKey)
-				PlayerDataManager.AddSigil(currentKing, zoneKey)
-				-- Persist immediately so gym-win sigils survive disconnect before 120s auto-save.
-				if PlayerDataManager.SavePlayer then
-					pcall(function()
-						if PlayerDataManager.RequestSave then
-							PlayerDataManager.RequestSave(currentKing)
-						else
-							PlayerDataManager.SavePlayer(currentKing)
-						end
-					end)
-				end
-				if not hadSigil then
-					local eventsFolder = ReplicatedStorage:FindFirstChild("Events")
-					local sigilEvt = eventsFolder and eventsFolder:FindFirstChild("SigilEarned")
-					if sigilEvt then
-						sigilEvt:FireClient(currentKing, zoneKey)
-					end
+			if not hadSigil then
+				local eventsFolder = ReplicatedStorage:FindFirstChild("Events")
+				local sigilEvt = eventsFolder and eventsFolder:FindFirstChild("SigilEarned")
+				if sigilEvt then
+					sigilEvt:FireClient(currentKing, zoneKey)
 				end
 			end
 		end
-	end
-
-	if currentGymConfig and type(currentGymConfig.onGymBattleResolved) == "function" and currentKing then
-		pcall(currentGymConfig.onGymBattleResolved, currentKing, winnerTeam == "blue")
 	end
 
 	if arenaEvents.ArenaReward then
@@ -734,7 +726,9 @@ local function runBattle()
 			winnerReward = winnerReward,
 			loserReward = loserReward,
 		}
-		arenaEvents.ArenaReward:FireAllClients(payload)
+		for _, p in ipairs(Players:GetPlayers()) do
+			arenaEvents.ArenaReward:FireClient(p, payload)
+		end
 	end
 
 	task.wait(3)
@@ -889,17 +883,12 @@ function WaterGymBattleSystem.StartGymBattle(player, gymFolder, config)
 
 	local playerTeam = getPlayerBattleTeam(player)
 	local level = currentGymConfig.level or (GameConfig.WaterGymCreatureLevel or 45)
-	local gymTeam
-	if type(currentGymConfig.opponentTeam) == "table" and #currentGymConfig.opponentTeam > 0 then
-		gymTeam = currentGymConfig.opponentTeam
-	else
-		gymTeam = generateGymTeam(level, currentGymConfig.elements)
-	end
+	local gymTeam = generateGymTeam(level, currentGymConfig.elements)
 
 	local redCenter = getTeamCenter(redTeamFolder)
 	local blueCenter = getTeamCenter(blueTeamFolder)
-	blueTeamCreatures = placeTeam(playerTeam, blueTeamFolder, "blue", 1, redTeamFolder, currentKing)
-	redTeamCreatures = placeTeam(gymTeam, redTeamFolder, "red", 1, blueTeamFolder, nil)
+	blueTeamCreatures = placeTeam(playerTeam, blueTeamFolder, "blue", 1, redTeamFolder)
+	redTeamCreatures = placeTeam(gymTeam, redTeamFolder, "red", 1, blueTeamFolder)
 
 	if arenaEvents.BattleTeamsPlaced then
 		local blueData, redData = {}, {}
@@ -923,7 +912,9 @@ function WaterGymBattleSystem.StartGymBattle(player, gymFolder, config)
 				primaryColor = info and {info.primaryColor.R * 255, info.primaryColor.G * 255, info.primaryColor.B * 255} or {180, 180, 180},
 			})
 		end
-		arenaEvents.BattleTeamsPlaced:FireAllClients(blueData, redData, player.Name, "Gym Leader")
+		for _, p in ipairs(Players:GetPlayers()) do
+			arenaEvents.BattleTeamsPlaced:FireClient(p, blueData, redData, player.Name, "Gym Leader")
+		end
 	end
 
 	task.wait(2)

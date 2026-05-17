@@ -434,21 +434,7 @@ local function updateZoneDoorPromptAnchorsToClosest()
 	end
 end
 
-do
-	local anchorUpdateAccum = 0
-	local anchorUpdateInterval = tonumber(GameConfig.ZoneDoorAnchorUpdateInterval) or (1 / 15)
-	RunService.Heartbeat:Connect(function(dt)
-		anchorUpdateAccum += dt
-		if anchorUpdateAccum < anchorUpdateInterval then
-			return
-		end
-		anchorUpdateAccum = 0
-		if next(trackedZoneDoorPromptAnchors) == nil then
-			return
-		end
-		updateZoneDoorPromptAnchorsToClosest()
-	end)
-end
+RunService.RenderStepped:Connect(updateZoneDoorPromptAnchorsToClosest)
 
 local function tryRegisterZoneDoorPart(inst)
 	if not inst:IsA("BasePart") then
@@ -1240,18 +1226,10 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt, who)
 	openModal(zid)
 end)
 
-task.defer(function()
-	local step = 0
-	for _, d in ipairs(workspace:GetDescendants()) do
-		tryRegisterZoneDoorPart(d)
-		tryRegisterZoneDoorPromptAnchorInst(d)
-		step += 1
-		if step >= 400 then
-			step = 0
-			task.wait()
-		end
-	end
-end)
+for _, d in ipairs(workspace:GetDescendants()) do
+	tryRegisterZoneDoorPart(d)
+	tryRegisterZoneDoorPromptAnchorInst(d)
+end
 workspace.DescendantAdded:Connect(function(inst)
 	task.defer(function()
 		tryRegisterZoneDoorPart(inst)

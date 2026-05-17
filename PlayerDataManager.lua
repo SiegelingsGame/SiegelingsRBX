@@ -1,6 +1,6 @@
 -- PlayerDataManager.lua - ServerScriptService (ModuleScript)
 -- Manages all persistent player data.
--- Last updated: 2026-04-23 19:35
+-- Last updated: 2026-04-20 13:00
 
 local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
@@ -16,7 +16,6 @@ local PlayerDataManager = {}
 local DATA_STORE_NAME = "MonsterSiege_PlayerData_v1"
 local AUTO_SAVE_INTERVAL = 120
 local MAX_RETRIES = 3
-local COALESCED_SAVE_DELAY = 20
 -- FIX #22: MaxBattleTeamSize is the GRID size (9 slots in 3x3 layout).
 -- MaxBattleTeamCreatures is the actual creature limit (default 5).
 -- Previously used grid size as creature limit, allowing 9 creatures on a 5-creature team.
@@ -25,118 +24,10 @@ local GRID_SLOTS = 9
 
 local dataStore = DataStoreService:GetDataStore(DATA_STORE_NAME)
 local playerCache = {}
-local pendingSaveDueAt = {} -- [userId] = dueTick
 local AchievementObserver = nil
 local EleminionObserver = nil
 -- plotId -> userId: atomic source of truth to prevent two players claiming same base
 local claimedPlotIds = {}
-local inventoryUidIndexByUserId = {}
-local dataVersionsByUserId = {}
-
-local function getVersionState(userId)
-	local state = dataVersionsByUserId[userId]
-	if not state then
-		state = { inventory = 0, slots = 0, buffs = 0, rebirth = 0 }
-		dataVersionsByUserId[userId] = state
-	end
-	return state
-end
-
-local function bumpVersion(userId, key)
-	local state = getVersionState(userId)
-	state[key] = (state[key] or 0) + 1
-	return state[key]
-end
-
-local function bumpInventoryVersion(player)
-	if player then
-		bumpVersion(player.UserId, "inventory")
-	end
-end
-
-local function bumpSlotVersion(player)
-	if player then
-		bumpVersion(player.UserId, "slots")
-	end
-end
-
-local function bumpBuffVersion(player)
-	if player then
-		bumpVersion(player.UserId, "buffs")
-	end
-end
-
-local function bumpRebirthVersion(player)
-	if player then
-		bumpVersion(player.UserId, "rebirth")
-	end
-end
-
-local function rebuildInventoryUidIndex(userId, data)
-	local map = {}
-	for _, entry in ipairs((data and data.inventory) or {}) do
-		if entry and entry.uid then
-			map[tostring(entry.uid)] = entry
-		end
-	end
-	inventoryUidIndexByUserId[userId] = map
-	return map
-end
-
-local function getInventoryUidIndex(player)
-	if not player then
-		return nil
-	end
-	local userId = player.UserId
-	local map = inventoryUidIndexByUserId[userId]
-	if map then
-		return map
-	end
-	local data = playerCache[userId]
-	if not data then
-		return nil
-	end
-	return rebuildInventoryUidIndex(userId, data)
-end
-
-local function addInventoryIndexEntry(player, entry)
-	if not player or not entry or not entry.uid then
-		return
-	end
-	local map = getInventoryUidIndex(player)
-	if map then
-		map[tostring(entry.uid)] = entry
-	end
-end
-
-local function removeInventoryIndexUid(userId, uid)
-	local map = inventoryUidIndexByUserId[userId]
-	if map and uid then
-		map[tostring(uid)] = nil
-	end
-end
-
--- Fast uid → inventory entry lookup, keyed by userId. Avoids O(N) scans across
--- d.inventory in hot paths (income tick, defense XP tick, GetCreatureByUid).
--- Kept out of the persisted `data` table so the index never reaches DataStore.
-local uidIndexCache = {}
-
-local function rebuildUidIndex(userId, d)
-	local idx = {}
-	for _, e in ipairs(d.inventory or {}) do
-		if e and e.uid then idx[tostring(e.uid)] = e end
-	end
-	uidIndexCache[userId] = idx
-	return idx
-end
-
-local function getUidIndex(userId, d)
-	local idx = uidIndexCache[userId]
-	if not idx and d then
-		idx = rebuildUidIndex(userId, d)
-	end
-	return idx
-end
 
 function PlayerDataManager.BindAchievementObserver(observer)
 	AchievementObserver = observer
@@ -144,24 +35,6 @@ end
 
 function PlayerDataManager.BindEleminionObserver(observer)
 	EleminionObserver = observer
-end
-
--- Optional hooks after inventory rows change (add/remove/evolve/sell/transfer). Used by ArenaRoc Siegeling↔Cacty pact.
-local inventoryPostChangeListeners = {}
-
-function PlayerDataManager.RegisterInventoryPostChangeListener(fn)
-	if type(fn) == "function" then
-		table.insert(inventoryPostChangeListeners, fn)
-	end
-end
-
-local function fireInventoryPostChange(player)
-	if not player then
-		return
-	end
-	for _, fn in ipairs(inventoryPostChangeListeners) do
-		pcall(fn, player)
-	end
 end
 
 function PlayerDataManager.NotifyAchievement(eventName, ...)
@@ -300,64 +173,6 @@ local function normalizeOwnedFloors(raw)
 		table.sort(out)
 	end
 	return out
-end
-
--- -- LEADERSTATS (Roblox built-in player list) --
-
-local function getRankTitleForLevel(level)
-	level = tonumber(level) or 1
-	local defs = GameConfig.PlayerRankTitles
-	if type(defs) ~= "table" then
-		return ""
-	end
-	local bestMin = -math.huge
-	local bestTitle = ""
-	for _, def in ipairs(defs) do
-		if type(def) == "table" then
-			local minLevel = tonumber(def.minLevel)
-			local title = def.title
-			if minLevel and minLevel <= level and minLevel >= bestMin and type(title) == "string" then
-				bestMin = minLevel
-				bestTitle = title
-			end
-		end
-	end
-	return bestTitle
-end
-
-local function getOrCreateLeaderstats(player)
-	local ls = player:FindFirstChild("leaderstats")
-	if not ls then
-		ls = Instance.new("Folder")
-		ls.Name = "leaderstats"
-		ls.Parent = player
-	end
-
-	local levelVal = ls:FindFirstChild("Level")
-	if not levelVal then
-		levelVal = Instance.new("IntValue")
-		levelVal.Name = "Level"
-		levelVal.Parent = ls
-	end
-
-	local rankVal = ls:FindFirstChild("Rank")
-	if not rankVal then
-		rankVal = Instance.new("StringValue")
-		rankVal.Name = "Rank"
-		rankVal.Parent = ls
-	end
-
-	return levelVal, rankVal
-end
-
-local function syncLeaderstats(player)
-	if not player or not player.Parent then return end
-	local d = playerCache[player.UserId]
-	if not d then return end
-	local levelVal, rankVal = getOrCreateLeaderstats(player)
-	local lvl = tonumber(d.playerLevel) or 1
-	levelVal.Value = lvl
-	rankVal.Value = getRankTitleForLevel(lvl)
 end
 
 local function normalizeOwnedLookup(raw)
@@ -629,26 +444,6 @@ function PlayerDataManager.GetData(player)
 	return playerCache[player.UserId]
 end
 
-function PlayerDataManager.GetInventoryVersion(player)
-	local state = player and dataVersionsByUserId[player.UserId]
-	return (state and state.inventory) or 0
-end
-
-function PlayerDataManager.GetSlotVersion(player)
-	local state = player and dataVersionsByUserId[player.UserId]
-	return (state and state.slots) or 0
-end
-
-function PlayerDataManager.GetBuffVersion(player)
-	local state = player and dataVersionsByUserId[player.UserId]
-	return (state and state.buffs) or 0
-end
-
-function PlayerDataManager.GetRebirthVersion(player)
-	local state = player and dataVersionsByUserId[player.UserId]
-	return (state and state.rebirth) or 0
-end
-
 function PlayerDataManager.GetCoins(player)
 	local d = playerCache[player.UserId]
 	return d and d.coins or 0
@@ -885,13 +680,7 @@ function PlayerDataManager.AddCreature(player, creatureId, level, xp, variant, e
 	if context and context.nicknameEverSet then
 		row.nicknameEverSet = true
 	end
-	if context and context.rocSiegelingPact == true then
-		row.rocSiegelingPact = true
-		row.rocSiegelingPactActive = false
-	end
 	table.insert(d.inventory, row)
-	addInventoryIndexEntry(player, row)
-	bumpInventoryVersion(player)
 	local source = context and context.source
 	if source == "capture" then
 		PlayerDataManager.NotifyAchievement("OnCapture", player, creatureId, context)
@@ -899,7 +688,6 @@ function PlayerDataManager.AddCreature(player, creatureId, level, xp, variant, e
 	else
 		PlayerDataManager.NotifyAchievement("OnAcquireCreature", player, creatureId, context)
 	end
-	fireInventoryPostChange(player)
 	return uid
 end
 
@@ -909,88 +697,45 @@ function PlayerDataManager.XPForLevel(level)
 	return math.floor(GameConfig.BaseXPRequired * (GameConfig.XPScaling ^ (level - 2)))
 end
 
--- Core XP application. Returns newLevel, leveledFlag, creatureId (for batched notifies).
--- When `notify` is true, fires NotifyEleminion immediately; when false, the caller is
--- responsible for batching (used by BaseIncomeSystem to coalesce per-tick events).
-local function applyCreatureXP(player, d, uid, amount, notify)
-	local su = tostring(uid or "")
-	if su == "" then return 0, false, nil end
-	local idx = getUidIndex(player.UserId, d)
-	local e = idx and idx[su]
-	if not e then return 0, false, nil end
-	e.level = e.level or 1; e.xp = e.xp or 0
-	local maxLvl = CreatureData.GetMaxCreatureLevel(e.id)
-	if e.level >= maxLvl then return e.level, false, e.id end
-	e.xp = e.xp + amount
-	local leveled = false
-	while e.level < maxLvl do
-		local needed = PlayerDataManager.XPForLevel(e.level + 1)
-		if e.xp >= needed then
-			e.xp = e.xp - needed; e.level = e.level + 1; leveled = true
-		else break end
-	end
-	if notify then
-		PlayerDataManager.NotifyEleminion("OnCreatureLevelChanged", player, e.id, e.uid, e.level, e.xp, amount, leveled)
-	end
-	return e.level, leveled, e.id
-end
-
 -- Add XP to a creature by uid, auto-level if threshold met. Returns newLevel, didLevelUp
--- opts (optional): skipBuffCheck — amount already includes siegelingxpboost when true
---                 eleminionNotifyLevelUpOnly — only notify Eleminion when a level-up occurs (passive income defense XP)
-function PlayerDataManager.AddXP(player, uid, amount, opts)
-	opts = type(opts) == "table" and opts or nil
+function PlayerDataManager.AddXP(player, uid, amount)
 	local d = playerCache[player.UserId]
 	if not d then return 0, false end
-	if not (opts and opts.skipBuffCheck) then
-		if PlayerDataManager.HasBuff(player, "siegelingxpboost") then
-			amount = amount * 2
-		end
+	if PlayerDataManager.HasBuff(player, "siegelingxpboost") then
+		amount = amount * 2
 	end
 	local su = tostring(uid or "")
 	if su == "" then return 0, false end
-	local index = getInventoryUidIndex(player)
-	local e = index and index[su]
-	if not e then
-		index = rebuildInventoryUidIndex(player.UserId, d)
-		e = index[su]
+	for _, e in ipairs(d.inventory) do
+		if e.uid and tostring(e.uid) == su then
+			e.level = e.level or 1; e.xp = e.xp or 0
+			local maxLvl = CreatureData.GetMaxCreatureLevel(e.id)
+			if e.level >= maxLvl then return e.level, false end
+			e.xp = e.xp + amount
+			local leveled = false
+			while e.level < maxLvl do
+				local needed = PlayerDataManager.XPForLevel(e.level + 1)
+				if e.xp >= needed then
+					e.xp = e.xp - needed; e.level = e.level + 1; leveled = true
+				else break end
+			end
+			PlayerDataManager.NotifyEleminion("OnCreatureLevelChanged", player, e.id, e.uid, e.level, e.xp, amount, leveled)
+			return e.level, leveled
+		end
 	end
-	if not e then return 0, false end
-
-	e.level = e.level or 1; e.xp = e.xp or 0
-	local maxLvl = CreatureData.GetMaxCreatureLevel(e.id)
-	if e.level >= maxLvl then return e.level, false end
-	e.xp = e.xp + amount
-	local leveled = false
-	while e.level < maxLvl do
-		local needed = PlayerDataManager.XPForLevel(e.level + 1)
-		if e.xp >= needed then
-			e.xp = e.xp - needed; e.level = e.level + 1; leveled = true
-		else break end
-	end
-	local notifyEleminion = true
-	if opts and opts.eleminionNotifyLevelUpOnly then
-		notifyEleminion = leveled
-	end
-	if notifyEleminion then
-		PlayerDataManager.NotifyEleminion("OnCreatureLevelChanged", player, e.id, e.uid, e.level, e.xp, amount, leveled)
-	end
-	return e.level, leveled
+	return 0, false
 end
 
--- Get creature entry by uid (O(1) via uid index)
+-- Get creature entry by uid
 function PlayerDataManager.GetCreatureByUid(player, uid)
 	local d = playerCache[player.UserId]
 	if not d then return nil end
 	local su = tostring(uid or "")
 	if su == "" then return nil end
-	local index = getInventoryUidIndex(player)
-	local entry = index and index[su]
-	if not entry then
-		index = rebuildInventoryUidIndex(player.UserId, d)
-		entry = index[su]
+	for _, e in ipairs(d.inventory) do
+		if tostring(e.uid) == su then return e end
 	end
-	return entry
+	return nil
 end
 
 -- Get effective stats for a creature: rank-based level scaling (biggest base stat grows fastest),
@@ -1130,37 +875,22 @@ end
 -- Clears duplicates so a creature cannot appear in multiple income/defense slots.
 local function removeFromAllSlots(data, uid)
 	local su = tostring(uid or "")
-	if su == "" then return false end
-	local changed = false
+	if su == "" then return end
 	for i = 1, MAX_SLOTS do
-		if data.baseSlots and tostring(data.baseSlots[i] or "") == su then
-			data.baseSlots[i] = ""
-			changed = true
-		end
+		if data.baseSlots and tostring(data.baseSlots[i] or "") == su then data.baseSlots[i] = "" end
 	end
 	for i = 1, MAX_SLOTS do
-		if data.defenseSlots and tostring(data.defenseSlots[i] or "") == su then
-			data.defenseSlots[i] = ""
-			changed = true
-		end
+		if data.defenseSlots and tostring(data.defenseSlots[i] or "") == su then data.defenseSlots[i] = "" end
 	end
-	if data.favoriteUid and tostring(data.favoriteUid) == su then
-		data.favoriteUid = nil
-		changed = true
-	end
+	if data.favoriteUid and tostring(data.favoriteUid) == su then data.favoriteUid = nil end
 	-- FIX #10: Use pairs() instead of integer loop for battleTeam.
 	-- DataStore serializes number keys as strings. Even though normalizeBattleTeam
 	-- converts them back on load, pairs() is more robust than for i=1,N.
 	if data.battleTeam then
 		for key, val in pairs(data.battleTeam) do
-			if val and tostring(val) == su then
-				data.battleTeam[key] = nil
-				changed = true
-				break
-			end
+			if val and tostring(val) == su then data.battleTeam[key] = nil break end
 		end
 	end
-	return changed
 end
 
 function PlayerDataManager.RemoveCreature(player, uid)
@@ -1169,12 +899,7 @@ function PlayerDataManager.RemoveCreature(player, uid)
 	for i, entry in ipairs(d.inventory) do
 		if tostring(entry.uid) == tostring(uid) then
 			local removed = table.remove(d.inventory, i)
-			removeInventoryIndexUid(player.UserId, uid)
-			bumpInventoryVersion(player)
-			if removeFromAllSlots(d, uid) then
-				bumpSlotVersion(player)
-			end
-			fireInventoryPostChange(player)
+			removeFromAllSlots(d, uid)
 			return removed
 		end
 	end
@@ -1186,34 +911,25 @@ function PlayerDataManager.TransferCreature(fromPlayer, toPlayer, uid, context)
 	local td = playerCache[toPlayer.UserId]
 	if not fd or not td or #td.inventory >= GameConfig.MaxInventorySize then return false end
 
-	local entry, removedIdx = nil, nil
+	local entry, idx = nil, nil
 	for i, e in ipairs(fd.inventory) do
-		if tostring(e.uid) == tostring(uid) then entry = e; removedIdx = i; break end
+		if tostring(e.uid) == tostring(uid) then entry = e; idx = i; break end
 	end
 	if not entry then return false end
 
 	table.remove(fd.inventory, idx)
-	removeInventoryIndexUid(fromPlayer.UserId, uid)
-	bumpInventoryVersion(fromPlayer)
-	if removeFromAllSlots(fd, uid) then
-		bumpSlotVersion(fromPlayer)
-	end
-	fireInventoryPostChange(fromPlayer)
+	removeFromAllSlots(fd, uid)
 	-- Preserve level/xp/variant on transfers (used by trading/raids)
-	local transferred = {
+	table.insert(td.inventory, {
 		id = entry.id,
-		uid = newUid,
+		uid = PlayerDataManager.GenerateUID(),
 		level = entry.level or 1,
 		xp = entry.xp or 0,
 		variant = entry.variant or "Normal",
 		nickname = entry.nickname,
 		nicknameEverSet = entry.nicknameEverSet == true,
-	}
-	table.insert(td.inventory, transferred)
-	addInventoryIndexEntry(toPlayer, transferred)
-	bumpInventoryVersion(toPlayer)
+	})
 	PlayerDataManager.NotifyAchievement("OnAcquireCreature", toPlayer, entry.id, context)
-	fireInventoryPostChange(toPlayer)
 	return true
 end
 
@@ -1338,9 +1054,7 @@ function PlayerDataManager.EvolveCreature(player, uid)
 	end
 
 	entry.id = nextId
-	bumpInventoryVersion(player)
 	PlayerDataManager.NotifyAchievement("OnEvolution", player, previousId, nextId)
-	fireInventoryPostChange(player)
 	return true
 end
 
@@ -1458,9 +1172,6 @@ function PlayerDataManager.ProcessEggHatches(player)
 				table.insert(hatchedSlots, { slotType = slotType, slotIndex = i, newUid = newUid })
 			end
 		end
-	end
-	if anyHatched then
-		bumpSlotVersion(player)
 	end
 	return anyHatched, hatchedSlots
 end
@@ -1600,9 +1311,6 @@ function PlayerDataManager.AssignToBase(player, uid, optionalSlotIndex)
 				cleared = true
 			end
 		end
-		if cleared then
-			bumpSlotVersion(player)
-		end
 		return cleared, 0, false
 	end
 	-- Already in base? Idempotent: treat as success but do NOT place again (prevents duplicate models on double-fire).
@@ -1622,7 +1330,6 @@ function PlayerDataManager.AssignToBase(player, uid, optionalSlotIndex)
 		if not isCreatureOrEggUid(d, uid) then return false, nil, nil end
 		removeFromAllSlots(d, uid)
 		d.baseSlots[optionalSlotIndex] = tostring(uid)
-		bumpSlotVersion(player)
 		PlayerDataManager.NotifyAchievement("OnSlotAssigned", player, "income", uid)
 		return true, optionalSlotIndex, true
 	end
@@ -1632,7 +1339,6 @@ function PlayerDataManager.AssignToBase(player, uid, optionalSlotIndex)
 	removeFromAllSlots(d, uid)
 	local slot = firstEmptySlot(d.baseSlots, maxSlots)
 	d.baseSlots[slot] = tostring(uid)
-	bumpSlotVersion(player)
 	PlayerDataManager.NotifyAchievement("OnSlotAssigned", player, "income", uid)
 	return true, slot, true
 end
@@ -1658,9 +1364,6 @@ function PlayerDataManager.AssignToDefense(player, uid, optionalSlotIndex)
 				cleared = true
 			end
 		end
-		if cleared then
-			bumpSlotVersion(player)
-		end
 		return cleared, 0, false
 	end
 	-- Already in defense? Idempotent: treat as success but do NOT place again (prevents duplicate models on double-fire).
@@ -1678,7 +1381,6 @@ function PlayerDataManager.AssignToDefense(player, uid, optionalSlotIndex)
 		if not isCreatureOrEggUid(d, uid) then return false, nil, nil end
 		removeFromAllSlots(d, uid)
 		d.defenseSlots[optionalSlotIndex] = tostring(uid)
-		bumpSlotVersion(player)
 		PlayerDataManager.NotifyAchievement("OnSlotAssigned", player, "defense", uid)
 		return true, optionalSlotIndex, true
 	end
@@ -1687,7 +1389,6 @@ function PlayerDataManager.AssignToDefense(player, uid, optionalSlotIndex)
 	removeFromAllSlots(d, uid)
 	local slot = firstEmptySlot(d.defenseSlots, maxSlots)
 	d.defenseSlots[slot] = tostring(uid)
-	bumpSlotVersion(player)
 	PlayerDataManager.NotifyAchievement("OnSlotAssigned", player, "defense", uid)
 	return true, slot, true
 end
@@ -1697,10 +1398,7 @@ function PlayerDataManager.ClearSlotAt(player, slotType, index)
 	local d = playerCache[player.UserId]
 	if not d then return end
 	local slots = (slotType == "income" or slotType == "base") and d.baseSlots or d.defenseSlots
-	if slots and slots[index] and slots[index] ~= "" then
-		slots[index] = ""
-		bumpSlotVersion(player)
-	end
+	if slots and slots[index] then slots[index] = "" end
 end
 
 -- Count filled slots that reference creatures/eggs still in inventory. Clears stale slot UIDs so counts match reality.
@@ -1767,7 +1465,6 @@ function PlayerDataManager.MoveSlotByUid(player, slotType, uid, targetIndex)
 	-- Move
 	slots[fromIndex] = ""
 	slots[targetIndex] = uid
-	bumpSlotVersion(player)
 	return true, "Moved"
 end
 
@@ -1797,7 +1494,6 @@ function PlayerDataManager.SwapSlotsByUid(player, slotType, uidA, uidB)
 	-- Swap
 	slots[indexA] = uidB
 	slots[indexB] = uidA
-	bumpSlotVersion(player)
 	return true, indexA, indexB
 end
 
@@ -1810,9 +1506,7 @@ function PlayerDataManager.SetFavorite(player, uid)
 	local found = false
 	for _, e in ipairs(d.inventory) do if tostring(e.uid) == tostring(uid) then found = true break end end
 	if not found then return false end
-	if removeFromAllSlots(d, uid) then
-		bumpSlotVersion(player)
-	end
+	removeFromAllSlots(d, uid)
 	d.favoriteUid = tostring(uid)
 	return true
 end
@@ -1848,7 +1542,7 @@ function PlayerDataManager.AssignToBattle(player, uid, slotIndex)
 	-- Clear slot request
 	if not uid or uid == "" then
 		d.battleTeam[slotIndex] = nil
-		return true, "Cleared", { kind = "clear_slot", slot = slotIndex }
+		return true, "Cleared"
 	end
 
 	-- Verify creature exists
@@ -1866,29 +1560,30 @@ function PlayerDataManager.AssignToBattle(player, uid, slotIndex)
 		end
 	end
 
-	-- Target slot occupant before any mutations (needed for swap + full-team rules)
-	local targetOccupant = d.battleTeam[slotIndex] or d.battleTeam[tostring(slotIndex)]
-	local targetHadCreature = targetOccupant ~= nil and tostring(targetOccupant) ~= ""
-
-	local occupiedCount = countBattleTeam(d.battleTeam)
-
-	-- New roster creature (not yet on battle team):
-	-- - Into an empty slot → increases team size; cap at MAX_BATTLE_TEAM.
-	-- - Into an occupied slot → replacement; team size unchanged; always ok.
-	-- Already on team → moving/swap path; no size cap here.
-	if not existingSlot then
-		if not targetHadCreature and occupiedCount >= MAX_BATTLE_TEAM then
-			return false, ("Team full (%d/%d)"):format(MAX_BATTLE_TEAM, MAX_BATTLE_TEAM)
+	-- Count current team size (not counting this creature's current slot if moving)
+	local teamCount = 0
+	for key, val in pairs(d.battleTeam) do
+		if val and val ~= "" then
+			local k = tonumber(key) or key
+			if not (existingSlot and k == existingSlot and val == uid) then
+				teamCount = teamCount + 1
+			end
 		end
 	end
 
-	-- Remove creature from ALL other assignments (income/defense/favorite/battle)
-	if removeFromAllSlots(d, uid) then
-		bumpSlotVersion(player)
+	-- New creature joining team?
+	if not existingSlot and teamCount >= MAX_BATTLE_TEAM then
+		return false, "Team full (" .. teamCount .. "/" .. MAX_BATTLE_TEAM .. ")"
 	end
 
+	-- Who's currently in the target slot? (check both number and string key for serialization quirks)
+	local targetOccupant = d.battleTeam[slotIndex] or d.battleTeam[tostring(slotIndex)]
+
+	-- Remove creature from ALL other assignments (income/defense/favorite/battle)
+	removeFromAllSlots(d, uid)
+
 	-- Swap: if target was occupied AND creature was already on team
-	if targetOccupant and existingSlot and tostring(targetOccupant) ~= su then
+	if targetOccupant and existingSlot and targetOccupant ~= uid then
 		d.battleTeam[existingSlot] = targetOccupant
 	end
 
@@ -1896,38 +1591,7 @@ function PlayerDataManager.AssignToBattle(player, uid, slotIndex)
 	d.battleTeam[slotIndex] = uid
 	-- Keep only number keys so client/serialization never see mixed or string keys
 	d.battleTeam = normalizeBattleTeam(d.battleTeam)
-
-	-- Last line of defense: never persist more than MAX_BATTLE_TEAM creatures (legacy / edge cases).
-	while countBattleTeam(d.battleTeam) > MAX_BATTLE_TEAM do
-		local dropSlot = nil
-		for key, val in pairs(d.battleTeam) do
-			if val and tostring(val) ~= "" then
-				local n = tonumber(key)
-				if n and (not dropSlot or n > dropSlot) then
-					dropSlot = n
-				end
-			end
-		end
-		if not dropSlot then
-			break
-		end
-		d.battleTeam[dropSlot] = nil
-	end
-	d.battleTeam = normalizeBattleTeam(d.battleTeam)
-
-	-- Return a diff so callers can do incremental visual updates without refreshing the entire base.
-	-- Cases:
-	-- - Move into empty: existingSlot set, targetOccupant nil → moved from existingSlot to slotIndex
-	-- - Swap: existingSlot set, targetOccupant set → uid moves to slotIndex and displaced moves to existingSlot
-	-- - Replace: existingSlot nil, targetOccupant set → uid goes to slotIndex, displaced leaves team
-	return true, "Assigned", {
-		kind = "assign",
-		uid = uid,
-		fromSlot = (type(existingSlot) == "number") and existingSlot or tonumber(existingSlot),
-		toSlot = slotIndex,
-		displacedUid = (targetHadCreature and targetOccupant and tostring(targetOccupant) ~= su) and tostring(targetOccupant) or nil,
-		displacedToSlot = (targetHadCreature and existingSlot and targetOccupant and tostring(targetOccupant) ~= su) and ((type(existingSlot) == "number") and existingSlot or tonumber(existingSlot)) or nil,
-	}
+	return true, "Assigned"
 end
 
 function PlayerDataManager.GetBattleTeamEnabled(player)
@@ -1956,10 +1620,8 @@ function PlayerDataManager.RemoveFromBattle(player, uid)
 	local su = tostring(uid or "")
 	for key, val in pairs(d.battleTeam) do
 		if val and tostring(val) == su then
-			local slotNum = tonumber(key) or key
 			d.battleTeam[key] = nil
-			d.battleTeam = normalizeBattleTeam(d.battleTeam)
-			return true, slotNum
+			return true
 		end
 	end
 	return false
@@ -2104,10 +1766,8 @@ function PlayerDataManager.DoRebirth(player)
 	if d.battleTeam then
 		for k in pairs(d.battleTeam) do d.battleTeam[k] = nil end
 	end
-	bumpSlotVersion(player)
 	-- If we kept the favorite, it's still in inventory and still favoriteUid; it's just no longer on base/battle. Optionally re-add to inventory if it was removed from slots only (it wasn't removed — we only removed others). So inventory now = at most [favorite]. Good.
 	d.rebirthLevel = (d.rebirthLevel or 0) + 1
-	bumpRebirthVersion(player)
 	task.defer(function()
 		if player.Parent then
 			PlayerDataManager.ApplyWorldStatsToCharacter(player)
@@ -2292,12 +1952,6 @@ function PlayerDataManager.OnPlayerJoin(player)
 	else
 		playerCache[player.UserId] = getDefaultData()
 	end
-	dataVersionsByUserId[player.UserId] = { inventory = 0, slots = 0, buffs = 0, rebirth = 0 }
-	rebuildInventoryUidIndex(player.UserId, playerCache[player.UserId])
-
-	-- Built-in Roblox leaderboard / player list columns
-	syncLeaderstats(player)
-
 	PlayerDataManager.AssignPlot(player)
 	PlayerDataManager.SavePlayer(player)
 
@@ -2324,13 +1978,11 @@ function PlayerDataManager.OnPlayerJoin(player)
 	task.defer(function()
 		PlayerDataManager.ApplyWorldStatsToCharacter(player)
 	end)
-	fireInventoryPostChange(player)
 end
 
 function PlayerDataManager.OnPlayerLeave(player)
 	local uid = player.UserId
 	craftingMixByUserId[uid] = nil
-	pendingSaveDueAt[uid] = nil
 	-- Init runs before MainServer/BasePlacement register PlayerRemoving; this handler runs first.
 	-- Defer teardown so later handlers still see plotId/playerCache during world cleanup.
 	task.defer(function()
@@ -2347,43 +1999,16 @@ function PlayerDataManager.OnPlayerLeave(player)
 		d.plotId = 0
 		saveToStore(uid, d)
 		playerCache[uid] = nil
-		inventoryUidIndexByUserId[uid] = nil
-		dataVersionsByUserId[uid] = nil
 	end)
 end
 
 function PlayerDataManager.SaveAll()
-	for userId, d in pairs(playerCache) do
-		saveToStore(userId, d)
-		pendingSaveDueAt[userId] = nil
-	end
+	for userId, d in pairs(playerCache) do saveToStore(userId, d) end
 end
 
 function PlayerDataManager.SavePlayer(player)
 	local d = playerCache[player.UserId]
-	if d then
-		saveToStore(player.UserId, d)
-		pendingSaveDueAt[player.UserId] = nil
-	end
-end
-
-function PlayerDataManager.RequestSave(player, delaySeconds)
-	if not player then
-		return
-	end
-	local uid = player.UserId
-	if not playerCache[uid] then
-		return
-	end
-	local delay = tonumber(delaySeconds) or COALESCED_SAVE_DELAY
-	if delay < 0 then
-		delay = 0
-	end
-	local due = tick() + delay
-	local existing = pendingSaveDueAt[uid]
-	if not existing or due < existing then
-		pendingSaveDueAt[uid] = due
-	end
+	if d then saveToStore(player.UserId, d) end
 end
 
 -- -- GEMS (premium currency) --
@@ -2726,15 +2351,8 @@ function PlayerDataManager.GetActiveBuffs(player)
 	if not d.activeBuffs then d.activeBuffs = {} end
 	-- Clean expired
 	local now = tick()
-	local removedExpired = false
 	for buffId, info in pairs(d.activeBuffs) do
-		if info.expiresAt and info.expiresAt <= now then
-			d.activeBuffs[buffId] = nil
-			removedExpired = true
-		end
-	end
-	if removedExpired then
-		bumpBuffVersion(player)
+		if info.expiresAt and info.expiresAt <= now then d.activeBuffs[buffId] = nil end
 	end
 	return d.activeBuffs
 end
@@ -2747,7 +2365,6 @@ function PlayerDataManager.ActivateBuff(player, buffId, duration, meta)
 		entry.meta = meta
 	end
 	d.activeBuffs[buffId] = entry
-	bumpBuffVersion(player)
 	return true
 end
 
@@ -2758,7 +2375,6 @@ function PlayerDataManager.GetBuffInfo(player, buffId)
 	if not info then return nil end
 	if info.expiresAt and info.expiresAt <= tick() then
 		d.activeBuffs[buffId] = nil
-		bumpBuffVersion(player)
 		return nil
 	end
 	return info
@@ -2768,7 +2384,7 @@ function PlayerDataManager.HasBuff(player, buffId)
 	local d = playerCache[player.UserId]; if not d or not d.activeBuffs then return false end
 	local info = d.activeBuffs[buffId]
 	if not info then return false end
-	if info.expiresAt and info.expiresAt <= tick() then d.activeBuffs[buffId] = nil; bumpBuffVersion(player); return false end
+	if info.expiresAt and info.expiresAt <= tick() then d.activeBuffs[buffId] = nil; return false end
 	return true
 end
 
@@ -2888,9 +2504,6 @@ function PlayerDataManager.AddPlayerXP(player, amount)
 	if leveled then
 		PlayerDataManager.NotifyAchievement("OnPlayerLevelChanged", player, d.playerLevel)
 		task.defer(function()
-			syncLeaderstats(player)
-		end)
-		task.defer(function()
 			if player.Parent then
 				PlayerDataManager.ApplyWorldStatsToCharacter(player)
 			end
@@ -3009,7 +2622,6 @@ function PlayerDataManager.BuyFloor(player, floorNum)
 
 	d.coins = d.coins - cost
 	table.insert(d.ownedFloors, floorNum)
-	bumpSlotVersion(player)
 	PlayerDataManager.NotifyAchievement("OnFloorUnlocked", player, floorNum)
 	PlayerDataManager.SavePlayer(player)
 	return true, "Floor " .. floorNum .. " unlocked!"
@@ -3153,8 +2765,11 @@ end
 function PlayerDataManager.SellCreature(player, uid)
 	local d = playerCache[player.UserId]
 	if not d then return false, 0 end
+	local entry = nil
 	local su = tostring(uid or "")
-	local entry = PlayerDataManager.GetCreatureByUid(player, su)
+	for _, e in ipairs(d.inventory) do
+		if tostring(e.uid) == su then entry = e; break end
+	end
 	if not entry then return false, 0 end
 	local CreatureData = require(game.ReplicatedStorage.Modules.CreatureData)
 	local info = CreatureData.GetById(entry.id)
@@ -3163,17 +2778,12 @@ function PlayerDataManager.SellCreature(player, uid)
 	local rarityInfo = CreatureData.Rarities and CreatureData.Rarities[info.rarity]
 	local baseCost = (rarityInfo and rarityInfo.captureCost) or (info.baseIncome and info.baseIncome * 5) or 50
 	local sellPrice = math.floor(baseCost * (entry.level or 1))
-	if removeFromAllSlots(d, uid) then
-		bumpSlotVersion(player)
-	end
+	removeFromAllSlots(d, uid)
 	for i, e in ipairs(d.inventory) do
 		if tostring(e.uid) == su then table.remove(d.inventory, i); break end
 	end
-	removeInventoryIndexUid(player.UserId, su)
-	bumpInventoryVersion(player)
 	d.coins = d.coins + sellPrice
 	PlayerDataManager.NotifyAchievement("OnSale", player, entry.id, sellPrice)
-	fireInventoryPostChange(player)
 	return true, sellPrice
 end
 
@@ -3206,21 +2816,6 @@ function PlayerDataManager.Init()
 	for _, p in ipairs(Players:GetPlayers()) do
 		task.spawn(function() PlayerDataManager.OnPlayerJoin(p) end)
 	end
-	task.spawn(function()
-		while true do
-			task.wait(2)
-			local now = tick()
-			for userId, due in pairs(pendingSaveDueAt) do
-				if now >= due then
-					local d = playerCache[userId]
-					if d then
-						saveToStore(userId, d)
-					end
-					pendingSaveDueAt[userId] = nil
-				end
-			end
-		end
-	end)
 	task.spawn(function() while true do task.wait(AUTO_SAVE_INTERVAL); PlayerDataManager.SaveAll() end end)
 	game:BindToClose(function() PlayerDataManager.SaveAll() end)
 end

@@ -1,5 +1,5 @@
 -- PremiumCurrencyShop.lua - ServerScriptService (ModuleScript)
--- Last updated: 2026-04-23 19:35
+-- Last updated: 2026-04-18 21:00
 -- SCoins packs: buy with Diamonds (gems). Robux → Gems handled in EggShopSystem ProcessReceipt.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -60,11 +60,7 @@ function PremiumCurrencyShop.Init(pdm, eventsFolder)
 
 		task.spawn(function()
 			pcall(function()
-				if PlayerDataManager.RequestSave then
-					PlayerDataManager.RequestSave(player)
-				else
-					PlayerDataManager.SavePlayer(player)
-				end
+				PlayerDataManager.SavePlayer(player)
 			end)
 		end)
 

@@ -106,7 +106,7 @@ function IngredientSpawnSystem.TrySpawnOneInRegion(region)
 	prompt.Name = "CollectPrompt"
 	prompt.ActionText = "Collect"
 	prompt.ObjectText = def and def.displayName or "Ingredient"
-	prompt.HoldDuration = tonumber(GameConfig.HoldInteractionDuration) or 0.6
+	prompt.HoldDuration = 0
 	prompt.MaxActivationDistance = tonumber(cook.PickupCollectRange) or 18
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = p
@@ -278,7 +278,7 @@ local function ensureCookNPCPromptAndTags(npc, cookRoot, cfg)
 	prompt.ActionText = "Cook"
 	prompt.ObjectText = cfg.PromptObjectText or "Campfire Chef"
 	prompt.MaxActivationDistance = tonumber(cookRoot.CampfireProximity) or 22
-	prompt.HoldDuration = tonumber(GameConfig.HoldInteractionDuration) or 0.6
+	prompt.HoldDuration = 0
 	prompt.RequiresLineOfSight = false
 	prompt.KeyboardKeyCode = Enum.KeyCode.E
 

@@ -61,8 +61,7 @@ local MAX_COMBINE_SLOTS = 3
 local sg = Instance.new("ScreenGui")
 sg.Name = "CombinerRecyclerGUI"
 sg.ResetOnSpawn = false
-sg.DisplayOrder = 200
-sg.ZIndexBehavior = Enum.ZIndexBehavior.Global
+sg.DisplayOrder = 100
 sg.IgnoreGuiInset = false
 sg.Parent = playerGui
 

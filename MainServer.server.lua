@@ -343,7 +343,12 @@ local PvPBattleSystem = nil
 pcall(function() PvPBattleSystem = require(ServerScriptService.PvPBattleSystem) end)
 
 local BaseIncomeSystem = nil
-pcall(function() BaseIncomeSystem = require(ServerScriptService.BaseIncomeSystem) end)
+do
+	local ok, err = pcall(function() BaseIncomeSystem = require(ServerScriptService.BaseIncomeSystem) end)
+	if not ok or not BaseIncomeSystem then
+		warn("[MainServer][CRITICAL] BaseIncomeSystem failed to load — using egg-hatch-only fallback. Error:", tostring(err))
+	end
+end
 
 local AIRaidSystem = nil
 pcall(function() AIRaidSystem = require(ServerScriptService.AIRaidSystem) end)
@@ -1158,8 +1163,19 @@ else
 				end
 			end
 		end
-	end)
-	print("[MainServer] Inline income running")
+	end
+end
+
+if BaseIncomeSystem then
+	BaseIncomeSystem.Init(PlayerDataManager)
+	print("[MainServer] BaseIncomeSystem OK")
+	task.spawn(runEggHatchLoop)
+else
+	-- Fallback: ONLY egg hatching. The previous inline income calculation
+	-- duplicated BaseIncomeSystem's work and silently double-paid players if
+	-- the require above ever partially succeeded. Failure is now warned above.
+	warn("[MainServer] Running in EGG-HATCH-ONLY fallback mode — no passive income will be granted.")
+	task.spawn(runEggHatchLoop)
 end
 
 -- === STEP 4: Helpers ===

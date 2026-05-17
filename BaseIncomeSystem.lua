@@ -315,6 +315,20 @@ local function runPlayerIncomeSafely(player)
 	if not ok then
 		warn("[BaseIncomeSystem] processOnePlayerIncome failed:", player.Name, err)
 	end
+
+	if #levelChanges > 0 and PlayerDataManager.NotifyEleminion then
+		PlayerDataManager.NotifyEleminion("OnCreatureLevelChangedBatch", player, levelChanges)
+	end
+end
+
+-- -- Income tick --
+
+local function doIncomeTick()
+	-- Spread player processing across frames via task.defer so a single tick
+	-- doesn't block the heartbeat with N players' worth of work in one micro-task.
+	for _, player in ipairs(Players:GetPlayers()) do
+		task.defer(processPlayerTick, player)
+	end
 end
 
 function BaseIncomeSystem.InvalidatePlayer(player)

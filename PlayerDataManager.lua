@@ -116,6 +116,28 @@ local function removeInventoryIndexUid(userId, uid)
 	end
 end
 
+-- Fast uid → inventory entry lookup, keyed by userId. Avoids O(N) scans across
+-- d.inventory in hot paths (income tick, defense XP tick, GetCreatureByUid).
+-- Kept out of the persisted `data` table so the index never reaches DataStore.
+local uidIndexCache = {}
+
+local function rebuildUidIndex(userId, d)
+	local idx = {}
+	for _, e in ipairs(d.inventory or {}) do
+		if e and e.uid then idx[tostring(e.uid)] = e end
+	end
+	uidIndexCache[userId] = idx
+	return idx
+end
+
+local function getUidIndex(userId, d)
+	local idx = uidIndexCache[userId]
+	if not idx and d then
+		idx = rebuildUidIndex(userId, d)
+	end
+	return idx
+end
+
 function PlayerDataManager.BindAchievementObserver(observer)
 	AchievementObserver = observer
 end
@@ -887,6 +909,32 @@ function PlayerDataManager.XPForLevel(level)
 	return math.floor(GameConfig.BaseXPRequired * (GameConfig.XPScaling ^ (level - 2)))
 end
 
+-- Core XP application. Returns newLevel, leveledFlag, creatureId (for batched notifies).
+-- When `notify` is true, fires NotifyEleminion immediately; when false, the caller is
+-- responsible for batching (used by BaseIncomeSystem to coalesce per-tick events).
+local function applyCreatureXP(player, d, uid, amount, notify)
+	local su = tostring(uid or "")
+	if su == "" then return 0, false, nil end
+	local idx = getUidIndex(player.UserId, d)
+	local e = idx and idx[su]
+	if not e then return 0, false, nil end
+	e.level = e.level or 1; e.xp = e.xp or 0
+	local maxLvl = CreatureData.GetMaxCreatureLevel(e.id)
+	if e.level >= maxLvl then return e.level, false, e.id end
+	e.xp = e.xp + amount
+	local leveled = false
+	while e.level < maxLvl do
+		local needed = PlayerDataManager.XPForLevel(e.level + 1)
+		if e.xp >= needed then
+			e.xp = e.xp - needed; e.level = e.level + 1; leveled = true
+		else break end
+	end
+	if notify then
+		PlayerDataManager.NotifyEleminion("OnCreatureLevelChanged", player, e.id, e.uid, e.level, e.xp, amount, leveled)
+	end
+	return e.level, leveled, e.id
+end
+
 -- Add XP to a creature by uid, auto-level if threshold met. Returns newLevel, didLevelUp
 -- opts (optional): skipBuffCheck — amount already includes siegelingxpboost when true
 --                 eleminionNotifyLevelUpOnly — only notify Eleminion when a level-up occurs (passive income defense XP)
@@ -930,7 +978,7 @@ function PlayerDataManager.AddXP(player, uid, amount, opts)
 	return e.level, leveled
 end
 
--- Get creature entry by uid
+-- Get creature entry by uid (O(1) via uid index)
 function PlayerDataManager.GetCreatureByUid(player, uid)
 	local d = playerCache[player.UserId]
 	if not d then return nil end
@@ -1138,9 +1186,9 @@ function PlayerDataManager.TransferCreature(fromPlayer, toPlayer, uid, context)
 	local td = playerCache[toPlayer.UserId]
 	if not fd or not td or #td.inventory >= GameConfig.MaxInventorySize then return false end
 
-	local entry, idx = nil, nil
+	local entry, removedIdx = nil, nil
 	for i, e in ipairs(fd.inventory) do
-		if tostring(e.uid) == tostring(uid) then entry = e; idx = i; break end
+		if tostring(e.uid) == tostring(uid) then entry = e; removedIdx = i; break end
 	end
 	if not entry then return false end
 
@@ -1154,7 +1202,7 @@ function PlayerDataManager.TransferCreature(fromPlayer, toPlayer, uid, context)
 	-- Preserve level/xp/variant on transfers (used by trading/raids)
 	local transferred = {
 		id = entry.id,
-		uid = PlayerDataManager.GenerateUID(),
+		uid = newUid,
 		level = entry.level or 1,
 		xp = entry.xp or 0,
 		variant = entry.variant or "Normal",

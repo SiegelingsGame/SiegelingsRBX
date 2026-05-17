@@ -1,5 +1,6 @@
 -- EleminionSystem.lua - ServerScriptService (ModuleScript)
 -- Spawns Eleminion NPCs at biome EPoints / EleminionPoints and handles affinity quest progress.
+-- Last updated: 2026-04-25 00:22
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -9,6 +10,7 @@ local CreatureData = require(ReplicatedStorage.Modules.CreatureData)
 local CreatureModelLoader = require(ReplicatedStorage.Modules.CreatureModelLoader)
 local EleminionData = require(ReplicatedStorage.Modules.EleminionData)
 local GameConfig = require(ReplicatedStorage.Modules.GameConfig)
+local ServerLog = require(ReplicatedStorage.Modules.ServerLog)
 
 local EleminionSystem = {}
 
@@ -27,7 +29,25 @@ local eleminionNpcStates = {}
 local promptConnections = {}
 local warnedMissingPoints = {}
 
-warn("[EleminionSystem] Module loaded")
+-- ══════════════════════════════════════════════════════════════════════════
+-- MULTI-ELEMINION BIOME ASSIGNMENT
+-- Some biomes host TWO Eleminions (see CreatureData.OuterBiomePrimarySecondary):
+--   OceanBiome    = Water (primary) + Poison (secondary)
+--   CaveBiome     = Shadow (primary) + Metal (secondary)
+--   ElectricBiome = Lightning (primary) + Light (secondary)
+--   DesertBiome   = Psychic (primary) + Undead (secondary)
+-- Without coordination, both defs would score the same EPoint highest and
+-- both NPCs would overlap at the same part — looking like only one spawned.
+-- Two mechanisms keep them distinct:
+--   1. Claim system (npcSpawnPoints): once a def picks a point, other defs
+--      skip that exact point so each NPC gets its own location.
+--   2. Primary/secondary suffix bias: secondary elements prefer points whose
+--      names end in "2" (EPoint2, EleminionPoint2) matching the same
+--      SpawnPoint / SpawnPoint2 convention used by outer dual biomes.
+-- ══════════════════════════════════════════════════════════════════════════
+local npcSpawnPoints = {}  -- [element] = BasePart currently hosting that Eleminion NPC
+
+ServerLog.PrintDebug("[EleminionSystem] Module loaded")
 
 local function normalizeName(value)
 	return string.lower((tostring(value or "")):gsub("[%s%p_]+", ""))
@@ -68,6 +88,68 @@ local function scoreNameKey(nameKey, def)
 	end
 
 	return score
+end
+
+-- Returns "primary", "secondary", or nil for def.element based on
+-- CreatureData.OuterBiomePrimarySecondary. Only dual-biome elements get a role.
+local function getElementRoleInOuterBiome(element)
+	local tbl = CreatureData.OuterBiomePrimarySecondary
+	if type(tbl) ~= "table" then
+		return nil
+	end
+	for _, pair in pairs(tbl) do
+		if type(pair) == "table" then
+			if pair[1] == element then
+				return "primary"
+			elseif pair[2] == element then
+				return "secondary"
+			end
+		end
+	end
+	return nil
+end
+
+-- Point names matching the SpawnPoint2 convention (trailing "2", or an
+-- explicit "secondary" marker) are reserved for the secondary Eleminion in a
+-- dual-element biome.
+local function hasSecondaryPointSuffix(nameKey)
+	if not nameKey or nameKey == "" then
+		return false
+	end
+	if nameKey:sub(-1) == "2" then
+		return true
+	end
+	if nameKey:find("secondary", 1, true) then
+		return true
+	end
+	return false
+end
+
+-- Biases the score of a point based on the def's role in an outer dual biome:
+--   secondary def + "2"-suffix point      → strongly preferred
+--   primary def   + "2"-suffix point      → strongly avoided
+--   secondary def + plain (non-"2") point → mildly avoided so plain points go to primary
+--   primary def   + plain point           → neutral
+-- Non-dual-biome defs (Fire, Ice, Wind, Earth, ...) get no bias.
+local function scoreSecondaryBias(nameKey, def)
+	local role = getElementRoleInOuterBiome(def.element)
+	if not role then
+		return 0
+	end
+	local isSecondaryPoint = hasSecondaryPointSuffix(nameKey)
+	if role == "secondary" then
+		if isSecondaryPoint then
+			return 55
+		else
+			return -20
+		end
+	else -- primary
+		if isSecondaryPoint then
+			return -55
+		else
+			return 0
+		end
+	end
 end
 
 local function scoreAttributes(instance, def)
@@ -285,6 +367,9 @@ local function getOrCreateElementState(player, element)
 	if type(state.quests) ~= "table" then
 		state.quests = {}
 	end
+	if type(state.affinityPassClaims) ~= "table" then
+		state.affinityPassClaims = {} -- [milestoneId] = true
+	end
 	return data, state
 end
 
@@ -499,6 +584,29 @@ function EleminionSystem.GetStatusPayload(player, element)
 		unlocked = questState.claimed == true
 	end
 
+	local pass = {}
+	local cfgPass = GameConfig.EleminionAffinityPass
+	if type(cfgPass) == "table" then
+		for _, m in ipairs(cfgPass) do
+			if type(m) == "table" then
+				local id = tostring(m.id or "")
+				local pct = math.clamp(tonumber(m.pct) or 0, 0, 1)
+				if id ~= "" and pct > 0 then
+					table.insert(pass, {
+						id = id,
+						pct = pct,
+						requiredAffinity = math.floor(maxAffinity * pct + 0.5),
+						label = m.label,
+						claimed = state.affinityPassClaims and state.affinityPassClaims[id] == true or false,
+					})
+				end
+			end
+		end
+	end
+	table.sort(pass, function(a, b)
+		return (a.pct or 0) < (b.pct or 0)
+	end)
+
 	return {
 		element = def.element,
 		title = def.title,
@@ -510,6 +618,7 @@ function EleminionSystem.GetStatusPayload(player, element)
 		affinity = affinity,
 		maxAffinity = maxAffinity,
 		affinityPercent = (maxAffinity > 0) and math.clamp(affinity / maxAffinity, 0, 1) or 0,
+		affinityPass = pass,
 		currentQuestIndex = currentQuestIndex or #(def.quests or {}),
 		totalQuests = #(def.quests or {}),
 		allClaimed = allClaimed,
@@ -568,6 +677,133 @@ local function awardLegendaryEgg(player, element)
 	return true, eggUid, creatureId
 end
 
+local function rollRandomCreatureIdByRarity(rarity)
+	local pool = {}
+	for _, c in ipairs(CreatureData.Creatures or {}) do
+		if c
+			and c.id
+			and c.rarity == rarity
+			and c.npcOnly ~= true
+			and c.modelName ~= "Egg" then
+			table.insert(pool, c.id)
+		end
+	end
+	if #pool == 0 then
+		return nil
+	end
+	return pool[math.random(1, #pool)]
+end
+
+local function awardRareEgg(player)
+	local data = PlayerDataManager.GetData(player)
+	if not data then
+		return false, "No data"
+	end
+	if #(data.eggs or {}) >= (GameConfig.MaxInventorySize or 50) then
+		return false, "Too many eggs. Hatch or clear space first."
+	end
+
+	-- Rare Egg pool: Uncommon or Rare (matches GameConfig egg_rare defaults).
+	local rarity = (math.random() < 0.50) and "Uncommon" or "Rare"
+	local creatureId = rollRandomCreatureIdByRarity(rarity) or rollRandomCreatureIdByRarity("Common")
+	if not creatureId then
+		return false, "No creatures available for rare egg reward."
+	end
+
+	local eggUid = PlayerDataManager.AddEgg(player, creatureId, 1, rarity, true)
+	if not eggUid then
+		return false, "Failed to create reward egg"
+	end
+	return true, eggUid, creatureId, rarity
+end
+
+local function tryGrantAffinityPassMilestones(player, element, previousAffinity, newAffinity, grantedEggThisClaim)
+	local def = EleminionData.GetByElement(element)
+	if not def then
+		return
+	end
+	local data, state = getOrCreateElementState(player, element)
+	if not data or not state then
+		return
+	end
+
+	local maxAffinity = EleminionData.GetMaxAffinity(element)
+	if maxAffinity <= 0 then
+		return
+	end
+
+	local passCfg = GameConfig.EleminionAffinityPass
+	if type(passCfg) ~= "table" then
+		return
+	end
+
+	local claims = state.affinityPassClaims
+	if type(claims) ~= "table" then
+		claims = {}
+		state.affinityPassClaims = claims
+	end
+
+	local function markClaimed(id)
+		claims[tostring(id)] = true
+	end
+
+	for _, m in ipairs(passCfg) do
+		if type(m) == "table" then
+			local id = tostring(m.id or "")
+			local pct = math.clamp(tonumber(m.pct) or 0, 0, 1)
+			if id ~= "" and pct > 0 and claims[id] ~= true then
+				local requiredAffinity = math.floor(maxAffinity * pct + 0.5)
+				if (tonumber(newAffinity) or 0) >= requiredAffinity then
+					local rewards = m.rewards or {}
+
+					-- 100% legendary egg: if the current quest claim already granted the legendary egg,
+					-- do not grant a duplicate — just mark the pass milestone claimed.
+					local wantsEgg = rewards.egg
+					if wantsEgg == "Legendary" and grantedEggThisClaim == true then
+						markClaimed(id)
+					else
+						local didAnything = false
+						if tonumber(rewards.coins) and rewards.coins > 0 then
+							PlayerDataManager.AddCoins(player, math.floor(rewards.coins))
+							if coinsUpdateEvent then
+								coinsUpdateEvent:FireClient(player, PlayerDataManager.GetCoins(player))
+							end
+							didAnything = true
+						end
+						if tonumber(rewards.gems) and rewards.gems > 0 then
+							PlayerDataManager.AddGems(player, math.floor(rewards.gems))
+							if gemsUpdateEvent then
+								gemsUpdateEvent:FireClient(player, PlayerDataManager.GetGems(player))
+							end
+							didAnything = true
+						end
+						if wantsEgg == "Rare" then
+							local ok = awardRareEgg(player)
+							if ok then
+								didAnything = true
+							end
+						elseif wantsEgg == "Legendary" then
+							local ok = awardLegendaryEgg(player, element)
+							if ok then
+								didAnything = true
+							end
+						end
+
+						if didAnything then
+							markClaimed(id)
+							notify(player, (def.title or (element .. " Eleminion")) .. " affinity milestone reached: " .. tostring(m.label or (tostring(math.floor(pct * 100)) .. "%")), "info")
+						else
+							-- Still mark claimed to prevent repeated attempts if the reward cannot be granted (e.g., egg full).
+							-- Player will still have the quest reward path; this avoids spam loops.
+							markClaimed(id)
+						end
+					end
+				end
+			end
+		end
+	end
+end
+
 function EleminionSystem.ClaimQuestReward(player, element)
 	local def = EleminionData.GetByElement(element)
 	if not def then
@@ -589,11 +825,14 @@ function EleminionSystem.ClaimQuestReward(player, element)
 	end
 
 	local rewards = sync.questDef.rewards or {}
+	local previousAffinity = math.max(0, tonumber(sync.state.affinity) or 0)
+	local grantedEggThisClaim = false
 	if rewards.legendaryEggElement then
 		local ok, err = awardLegendaryEgg(player, rewards.legendaryEggElement)
 		if not ok then
 			return false, err or "Reward egg unavailable.", EleminionSystem.GetStatusPayload(player, element)
 		end
+		grantedEggThisClaim = true
 	end
 
 	if tonumber(rewards.coins) and rewards.coins > 0 then
@@ -615,12 +854,21 @@ function EleminionSystem.ClaimQuestReward(player, element)
 	sync.questState.claimed = true
 	sync.questState.claimedAt = os.time()
 	sync.state.affinity = math.min(EleminionData.GetMaxAffinity(element), math.max(0, tonumber(sync.state.affinity) or 0) + (tonumber(sync.questDef.affinityReward) or 0))
+	local newAffinity = math.max(0, tonumber(sync.state.affinity) or 0)
 
 	local message = def.title .. " rewarded your progress."
 	if rewards.legendaryEggElement then
 		message = message .. " A " .. rewards.legendaryEggElement .. " Legendary Egg was added to your eggs."
 	end
 	notify(player, message, "info")
+
+	-- Achievements: quest completion/claim.
+	if PlayerDataManager and PlayerDataManager.NotifyAchievement then
+		PlayerDataManager.NotifyAchievement("OnEleminionQuestClaimed", player, element, sync.questIndex)
+	end
+
+	-- Affinity pass milestones (one-time per element).
+	tryGrantAffinityPassMilestones(player, element, previousAffinity, newAffinity, grantedEggThisClaim)
 	fireStatusUpdate(player, element)
 
 	return true, "Reward claimed!", EleminionSystem.GetStatusPayload(player, element)
@@ -833,7 +1081,7 @@ local function spawnNpc(def, point)
 		model:SetAttribute("EleminionUsingFallback", true)
 	else
 		model:SetAttribute("EleminionUsingFallback", false)
-		print(string.format(
+		ServerLog.PrintDebug(string.format(
 			"[EleminionSystem] Loaded NPC model for %s using template %s",
 			tostring(def.element),
 			tostring(model:GetAttribute("TemplateName") or info.modelName)
@@ -852,13 +1100,25 @@ local function spawnNpc(def, point)
 
 	local rotationOffset = CreatureData.GetModelRotationOffset(info, "world", false)
 	local placementOffset = CreatureData.GetModelPlacementOffset(info)
-	local baseY = point.Position.Y + point.Size.Y * 0.5 + getNpcGroundOffset()
-	local pivot = CFrame.new(
-		point.Position.X + placementOffset.X,
+	-- World-space top of the pad: Position.Y + Size.Y/2 is wrong when the part is rotated
+	-- (Size is in local axes). Use local +Y half-extent in world space.
+	local topOfPad = point.CFrame * Vector3.new(0, point.Size.Y * 0.5, 0)
+	local baseY = topOfPad.Y + getNpcGroundOffset()
+	local pos = Vector3.new(
+		topOfPad.X + placementOffset.X,
 		baseY + placementOffset.Y,
-		point.Position.Z + placementOffset.Z
-	) * (point.CFrame - point.Position)
-	model:PivotTo(pivot * rotationOffset)
+		topOfPad.Z + placementOffset.Z
+	)
+	-- Stand upright: applying the pad's full tilt breaks foot alignment because getModelBottomY
+	-- + vertical lift assume world-up. Flat EPoints behave the same; tilted pads (e.g. ocean sand) do not.
+	local flatLook = point.CFrame.LookVector * Vector3.new(1, 0, 1)
+	if flatLook.Magnitude < 0.05 then
+		flatLook = Vector3.new(0, 0, -1)
+	else
+		flatLook = flatLook.Unit
+	end
+	local pivot = CFrame.lookAt(pos, pos + flatLook) * rotationOffset
+	model:PivotTo(pivot)
 
 	local bottomY = getModelBottomY(model)
 	if bottomY then
@@ -900,7 +1160,7 @@ local function spawnNpc(def, point)
 	prompt.Name = "EleminionPrompt"
 	prompt.ObjectText = info.displayName
 	prompt.ActionText = "Talk"
-	prompt.HoldDuration = 0
+	prompt.HoldDuration = tonumber(GameConfig.HoldInteractionDuration) or 0.6
 	prompt.RequiresLineOfSight = false
 	prompt.MaxActivationDistance = getPromptRange()
 	prompt.KeyboardKeyCode = Enum.KeyCode.E
@@ -940,6 +1200,9 @@ local function spawnNpc(def, point)
 			if openUiEvent then
 				openUiEvent:FireClient(player, def.element)
 			end
+			if PlayerDataManager and PlayerDataManager.NotifyAchievement then
+				PlayerDataManager.NotifyAchievement("OnEleminionMet", player, def.element)
+			end
 			fireStatusUpdate(player, def.element)
 		end)
 	end
@@ -962,7 +1225,7 @@ local function ensureNpcForDefinition(def)
 	if npc and npc.Parent then
 		return npc
 	end
-	print(string.format("[EleminionSystem] Spawning %s at %s", tostring(def.npcCreatureId), point:GetFullName()))
+	ServerLog.PrintDebug(string.format("[EleminionSystem] Spawning %s at %s", tostring(def.npcCreatureId), point:GetFullName()))
 	return spawnNpc(def, point)
 end
 
@@ -973,16 +1236,15 @@ local function ensureAllNpcs()
 end
 
 function EleminionSystem.Init(playerDataManager)
-	warn("[EleminionSystem] Init called")
+	ServerLog.PrintDebug("[EleminionSystem] Init called")
 	PlayerDataManager = playerDataManager
 	if PlayerDataManager and PlayerDataManager.BindEleminionObserver then
 		PlayerDataManager.BindEleminionObserver(EleminionSystem)
-		warn("[EleminionSystem] Bound to PlayerDataManager observer")
+		ServerLog.PrintDebug("[EleminionSystem] Bound to PlayerDataManager observer")
 	end
 
 	if not isEnabled() then
 		print("[EleminionSystem] Disabled via GameConfig.EleminionsEnabled")
-		warn("[EleminionSystem] Disabled via GameConfig.EleminionsEnabled")
 		return
 	end
 
@@ -991,7 +1253,7 @@ function EleminionSystem.Init(playerDataManager)
 		warn("[EleminionSystem] Events folder not found")
 		return
 	end
-	warn("[EleminionSystem] Events folder found")
+	ServerLog.PrintDebug("[EleminionSystem] Events folder found")
 
 	openUiEvent = eventsFolder:FindFirstChild("OpenEleminionUI")
 	statusUpdateEvent = eventsFolder:FindFirstChild("EleminionStatusUpdated")
@@ -1022,9 +1284,10 @@ function EleminionSystem.Init(playerDataManager)
 	end
 
 	ensureAllNpcs()
+	local ensureInterval = math.max(1, tonumber(GameConfig.EleminionEnsureNpcIntervalSeconds) or 10)
 	task.spawn(function()
 		while true do
-			task.wait(10)
+			task.wait(ensureInterval)
 			ensureAllNpcs()
 		end
 	end)
@@ -1036,7 +1299,6 @@ function EleminionSystem.Init(playerDataManager)
 	end)
 
 	print("[EleminionSystem] Initialized")
-	warn("[EleminionSystem] Initialized")
 end
 
 return EleminionSystem

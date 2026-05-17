@@ -364,11 +364,21 @@ local function stopUnknownBackground(soundObj)
 end
 
 local function stopUnknownBackgroundNow()
-	for _, desc in ipairs(game:GetDescendants()) do
-		if desc:IsA("Sound") then
-			stopUnknownBackground(desc)
+	-- Sounds are authored under SoundService; avoid scanning the entire DataModel.
+	local function scan(container)
+		local n = 0
+		for _, desc in ipairs(container:GetDescendants()) do
+			n += 1
+			if n >= 800 then
+				n = 0
+				task.wait()
+			end
+			if desc:IsA("Sound") then
+				stopUnknownBackground(desc)
+			end
 		end
 	end
+	scan(SoundService)
 end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -458,6 +468,136 @@ local activeTrack = nil
 local activeTween = nil
 local inactiveTween = nil
 
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- "Now Playing" UI (local-only)
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+local function formatClock(seconds)
+	seconds = tonumber(seconds) or 0
+	if seconds < 0 then seconds = 0 end
+	local m = math.floor(seconds / 60)
+	local s = math.floor(seconds % 60)
+	return string.format("%d:%02d", m, s)
+end
+
+-- User request (2026-04-25): remove the bottom-left Now Playing box on mobile.
+-- Optional override: set GameConfig.GameplayMusic.ShowNowPlayingUI = true to show on desktop.
+local function isMobileLike()
+	if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
+		return true
+	end
+	local cam = workspace.CurrentCamera
+	local vp = cam and cam.ViewportSize
+	if vp then
+		return vp.X <= 900 or vp.Y <= 700
+	end
+	return false
+end
+
+local SHOW_NOW_PLAYING = (config.ShowNowPlayingUI == true) and (not isMobileLike())
+
+local nowPlayingGui, nowLine, nowTime
+if SHOW_NOW_PLAYING then
+	nowPlayingGui = Instance.new("ScreenGui")
+	nowPlayingGui.Name = "NowPlayingGUI"
+	nowPlayingGui.ResetOnSpawn = false
+	nowPlayingGui.DisplayOrder = 20
+	nowPlayingGui.Parent = playerGui
+
+	local nowFrame = Instance.new("Frame")
+	nowFrame.Name = "NowPlayingFrame"
+	nowFrame.AnchorPoint = Vector2.new(0, 1)
+	nowFrame.Position = UDim2.new(0, 14, 1, -14)
+	nowFrame.Size = UDim2.new(0, 340, 0, 54)
+	nowFrame.BackgroundColor3 = Color3.fromRGB(10, 12, 20)
+	nowFrame.BackgroundTransparency = 0.25
+	nowFrame.BorderSizePixel = 0
+	nowFrame.Parent = nowPlayingGui
+	Instance.new("UICorner", nowFrame).CornerRadius = UDim.new(0, 10)
+
+	local nowStroke = Instance.new("UIStroke")
+	nowStroke.Color = Color3.fromRGB(60, 70, 95)
+	nowStroke.Transparency = 0.35
+	nowStroke.Thickness = 1
+	nowStroke.Parent = nowFrame
+
+	local pad = Instance.new("UIPadding")
+	pad.PaddingLeft = UDim.new(0, 10)
+	pad.PaddingRight = UDim.new(0, 10)
+	pad.PaddingTop = UDim.new(0, 8)
+	pad.PaddingBottom = UDim.new(0, 8)
+	pad.Parent = nowFrame
+
+	local nowTitle = Instance.new("TextLabel")
+	nowTitle.Name = "Title"
+	nowTitle.Size = UDim2.new(1, 0, 0, 16)
+	nowTitle.BackgroundTransparency = 1
+	nowTitle.Text = "NOW PLAYING"
+	nowTitle.TextColor3 = Color3.fromRGB(150, 160, 190)
+	nowTitle.Font = Enum.Font.GothamBold
+	nowTitle.TextSize = 12
+	nowTitle.TextXAlignment = Enum.TextXAlignment.Left
+	nowTitle.Parent = nowFrame
+
+	nowLine = Instance.new("TextLabel")
+	nowLine.Name = "Line"
+	nowLine.Size = UDim2.new(1, 0, 0, 20)
+	nowLine.Position = UDim2.new(0, 0, 0, 18)
+	nowLine.BackgroundTransparency = 1
+	nowLine.Text = "—"
+	nowLine.TextColor3 = Color3.fromRGB(235, 238, 245)
+	nowLine.Font = Enum.Font.GothamBlack
+	nowLine.TextSize = 14
+	nowLine.TextXAlignment = Enum.TextXAlignment.Left
+	nowLine.TextTruncate = Enum.TextTruncate.AtEnd
+	nowLine.Parent = nowFrame
+
+	nowTime = Instance.new("TextLabel")
+	nowTime.Name = "Time"
+	nowTime.Size = UDim2.new(1, 0, 0, 14)
+	nowTime.Position = UDim2.new(0, 0, 0, 38)
+	nowTime.BackgroundTransparency = 1
+	nowTime.Text = ""
+	nowTime.TextColor3 = Color3.fromRGB(190, 200, 225)
+	nowTime.Font = Enum.Font.GothamMedium
+	nowTime.TextSize = 11
+	nowTime.TextXAlignment = Enum.TextXAlignment.Left
+	nowTime.Parent = nowFrame
+else
+	-- If something else left it behind (older versions), remove it.
+	local existing = playerGui:FindFirstChild("NowPlayingGUI")
+	if existing then
+		pcall(function() existing:Destroy() end)
+	end
+end
+
+local function updateNowPlayingStatic()
+	if not SHOW_NOW_PLAYING then return end
+	local track = activeTrack
+	if not track then
+		nowLine.Text = "—"
+		nowTime.Text = ""
+		return
+	end
+	nowLine.Text = track.Name
+end
+
+local function updateNowPlayingTime()
+	if not SHOW_NOW_PLAYING then return end
+	local track = activeTrack
+	if not track then
+		nowTime.Text = ""
+		return
+	end
+	local pos = track.TimePosition or 0
+	local len = track.TimeLength or 0
+	if len and len > 0 then
+		nowTime.Text = formatClock(pos) .. " / " .. formatClock(len)
+	else
+		nowTime.Text = formatClock(pos)
+	end
+end
+
 --- Crossfade from the current track to `targetTrack`.
 --- If targetTrack is already active, does nothing.
 --- @param targetTrack Sound
@@ -467,6 +607,7 @@ local function crossfadeTo(targetTrack)
 
 	local outgoing = activeTrack
 	activeTrack = targetTrack
+	updateNowPlayingStatic()
 
 	-- Cancel any in-progress tweens
 	if activeTween then activeTween:Cancel() end
@@ -517,6 +658,14 @@ local function crossfadeTo(targetTrack)
 		end
 	end
 end
+
+-- Periodically refresh the time line (cheap, local-only)
+task.spawn(function()
+	while true do
+		task.wait(0.25)
+		updateNowPlayingTime()
+	end
+end)
 
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- Track selection: combat > outer biome (incl. CaveSky) > arena proximity > other biomes > main

@@ -40,7 +40,9 @@ local function badlandsMoveBonus()
 	end
 	return 0
 end
-local MOBILE_SPRINT_TOGGLE = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+-- Toggle sprint when touch is primary: pure phones, or touch-first when KeyboardEnabled is still true (some tablets).
+local MOBILE_SPRINT_TOGGLE = UserInputService.TouchEnabled
+	and (not UserInputService.KeyboardEnabled or UserInputService.PreferredInput == Enum.PreferredInput.Touch)
 
 -- State:
 -- - Desktop: Shift-held controls sprint.

@@ -92,6 +92,16 @@ local HUB_PARTS = {
 --- Also used to compute spoke angles for inner-wedge detection.
 local ROAD_NAMES = { "CaveRoad", "ElectricRoad", "DesertRoad", "WetRoad" }
 
+--- Inner biome outer walls (Workspace.ForestGround / Forestground).
+--- These are used to expand the road-based inner biome bounds so the "back corners"
+--- of each inner biome still resolve to the correct sky/music.
+local INNER_BIOME_WALL_BY_SKY = {
+	WindSky = "WindWall",
+	FireSky = "LavaWall",
+	EarthSky = "JungleWall",
+	IceSky = "IceWall",
+}
+
 --- Inner biome wedges between two adjacent roads (clockwise sweep order).
 --- Road angles (from debug logs):
 ---   ElectricRoad ≈ -180°  (West / -X)
@@ -217,6 +227,36 @@ else
 	warn("[BiomeSkybox] Missing workspace.Roads folder — road/wedge detection disabled")
 end
 
+-- Resolve inner biome wall parts under Workspace.ForestGround (or Forestground).
+local function getForestGroundContainer()
+	local function pickContainer(root)
+		if not root then return nil end
+		for _, name in ipairs({ "ForestGround", "Forestground", "ForestsGround" }) do
+			local found = root:FindFirstChild(name)
+			if found and (found:IsA("Model") or found:IsA("Folder")) then
+				return found
+			end
+		end
+		return nil
+	end
+	return pickContainer(workspace)
+		or pickContainer(workspace:FindFirstChild("Terrain"))
+end
+
+--- @type {[string]: Instance}
+local innerWallPartsBySky = {}
+do
+	local fg = getForestGroundContainer()
+	if fg then
+		for sky, wallName in pairs(INNER_BIOME_WALL_BY_SKY) do
+			local wall = fg:FindFirstChild(wallName, true)
+			if wall and (wall:IsA("BasePart") or wall:IsA("Model")) then
+				innerWallPartsBySky[sky] = wall
+			end
+		end
+	end
+end
+
 -- ══════════════════════════════════════════════════════════════════════════════
 -- PRECOMPUTE ROAD SPOKE ANGLES (for inner-wedge detection)
 -- Each road's angle is measured from the hub center on the XZ plane.
@@ -236,6 +276,91 @@ for name, part in pairs(roadParts) do
 	local dz = part.Position.Z - hubCenter.Z
 	roadAngles[name] = math.atan2(dz, dx)
 end
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- PRECOMPUTE INNER BIOME "BOX" BOUNDS (roads + inner walls)
+-- ══════════════════════════════════════════════════════════════════════════════
+
+local function expandPartXZBounds(minX, maxX, minZ, maxZ, part)
+	if not part then
+		return minX, maxX, minZ, maxZ
+	end
+	local cf, size
+	if part:IsA("BasePart") then
+		cf, size = part.CFrame, part.Size
+	elseif part:IsA("Model") then
+		local ok, boxCf, boxSize = pcall(function()
+			return part:GetBoundingBox()
+		end)
+		if not ok then
+			return minX, maxX, minZ, maxZ
+		end
+		cf, size = boxCf, boxSize
+	else
+		return minX, maxX, minZ, maxZ
+	end
+	-- Rotation-aware world AABB for the part.
+	local hx, hy, hz = size.X * 0.5, size.Y * 0.5, size.Z * 0.5
+	local r = cf.RightVector
+	local u = cf.UpVector
+	local l = cf.LookVector
+	local ex = math.abs(r.X) * hx + math.abs(u.X) * hy + math.abs(l.X) * hz
+	local ez = math.abs(r.Z) * hx + math.abs(u.Z) * hy + math.abs(l.Z) * hz
+	local p = cf.Position
+	return math.min(minX, p.X - ex),
+		math.max(maxX, p.X + ex),
+		math.min(minZ, p.Z - ez),
+		math.max(maxZ, p.Z + ez)
+end
+
+local function isInXZBounds(position, bounds)
+	if not bounds then return false end
+	return position.X >= bounds.minX and position.X <= bounds.maxX and position.Z >= bounds.minZ and position.Z <= bounds.maxZ
+end
+
+--- @type {[string]: {minX:number, maxX:number, minZ:number, maxZ:number}}
+local innerBiomeXZBoundsBySky = {}
+do
+	local function clampBoundsToSkyQuadrant(bounds, sky)
+		if sky == "EarthSky" then
+			bounds.maxX = math.min(bounds.maxX, hubCenter.X)
+			bounds.maxZ = math.min(bounds.maxZ, hubCenter.Z)
+		elseif sky == "FireSky" then
+			bounds.minX = math.max(bounds.minX, hubCenter.X)
+			bounds.maxZ = math.min(bounds.maxZ, hubCenter.Z)
+		elseif sky == "IceSky" then
+			bounds.minX = math.max(bounds.minX, hubCenter.X)
+			bounds.minZ = math.max(bounds.minZ, hubCenter.Z)
+		elseif sky == "WindSky" then
+			bounds.maxX = math.min(bounds.maxX, hubCenter.X)
+			bounds.minZ = math.max(bounds.minZ, hubCenter.Z)
+		end
+		return bounds
+	end
+
+	-- Only build bounds if we have roads, hub center, and at least one wall.
+	for _, wedge in ipairs(INNER_WEDGES) do
+		local wall = innerWallPartsBySky[wedge.sky]
+		local fromRoad = roadParts[wedge.from]
+		local toRoad = roadParts[wedge.to]
+		if wall and fromRoad and toRoad then
+			local minX, maxX, minZ, maxZ = math.huge, -math.huge, math.huge, -math.huge
+			minX, maxX, minZ, maxZ = expandPartXZBounds(minX, maxX, minZ, maxZ, fromRoad)
+			minX, maxX, minZ, maxZ = expandPartXZBounds(minX, maxX, minZ, maxZ, toRoad)
+			minX, maxX, minZ, maxZ = expandPartXZBounds(minX, maxX, minZ, maxZ, wall)
+			-- Also include hub center so the "box" always covers from hub out to the wall.
+			minX = math.min(minX, hubCenter.X)
+			maxX = math.max(maxX, hubCenter.X)
+			minZ = math.min(minZ, hubCenter.Z)
+			maxZ = math.max(maxZ, hubCenter.Z)
+			innerBiomeXZBoundsBySky[wedge.sky] = clampBoundsToSkyQuadrant(
+				{ minX = minX, maxX = maxX, minZ = minZ, maxZ = maxZ },
+				wedge.sky
+			)
+		end
+	end
+end
+local hasAnyInnerBiomeBounds = next(innerBiomeXZBoundsBySky) ~= nil
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- GEOMETRY HELPERS
@@ -396,6 +521,23 @@ local function getSkyRawForPosition(position)
 	-- INNER_WEDGE_MAX_RADIUS of hub center. Beyond that radius, the player is
 	-- in an outer biome zone and should NOT match an inner wedge.
 	if hubCenter and next(roadAngles) then
+		-- Priority 4a: Inner biome "box" detection (roads + wall) to correctly include
+		-- the back corners of the inner biome that can fall outside the pure angle wedge
+		-- or even slightly beyond INNER_WEDGE_MAX_RADIUS.
+		for _, wedge in ipairs(INNER_WEDGES) do
+			local b = innerBiomeXZBoundsBySky[wedge.sky]
+			if b and isInXZBounds(position, b) then
+				return wedge.sky
+			end
+		end
+
+		-- If wall-driven biome bounds exist, we intentionally use box routing only
+		-- for inner biomes (per level layout). Angle wedges remain as fallback only
+		-- for maps where wall bounds were not resolved.
+		if hasAnyInnerBiomeBounds then
+			return DEFAULT_SKY
+		end
+
 		local dx = position.X - hubCenter.X
 		local dz = position.Z - hubCenter.Z
 		local distFromHub = math.sqrt(dx * dx + dz * dz)

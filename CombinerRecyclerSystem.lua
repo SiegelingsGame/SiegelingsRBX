@@ -81,7 +81,7 @@ function CombinerRecyclerSystem.SetupPlotPrompts(plotModel, ownedFloors)
 				prompt.ActionText = PROMPT_ACTION_COMBINER
 				prompt.ObjectText = PROMPT_OBJECT_COMBINER
 				prompt.MaxActivationDistance = PROMPT_DISTANCE
-				prompt.HoldDuration = 0
+				prompt.HoldDuration = tonumber(GameConfig.HoldInteractionDuration) or 0.6
 				prompt.KeyboardKeyCode = Enum.KeyCode.E
 				prompt.RequiresLineOfSight = false
 				prompt.Enabled = true
@@ -108,7 +108,7 @@ function CombinerRecyclerSystem.SetupPlotPrompts(plotModel, ownedFloors)
 				prompt.ActionText = PROMPT_ACTION_RECYCLER
 				prompt.ObjectText = PROMPT_OBJECT_RECYCLER
 				prompt.MaxActivationDistance = PROMPT_DISTANCE
-				prompt.HoldDuration = 0
+				prompt.HoldDuration = tonumber(GameConfig.HoldInteractionDuration) or 0.6
 				prompt.KeyboardKeyCode = Enum.KeyCode.E
 				prompt.RequiresLineOfSight = false
 				prompt.Enabled = true

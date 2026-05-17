@@ -1,4 +1,5 @@
 -- HUDButtonBar.lua - StarterPlayer.StarterPlayerScripts (LocalScript)
+-- Last updated: 2026-04-23 23:35
 -- Bottom-center clickable button bar for all menus. Uses scale-based layout and viewport text scaling.
 -- Clicking a button fires a BindableEvent that the corresponding menu script listens to.
 -- Keyboard shortcuts still work independently in each menu script.
@@ -61,6 +62,7 @@ local GOLD_GLOW_TRANSPARENCY = 0.85
 -- Button definitions (module-level so InputBegan can reference after restore)
 local buttonDefs = {
 	{ label = "[K] Codex",      key = "K", menuName = "CodexGuide",     color = Color3.fromRGB(180, 140, 255), desc = "Guide, Lore, creatures" },
+	{ label = "[M] Map",        key = "M", menuName = "WorldMapGUI",    color = Color3.fromRGB(120, 200, 255), desc = "World map & your position" },
 	{ label = "[Q] SiegelinQ",   key = "Q", menuName = "InventoryUI",    color = Color3.fromRGB(60, 160, 255), desc = "Manage creatures" },
 	-- FIX #34: Sigils & Rebirth moved into Profile tabs (removed standalone buttons)
 	{ label = "[G] Shop",       key = "G", menuName = "ShopHubGUI",     color = Color3.fromRGB(120, 220, 170), desc = "Eggs, swag, and cosmetics" },
@@ -455,8 +457,8 @@ end
 		tipLabel.Visible = false
 	end)
 
-	-- Click: fire toggle event, set active indicator, bounce
-	btn.MouseButton1Click:Connect(function()
+	-- Tap/click: use Activated so touch + mouse both open menus (MouseButton1Click alone is flaky on some mobile clients).
+	btn.Activated:Connect(function()
 		setActiveAndMove(def.menuName, true)
 		-- Click bounce (scale 1 -> 1.25 -> 1 with Elastic)
 		local uiScale = btn:FindFirstChildOfClass("UIScale") or Instance.new("UIScale", btn)

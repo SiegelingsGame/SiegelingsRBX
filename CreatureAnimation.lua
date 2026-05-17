@@ -1,4 +1,5 @@
 --[[
+	Last updated: 2026-04-23 21:35
 	CreatureAnimation.lua - ReplicatedStorage.Modules (ModuleScript)
 	Loads and plays creature animations from ReplicatedStorage.RBX_ANIMSAVES (fallback: ServerStorage).
 	Animation types: Idle (default), Move, Attack, Special, Income, Faint (one-shot, freezes on final frame).
@@ -42,6 +43,8 @@ local ANIM_TYPES = { "Attack", "Idle", "Income", "Move", "Special", "Faint", "Kn
 local modelCache = {}
 -- Models that failed setup (no rig or no anim folder) - avoid re-running Setup and log spam
 local failedSetups = {}
+-- One warn per (creatureId, animType) when an animation asset is missing from RBX_ANIMSAVES
+local missingAnimWarned = {}
 -- ══════════════════════════════════════════════════════════════════════════════
 -- KEYFRAME REGISTRATION CACHE (FIX #12)
 -- KeyframeSequences from the Animation Editor are converted to playable Animation
@@ -247,12 +250,28 @@ function CreatureAnimation.Setup(model, creatureId, defaultAnim)
 	local animator = getAnimator(model)
 	if not animator then
 		failedSetups[model] = true
+		local widKey = tostring(creatureId) .. "_no_animator"
+		if not missingAnimWarned[widKey] then
+			missingAnimWarned[widKey] = true
+			warn(string.format(
+				"[CreatureAnimation] No Humanoid/Animator/AnimationController on model for %q — cannot play Income/Idle (rig may be a plain part).",
+				tostring(creatureId)
+			))
+		end
 		return
 	end
 
 	local animFolder = getAnimFolder(model, creatureId)
 	if not animFolder then
 		failedSetups[model] = true
+		local widKey = tostring(creatureId) .. "_no_anim_folder"
+		if not missingAnimWarned[widKey] then
+			missingAnimWarned[widKey] = true
+			warn(string.format(
+				"[CreatureAnimation] No RBX_ANIMSAVES folder matched creature %q — animations disabled for this model (see CreatureAnimation header for folder naming).",
+				tostring(creatureId)
+			))
+		end
 		return
 	end
 
@@ -316,6 +335,18 @@ function CreatureAnimation.PlayAnimation(model, animType, creatureId, options)
 	-- local KeyframeSequence objects (registered at runtime via KSP).
 	local animObj = resolveAnimObject(cache.animFolder, animType)
 	if not animObj then
+		local wid = creatureId or model:GetAttribute("CreatureId") or "?"
+		local key = tostring(wid) .. "_" .. animType
+		if not missingAnimWarned[key] then
+			missingAnimWarned[key] = true
+			warn(string.format(
+				"[CreatureAnimation] No playable %s animation for %q — check ReplicatedStorage/ServerStorage RBX_ANIMSAVES folder %s (need child named %s with valid AnimationId or KeyframeSequence).",
+				animType,
+				tostring(wid),
+				cache.animFolder and cache.animFolder:GetFullName() or "?",
+				animType
+			))
+		end
 		return
 	end
 
@@ -356,11 +387,7 @@ function CreatureAnimation.PlayAnimation(model, animType, creatureId, options)
 		local events = ReplicatedStorage:FindFirstChild("Events")
 		local evt = events and events:FindFirstChild("PlayCreatureAnimation")
 		if evt then
-			for _, p in ipairs(Players:GetPlayers()) do
-				task.defer(function()
-					evt:FireClient(p, model, animType, creatureId, options)
-				end)
-			end
+			evt:FireAllClients(model, animType, creatureId, options)
 		end
 	end
 end

@@ -181,7 +181,9 @@ local function syncBank()
 		return rf:InvokeServer()
 	end)
 	if not ok then
-		warn("[IngredientsMenu] GetIngredientBank InvokeServer failed:", data)
+		if GameConfig.DebugClientInvokeWarnings then
+			warn("[IngredientsMenu] GetIngredientBank InvokeServer failed:", data)
+		end
 		return
 	end
 	-- Server returns nil until PlayerDataManager has loaded this player (same moment Bag would also fail).

@@ -1,5 +1,5 @@
 -- EleminionClient.lua - StarterPlayerScripts
--- Opens the Eleminion affinity UI and handles reward claims.
+-- Opens the Eleminion affinity UI and handles reward claims...
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -59,6 +59,7 @@ local progressLabel
 local rewardLabel
 local affinityBar
 local affinityFill
+local passRow
 local questList
 local emptyLabel
 local claimButton
@@ -102,6 +103,7 @@ local function closeUi()
 	rewardLabel = nil
 	affinityBar = nil
 	affinityFill = nil
+	passRow = nil
 	questList = nil
 	emptyLabel = nil
 	claimButton = nil
@@ -342,6 +344,76 @@ local function renderPayload(payload)
 	affinityFill.BackgroundColor3 = accent
 	affinityFill.Size = UDim2.new(payload.affinityPercent or 0, 0, 1, 0)
 
+	-- Affinity “battle pass” milestones
+	if passRow then
+		for _, child in ipairs(passRow:GetChildren()) do
+			child:Destroy()
+		end
+
+		local track = Instance.new("Frame")
+		track.Name = "Track"
+		track.AnchorPoint = Vector2.new(0, 0.5)
+		track.Position = UDim2.new(0, 0, 0.5, 0)
+		track.Size = UDim2.new(1, 0, 0, 10)
+		track.BackgroundColor3 = Color3.fromRGB(28, 30, 44)
+		track.BorderSizePixel = 0
+		track.Parent = passRow
+		Instance.new("UICorner", track).CornerRadius = UDim.new(0, 999)
+
+		local trackStroke = Instance.new("UIStroke")
+		trackStroke.Thickness = 1
+		trackStroke.Color = Color3.fromRGB(72, 78, 96)
+		trackStroke.Transparency = 0.35
+		trackStroke.Parent = track
+
+		local fill = Instance.new("Frame")
+		fill.Name = "Fill"
+		fill.Size = UDim2.new(math.clamp(payload.affinityPercent or 0, 0, 1), 0, 1, 0)
+		fill.BackgroundColor3 = accent
+		fill.BorderSizePixel = 0
+		fill.Parent = track
+		Instance.new("UICorner", fill).CornerRadius = UDim.new(0, 999)
+
+		local milestones = payload.affinityPass or {}
+		for i, m in ipairs(milestones) do
+			local pct = tonumber(m.pct) or 0
+			pct = math.clamp(pct, 0, 1)
+
+			local tab = Instance.new("Frame")
+			tab.Name = "Milestone" .. tostring(i)
+			tab.AnchorPoint = Vector2.new(0.5, 0.5)
+			tab.Position = UDim2.new(pct, 0, 0.5, 0)
+			tab.Size = UDim2.new(0, 30, 0, 18)
+			tab.BackgroundColor3 = m.claimed and Color3.fromRGB(40, 88, 58) or C.panel
+			tab.BorderSizePixel = 0
+			tab.Parent = passRow
+			Instance.new("UICorner", tab).CornerRadius = UDim.new(0, 8)
+
+			local tabStroke = Instance.new("UIStroke")
+			tabStroke.Thickness = 1
+			tabStroke.Color = m.claimed and C.green or Color3.fromRGB(72, 78, 96)
+			tabStroke.Transparency = m.claimed and 0.18 or 0.35
+			tabStroke.Parent = tab
+
+			local labelText = tostring(m.id or "")
+			if labelText == "" then
+				labelText = tostring(math.floor(pct * 100 + 0.5)) .. "%"
+			end
+
+			local tabLabel = makeTextLabel(tab, {
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.new(0.5, 0, 0.5, 0),
+				Size = UDim2.new(1, -6, 1, 0),
+				Font = Enum.Font.GothamBold,
+				TextSize = 11,
+				TextXAlignment = Enum.TextXAlignment.Center,
+				TextColor3 = m.claimed and C.green or C.white,
+				Text = labelText,
+			})
+			tabLabel.TextTruncate = Enum.TextTruncate.AtEnd
+		end
+	end
+
 	clearQuestCards()
 	questList.CanvasPosition = Vector2.new(0, 0)
 	for _, questPayload in ipairs(payload.quests or {}) do
@@ -374,8 +446,8 @@ local function ensureUi()
 	screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "EleminionUI"
 	screenGui.ResetOnSpawn = false
-	screenGui.DisplayOrder = 47
-	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	screenGui.DisplayOrder = 200
+	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
 	screenGui.Parent = playerGui
 
 	mainFrame = Instance.new("Frame")
@@ -429,7 +501,7 @@ local function ensureUi()
 
 	local affinityCard = Instance.new("Frame")
 	affinityCard.Position = UDim2.new(0, 14, 0, 86)
-	affinityCard.Size = UDim2.new(1, -28, 0, 106)
+	affinityCard.Size = UDim2.new(1, -28, 0, 124)
 	affinityCard.BackgroundColor3 = C.panel
 	affinityCard.BorderSizePixel = 0
 	affinityCard.Parent = mainFrame
@@ -467,6 +539,14 @@ local function ensureUi()
 	affinityFill.Parent = affinityBar
 	Instance.new("UICorner", affinityFill).CornerRadius = UDim.new(0, 999)
 
+	passRow = Instance.new("Frame")
+	passRow.Name = "AffinityPass"
+	passRow.Position = UDim2.new(0, 12, 0, 78)
+	passRow.Size = UDim2.new(1, -24, 0, 22)
+	passRow.BackgroundTransparency = 1
+	passRow.BorderSizePixel = 0
+	passRow.Parent = affinityCard
+
 	rewardLabel = makeTextLabel(affinityCard, {
 		Position = UDim2.new(0, 12, 0, 78),
 		Size = UDim2.new(1, -24, 0, 18),
@@ -476,10 +556,12 @@ local function ensureUi()
 		Text = "",
 	})
 
+	rewardLabel.Position = UDim2.new(0, 12, 0, 102)
+
 	questList = Instance.new("ScrollingFrame")
 	questList.Name = "QuestList"
-	questList.Position = UDim2.new(0, 14, 0, 204)
-	questList.Size = UDim2.new(1, -28, 1, -270)
+	questList.Position = UDim2.new(0, 14, 0, 222)
+	questList.Size = UDim2.new(1, -28, 1, -288)
 	questList.BackgroundTransparency = 1
 	questList.BorderSizePixel = 0
 	questList.ScrollBarThickness = 6
@@ -586,7 +668,7 @@ local function ensureUi()
 		TextXAlignment = Enum.TextXAlignment.Left,
 	})
 	applyRewardLayout = MobileWindowLayout.MenuHeaderTitleLayout(rewardLabel, {
-		Position = UDim2.new(0, 12, 0, 78),
+		Position = UDim2.new(0, 12, 0, 102),
 		Size = UDim2.new(1, -24, 0, 18),
 		TextXAlignment = Enum.TextXAlignment.Left,
 	})

@@ -1,4 +1,4 @@
--- Last updated: 2026-04-18 22:15
+-- Last updated: 2026-04-23 19:35
 -- BadlandsSystem.lua - ServerScriptService (ModuleScript)
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- THE BADLANDS — Master Coordinator (Phase 1: Core Loop)
@@ -85,9 +85,11 @@ if ENABLED == nil then ENABLED = true end
 local BADLANDS_TAG = "BadlandsCreature"
 
 -- Badlands creature config
-local BL_INITIAL_SPAWN   = GameConfig.BadlandsInitialSpawnCount or 20
-local BL_SPAWN_INTERVAL  = GameConfig.BadlandsSpawnInterval     or 8
-local BL_MAX_CREATURES    = GameConfig.BadlandsMaxCreatures      or 40
+local BL_STARTER_COUNT   = tonumber(GameConfig.BadlandsStarterCreatureCount) or tonumber(GameConfig.BadlandsInitialSpawnCount) or 5
+local BL_HIGH_TIER_COUNT = tonumber(GameConfig.BadlandsRoamingHighLevelCount) or 10
+local BL_SPAWN_INTERVAL  = GameConfig.BadlandsSpawnInterval     or 90
+local BL_MAX_CREATURES   = tonumber(GameConfig.BadlandsMaxCreatures) or 15
+local BL_PERIODIC_REFILL = GameConfig.BadlandsPeriodicRefillEnabled == true
 local BL_SCALE_MIN        = GameConfig.BadlandsCreatureScaleMin  or 1.5
 local BL_SCALE_MAX        = GameConfig.BadlandsCreatureScaleMax  or 2.0
 local BL_STAT_MULT        = GameConfig.BadlandsCreatureStatMult  or 2.0
@@ -119,6 +121,10 @@ local function pickBadlandsRarity()
 		if roll <= cumulative then return rarity end
 	end
 	return "Legendary" -- fallback
+end
+
+local function pickBadlandsRarityHighTier()
+	return math.random() < 0.55 and "Epic" or "Legendary"
 end
 
 --- Pick a random variant from the Badlands weight table (Gold/Legend only)
@@ -178,9 +184,11 @@ end
 --- Spawn a single Badlands creature at the given position
 -- Creates an oversized, stat-boosted, high-rarity, high-variant creature.
 -- @param position Vector3 — world position to spawn at
+-- @param spawnOpts table|nil — optional { forceHighTier = bool }
 -- @return Model|nil — the spawned creature model
-local function spawnBadlandsCreature(position)
-	local rarity = pickBadlandsRarity()
+local function spawnBadlandsCreature(position, spawnOpts)
+	spawnOpts = spawnOpts or {}
+	local rarity = spawnOpts.forceHighTier and pickBadlandsRarityHighTier() or pickBadlandsRarity()
 	local creatureId = pickBadlandsCreatureId(rarity)
 	if not creatureId then
 		warn("[Badlands] Could not find creature for rarity: " .. rarity)
@@ -403,25 +411,38 @@ local function spawnInitialBadlandsCreatures(run)
 		return
 	end
 
-	local spawned = 0
-	for i = 1, BL_INITIAL_SPAWN do
-		-- Pick a random spawn point and offset randomly within 20 studs
-		local point = points[math.random(#points)]
-		local offset = Vector3.new(
-			math.random(-20, 20),
-			0,
-			math.random(-20, 20)
-		)
-		local pos = point.Position + offset
+	table.sort(points, function(a, b)
+		return tostring(a.Name) < tostring(b.Name)
+	end)
 
-		local model = spawnBadlandsCreature(pos)
+	local spawned = 0
+	local cap = math.min(BL_MAX_CREATURES, BL_STARTER_COUNT + BL_HIGH_TIER_COUNT)
+
+	-- Starters: one creature on the first N spawn parts (full rarity table)
+	for i = 1, math.min(BL_STARTER_COUNT, #points) do
+		if spawned >= cap then break end
+		local point = points[i]
+		local pos = point.Position + Vector3.new(0, 3, 0)
+		local model = spawnBadlandsCreature(pos, nil)
 		if model then
 			table.insert(run.spawnedCreatures, model)
 			spawned = spawned + 1
 		end
 	end
 
-	print("[Badlands] Spawned " .. spawned .. " initial creatures (Epic/Legendary, Gold/Legend, 1.5-2x scale)")
+	-- High-tier pool: Epic/Legendary-heavy spawns on random points until cap
+	local needHigh = math.max(0, cap - spawned)
+	for _ = 1, needHigh do
+		local point = points[math.random(1, #points)]
+		local pos = point.Position + Vector3.new(0, 3, 0)
+		local model = spawnBadlandsCreature(pos, { forceHighTier = true })
+		if model then
+			table.insert(run.spawnedCreatures, model)
+			spawned = spawned + 1
+		end
+	end
+
+	print("[Badlands] Spawned " .. spawned .. " creatures (cap " .. cap .. "; starters + high-tier pool)")
 end
 
 --- Continuous spawning loop — keeps creatures flowing during the run
@@ -430,6 +451,9 @@ end
 -- @param runId string — the run ID (to detect if run ended)
 local function badlandsSpawnLoop(run, runId)
 	task.wait(5) -- small delay before continuous spawns start
+	if not BL_PERIODIC_REFILL then
+		return
+	end
 	while activeRun and activeRun.runId == runId and activeRun.phase ~= "ended" do
 		-- Count alive creatures
 		local alive = 0
@@ -1384,7 +1408,13 @@ local function extractPlayer(userId)
 			PlayerDataManager.AddSigil(ps.player, siegeLordZone)
 			-- Persist immediately: extraction is a milestone moment; don't rely on 120s auto-save.
 			if PlayerDataManager.SavePlayer then
-				pcall(function() PlayerDataManager.SavePlayer(ps.player) end)
+				pcall(function()
+					if PlayerDataManager.RequestSave then
+						PlayerDataManager.RequestSave(ps.player)
+					else
+						PlayerDataManager.SavePlayer(ps.player)
+					end
+				end)
 			end
 			local sigilEvt = eventsFolder and eventsFolder:FindFirstChild("SigilEarned")
 			if sigilEvt then
@@ -1612,7 +1642,7 @@ local function startRun(playerList)
 			prompt.Name = "ExtractPrompt"
 			prompt.ObjectText = "Extraction Point"
 			prompt.ActionText = "Extract"
-			prompt.HoldDuration = 0
+			prompt.HoldDuration = tonumber(GameConfig.HoldInteractionDuration) or 0.6
 			prompt.MaxActivationDistance = 12
 			prompt.RequiresLineOfSight = false
 			prompt.KeyboardKeyCode = Enum.KeyCode.E

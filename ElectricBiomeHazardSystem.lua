@@ -569,6 +569,9 @@ end
 -- Pick random positions within ground bounds for this activation cycle
 local function pickRandomPositionsForCycle()
 	local count = cfg("ElectroBallCount", ELECTROBALL_COUNT)
+	if electroNearSpawnPointsOnlyEnabled() then
+		return collectElectroPositionsNearSpawnPointsOnly(count)
+	end
 	local minX, maxX, minZ, maxZ, refY = getGroundBounds()
 	if minX >= maxX or minZ >= maxZ then return electroBallPositions end
 
@@ -630,9 +633,37 @@ collectPointPositions = function()
 	return positions
 end
 
+local function electroNearSpawnPointsOnlyEnabled()
+	return cfg("ElectroBallOnlyNearSpawnPoints", false) == true
+end
+
+-- Hazards only within horizontal radius of biome spawn-type parts (no full-ground random grid).
+local function collectElectroPositionsNearSpawnPointsOnly(maxCount)
+	local positions = {}
+	local pointCenters = collectPointPositions()
+	local radius = tonumber(cfg("ElectroBallNearSpawnStuds", 40)) or 40
+	if radius < 1 then radius = 1 end
+	if #pointCenters == 0 then return positions end
+	local budget = math.min(math.max(1, maxCount), math.max(4, #pointCenters * 4))
+	for _ = 1, budget do
+		local base = pointCenters[math.random(1, #pointCenters)]
+		local ang = math.random() * math.pi * 2
+		local dist = math.sqrt(math.random()) * radius
+		local x = base.X + math.cos(ang) * dist
+		local z = base.Z + math.sin(ang) * dist
+		local y = getSurfaceY(x, z, base.Y) + getSpawnHeightOffset()
+		table.insert(positions, Vector3.new(x, y, z))
+	end
+	return positions
+end
+
 local function buildElectroBallPositions()
 	electroBallPositions = {}
 	local count = cfg("ElectroBallCount", ELECTROBALL_COUNT)
+	if electroNearSpawnPointsOnlyEnabled() then
+		electroBallPositions = collectElectroPositionsNearSpawnPointsOnly(count)
+		return
+	end
 	local pointPositions = collectPointPositions()
 	for _, pos in ipairs(pointPositions) do
 		table.insert(electroBallPositions, pos)

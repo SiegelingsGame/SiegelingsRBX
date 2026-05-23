@@ -184,6 +184,9 @@ end
 local function layoutHudElements()
 	local yTop = getHudTopY()
 
+	-- This one relayout function keeps every Badlands HUD widget tucked around
+	-- the shared notification/ticker UI. If another global HUD moves, update
+	-- these anchors instead of scattering position tweaks across each creator.
 	-- Timer: top-center, right under the ticker bar
 	if timerFrame and timerFrame.Parent then
 		timerFrame.Position = UDim2.new(0.5, 0, 0, yTop)
@@ -562,6 +565,9 @@ end
 local sacrificeModalRef = nil
 local sacrificeResultEvt = getEvent("BadlandsSacrificeResult")
 
+-- Lets the player convert a stored Badlands capture into one permanent stat
+-- bonus. The server still owns the real validation, this modal only chooses
+-- which stat string to send back.
 local function showSacrificeStatModal(slotIndex, creatureName)
 	if sacrificeModalRef and sacrificeModalRef.Parent then
 		sacrificeModalRef:Destroy()
@@ -735,6 +741,8 @@ local function buildBagPanel()
 	padding.Parent = list
 
 	for slotIndex, slot in ipairs(bagState.slots or {}) do
+		-- Each row mirrors one server bag slot. Safe edits here are presentation
+		-- only: text, colors, button placement, and slot metadata labels.
 		local occupied = not slot.empty and slot.id ~= nil
 		local row = Instance.new("TextButton")
 		row.Name = "Slot_" .. slotIndex
@@ -813,6 +821,8 @@ local function buildBagPanel()
 			-- Click = set as favorite (active)
 			if bagSwitchEvt then
 				row.MouseButton1Click:Connect(function()
+					-- The active slot is the creature that survives extraction by
+					-- default, so switching favorite is a server-backed action.
 					bagSwitchEvt:FireServer(slotIndex)
 				end)
 			end
@@ -875,6 +885,8 @@ local function showExtractionUI(data)
 	-- Remove previous if exists
 	if extractionUI then extractionUI:Destroy(); extractionUI = nil end
 
+	-- This overlay is rebuilt from each extraction start payload so the player
+	-- sees a snapshot of the bag contents that are currently at risk.
 	local bag = data.bag or {}
 	local channelTime = data.channelTime or 5
 
@@ -1327,6 +1339,8 @@ if runStartEvt then
 		if data.accepted and not data.runId then return end
 		if not data.runId then return end
 
+		-- From here on the client treats the player as fully inside the Badlands:
+		-- create persistent HUD once, then let later events only refresh state.
 		inBadlands = true
 		runStartTime = tick()
 		runDuration = data.runDuration or data.timeRemaining or 600
@@ -1465,6 +1479,8 @@ end)
 if bagUpdateEvt then
 	bagUpdateEvt.OnClientEvent:Connect(function(payload)
 		local bag = (payload and payload.bag) or payload or {}
+		-- Mirror the server bag payload into a small local cache, then rebuild the
+		-- visible widgets from that cache so every entry point stays consistent.
 		bagState = {
 			count = tonumber(bag.count) or 0,
 			capacity = tonumber(bag.capacity) or 0,

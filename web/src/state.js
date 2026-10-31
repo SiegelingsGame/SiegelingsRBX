@@ -121,13 +121,17 @@ export const State = {
       this.emit('slots');
       return { ok: true, msg: 'Now following you' };
     }
-    const arr = type === 'income' ? d.baseSlots : d.defenseSlots;
-    if (index < 0) index = arr.indexOf('');
-    if (index < 0 || index >= arr.length) return { ok: false, msg: `All ${type} slots full — buy another floor` };
-    const prevOwner = arr[index];
+    const key = type === 'income' ? 'baseSlots' : 'defenseSlots';
+    // Remove from any current slot first (unassign replaces the slot arrays).
+    const prev = this.slotOf(uidv);
     this.unassign(uidv, true);
-    arr[index] = uidv;
-    if (prevOwner && prevOwner !== uidv) { /* displaced creature returns to inventory */ }
+    const arr = d[key];
+    if (index < 0) index = arr.indexOf('');
+    if (index < 0 || index >= arr.length) {
+      if (prev) this.assign(uidv, prev.type, prev.index); // restore
+      return { ok: false, msg: `All ${type} slots full — buy another floor` };
+    }
+    arr[index] = uidv; // any creature already here goes back to the inventory
     this.emit('slots');
     return { ok: true, msg: `Assigned to ${type} slot ${index + 1}` };
   },

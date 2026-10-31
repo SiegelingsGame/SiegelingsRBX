@@ -14,6 +14,7 @@ function defaultData() {
     baseSlots: [],
     defenseSlots: [],
     favoriteUid: '',
+    battleTeam: Array(9).fill(''), // 3x3 Battle Team grid (BattleTeamSystem), max 5 creatures
     ownedFloors: [1],
     playerLevel: 1,
     playerXP: 0,
@@ -57,6 +58,8 @@ export const State = {
       d[key] = Array.from({ length: max }, (_, i) => (valid.has(arr[i]) ? arr[i] : ''));
     }
     if (!valid.has(d.favoriteUid)) d.favoriteUid = '';
+    const bt = d.battleTeam || [];
+    d.battleTeam = Array.from({ length: CFG.BattleGridSize }, (_, i) => (valid.has(bt[i]) ? bt[i] : ''));
   },
 
   // ── currency ────────────────────────────────────────────────
@@ -103,6 +106,8 @@ export const State = {
     i = this.data.defenseSlots.indexOf(uidv);
     if (i >= 0) return { type: 'defense', index: i };
     if (this.data.favoriteUid === uidv) return { type: 'companion', index: 0 };
+    i = this.data.battleTeam.indexOf(uidv);
+    if (i >= 0) return { type: 'battle', index: i };
     return null;
   },
   unassign(uidv, silent = false) {
@@ -110,6 +115,7 @@ export const State = {
     d.baseSlots = d.baseSlots.map((u) => (u === uidv ? '' : u));
     d.defenseSlots = d.defenseSlots.map((u) => (u === uidv ? '' : u));
     if (d.favoriteUid === uidv) d.favoriteUid = '';
+    d.battleTeam = d.battleTeam.map((u) => (u === uidv ? '' : u));
     if (!silent) this.emit('slots');
   },
   assign(uidv, type, index = -1) {
@@ -121,6 +127,7 @@ export const State = {
       this.emit('slots');
       return { ok: true, msg: 'Now following you' };
     }
+    if (type === 'battle') return this.assignBattle(uidv, index);
     const key = type === 'income' ? 'baseSlots' : 'defenseSlots';
     // Remove from any current slot first (unassign replaces the slot arrays).
     const prev = this.slotOf(uidv);
@@ -134,6 +141,26 @@ export const State = {
     arr[index] = uidv; // any creature already here goes back to the inventory
     this.emit('slots');
     return { ok: true, msg: `Assigned to ${type} slot ${index + 1}` };
+  },
+
+  // ── battle team (PlayerDataManager.AssignToBattle: needs Floor 2, max 5 on the 3x3 grid) ──
+  battleUnlocked() { return this.data.ownedFloors.includes(2); },
+  battleCount() { return this.data.battleTeam.filter(Boolean).length; },
+  assignBattle(uidv, index = -1) {
+    const d = this.data;
+    if (!this.battleUnlocked()) return { ok: false, msg: 'Battle Team unlocks with Floor 2' };
+    const prev = this.slotOf(uidv);
+    if (index < 0) index = d.battleTeam.indexOf('');
+    if (index < 0 || index >= CFG.BattleGridSize) return { ok: false, msg: 'Battle Team grid is full' };
+    const alreadyOnTeam = prev && prev.type === 'battle';
+    const occupied = d.battleTeam[index] && d.battleTeam[index] !== uidv;
+    if (!alreadyOnTeam && !occupied && this.battleCount() >= CFG.MaxBattleTeamCreatures) {
+      return { ok: false, msg: `Battle Team is full (max ${CFG.MaxBattleTeamCreatures} creatures)` };
+    }
+    this.unassign(uidv, true);
+    d.battleTeam[index] = uidv;
+    this.emit('slots');
+    return { ok: true, msg: `Added to Battle Team (${this.battleCount()}/${CFG.MaxBattleTeamCreatures})` };
   },
 
   // ── floors (PlayerDataManager.BuyFloor) ─────────────────────

@@ -26,18 +26,33 @@ class Input {
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
     addEventListener('blur', () => { this.keys.clear(); this.buttons.clear(); });
-    canvas.addEventListener('mousedown', (e) => { if (this.locked) this.buttons.add(e.button); else this.capturePointer(); });
+    this.fallback = false; // drag-to-look mode when pointer lock is unavailable (e.g. sandboxed iframe)
+    canvas.addEventListener('mousedown', (e) => {
+      if (this.locked || this.fallback) this.buttons.add(e.button);
+      else this.capturePointer();
+    });
     addEventListener('mouseup', (e) => this.buttons.delete(e.button));
     addEventListener('contextmenu', (e) => e.preventDefault());
-    addEventListener('mousemove', (e) => { if (this.locked) onMouse(e.movementX, e.movementY); });
+    addEventListener('mousemove', (e) => {
+      if (this.locked) onMouse(e.movementX, e.movementY);
+      else if (this.fallback && this.buttons.size) onMouse(e.movementX * 1.4, e.movementY * 1.4);
+    });
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === canvas;
       if (!this.locked) this.buttons.clear();
       this.onLockChange && this.onLockChange(this.locked);
     });
   }
-  capturePointer() { try { const p = this.canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch { /* ignore */ } }
-  releasePointer() { if (document.pointerLockElement) document.exitPointerLock(); }
+  capturePointer() {
+    const useFallback = () => { if (!this.locked) { this.fallback = true; this.onLockChange && this.onLockChange(false); } };
+    try {
+      const p = this.canvas.requestPointerLock();
+      if (p && p.catch) p.catch(useFallback);
+    } catch { useFallback(); }
+    setTimeout(useFallback, 400); // some sandboxes silently ignore the request
+  }
+  releasePointer() { this.fallback = false; this.buttons.clear(); if (document.pointerLockElement) document.exitPointerLock(); }
+  get active() { return this.locked || this.fallback; }
   down(code) { return this.keys.has(code); }
   pressed(code) { return this.pressedSet.has(code); }
   mouseDown(b) { return this.buttons.has(b); }
@@ -158,7 +173,7 @@ class Game {
     this.saveTimer = 10;
     this.clock = new THREE.Clock();
     this.input.onLockChange = (locked) => {
-      document.getElementById('lock').style.display = !locked && !this.ui.open && !this.bigMap ? 'flex' : 'none';
+      document.getElementById('lock').style.display = !this.input.active && !this.ui.open && !this.bigMap ? 'flex' : 'none';
     };
     document.getElementById('lock').addEventListener('click', () => this.input.capturePointer());
     document.getElementById('help-btn').addEventListener('click', (e) => { e.stopPropagation(); this.ui.openHelp(); });
@@ -306,6 +321,7 @@ class Game {
   handleKeys() {
     const i = this.input, ui = this.ui;
     if (i.pressed('Escape') && ui.open && ui.open !== 'starter') ui.close();
+    else if (i.pressed('Escape') && i.fallback) i.releasePointer();
     if (!State.data.starterChosen) return;
     const toggle = (kind, fn) => { if (ui.open === kind) ui.close(); else if (!ui.open || ui.open !== 'starter') fn(); };
     if (i.pressed('Tab') || i.pressed('KeyI')) toggle('inventory', () => ui.openInventory());
@@ -353,7 +369,7 @@ class Game {
     this.ui.updateLabels(dt, this.camera);
     this.ui.drawMinimap(false);
     if (this.bigMap) this.ui.drawMinimap(true);
-    document.getElementById('lock').style.display = !this.input.locked && !this.ui.open && !this.bigMap ? 'flex' : 'none';
+    document.getElementById('lock').style.display = !this.input.active && !this.ui.open && !this.bigMap ? 'flex' : 'none';
     this.input.endFrame();
   }
 }

@@ -12,6 +12,9 @@ npm run dev        # http://localhost:5173
 npm run build      # static build in web/dist (open with `npm run preview`)
 ```
 
+`npm run build:single` also writes `web/dist/siegelings.html`, a single self-contained file (used for the hosted page).
+If the browser blocks mouse lock (e.g. inside a sandboxed frame), hold a mouse button and drag to look.
+
 Progress is saved to the browser's `localStorage`. To start over, open Help and choose **Reset save**.
 
 ## Controls
@@ -52,6 +55,8 @@ Creature behaviours are `aggressive`, `pack`, `lone`, `gentle` and `skittish`, a
 - **The companion** follows you and fights your target.
 
 You can assign from the inventory, the Base Core, or by walking up to a pad on your base and pressing `E`.
+
+**Battle Team** (`BattleTeamSystem`): a 3x3 grid on Floor 2 holds up to 5 creatures (`MaxBattleTeamCreatures`). It unlocks with Floor 2, and the Base Core shows active element and class synergies (`CreatureData.Synergies`). Arena battles themselves are not built yet.
 
 **Base upgrades** (`BuyFloor`): Floor 2 (500 coins, Lv 5), Floor 3 (5,000, Lv 10) and Floor 4 "Siegelord Arena" (25,000, Lv 25). Each floor adds 6 income and 6 defense pads and appears stacked on your plot. Teleporter pads move you between floors. The next locked floor shows as a hologram with its price. Wild raids (`AIRaidSystem`) attack your base every few minutes and steal coins unless your defenders stop them. Defeated raiders can be captured.
 

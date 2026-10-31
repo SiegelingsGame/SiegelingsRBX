@@ -1,4 +1,5 @@
 :root {
+  color-scheme: dark;
   --bg: rgba(18, 14, 30, 0.82);
   --bg2: rgba(36, 30, 56, 0.92);
   --line: rgba(255, 215, 106, 0.35);
@@ -102,6 +103,7 @@ kbd { display: inline-block; padding: 1px 6px; border-radius: 5px; background: #
 .card .xp i { display: block; height: 100%; background: #9a7cff; }
 .card .stats { font-size: 11px; color: #d8d2ee; margin: 4px 0; }
 .tag { white-space: nowrap; display: inline-block; font-style: normal; font-size: 10px; padding: 1px 6px; border-radius: 6px; margin-left: 4px; color: #1a1426; font-weight: 700; }
+.tag.battle { background: #8fd0ff; }
 .tag.income { background: var(--gold); } .tag.defense { background: #ff7a7a; } .tag.comp { background: #7fffb0; }
 .btns { display: flex; flex-wrap: wrap; gap: 4px; }
 .btns.wide { gap: 8px; }
@@ -137,3 +139,9 @@ kbd { display: inline-block; padding: 1px 6px; border-radius: 5px; background: #
   #hotbar { display: none; }
   .grid { grid-template-columns: 1fr; }
 }
+.battle-wrap { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+.battle-grid { display: grid; grid-template-columns: repeat(3, 96px); gap: 8px; }
+#panel-body .battle-grid .slot { --rc: #4a6aa0; min-height: 96px; }
+.synergies { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 6px; }
+.syn { font-size: 13px; background: rgba(143, 208, 255, 0.08); border: 1px solid rgba(143, 208, 255, 0.3); border-radius: 8px; padding: 6px 10px; }
+@media (max-width: 640px) { .battle-grid { grid-template-columns: repeat(3, 1fr); } }

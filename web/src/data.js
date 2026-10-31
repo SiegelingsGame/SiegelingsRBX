@@ -67,3 +67,44 @@ export const isNightElement = (el) => el === 'Shadow' || el === 'Lightning';
 export function creaturesForElements(elements, spawnPointType = null) {
   return Creatures.filter((c) => elements.includes(c.element) && (c.spawnPointType || null) === spawnPointType);
 }
+
+// Port of CreatureData.Synergies / CalculateSynergies (battle team element + class bonuses).
+export const SYNERGIES = {
+  Fire: [[2, 'Ember', { attack: 0.10 }], [3, 'Inferno', { attack: 0.25 }]],
+  Ice: [[2, 'Frost', { defense: 0.10 }], [3, 'Blizzard', { defense: 0.25, speed: -0.10 }]],
+  Wind: [[2, 'Breeze', { speed: 0.15 }], [3, 'Tempest', { speed: 0.30, attack: 0.10 }]],
+  Earth: [[2, 'Roots', { health: 0.10 }], [3, 'Tectonic', { health: 0.25, defense: 0.10 }]],
+  Shadow: [[2, 'Dusk', { attack: 0.10, speed: 0.05 }], [3, 'Eclipse', { attack: 0.20, speed: 0.15 }]],
+  Light: [[2, 'Radiant', { defense: 0.10, attack: 0.05 }], [3, 'Brilliance', { defense: 0.20, attack: 0.15 }]],
+  Lightning: [[2, 'Spark', { speed: 0.10, attack: 0.05 }], [3, 'Thunder', { speed: 0.20, attack: 0.15 }]],
+  Water: [[2, 'Tide', { defense: 0.10, speed: 0.05 }], [3, 'Tsunami', { defense: 0.20, speed: 0.15 }]],
+  Psychic: [[2, 'Link', { health: 0.10, speed: 0.05 }], [3, 'Harmony', { health: 0.20, speed: 0.10 }]],
+  Metal: [[2, 'Alloy', { defense: 0.12 }], [3, 'Tempered', { defense: 0.25, health: 0.08 }]],
+  Poison: [[2, 'Toxin', { attack: 0.08, speed: 0.05 }], [3, 'Venom', { attack: 0.18, speed: 0.10 }]],
+  Undead: [[2, 'Wither', { health: 0.08, defense: 0.08 }], [3, 'Necrotic', { health: 0.18, defense: 0.15 }]],
+  Bruiser: [[2, 'Fury', { attack: 0.12 }], [3, 'Rampage', { attack: 0.25, health: 0.10 }]],
+  Mage: [[2, 'Focus', { attack: 0.10 }], [3, 'Arcane', { attack: 0.20 }]],
+  Guardian: [[2, 'Shield', { defense: 0.15 }], [3, 'Bastion', { defense: 0.30, health: 0.10 }]],
+  Assassin: [[2, 'Edge', { speed: 0.10, attack: 0.05 }], [3, 'Lethal', { speed: 0.20, attack: 0.20 }]],
+  Support: [[2, 'Mend', { health: 0.10 }], [3, 'Harmony', { health: 0.20, defense: 0.10 }]],
+};
+
+// Returns active synergies [{ trait, label, count, bonuses }] for a list of creature ids.
+export function calculateSynergies(ids) {
+  const counts = {};
+  for (const id of ids) {
+    const c = byId.get(id);
+    if (!c) continue;
+    counts[c.element] = (counts[c.element] || 0) + 1;
+    counts[c.class] = (counts[c.class] || 0) + 1;
+  }
+  const active = [];
+  for (const [trait, n] of Object.entries(counts)) {
+    const tiers = SYNERGIES[trait];
+    if (!tiers) continue;
+    let best = null;
+    for (const t of tiers) if (n >= t[0]) best = t;
+    if (best) active.push({ trait, label: best[1], count: n, bonuses: best[2] });
+  }
+  return active;
+}

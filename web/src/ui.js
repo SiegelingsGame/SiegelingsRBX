@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { CFG, RARITY_COLORS, RARITY_ORDER, VARIANT_COLORS } from './config.js';
 import { State } from './state.js';
-import { getCreature, effectiveStats, xpForLevel, playerXPForLevel, maxCreatureLevel, sellValue, creatureIncome, isNightElement, STARTERS, Creatures, captureCost } from './data.js';
+import { calculateSynergies, getCreature, effectiveStats, xpForLevel, playerXPForLevel, maxCreatureLevel, sellValue, creatureIncome, isNightElement, STARTERS, Creatures, captureCost } from './data.js';
 import { BIOMES, biomeAt, plotCenter, PLOT_SIZE, WORLD_R, HUB_R, ROADS, RING_ROAD_R } from './world.js';
 import { portrait } from './portraits.js';
 import { fmt, pick } from './util.js';
@@ -295,7 +295,7 @@ export class UI {
     const st = effectiveStats(e.id, e.level, e.variant);
     const need = xpForLevel(e.level + 1), max = maxCreatureLevel(e.id);
     const slot = State.slotOf(e.uid);
-    const where = !slot ? '' : slot.type === 'companion' ? '<em class="tag comp">Companion</em>' : `<em class="tag ${slot.type}">${slot.type === 'income' ? 'Income' : 'Defense'} #${slot.index + 1}</em>`;
+    const where = !slot ? '' : slot.type === 'companion' ? '<em class="tag comp">Companion</em>' : slot.type === 'battle' ? '<em class="tag battle">Battle Team</em>' : `<em class="tag ${slot.type}">${slot.type === 'income' ? 'Income' : 'Defense'} #${slot.index + 1}</em>`;
     const variant = e.variant !== 'Normal' ? `<b style="color:${VARIANT_COLORS[e.variant]}">${e.variant}</b> ` : '';
     return `<div class="card" style="--rc:${RARITY_COLORS[def.rarity]}">
       <img src="${portrait(e.id, e.variant, e.shiny)}" alt="">
@@ -315,16 +315,16 @@ export class UI {
     let list = [...d.inventory];
     if (f !== 'all') list = list.filter((e) => { const s = State.slotOf(e.uid); return f === 'none' ? !s : s && s.type === f; });
     list.sort((a, b) => (RARITY_ORDER[getCreature(b.id).rarity] - RARITY_ORDER[getCreature(a.id).rarity]) || b.level - a.level);
-    const tabs = [['all', 'All'], ['income', 'Income'], ['defense', 'Defense'], ['companion', 'Companion'], ['none', 'Unassigned']]
+    const tabs = [['all', 'All'], ['income', 'Income'], ['defense', 'Defense'], ['battle', 'Battle Team'], ['companion', 'Companion'], ['none', 'Unassigned']]
       .map(([k, l]) => `<button class="tab ${f === k ? 'on' : ''}" data-act="filter" data-k="${k}">${l}</button>`).join('');
     const cards = list.map((e) => {
       const s = State.slotOf(e.uid);
       const btn = (t, l) => `<button data-act="assign" data-uid="${e.uid}" data-type="${t}" ${s && s.type === t ? 'disabled' : ''}>${l}</button>`;
-      return this.creatureCard(e, `${btn('income', '🪙 Income')}${btn('defense', '🛡 Defense')}${btn('companion', '🐾 Follow')}${s ? `<button class="ghost" data-act="unassign" data-uid="${e.uid}">Unassign</button>` : ''}`);
+      return this.creatureCard(e, `${btn('income', '🪙 Income')}${btn('defense', '🛡 Defense')}${btn('battle', '⚔ Battle')}${btn('companion', '🐾 Follow')}${s ? `<button class="ghost" data-act="unassign" data-uid="${e.uid}">Unassign</button>` : ''}`);
     }).join('');
     const used = (arr) => arr.filter(Boolean).length;
     this.show('inventory', `Siegelings (${d.inventory.length}/${CFG.MaxInventorySize})`, `
-      <div class="summary">🪙 Income slots ${used(d.baseSlots)}/${d.baseSlots.length} · 🛡 Defense slots ${used(d.defenseSlots)}/${d.defenseSlots.length} · Captured ${d.stats.totalCaptured}</div>
+      <div class="summary">🪙 Income slots ${used(d.baseSlots)}/${d.baseSlots.length} · 🛡 Defense slots ${used(d.defenseSlots)}/${d.defenseSlots.length} · ⚔ Battle Team ${State.battleUnlocked() ? `${State.battleCount()}/${CFG.MaxBattleTeamCreatures}` : 'locked (Floor 2)'} · Captured ${d.stats.totalCaptured}</div>
       <div class="tabs">${tabs}</div>
       <div class="grid">${cards || '<p class="empty">No creatures here yet. Defeat wild Siegelings, then press E on them to capture.</p>'}</div>`);
   }
@@ -346,27 +346,45 @@ export class UI {
         return `<button class="slot" style="--rc:${RARITY_COLORS[def.rarity]}" data-act="slot" data-type="${type}" data-i="${i}"><img src="${portrait(e.id, e.variant, e.shiny)}"><small>${esc(def.displayName)} · Lv ${e.level}${zz ? ' 💤' : ''}</small></button>`;
       }).join('');
     };
+    const battleGrid = d.battleTeam.map((u, i) => {
+      const e = u && State.get(u);
+      if (!State.battleUnlocked()) return '<button class="slot open" disabled><span>🔒</span></button>';
+      if (!e) return `<button class="slot open" data-act="slot" data-type="battle" data-i="${i}"><span>+</span></button>`;
+      const def = getCreature(e.id);
+      return `<button class="slot" style="--rc:${RARITY_COLORS[def.rarity]}" data-act="slot" data-type="battle" data-i="${i}"><img src="${portrait(e.id, e.variant, e.shiny)}"><small>${esc(def.displayName)} · Lv ${e.level}</small></button>`;
+    }).join('');
+    const syn = calculateSynergies(d.battleTeam.filter(Boolean).map((u) => State.get(u)?.id));
+    const synHtml = syn.length
+      ? syn.map((x) => `<span class="syn">${ELEMENT_EMOJI[x.trait] || '◆'} <b>${esc(x.label)}</b> (${x.trait} ×${x.count}) ${Object.entries(x.bonuses).map(([k, v]) => `${v > 0 ? '+' : ''}${Math.round(v * 100)}% ${k}`).join(', ')}</span>`).join('')
+      : '<span class="hint">No synergies yet. Field 2+ creatures of the same element or class.</span>';
     const inc = State.incomePerTick(night), incDay = State.incomePerTick(false);
     this.show('base', 'Base Core', `
       <div class="summary big">🪙 <b>${fmt(inc)}</b> coins every ${CFG.IncomeTickSeconds}s ${night ? `(night — only 🌙 Shadow/Lightning creatures earn; day rate ${fmt(incDay)})` : ''} · Total earned ${fmt(d.stats.totalIncome)}</div>
       <h3>Base Upgrades</h3><div class="floors">${floors}</div>
       <h3>🪙 Income Slots <small>creatures here earn coins every tick</small></h3><div class="slots">${slotGrid('income')}</div>
       <h3>🛡 Defense Slots <small>creatures here shoot raiders & gain ${CFG.DefensePassiveXP} XP per tick</small></h3><div class="slots">${slotGrid('defense')}</div>
+      <h3>⚔ Battle Team <small>${State.battleUnlocked() ? `3x3 grid on Floor 2 · ${State.battleCount()}/${CFG.MaxBattleTeamCreatures} creatures` : 'unlocks with Floor 2'}</small></h3>
+      <div class="battle-wrap"><div class="battle-grid">${battleGrid}</div><div class="synergies">${synHtml}</div></div>
       <p class="hint">Tip: walk up to any pad on your base and press <kbd>E</kbd> to assign directly. Wild raids hit your base every few minutes — keep defenders posted.</p>`);
   }
 
   openSlotPicker(type, index) {
     this.ctxData = { type, index };
-    const arr = type === 'income' ? State.data.baseSlots : State.data.defenseSlots;
+    const arr = type === 'income' ? State.data.baseSlots : type === 'battle' ? State.data.battleTeam : State.data.defenseSlots;
     const cur = arr[index] && State.get(arr[index]);
     let html = '';
     if (cur) html += `<h3>Currently in slot</h3>${this.creatureCard(cur, `<button class="ghost" data-act="unassign" data-uid="${cur.uid}">Remove from slot</button>`)}`;
     const list = State.data.inventory.filter((e) => e.uid !== arr[index]).sort((a, b) => {
       const sa = State.slotOf(a.uid) ? 1 : 0, sb = State.slotOf(b.uid) ? 1 : 0;
       if (sa !== sb) return sa - sb;
+      if (type === 'battle') { const sa2 = effectiveStats(a.id, a.level, a.variant), sb2 = effectiveStats(b.id, b.level, b.variant); return (sb2.attack + sb2.health + sb2.defense + sb2.speed) - (sa2.attack + sa2.health + sa2.defense + sa2.speed); }
       return type === 'income' ? creatureIncome(b) - creatureIncome(a) || b.level - a.level : effectiveStats(b.id, b.level, b.variant).attack - effectiveStats(a.id, a.level, a.variant).attack;
     });
     html += `<h3>Choose a creature</h3><div class="grid">${list.map((e) => this.creatureCard(e, `<button data-act="place" data-uid="${e.uid}">Place here</button>`)).join('') || '<p class="empty">Your inventory is empty — go capture some Siegelings!</p>'}</div>`;
+    if (type === 'battle') {
+      html = `<p class="hint">Battle Team: ${State.battleCount()}/${CFG.MaxBattleTeamCreatures} creatures on the 3x3 grid. Matching elements and classes give team synergies.</p>${html}`;
+      return this.show('slot', `⚔ Battle Team — ${['Top', 'Middle', 'Bottom'][Math.floor(index / 3)]} ${['left', 'centre', 'right'][index % 3]}`, html);
+    }
     this.show('slot', `${type === 'income' ? '🪙 Income' : '🛡 Defense'} Slot ${index + 1}`, html);
   }
 
@@ -381,6 +399,7 @@ export class UI {
       <div class="btns wide">
         <button data-act="assign-close" data-uid="${e.uid}" data-type="income" ${free(State.data.baseSlots) ? '' : 'disabled'}>🪙 Income slot</button>
         <button data-act="assign-close" data-uid="${e.uid}" data-type="defense" ${free(State.data.defenseSlots) ? '' : 'disabled'}>🛡 Defense slot</button>
+        <button data-act="assign-close" data-uid="${e.uid}" data-type="battle" ${State.battleUnlocked() && State.battleCount() < CFG.MaxBattleTeamCreatures ? '' : 'disabled'}>⚔ Battle Team</button>
         <button data-act="assign-close" data-uid="${e.uid}" data-type="companion">🐾 Make companion</button>
         <button class="ghost" data-act="close">Keep in inventory</button>
       </div></div>`);
@@ -504,13 +523,16 @@ export class UI {
       case 'sell': {
         const e = State.get(b.dataset.uid);
         const def = getCreature(e.id);
-        if (RARITY_ORDER[def.rarity] >= 3 && !confirm(`Sell ${def.displayName} (${def.rarity})?`)) break;
+        // two-step confirm in the page itself (dialogs are not available everywhere)
+        if (RARITY_ORDER[def.rarity] >= 3 && b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = `Confirm sell ${def.rarity}?`; break; }
         const v = State.sell(e.uid);
         this.notify(`Sold ${def.displayName} for ${v} coins`, 'good');
         State.save();
         break;
       }
-      case 'reset': if (confirm('Erase all progress?')) { State.reset(); location.reload(); } break;
+      case 'reset':
+        if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Click again to erase all progress'; break; }
+        State.reset(); location.reload(); break;
     }
   }
 }

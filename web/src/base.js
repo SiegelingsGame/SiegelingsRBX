@@ -12,6 +12,9 @@ const PAD_LAYOUT = {
   income: [[-17, -12], [-9, -12], [-17, -2], [-9, -2], [-17, 8], [-9, 8]],
   defense: [[9, -12], [17, -12], [9, -2], [17, -2], [9, 8], [17, 8]],
 };
+// 3x3 Battle Team grid on Floor 2 (BattleTeamSystem / Floor2 BattlePoints), centred behind the teleporter
+const BATTLE_GRID = [];
+for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) BATTLE_GRID.push([(c - 1) * 4.2, -16.8 + r * 4.2]);
 const TELEPORTER = [0, 4];
 const CORE = [0, -18];
 const HOME_SPOT = [0, 16];
@@ -82,6 +85,18 @@ function buildPad(type) {
   const icon = new THREE.Mesh(type === 'income' ? new THREE.CylinderGeometry(0.7, 0.7, 0.15, 16) : new THREE.ConeGeometry(0.6, 0.9, 3), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85 }));
   icon.position.y = 2.2; if (type === 'income') icon.rotation.x = Math.PI / 2;
   g.add(icon);
+  g.userData.icon = icon;
+  return g;
+}
+
+function buildBattleTile() {
+  const g = new THREE.Group();
+  const tile = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.4, 3.4), new THREE.MeshLambertMaterial({ color: 0x2a3550 }));
+  tile.position.y = 0.2; tile.receiveShadow = true; g.add(tile);
+  const edge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(3.2, 0.05, 3.2)), new THREE.LineBasicMaterial({ color: 0x6fb8ff }));
+  edge.position.y = 0.43; g.add(edge);
+  const icon = new THREE.Mesh(new THREE.OctahedronGeometry(0.45, 0), new THREE.MeshBasicMaterial({ color: 0x6fb8ff, transparent: true, opacity: 0.85 }));
+  icon.position.y = 1.8; g.add(icon);
   g.userData.icon = icon;
   return g;
 }
@@ -174,6 +189,18 @@ export class PlayerBase {
           this.pads.push({ type, index: f * 6 + i, floor: f, mesh: pad, local: [x, y, z] });
         });
       }
+      if (f === 1) { // Floor 2 hosts the 3x3 Battle Team grid
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(13.4, 0.08, 13.4), new THREE.MeshLambertMaterial({ color: 0x1b2238 }));
+        frame.position.set(0, y + 0.04, -12.6); frame.receiveShadow = true; fg.add(frame);
+        const lbl = labelSprite('BATTLE TEAM', `3x3 grid · max ${CFG.MaxBattleTeamCreatures} creatures`, '#8fd0ff', 9);
+        lbl.position.set(0, y + 6.5, -20.5); fg.add(lbl);
+        BATTLE_GRID.forEach(([x, z], i) => {
+          const pad = buildBattleTile();
+          pad.position.set(x, y, z);
+          fg.add(pad);
+          this.pads.push({ type: 'battle', index: i, floor: f, mesh: pad, local: [x, y, z] });
+        });
+      }
       const tp = buildTeleporter();
       tp.position.set(TELEPORTER[0], y, TELEPORTER[1]);
       fg.add(tp);
@@ -207,6 +234,7 @@ export class PlayerBase {
     const want = new Map();
     d.baseSlots.forEach((u, i) => { if (u) want.set(`income:${i}`, u); });
     d.defenseSlots.forEach((u, i) => { if (u) want.set(`defense:${i}`, u); });
+    d.battleTeam.forEach((u, i) => { if (u) want.set(`battle:${i}`, u); });
     for (const [key, p] of this.placed) {
       if (force || want.get(key) !== p.uid || !State.get(p.uid)) { p.model.root.parent && p.model.root.parent.remove(p.model.root); this.placed.delete(key); }
     }
@@ -216,8 +244,8 @@ export class PlayerBase {
       const pad = this.pads.find((pp) => `${pp.type}:${pp.index}` === key);
       if (!e || !pad) continue;
       const def = getCreature(e.id);
-      const model = buildCreatureModel(def, { variant: e.variant, shiny: e.shiny });
-      model.root.position.set(pad.local[0], pad.local[1] + 0.5, pad.local[2]);
+      const model = buildCreatureModel(def, { variant: e.variant, shiny: e.shiny, scale: pad.type === 'battle' ? 0.8 : 1 });
+      model.root.position.set(pad.local[0], pad.local[1] + (pad.type === 'battle' ? 0.4 : 0.5), pad.local[2]);
       this.group.add(model.root);
       pad.mesh.userData.icon.visible = false;
       this.placed.set(key, { uid: u, entry: e, def, model, cd: Math.random() * 2, type: pad.type, pad });
@@ -235,7 +263,7 @@ export class PlayerBase {
       const sleeping = isNight && !isNightElement(p.def.element);
       out.push({
         pos, name: `${p.entry.nickname || p.def.displayName}`, level: p.entry.level, rarity: p.def.rarity, variant: p.entry.variant,
-        sub: p.type === 'income' ? (sleeping && CFG.NightOnlyNightElementsEarn ? '💤 sleeping' : `+${creatureIncome(p.entry)} 🪙/tick`) : '🛡 Defender',
+        sub: p.type === 'income' ? (sleeping && CFG.NightOnlyNightElementsEarn ? '💤 sleeping' : `+${creatureIncome(p.entry)} 🪙/tick`) : p.type === 'battle' ? '⚔ Battle Team' : '🛡 Defender',
       });
     }
     return out;
@@ -264,7 +292,10 @@ export class PlayerBase {
       const p = this.placed.get(key);
       list.push({
         pos: this.toWorld(pad.local[0], pad.local[1], pad.local[2]), radius: 3.6, yTol: 3,
-        label: () => p ? `Manage ${p.def.displayName} (${pad.type} slot ${pad.index + 1})` : `Assign a creature to ${pad.type} slot ${pad.index + 1}`,
+        label: () => {
+          const name = pad.type === 'battle' ? `Battle Team ${['top', 'middle', 'bottom'][Math.floor(pad.index / 3)]}-${['left', 'centre', 'right'][pad.index % 3]}` : `${pad.type} slot ${pad.index + 1}`;
+          return p ? `Manage ${p.def.displayName} (${name})` : `Assign a creature to ${name}`;
+        },
         action: () => ctx.ui.openSlotPicker(pad.type, pad.index),
       });
     }
@@ -286,7 +317,7 @@ export class PlayerBase {
     for (const pad of this.pads) if (pad.mesh.userData.icon.visible) { pad.mesh.userData.icon.rotation.y += dt * 1.5; pad.mesh.userData.icon.position.y = 2.2 + Math.sin(t * 2 + pad.index) * 0.2; }
     const isNight = ctx.isNight();
     for (const p of this.placed.values()) {
-      const sleeping = isNight && !isNightElement(p.def.element);
+      const sleeping = p.type !== "battle" && isNight && !isNightElement(p.def.element);
       p.model.animate(t, 0);
       p.model.root.rotation.y = 0;
       if (sleeping) p.model.inner.rotation.z = THREE.MathUtils.lerp(p.model.inner.rotation.z, 0.5, 0.05);

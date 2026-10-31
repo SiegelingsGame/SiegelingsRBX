@@ -24,6 +24,8 @@ export const CFG = {
   IncomePointsPerFloor: 6,
   DefensePointsPerFloor: 6,
   FloorHeight: 16,
+  BattleGridSize: 9,          // 3x3 battle grid (GameConfig.MaxBattleTeamSize)
+  MaxBattleTeamCreatures: 5,  // GameConfig.MaxBattleTeamCreatures
 
   // Day / night
   DayNightCycleSeconds: 500,

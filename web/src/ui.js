@@ -340,7 +340,7 @@ export class UI {
       const arr = type === 'income' ? d.baseSlots : d.defenseSlots;
       return arr.map((u, i) => {
         const e = u && State.get(u);
-        if (!e) return `<button class="slot empty" data-act="slot" data-type="${type}" data-i="${i}"><span>+</span><small>Slot ${i + 1}</small></button>`;
+        if (!e) return `<button class="slot open" data-act="slot" data-type="${type}" data-i="${i}"><span>+</span><small>Slot ${i + 1}</small></button>`;
         const def = getCreature(e.id);
         const zz = type === 'income' && night && !isNightElement(def.element) && CFG.NightOnlyNightElementsEarn;
         return `<button class="slot" style="--rc:${RARITY_COLORS[def.rarity]}" data-act="slot" data-type="${type}" data-i="${i}"><img src="${portrait(e.id, e.variant, e.shiny)}"><small>${esc(def.displayName)} · Lv ${e.level}${zz ? ' 💤' : ''}</small></button>`;

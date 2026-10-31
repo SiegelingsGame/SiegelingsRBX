@@ -101,7 +101,7 @@ kbd { display: inline-block; padding: 1px 6px; border-radius: 5px; background: #
 .card .xp { height: 4px; background: rgba(0,0,0,0.5); border-radius: 2px; overflow: hidden; }
 .card .xp i { display: block; height: 100%; background: #9a7cff; }
 .card .stats { font-size: 11px; color: #d8d2ee; margin: 4px 0; }
-.tag { font-style: normal; font-size: 10px; padding: 1px 6px; border-radius: 6px; margin-left: 4px; color: #1a1426; font-weight: 700; }
+.tag { white-space: nowrap; display: inline-block; font-style: normal; font-size: 10px; padding: 1px 6px; border-radius: 6px; margin-left: 4px; color: #1a1426; font-weight: 700; }
 .tag.income { background: var(--gold); } .tag.defense { background: #ff7a7a; } .tag.comp { background: #7fffb0; }
 .btns { display: flex; flex-wrap: wrap; gap: 4px; }
 .btns.wide { gap: 8px; }
@@ -121,7 +121,7 @@ kbd { display: inline-block; padding: 1px 6px; border-radius: 5px; background: #
 #panel-body .slot { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px; border-radius: 10px; background: rgba(255,255,255,0.05); border: 1px solid var(--rc, #4a4070); min-height: 96px; justify-content: center; }
 #panel-body .slot img { width: 60px; height: 60px; }
 #panel-body .slot small { font-size: 10px; color: var(--muted); text-align: center; }
-#panel-body .slot.empty span { font-size: 26px; color: var(--muted); }
+#panel-body .slot.open span { font-size: 26px; color: var(--muted); }
 .starters { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 10px; }
 #panel-body .starter { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px; border-radius: 14px; text-align: center; }
 #panel-body .starter img { width: 120px; height: 120px; }

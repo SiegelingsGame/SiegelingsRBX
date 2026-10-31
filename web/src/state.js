@@ -70,7 +70,7 @@ export const State = {
   get(uidv) { return this.data.inventory.find((e) => e.uid === uidv); },
   isFull() { return this.data.inventory.length >= CFG.MaxInventorySize; },
   addCreature(id, level = 1, variant = 'Normal', shiny = false) {
-    if (this.isFull()) return null;
+    if (this.isFull() || !getCreature(id)) return null;
     const e = { id, uid: uid(), level, xp: 0, variant, shiny, caughtAt: Date.now() };
     this.data.inventory.push(e);
     this.data.seen[id] = true;

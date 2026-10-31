@@ -1,0 +1,19 @@
+{
+  "name": "siegelings-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "export-data": "python3 ../tools/export_creatures_web.py",
+    "build:single": "vite build && node scripts/build-single.mjs"
+  },
+  "dependencies": {
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  }
+}

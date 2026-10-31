@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Siegelings</title>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="labels"></div>
+  <div id="hurt"></div>
+  <div id="crosshair"><i></i></div>
+
+  <div id="hud-tl">
+    <div class="row"><div id="coins-box" class="pill gold">🪙 <b id="coins">0</b><small id="income"></small></div></div>
+    <div class="bar-wrap"><span class="lvl">Lv <b id="plevel">1</b></span><div class="bar xp"><i id="pxp-fill"></i><em id="pxp-text"></em></div></div>
+    <div class="bar-wrap"><span class="lvl">❤️</span><div class="bar hp"><i id="hp-fill"></i><em id="hp-text"></em></div></div>
+  </div>
+
+  <div id="hud-tr">
+    <canvas id="minimap" width="200" height="200"></canvas>
+    <div id="biome">Arena Hub</div>
+    <div id="clock"></div>
+  </div>
+
+  <div id="companion"><img id="comp-img" alt=""><div><b id="comp-name"></b><div class="bar hp small"><i id="comp-hp"></i></div><small id="comp-state"></small></div></div>
+
+  <div id="hotbar">
+    <span><kbd>LMB</kbd> Orb</span><span><kbd>RMB</kbd> Aim</span><span><kbd>F</kbd> Melee</span><span><kbd>E</kbd> Interact</span>
+    <span><kbd>Tab</kbd> Siegelings <b id="inv-count"></b></span><span><kbd>B</kbd> Base</span><span><kbd>M</kbd> Map</span><span><kbd>H</kbd> Home</span>
+    <button id="help-btn">? Help</button>
+  </div>
+
+  <div id="prompt"></div>
+  <div id="toasts"></div>
+
+  <div id="bigmap-wrap"><canvas id="bigmap" width="760" height="760"></canvas><small>Press M to close</small></div>
+
+  <div id="lock">
+    <div class="lock-card">
+      <h1>SIEGELINGS</h1>
+      <p>Click to play</p>
+      <small>WASD move · Mouse look · LMB attack · E capture/interact · Tab Siegelings · B base · ? help</small>
+    </div>
+  </div>
+
+  <div id="panel"><div class="panel-inner">
+    <header><h2 id="panel-title"></h2><button id="panel-close" aria-label="Close">✕</button></header>
+    <div id="panel-body"></div>
+  </div></div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

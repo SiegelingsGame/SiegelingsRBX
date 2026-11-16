@@ -27,7 +27,8 @@ from export_creatures_web import parse_creatures, allocate
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_JSON = os.path.join(ROOT, "web", "src", "data", "creatures.json")
 ART_DIR = os.path.join(ROOT, "web", "public", "art")
-LIVE_URL = "https://siegelingstcgtesting.web.app/api/cards/editor"
+SITE = "https://siegelingstcgtesting.web.app"
+LIVE_URL = SITE + "/api/cards/editor"
 ART_MAX = 512  # px, longest side after trimming
 
 ELEMENT = {
@@ -95,6 +96,31 @@ def avg_color(im):
     return [round(sum(p[i] for p in px) / len(px)) for i in range(3)] if px else None
 
 
+def sprite_fallback(card_id):
+    """First idle frame of the TCG battle sprite sheet, mirrored to face left and upscaled."""
+    from PIL import Image
+    try:
+        url = f"{SITE}/img/sprites/{card_id}/{card_id}-idle.webp"
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "siegelings-sync"}), timeout=60) as r:
+            sheet = Image.open(io.BytesIO(r.read())).convert("RGBA")
+    except Exception:
+        return None
+    alpha = sheet.getchannel("A")
+    x0 = x1 = None  # first run of non-empty columns = first frame
+    for x in range(sheet.width):
+        filled = alpha.crop((x, 0, x + 1, sheet.height)).getbbox() is not None
+        if filled and x0 is None:
+            x0 = x
+        if not filled and x0 is not None:
+            x1 = x
+            break
+    if x0 is None:
+        return None
+    frame = sheet.crop((x0, 0, x1 or sheet.width, sheet.height)).transpose(Image.FLIP_LEFT_RIGHT)
+    k = max(1, ART_MAX // max(frame.size))
+    return frame.resize((frame.width * k, frame.height * k), Image.NEAREST)
+
+
 def process_art(card, skip):
     """Download + trim + resize the overlay art. Returns (relative path, aspect, avg colour) or Nones."""
     from PIL import Image
@@ -110,10 +136,13 @@ def process_art(card, skip):
             im = Image.open(io.BytesIO(r.read())).convert("RGBA")
     except Exception as e:  # expired storage token, network error...
         print(f"  ! art for {card['id']}: {e}", file=sys.stderr)
-        if os.path.exists(out_path):  # keep the last good copy
-            im = Image.open(out_path)
-            return f"art/{card['id']}.webp", round(im.width / im.height, 3), avg_color(im)
-        return None, None, None
+        im = sprite_fallback(card["id"])
+        if im is None:
+            if os.path.exists(out_path):  # keep the last good copy
+                im = Image.open(out_path)
+                return f"art/{card['id']}.webp", round(im.width / im.height, 3), avg_color(im)
+            return None, None, None
+        print(f"    using the TCG battle sprite for {card['id']} instead", file=sys.stderr)
     bbox = im.getchannel("A").point(lambda a: 255 if a > 12 else 0).getbbox()
     if bbox:
         im = im.crop(bbox)

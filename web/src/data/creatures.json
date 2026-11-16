@@ -1873,6 +1873,8 @@
    "starter": true,
    "move": "Embers"
   },
+  "art": "art/draco.webp",
+  "artAspect": 1.115,
   "health": 26,
   "attack": 31,
   "defense": 26,

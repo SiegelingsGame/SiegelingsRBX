@@ -80,7 +80,10 @@ export class WildCreature {
     const r = this.model.root;
     r.position.copy(this.pos);
     r.rotation.y = this.yaw;
-    if (this.fainted) {
+    if (this.model.setFainted) {
+      this.model.setFainted(this.fainted);
+      if (!this.fainted) this.model.animate(t, this.speed);
+    } else if (this.fainted) {
       this.model.inner.rotation.z = THREE.MathUtils.lerp(this.model.inner.rotation.z, Math.PI / 2, 0.15);
       this.model.inner.position.y = this.model.radius * 0.5;
     } else {
@@ -215,6 +218,7 @@ export class WildCreature {
 
   dispose() {
     this.alive = false;
+    if (this.model.dispose) this.model.dispose();
     this.mgr.scene.remove(this.model.root);
   }
 }
@@ -231,6 +235,11 @@ export class CreatureManager {
 
   pickFor(sp) {
     const type = sp.kind === 'spawn' ? null : sp.kind;
+    // Neutral legendaries from the TCG (no home biome) occasionally take a boss point anywhere
+    if (type === 'boss' && Math.random() < 0.12) {
+      const neutral = creaturesForElements(['Neutral'], 'boss');
+      if (neutral.length) return neutral[Math.floor(Math.random() * neutral.length)];
+    }
     let pool = creaturesForElements(sp.elements, type);
     if (!pool.length) pool = creaturesForElements(sp.elements, null);
     if (!pool.length) pool = Creatures.filter((c) => !c.spawnPointType);

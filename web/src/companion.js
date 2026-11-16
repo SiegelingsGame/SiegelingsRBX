@@ -49,7 +49,7 @@ export class Companion {
   }
 
   despawn() {
-    if (this.model) this.scene.remove(this.model.root);
+    if (this.model) { this.scene.remove(this.model.root); if (this.model.dispose) this.model.dispose(); }
     this.model = null; this.alive = false;
   }
 
@@ -98,8 +98,9 @@ export class Companion {
     if (target && target.pos.distanceTo(player.pos) > CFG.CompanionAttackRange * 1.5) target = null;
 
     // follow position: behind-left of the player
-    const behind = new THREE.Vector3(Math.sin(player.yaw), 0, Math.cos(player.yaw)).multiplyScalar(-CFG.CompanionFollowDist);
-    const side = new THREE.Vector3(Math.cos(player.yaw), 0, -Math.sin(player.yaw)).multiplyScalar(3);
+    // walk beside the player (not behind, where it would block the over-the-shoulder camera)
+    const behind = new THREE.Vector3(Math.sin(player.yaw), 0, Math.cos(player.yaw)).multiplyScalar(-1.5);
+    const side = new THREE.Vector3(Math.cos(player.yaw), 0, -Math.sin(player.yaw)).multiplyScalar(-CFG.CompanionFollowDist);
     const follow = player.pos.clone().add(behind).add(side);
     let goal = follow;
     if (target) {

@@ -9,7 +9,7 @@ import { fmt, pick } from './util.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const ELEMENT_EMOJI = { Fire: '🔥', Ice: '❄️', Wind: '🌪️', Earth: '🌿', Shadow: '🌑', Light: '✨', Lightning: '⚡', Water: '💧', Psychic: '🔮', Metal: '⚙️', Poison: '☠️', Undead: '💀' };
+const ELEMENT_EMOJI = { Fire: '🔥', Ice: '❄️', Wind: '🌪️', Earth: '🌿', Shadow: '🌑', Light: '✨', Lightning: '⚡', Water: '💧', Psychic: '🔮', Metal: '⚙️', Poison: '☠️', Undead: '💀', Neutral: '✴️' };
 
 const SIEGE_FOOD = [
   { id: 'snack', name: 'Ember Biscuit', desc: '+60 XP to one creature', xp: 60, cost: 40, icon: '🍪' },

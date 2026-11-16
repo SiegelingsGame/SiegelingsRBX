@@ -14,6 +14,7 @@ import { UI } from './ui.js';
 import { randInt, clamp, lerp } from './util.js';
 import { TouchControls, isTouchDevice } from './touch.js';
 import { initModels } from './models.js';
+import { setBillboardCamera, setBillboardLight } from './billboard.js';
 
 const TOUCH = isTouchDevice();
 
@@ -129,6 +130,7 @@ class Game {
     this.rivalModels = buildOtherPlots(this.scene, this.world, 0);
     this.player = new Player(this.scene, this.world, this.fx);
     this.cam = new ShoulderCamera(this.camera, this.world);
+    setBillboardCamera(this.camera);
     this.companion = new Companion(this.scene, this.world, this.fx);
     this.input = new Input(canvas, (dx, dy) => { if (!this.ui.open) this.cam.onMouse(dx, dy); });
     if (TOUCH) this.input.touch = new TouchControls(this.input, (dx, dy) => { if (!this.ui.open) this.cam.onMouse(dx, dy); });
@@ -232,6 +234,7 @@ class Game {
     this.sun.intensity = lerp(0.35, 2.4, day);
     this.sun.color.set(day > 0.05 ? 0xfff2d8 : 0xaab8ff).lerp(new THREE.Color(0xffa060), dusk * 0.5);
     this.hemi.intensity = lerp(0.45, 1.3, day);
+    setBillboardLight(lerp(0.42, 1, day) * (b === 'caves' ? 0.85 : 1));
     this.hemi.color.set(0xdfefff).lerp(new THREE.Color(0x6a78c0), 1 - day);
     this.skyObj.stars.material.opacity = 1 - day;
     this.skyObj.sky.position.copy(this.camera.position);

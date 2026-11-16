@@ -6,6 +6,7 @@ import { ELEMENT_COLORS } from './config.js';
 import { hashStr, mulberry32 } from './util.js';
 import { tint } from './world.js';
 import { modelUrlFor, getLoaded, loadModel, instantiate } from './models.js';
+import { buildBillboard } from './billboard.js';
 
 const RARITY_SCALE = { Common: 1, Uncommon: 1.12, Rare: 1.3, Epic: 1.5, Legendary: 1.85 };
 const VARIANT_EMISSIVE = { Normal: 0x000000, Silver: 0x1c2026, Gold: 0x3a2800, Legend: 0x3a0838 };
@@ -199,6 +200,8 @@ function getGeometry(def, variant) {
 // If a real model exists for the creature (see models.js) it replaces the stand-in, immediately when
 // already loaded, otherwise as soon as it finishes loading.
 export function buildCreatureModel(def, { variant = 'Normal', shiny = false, scale = 1 } = {}) {
+  // Priority: a real 3D model (models/) > the TCG card art as a billboard > the procedural stand-in
+  if (def.art && !modelUrlFor(def)) return buildBillboard(def, { variant, shiny, scale });
   const g = getGeometry(def, variant);
   const mat = creatureMaterial(variant, shiny);
   const root = new THREE.Group();

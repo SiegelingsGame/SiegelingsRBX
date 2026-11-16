@@ -5,7 +5,12 @@ export const Creatures = CREATURES.filter((c) => !c.npcOnly);
 const byId = new Map(Creatures.map((c) => [c.id, c]));
 export const getCreature = (id) => byId.get(id);
 
-export const STARTERS = ['cacty', 'pursula', 'sundile', 'fawny'];
+// Starters = the TCG's expedition starters (falls back to the original Roblox four)
+const TCG_STARTERS = Creatures.filter((c) => c.tcg && c.tcg.starter).map((c) => c.id);
+export const STARTERS = TCG_STARTERS.length ? TCG_STARTERS : ['cacty', 'pursula', 'sundile', 'fawny'].filter((id) => byId.has(id));
+
+// Old save ids -> current TCG ids (creatures renamed between the Roblox and TCG rosters)
+export const ID_ALIASES = { golor: 'golork', papap: 'papapa', spookyweed: 'spookweed', toxleaf: 'toxsleaf', cactyjackedty: 'cactyjacked-ty' };
 
 const hasRealEvolve = (c) => c.evolvesTo && c.evolvesTo !== 'Coming Soon' && byId.has(c.evolvesTo);
 

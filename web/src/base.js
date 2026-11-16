@@ -236,7 +236,7 @@ export class PlayerBase {
     d.defenseSlots.forEach((u, i) => { if (u) want.set(`defense:${i}`, u); });
     d.battleTeam.forEach((u, i) => { if (u) want.set(`battle:${i}`, u); });
     for (const [key, p] of this.placed) {
-      if (force || want.get(key) !== p.uid || !State.get(p.uid)) { p.model.root.parent && p.model.root.parent.remove(p.model.root); this.placed.delete(key); }
+      if (force || want.get(key) !== p.uid || !State.get(p.uid)) { p.model.root.parent && p.model.root.parent.remove(p.model.root); if (p.model.dispose) p.model.dispose(); this.placed.delete(key); }
     }
     for (const [key, u] of want) {
       if (this.placed.has(key)) continue;
@@ -244,7 +244,8 @@ export class PlayerBase {
       const pad = this.pads.find((pp) => `${pp.type}:${pp.index}` === key);
       if (!e || !pad) continue;
       const def = getCreature(e.id);
-      const model = buildCreatureModel(def, { variant: e.variant, shiny: e.shiny, scale: pad.type === 'battle' ? 0.8 : 1 });
+      const padScale = ({ Epic: 0.8, Legendary: 0.6 }[def.rarity] || 1) * (pad.type === 'battle' ? 0.8 : 1); // big Siegelings fit on a pad
+      const model = buildCreatureModel(def, { variant: e.variant, shiny: e.shiny, scale: padScale });
       model.root.position.set(pad.local[0], pad.local[1] + (pad.type === 'battle' ? 0.4 : 0.5), pad.local[2]);
       this.group.add(model.root);
       pad.mesh.userData.icon.visible = false;

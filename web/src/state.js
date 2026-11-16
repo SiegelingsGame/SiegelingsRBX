@@ -1,5 +1,5 @@
 import { CFG } from './config.js';
-import { getCreature, maxCreatureLevel, xpForLevel, playerXPForLevel, sellValue, creatureIncome, isNightElement } from './data.js';
+import { ID_ALIASES, getCreature, maxCreatureLevel, xpForLevel, playerXPForLevel, sellValue, creatureIncome, isNightElement } from './data.js';
 import { uid } from './util.js';
 
 const SAVE_KEY = 'siegelings_web_save_v1';
@@ -50,6 +50,7 @@ export const State = {
 
   sanitize() {
     const d = this.data;
+    for (const e of d.inventory) if (!getCreature(e.id) && ID_ALIASES[e.id]) e.id = ID_ALIASES[e.id];
     d.inventory = d.inventory.filter((e) => getCreature(e.id));
     const valid = new Set(d.inventory.map((e) => e.uid));
     for (const key of ['baseSlots', 'defenseSlots']) {

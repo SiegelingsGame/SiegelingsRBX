@@ -77,5 +77,5 @@ export const VARIANT_COLORS = { Normal: '#c8c8c8', Silver: '#d8dde6', Gold: '#ff
 
 export const ELEMENT_COLORS = {
   Fire: 0xff501e, Ice: 0x64c8ff, Wind: 0x96ffb4, Earth: 0xb48c50, Shadow: 0x7832b4, Light: 0xfffac8,
-  Lightning: 0xffe63c, Water: 0x3296ff, Psychic: 0xc896ff, Metal: 0xa0aab4, Poison: 0x78dc50, Undead: 0x8c78a0,
+  Lightning: 0xffe63c, Water: 0x3296ff, Psychic: 0xc896ff, Metal: 0xa0aab4, Poison: 0x78dc50, Undead: 0x8c78a0, Neutral: 0xe8e0d0,
 };

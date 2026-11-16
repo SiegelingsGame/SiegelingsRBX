@@ -102,7 +102,8 @@ def parse_value(v):
     return float(v) if "." in v else int(v)
 
 
-def main():
+def parse_creatures():
+    """Parse CreatureData.lua into a list of dicts (with allocated base stats)."""
     with open(SRC, encoding="utf-8") as f:
         src = f.read()
     start = src.index("CreatureData.Creatures = {")
@@ -153,6 +154,11 @@ def main():
         d.update(allocate(d["rarity"], d.get("class", ""), d.get("element", ""), d["id"]))
         out.append(d)
 
+    return out
+
+
+def main():
+    out = parse_creatures()
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump(out, f, indent=1)

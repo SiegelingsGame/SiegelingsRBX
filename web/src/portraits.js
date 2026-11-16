@@ -32,6 +32,7 @@ export function portrait(id, variant = 'Normal', shiny = false) {
   if (cache.has(key)) return cache.get(key);
   const def = getCreature(id);
   if (!def) return '';
+  if (def.art && !modelUrlFor(def)) return def.art; // TCG card art doubles as the portrait
   try {
     if (!renderer) init();
     const m = buildCreatureModel(def, { variant, shiny });

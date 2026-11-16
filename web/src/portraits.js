@@ -2,6 +2,16 @@
 import * as THREE from 'three';
 import { buildCreatureModel } from './creatureModel.js';
 import { getCreature } from './data.js';
+import { onModelLoaded, modelUrlFor } from './models.js';
+
+// When a real model arrives, drop the stand-in portraits for the creatures that use it.
+onModelLoaded((url) => {
+  for (const key of [...cache.keys()]) {
+    const def = getCreature(key.split(':')[0]);
+    if (def && modelUrlFor(def) === url) cache.delete(key);
+  }
+  dispatchEvent(new CustomEvent('siegelings:models-updated'));
+});
 
 let renderer = null, scene, camera;
 const cache = new Map();

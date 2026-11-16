@@ -35,6 +35,10 @@ export class UI {
     this.panelBody.addEventListener('click', (e) => this.onPanelClick(e));
     State.on((k) => { if (k === 'inventory' || k === 'slots' || k === 'floors' || k === 'coins') this.refreshOpen(); });
     this.inventoryFilter = 'all';
+    addEventListener('siegelings:models-updated', () => {
+      clearTimeout(this.modelRefresh);
+      this.modelRefresh = setTimeout(() => { delete document.getElementById('companion').dataset.uid; this.refreshOpen(); }, 200);
+    });
   }
 
   // ── HUD ──────────────────────────────────────────────────────
@@ -288,6 +292,7 @@ export class UI {
     else if (k === 'slot') this.openSlotPicker(this.ctxData.type, this.ctxData.index);
     else if (k === 'broker') this.openBroker();
     else if (k === 'curator') this.openCurator();
+    else if (k === 'starter') this.openStarter();
   }
 
   creatureCard(e, buttons = '', extra = '') {
@@ -458,7 +463,15 @@ export class UI {
     this.show('help', 'How to play', `
       <div class="help">
       <p><b>Goal:</b> capture Siegelings in the wild, station them at your base to earn coins, and upgrade your base with new floors.</p>
-      <table>
+      ${this.g.ctx.touch ? `<table>
+      <tr><td><b>Left thumb</b></td><td>Drag anywhere on the left side to move · push all the way to sprint</td></tr>
+      <tr><td><b>Right thumb</b></td><td>Drag to look around</td></tr>
+      <tr><td>⚔️</td><td>Hold to fire energy orbs (locks onto the nearest creature in front)</td></tr>
+      <tr><td>⤒ 👊 🎯</td><td>Jump · melee swing · aim toggle</td></tr>
+      <tr><td><b>TAP prompt</b></td><td>Interact / capture a fainted creature</td></tr>
+      <tr><td>🎒 🏰 🗺️ 🏠</td><td>Siegelings · Base Core · map · teleport home</td></tr>
+      </table>` : ''}
+      <table class="keys">
       <tr><td><kbd>W A S D</kbd></td><td>Move · <kbd>Shift</kbd> sprint · <kbd>Space</kbd> jump</td></tr>
       <tr><td><kbd>Mouse</kbd></td><td>Look (over-the-shoulder camera) · <kbd>Q</kbd> swap shoulder</td></tr>
       <tr><td><kbd>Left click</kbd></td><td>Fire energy orb · <kbd>Right click</kbd> hold to aim · <kbd>F</kbd> melee</td></tr>

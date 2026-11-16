@@ -139,7 +139,9 @@ def main():
 
     keep = {"id", "displayName", "rarity", "element", "class", "behavior", "spawnWeight",
             "baseIncome", "captureTime", "description", "primaryColor", "evolvesTo",
-            "evolvesFrom", "flying", "crawling", "spawnPointType", "packSize", "npcOnly"}
+            "evolvesFrom", "flying", "crawling", "spawnPointType", "packSize", "npcOnly",
+            "modelName", "modelRotationY", "modelStandUpAngles", "modelDisplaySize",
+            "modelScaleMultiplier", "modelPlacementYOffset"}
     out = []
     for e in entries:
         d = {}

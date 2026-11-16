@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>Siegelings</title>
 </head>
 <body>
@@ -32,6 +32,25 @@
   </div>
 
   <div id="prompt"></div>
+
+  <div id="touch-ui">
+    <div id="touch-zone"></div>
+    <div id="stick"><div id="stick-knob"></div></div>
+    <div id="t-menu">
+      <button id="t-bag" aria-label="Siegelings">🎒</button>
+      <button id="t-base" aria-label="Base">🏰</button>
+      <button id="t-map" aria-label="Map">🗺️</button>
+      <button id="t-home" aria-label="Home">🏠</button>
+      <button id="t-help" aria-label="Help">?</button>
+    </div>
+    <div id="t-actions">
+      <button id="t-attack" aria-label="Attack">⚔️</button>
+      <button id="t-jump" aria-label="Jump">⤒</button>
+      <button id="t-melee" aria-label="Melee">👊</button>
+      <button id="t-aim" aria-label="Aim">🎯</button>
+    </div>
+  </div>
+  <div id="rotate-hint"><div><b>Turn your phone sideways</b><p>Siegelings plays best in landscape.</p><button id="rotate-dismiss">Play anyway</button></div></div>
   <div id="toasts"></div>
 
   <div id="bigmap-wrap"><canvas id="bigmap" width="760" height="760"></canvas><small>Press M to close</small></div>

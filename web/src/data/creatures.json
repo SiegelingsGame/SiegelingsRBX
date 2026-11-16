@@ -10,6 +10,7 @@
   "baseIncome": 1,
   "captureTime": 0.5,
   "description": "A small flame spirit that actively hunts smaller creatures.",
+  "modelName": "Firsky",
   "primaryColor": [
    255,
    140,
@@ -32,6 +33,7 @@
   "baseIncome": 1,
   "captureTime": 0.6,
   "description": "Some say the spirits of lost SiegeKnights burning with rage become pylooks",
+  "modelName": "Pylook",
   "primaryColor": [
    255,
    120,
@@ -55,6 +57,7 @@
   "baseIncome": 1,
   "captureTime": 0.5,
   "description": "These scaled lizards are known to have an affinity for lava pools and tracking time",
+  "modelName": "Sundile",
   "primaryColor": [
    140,
    90,
@@ -82,6 +85,7 @@
    4
   ],
   "description": "Their coiled tails lash out at anything that dares to cross their path. Always found in groups",
+  "modelName": "Draco",
   "primaryColor": [
    255,
    90,
@@ -104,6 +108,7 @@
   "baseIncome": 1,
   "captureTime": 0.6,
   "description": "The gentle emberfox, found in many homes as a pet. Perfect for winter snuggles",
+  "modelName": "Emberfox",
   "primaryColor": [
    200,
    110,
@@ -125,6 +130,7 @@
   "baseIncome": 3,
   "captureTime": 1.0,
   "description": "A fiery puppy that leaves scorch marks wherever it walks. Attacks on sight!",
+  "modelName": "Emberpup",
   "primaryColor": [
    255,
    100,
@@ -146,6 +152,7 @@
   "baseIncome": 3,
   "captureTime": 1.1,
   "description": "A salamander with a molten core. These lone siegelings seek the heat of the sun.",
+  "modelName": "Raydile",
   "primaryColor": [
    200,
    60,
@@ -153,6 +160,8 @@
   ],
   "evolvesFrom": "sundile",
   "evolvesTo": "solgator",
+  "modelDisplaySize": 5.0,
+  "modelScaleMultiplier": 1.5,
   "crawling": true,
   "health": 56,
   "attack": 33,
@@ -170,6 +179,7 @@
   "baseIncome": 3,
   "captureTime": 1.2,
   "description": "A predator that hides in smoke clouds, striking with superheated fangs before vanishing again.",
+  "modelName": "Emberfin",
   "primaryColor": [
    80,
    50,
@@ -193,6 +203,7 @@
   "baseIncome": 8,
   "captureTime": 2.0,
   "description": "Dracoil's leave the safety of the pack to travel alone, but they are known to return when the pack is in danger",
+  "modelName": "Dracoil",
   "primaryColor": [
    255,
    60,
@@ -200,6 +211,8 @@
   ],
   "spawnPointType": "dungeon",
   "evolvesFrom": "draco",
+  "modelDisplaySize": 5.0,
+  "modelScaleMultiplier": 1.5,
   "health": 39,
   "attack": 108,
   "defense": 65,
@@ -216,11 +229,14 @@
   "baseIncome": 8,
   "captureTime": 1.8,
   "description": "A majestic stag with antlers of living flame. It heals allies as it runs, but catching it requires persistence.",
+  "modelName": "Cindergil",
   "primaryColor": [
    255,
    180,
    60
   ],
+  "modelDisplaySize": 6.0,
+  "modelScaleMultiplier": 1.5,
   "health": 103,
   "attack": 59,
   "defense": 40,
@@ -237,12 +253,15 @@
   "baseIncome": 8,
   "captureTime": 2.0,
   "description": "Its gullet is a literal furnace. Once it locks its jaws, the heat alone does half the work.",
+  "modelName": "Hotdog",
   "primaryColor": [
    220,
    50,
    10
   ],
   "spawnPointType": "dungeon",
+  "modelDisplaySize": 8,
+  "modelScaleMultiplier": 1.5,
   "health": 79,
   "attack": 93,
   "defense": 79,
@@ -259,12 +278,15 @@
   "baseIncome": 20,
   "captureTime": 2.5,
   "description": "The pylook's evolved form, formed on many pylook's fused into a single ghastly creature",
+  "modelName": "Pyleer",
   "primaryColor": [
    255,
    50,
    0
   ],
   "spawnPointType": "dungeon",
+  "modelDisplaySize": 8.0,
+  "modelScaleMultiplier": 2.0,
   "evolvesFrom": "pylook",
   "flying": true,
   "health": 73,
@@ -283,6 +305,7 @@
   "baseIncome": 20,
   "captureTime": 2.5,
   "description": "The Solgator guards the lava pools of the Fire lands, they attack anything that dares to cross their path",
+  "modelName": "Solgator",
   "primaryColor": [
    180,
    40,
@@ -291,6 +314,8 @@
   "spawnPointType": "dungeon",
   "evolvesFrom": "raydile",
   "crawling": true,
+  "modelDisplaySize": 8.0,
+  "modelScaleMultiplier": 2.0,
   "health": 150,
   "attack": 89,
   "defense": 123,
@@ -307,12 +332,14 @@
   "baseIncome": 50,
   "captureTime": 3.5,
   "description": "This ancient Siegeling is said to be the soul of a powerful SiegLord who jumped into the Volcano to become Fire itself",
+  "modelName": "Pylord",
   "primaryColor": [
    255,
    200,
    30
   ],
   "spawnPointType": "boss",
+  "modelDisplaySize": 16.0,
   "health": 131,
   "attack": 154,
   "defense": 130,
@@ -329,6 +356,7 @@
   "baseIncome": 1,
   "captureTime": 0.5,
   "description": "Bundled up from within the snow, these small deerlike creatures are known to be shy",
+  "modelName": "Fawny",
   "primaryColor": [
    200,
    230,
@@ -351,6 +379,7 @@
   "baseIncome": 1,
   "captureTime": 0.5,
   "description": "Frostflies are found fluttering along snowflakes, they rest on pine trees and have a fondness for winter berries",
+  "modelName": "Frostfly",
   "primaryColor": [
    150,
    200,
@@ -374,6 +403,7 @@
   "baseIncome": 1,
   "captureTime": 0.6,
   "description": "The Ice-Weee is a odd creature, its Ice-Cube shaped body can grow to intimidate other creatures",
+  "modelName": "Icewee",
   "primaryColor": [
    180,
    220,
@@ -396,11 +426,14 @@
   "baseIncome": 1,
   "captureTime": 0.5,
   "description": "Ceeponee float through the winter winds and are known to be a bit shy",
+  "modelName": "Falcool",
   "primaryColor": [
    130,
    190,
    255
   ],
+  "modelDisplaySize": 4.0,
+  "modelScaleMultiplier": 1.5,
   "evolvesTo": "falcoat",
   "health": 34,
   "attack": 14,
@@ -422,11 +455,14 @@
    3
   ],
   "description": "Large and imposing these cuddly creatures only want to find their companion and stay warm.",
+  "modelName": "Cozycub",
   "primaryColor": [
    220,
    240,
    255
   ],
+  "modelDisplaySize": 9.0,
+  "modelScaleMultiplier": 1.5,
   "health": 19,
   "attack": 37,
   "defense": 17,
@@ -447,6 +483,7 @@
    4
   ],
   "description": "Trading the puffy for a Hooded Jacker, the Chilldoe has honed its fist into fearsome weapons",
+  "modelName": "Chilldoe",
   "primaryColor": [
    160,
    210,
@@ -454,6 +491,8 @@
   ],
   "evolvesFrom": "fawny",
   "evolvesTo": "frostag",
+  "modelDisplaySize": 4.0,
+  "modelScaleMultiplier": 1.5,
   "health": 39,
   "attack": 36,
   "defense": 49,
@@ -470,6 +509,7 @@
   "baseIncome": 3,
   "captureTime": 1.2,
   "description": "A gentle fawn made of crystallized snow. It heals nearby allies w.ith its aura but flees from conflict.",
+  "modelName": "Icecuewee",
   "primaryColor": [
    200,
    240,
@@ -492,6 +532,7 @@
   "baseIncome": 3,
   "captureTime": 1.1,
   "description": "A well dressed predator that blends into ice fields. By the time you see it, its talons are already at your throat.",
+  "modelName": "Falcoat",
   "primaryColor": [
    100,
    170,
@@ -499,6 +540,8 @@
   ],
   "evolvesTo": "peatbeak",
   "evolvesFrom": "falcool",
+  "modelDisplaySize": 6.0,
+  "modelScaleMultiplier": 1.5,
   "health": 20,
   "attack": 45,
   "defense": 41,
@@ -515,12 +558,15 @@
   "baseIncome": 8,
   "captureTime": 2.0,
   "description": "An ancient ice fowl. Nearly impervious to physical blows. Peaceful unless provoked.",
+  "modelName": "peatbeak",
   "primaryColor": [
    80,
    160,
    240
   ],
   "evolvesFrom": "falcoat",
+  "modelDisplaySize": 9.0,
+  "modelScaleMultiplier": 1.5,
   "flying": true,
   "health": 111,
   "attack": 49,
@@ -538,6 +584,7 @@
   "baseIncome": 8,
   "captureTime": 1.8,
   "description": "A floating ice crystal that conjures devastating hailstorms. It aggressively pursues anything generating heat.",
+  "modelName": "Lumina",
   "primaryColor": [
    60,
    140,
@@ -561,12 +608,15 @@
   "baseIncome": 20,
   "captureTime": 2.5,
   "description": "A spectral blade given sentient form. It glides through blizzards, striking with lethal cold precision.",
+  "modelName": "Frostag",
   "primaryColor": [
    50,
    120,
    220
   ],
   "spawnPointType": "dungeon",
+  "modelDisplaySize": 8.0,
+  "modelScaleMultiplier": 2.0,
   "evolvesFrom": "chilldoe",
   "health": 52,
   "attack": 119,
@@ -584,12 +634,14 @@
   "baseIncome": 50,
   "captureTime": 3.5,
   "description": "An ancient ice wyrm that commands blizzards with a thought. Entire regions freeze in its wake. The undisputed ruler of the frozen wastes.",
+  "modelName": "Glaciemperor",
   "primaryColor": [
    40,
    100,
    200
   ],
   "spawnPointType": "boss",
+  "modelDisplaySize": 15.0,
   "health": 90,
   "attack": 188,
   "defense": 85,
@@ -610,6 +662,7 @@
    5
   ],
   "description": "Tiny birds that gather in murmuration flocks. Their synchronized wingbeats create cutting air blades.",
+  "modelName": "Breezee",
   "primaryColor": [
    180,
    220,
@@ -617,6 +670,8 @@
   ],
   "flying": true,
   "evolvesTo": "gagglestand",
+  "modelDisplaySize": 2.0,
+  "modelScaleMultiplier": 1.0,
   "health": 14,
   "attack": 30,
   "defense": 20,
@@ -633,6 +688,7 @@
   "baseIncome": 1,
   "captureTime": 0.5,
   "description": "A hyperactive wind hound that barrels into anything it sees. Fast, reckless, and surprisingly tough.",
+  "modelName": "Pursula",
   "primaryColor": [
    140,
    255,
@@ -655,6 +711,7 @@
   "baseIncome": 1,
   "captureTime": 0.6,
   "description": "A cottontail made of solidified cloud. Surprisingly resilient but bolts at any sudden movement.",
+  "modelName": "Cloudpuff",
   "primaryColor": [
    230,
    250,
@@ -678,6 +735,7 @@
   "baseIncome": 3,
   "captureTime": 1.1,
   "description": "A flowering plant creature that disperses healing pollen on the wind. Peaceful and slow to anger.",
+  "modelName": "Gagglestand",
   "primaryColor": [
    120,
    220,
@@ -685,6 +743,8 @@
   ],
   "evolvesFrom": "breezee",
   "evolvesTo": "hurricrane",
+  "modelDisplaySize": 5.0,
+  "modelScaleMultiplier": 1.5,
   "flying": true,
   "health": 50,
   "attack": 20,
@@ -703,6 +763,7 @@
   "captureTime": 1.2,
   "flying": true,
   "description": "A swirling vortex with glowing eyes. It hurls cutting wind blades at anything it spots.",
+  "modelName": "Purseus",
   "primaryColor": [
    100,
    200,
@@ -710,6 +771,8 @@
   ],
   "evolvesTo": "pursephone",
   "evolvesFrom": "pursula",
+  "modelDisplaySize": 5.0,
+  "modelScaleMultiplier": 1.5,
   "health": 28,
   "attack": 56,
   "defense": 16,
@@ -726,6 +789,7 @@
   "baseIncome": 3,
   "captureTime": 1.0,
   "description": "A raptor with wind-hardened talons that patrols mountain ridges. Its diving attacks hit like a battering ram.",
+  "modelName": "Cloudwisp",
   "primaryColor": [
    150,
    200,
@@ -750,12 +814,15 @@
   "captureTime": 1.8,
   "flying": true,
   "description": "A manta ray that swims through the sky, trailing stormclouds. Its wing sweeps conjure devastating gales.",
+  "modelName": "Hurricrane",
   "primaryColor": [
    100,
    180,
    200
   ],
   "evolvesFrom": "gagglestand",
+  "modelDisplaySize": 8.0,
+  "modelScaleMultiplier": 2.0,
   "crawling": true,
   "health": 57,
   "attack": 111,
@@ -774,12 +841,15 @@
   "captureTime": 1.8,
   "flying": true,
   "description": "A manta ray that swims through the sky, trailing stormclouds. Its wing sweeps conjure devastating gales.",
+  "modelName": "Cloudsprite",
   "primaryColor": [
    100,
    180,
    200
   ],
   "evolvesFrom": "cloudpuff",
+  "modelDisplaySize": 3.0,
+  "modelScaleMultiplier": 2.0,
   "crawling": true,
   "health": 59,
   "attack": 110,
@@ -797,6 +867,7 @@
   "baseIncome": 8,
   "captureTime": 2.0,
   "description": "A scorching desert wind given physical form. It hunts relentlessly, searing targets with superheated air currents.",
+  "modelName": "Shellshock",
   "primaryColor": [
    240,
    220,
@@ -805,6 +876,8 @@
   "spawnPointType": "dungeon",
   "evolvesTo": "strikehawk",
   "flying": true,
+  "modelDisplaySize": 5.0,
+  "modelScaleMultiplier": 2.0,
   "health": 40,
   "attack": 90,
   "defense": 60,
@@ -821,12 +894,15 @@
   "baseIncome": 8,
   "captureTime": 2.0,
   "description": "A towering fog golem that drifts through highland passes. It protects lost travelers and only retaliates when harmed.",
+  "modelName": "Pursephone",
   "primaryColor": [
    200,
    230,
    220
   ],
   "spawnPointType": "dungeon",
+  "modelDisplaySize": 7.0,
+  "modelScaleMultiplier": 2.0,
   "health": 39,
   "attack": 89,
   "defense": 64,
@@ -843,6 +919,7 @@
   "baseIncome": 20,
   "captureTime": 2.5,
   "description": "Weaves healing currents from the wind itself. Extremely hard to catch.",
+  "modelName": "Skydon",
   "primaryColor": [
    200,
    255,
@@ -850,6 +927,7 @@
   ],
   "spawnPointType": "dungeon",
   "flying": true,
+  "modelDisplaySize": 15.0,
   "health": 137,
   "attack": 53,
   "defense": 53,
@@ -866,12 +944,14 @@
   "baseIncome": 20,
   "captureTime": 2.5,
   "description": "A massive gryphon wreathed in perpetual hurricane winds. It hunts from the eye of its own personal storm.",
+  "modelName": "Strikehawk",
   "primaryColor": [
    80,
    200,
    150
   ],
   "spawnPointType": "dungeon",
+  "modelDisplaySize": 15.0,
   "flying": true,
   "evolvesFrom": "shellshock",
   "health": 105,
@@ -890,6 +970,7 @@
   "baseIncome": 50,
   "captureTime": 3.5,
   "description": "The sovereign of all skies. Aerovane moves faster than sight and strikes harder than a thunderbolt. Legends say it can split mountains with a wingbeat.",
+  "modelName": "Aerovane",
   "primaryColor": [
    80,
    255,
@@ -897,6 +978,7 @@
   ],
   "spawnPointType": "boss",
   "flying": true,
+  "modelDisplaySize": 16.0,
   "health": 65,
   "attack": 148,
   "defense": 107,
@@ -917,12 +999,15 @@
    4
   ],
   "description": "A blobby little creature made of mysterious goo. Travels in packs.",
+  "modelName": "Cacty",
   "primaryColor": [
    120,
    200,
    80
   ],
   "evolvesTo": "jackedty",
+  "modelDisplaySize": 2.0,
+  "modelScaleMultiplier": 1.0,
   "health": 32,
   "attack": 24,
   "defense": 26,
@@ -939,6 +1024,7 @@
   "baseIncome": 1,
   "captureTime": 0.5,
   "description": "A tiny rock creature that rolls around aimlessly. Only fights back when provoked.",
+  "modelName": "AppleHead",
   "primaryColor": [
    160,
    140,
@@ -960,11 +1046,14 @@
   "baseIncome": 8,
   "captureTime": 1.8,
   "description": "A hulking beast covered in razor-sharp thorns. Charges at intruders.",
+  "modelName": "sleaf",
   "primaryColor": [
    50,
    140,
    60
   ],
+  "modelDisplaySize": 4.0,
+  "modelScaleMultiplier": 2.0,
   "evolvesTo": "sleafwyrm",
   "health": 20,
   "attack": 30,
@@ -982,6 +1071,7 @@
   "baseIncome": 1,
   "captureTime": 0.6,
   "description": "A squirrel-like creature armored in bark. Incredibly fast and flighty, it vanishes into the underbrush in a blink.",
+  "modelName": "SquireBud",
   "primaryColor": [
    130,
    100,
@@ -1008,6 +1098,7 @@
    3
   ],
   "description": "Tiny mud elementals that hurl clods of enchanted earth. Their aim improves dramatically when they group up.",
+  "modelName": "Pylme",
   "primaryColor": [
    110,
    90,
@@ -1031,6 +1122,7 @@
   "baseIncome": 3,
   "captureTime": 1.2,
   "description": "An ancient stone golem draped in living moss. A true gentle giant.",
+  "modelName": "Jackedty",
   "primaryColor": [
    100,
    160,
@@ -1038,6 +1130,8 @@
   ],
   "evolvesFrom": "cacty",
   "evolvesTo": "cactyjackedty",
+  "modelDisplaySize": 3.0,
+  "modelScaleMultiplier": 2.0,
   "health": 49,
   "attack": 37,
   "defense": 39,
@@ -1054,6 +1148,7 @@
   "baseIncome": 3,
   "captureTime": 1.1,
   "description": "A serpentine creature woven from fern fronds and ancient vines. It channels nature magic to entangle prey.",
+  "modelName": "FloraKnight",
   "primaryColor": [
    60,
    150,
@@ -1061,6 +1156,8 @@
   ],
   "evolvesFrom": "squirebud",
   "evolvesTo": "generoot",
+  "modelDisplaySize": 5.0,
+  "modelScaleMultiplier": 1.5,
   "health": 37,
   "attack": 56,
   "defense": 16,
@@ -1077,6 +1174,7 @@
   "baseIncome": 3,
   "captureTime": 1.2,
   "description": "A burrowing predator that erupts from the ground to ambush unsuspecting prey with snapping jaws.",
+  "modelName": "Bonoblade",
   "primaryColor": [
    100,
    80,
@@ -1084,6 +1182,8 @@
   ],
   "evolvesFrom": "pylme",
   "evolvesTo": "guerilla",
+  "modelDisplaySize": 5.0,
+  "modelScaleMultiplier": 1.5,
   "health": 30,
   "attack": 45,
   "defense": 30,
@@ -1100,12 +1200,15 @@
   "baseIncome": 8,
   "captureTime": 1.8,
   "description": "A hulking beast covered in razor-sharp thorns. Charges at intruders.",
+  "modelName": "Generoot",
   "primaryColor": [
    50,
    140,
    60
   ],
   "evolvesFrom": "floraknight",
+  "modelDisplaySize": 8.0,
+  "modelScaleMultiplier": 2.0,
   "health": 99,
   "attack": 73,
   "defense": 79,
@@ -1122,11 +1225,14 @@
   "baseIncome": 8,
   "captureTime": 2.0,
   "description": "A regal stag with antlers of living crystal that resonate with healing frequencies. Fiercely shy and nearly impossible to corner.",
+  "modelName": "Guerilla",
   "primaryColor": [
    180,
    200,
    160
   ],
+  "modelDisplaySize": 8.0,
+  "modelScaleMultiplier": 2.0,
   "evolvesFrom": "bonoblade",
   "spawnPointType": "dungeon",
   "health": 98,
@@ -1145,12 +1251,15 @@
   "baseIncome": 20,
   "captureTime": 2.5,
   "description": "A living garden on legs. Flowers and herbs grow across its shell, providing potent healing to all nearby allies.",
+  "modelName": "Sleafwyrm",
   "primaryColor": [
    70,
    180,
    70
   ],
   "spawnPointType": "dungeon",
+  "modelDisplaySize": 10,
+  "modelScaleMultiplier": 2.0,
   "flying": true,
   "evolvesFrom": "sleaf",
   "evolvesTo": "dracosleaf",
@@ -1170,6 +1279,7 @@
   "baseIncome": 20,
   "captureTime": 2.5,
   "description": "A massive burrowing beast whose footsteps cause tremors. When it surfaces, the ground splits open around it.",
+  "modelName": "CactyJackedty",
   "primaryColor": [
    120,
    100,
@@ -1177,6 +1287,9 @@
   ],
   "spawnPointType": "dungeon",
   "evolvesFrom": "jackedty",
+  "modelDisplaySize": 8.0,
+  "modelScaleMultiplier": 2.0,
+  "modelPlacementYOffset": 2,
   "health": 130,
   "attack": 97,
   "defense": 104,
@@ -1193,12 +1306,15 @@
   "baseIncome": 50,
   "captureTime": 3.5,
   "description": "Forged in the planet's core. An immovable gentle giant.",
+  "modelName": "Dracosleaf",
   "primaryColor": [
    200,
    160,
    60
   ],
   "spawnPointType": "dungeon",
+  "modelDisplaySize": 10,
+  "modelScaleMultiplier": 2.0,
   "evolvesFrom": "sleafwyrm",
   "flying": true,
   "health": 130,
@@ -1217,12 +1333,15 @@
   "baseIncome": 50,
   "captureTime": 3.5,
   "description": "Forged in the planet's core. An immovable gentle giant.",
+  "modelName": "Gymstone",
   "primaryColor": [
    200,
    160,
    60
   ],
   "spawnPointType": "boss",
+  "modelDisplaySize": 10,
+  "modelScaleMultiplier": 2.0,
   "health": 218,
   "attack": 81,
   "defense": 154,
@@ -1243,6 +1362,7 @@
    5
   ],
   "description": "Shadowy vermin that swarm in dark corners. Individually pathetic, but a pack of them can overwhelm the unprepared.",
+  "modelName": "Echo",
   "primaryColor": [
    80,
    50,
@@ -1265,6 +1385,7 @@
   "baseIncome": 3,
   "captureTime": 1.1,
   "description": "A bat-like hunter that drops from cave ceilings with razor talons extended. Silent until the moment of impact.",
+  "modelName": "Echowing",
   "primaryColor": [
    60,
    30,
@@ -1288,6 +1409,7 @@
   "baseIncome": 8,
   "captureTime": 2.0,
   "description": "Slips between shadows. You only see it when it wants you to.",
+  "modelName": "Echolustrious",
   "primaryColor": [
    60,
    30,
@@ -1311,6 +1433,7 @@
   "baseIncome": 20,
   "captureTime": 2.5,
   "description": "A serpentine wyrm made of living darkness. It devours light itself, casting devastating shadow magic from the void.",
+  "modelName": "Umbralwyrm",
   "primaryColor": [
    50,
    20,
@@ -1333,6 +1456,7 @@
   "baseIncome": 50,
   "captureTime": 3.5,
   "description": "An ancient horror from the space between worlds. Extremely rare and dangerous.",
+  "modelName": "Voidmaw",
   "primaryColor": [
    30,
    0,
@@ -1355,6 +1479,7 @@
   "baseIncome": 1,
   "captureTime": 0.6,
   "description": "A tiny orb of crackling electricity. It panics when approached, discharging sparks in every direction as it flees.",
+  "modelName": "Monkwatt",
   "primaryColor": [
    255,
    240,
@@ -1380,6 +1505,7 @@
    5
   ],
   "description": "Electrified ants that march in formation. Their synchronized shocks can stun creatures many times their size.",
+  "modelName": "Newt",
   "primaryColor": [
    240,
    220,
@@ -1401,6 +1527,7 @@
   "baseIncome": 1,
   "captureTime": 0.5,
   "description": "A woodpecker whose beak delivers electric shocks. It aggressively pecks at anything shiny or metallic.",
+  "modelName": "Staticap",
   "primaryColor": [
    255,
    200,
@@ -1423,6 +1550,7 @@
   "baseIncome": 1,
   "captureTime": 0.5,
   "description": "A tortoise whose shell crackles with stored static. It shocks anything that touches it, but never initiates conflict.",
+  "modelName": "Blinky",
   "primaryColor": [
    200,
    190,
@@ -1448,11 +1576,14 @@
    3
   ],
   "description": "Tiny bolts arc between its tendrils, energizing allies nearby.",
+  "modelName": "Simicircuit",
   "primaryColor": [
    255,
    245,
    130
   ],
+  "modelDisplaySize": 5.0,
+  "modelScaleMultiplier": 1.5,
   "health": 48,
   "attack": 25,
   "defense": 20,
@@ -1469,6 +1600,7 @@
   "baseIncome": 3,
   "captureTime": 1.0,
   "description": "A burrowing creature that erupts from the ground in a shower of electric sparks. It headbutts targets with a charged skull.",
+  "modelName": "Joltram",
   "primaryColor": [
    220,
    200,
@@ -1476,6 +1608,8 @@
   ],
   "evolvesFrom": "staticap",
   "evolvesTo": "bleetstrike",
+  "modelDisplaySize": 5.0,
+  "modelScaleMultiplier": 1.5,
   "health": 39,
   "attack": 42,
   "defense": 39,
@@ -1492,12 +1626,15 @@
   "baseIncome": 8,
   "captureTime": 2.0,
   "description": "A serpent of pure plasma that moves like living lightning. Its strikes paralyze, and it never stops hunting once it has a target.",
+  "modelName": "Kilokong",
   "primaryColor": [
    160,
    120,
    255
   ],
   "spawnPointType": "dungeon",
+  "modelDisplaySize": 12,
+  "modelScaleMultiplier": 1.5,
   "health": 78,
   "attack": 83,
   "defense": 78,
@@ -1514,11 +1651,14 @@
   "baseIncome": 8,
   "captureTime": 1.8,
   "description": "A rhinoceros-like beast with a horn that acts as a lightning rod. Its charges are accompanied by deafening thunderclaps.",
+  "modelName": "Newton",
   "primaryColor": [
    200,
    180,
    60
   ],
+  "modelDisplaySize": 12,
+  "modelScaleMultiplier": 1.5,
   "evolvesFrom": "newt",
   "health": 111,
   "attack": 58,
@@ -1536,6 +1676,7 @@
   "baseIncome": 8,
   "captureTime": 2.0,
   "description": "A floating jellyfish-like creature that drifts through mountain peaks, weaving devastating chain-lightning between its tendrils.",
+  "modelName": "Bleetstrike",
   "primaryColor": [
    140,
    100,
@@ -1543,6 +1684,7 @@
   ],
   "spawnPointType": "dungeon",
   "evolvesFrom": "joltram",
+  "modelScaleMultiplier": 1.5,
   "health": 78,
   "attack": 84,
   "defense": 78,
@@ -1559,6 +1701,7 @@
   "baseIncome": 20,
   "captureTime": 2.5,
   "description": "Lightning crackles between its claws. Hunts anything that moves.",
+  "modelName": "Stormclaw",
   "primaryColor": [
    100,
    80,
@@ -1581,6 +1724,7 @@
   "baseIncome": 50,
   "captureTime": 3.5,
   "description": "The living embodiment of the storm. Thunderlord calls down apocalyptic lightning from perpetual thunderheads. Where it walks, the sky itself obeys.",
+  "modelName": "Thunderlord",
   "primaryColor": [
    120,
    80,
@@ -1603,6 +1747,7 @@
   "baseIncome": 1,
   "captureTime": 0.5,
   "description": "A tiny water spirit that heals allies with soothing droplets. Commonly found near pools and streams.",
+  "modelName": "Spoutyl",
   "primaryColor": [
    80,
    180,
@@ -1625,6 +1770,7 @@
   "baseIncome": 1,
   "captureTime": 0.6,
   "description": "A sleek creature that darts across water surfaces. Vanishes beneath the surface when startled.",
+  "modelName": "Shellpack",
   "primaryColor": [
    60,
    160,
@@ -1647,6 +1793,7 @@
   "baseIncome": 1,
   "captureTime": 0.5,
   "description": "A creature draped in kelp-like fronds. Its thick hide absorbs blows while it waits in tide pools.",
+  "modelName": "Jawby",
   "primaryColor": [
    40,
    140,
@@ -1673,6 +1820,7 @@
    4
   ],
   "description": "Ceeponee float through the winter winds and are known to be a bit shy",
+  "modelName": "Ceeponee",
   "primaryColor": [
    70,
    170,
@@ -1696,6 +1844,7 @@
   "baseIncome": 3,
   "captureTime": 1.1,
   "description": "A fox adapted to river life. Strikes with razor-sharp water blades from the shadows of rapids.",
+  "modelName": "Droxyl",
   "primaryColor": [
    90,
    180,
@@ -1703,6 +1852,8 @@
   ],
   "evolvesTo": "hydroxyl",
   "evolvesFrom": "spoutyl",
+  "modelDisplaySize": 6.0,
+  "modelScaleMultiplier": 1.5,
   "health": 25,
   "attack": 49,
   "defense": 32,
@@ -1719,12 +1870,15 @@
   "baseIncome": 3,
   "captureTime": 1.0,
   "description": "A turtle-like creature with a coral shell. Its hardened armor deflects most attacks.",
+  "modelName": "Clawkid",
   "primaryColor": [
    255,
    100,
    100
   ],
   "evolvesTo": "clawqueen",
+  "modelDisplaySize": 5.0,
+  "modelScaleMultiplier": 1.5,
   "health": 61,
   "attack": 29,
   "defense": 46,
@@ -1741,12 +1895,15 @@
   "baseIncome": 3,
   "captureTime": 1.2,
   "description": "Emerges from morning mist to strike with condensed water bolts. Fades back into fog when threatened.",
+  "modelName": "Torqlander",
   "primaryColor": [
    180,
    210,
    255
   ],
   "evolvesTo": "shellnaut",
+  "modelDisplaySize": 4.0,
+  "modelScaleMultiplier": 1.5,
   "evolvesFrom": "shellpack",
   "flying": true,
   "health": 33,
@@ -1765,6 +1922,7 @@
   "baseIncome": 3,
   "captureTime": 1.1,
   "description": "A translucent predator that blends into ice fields. By the time you see it, its fangs are already at your throat.",
+  "modelName": "Ceehorcee",
   "primaryColor": [
    100,
    170,
@@ -1773,6 +1931,8 @@
   "flying": true,
   "evolvesTo": "ceesteed",
   "evolvesFrom": "ceeponee",
+  "modelDisplaySize": 5.0,
+  "modelScaleMultiplier": 1.5,
   "health": 26,
   "attack": 50,
   "defense": 29,
@@ -1789,6 +1949,7 @@
   "baseIncome": 8,
   "captureTime": 1.8,
   "description": "A serpent that flows like water. Constricts and drowns prey in whirlpools of its own making.",
+  "modelName": "Hydroxyl",
   "primaryColor": [
    40,
    120,
@@ -1796,6 +1957,8 @@
   ],
   "spawnPointType": "dungeon",
   "evolvesFrom": "droxyl",
+  "modelDisplaySize": 10,
+  "modelScaleMultiplier": 1.5,
   "health": 50,
   "attack": 99,
   "defense": 63,
@@ -1812,12 +1975,15 @@
   "baseIncome": 8,
   "captureTime": 2.0,
   "description": "A massive crab-like guardian. Rises with the tide to shield allies behind walls of water.",
+  "modelName": "Shellnaut",
   "primaryColor": [
    60,
    140,
    220
   ],
   "spawnPointType": "dungeon",
+  "modelDisplaySize": 10,
+  "modelScaleMultiplier": 1.5,
   "evolvesFrom": "torqlander",
   "health": 121,
   "attack": 59,
@@ -1835,11 +2001,14 @@
   "baseIncome": 8,
   "captureTime": 1.8,
   "description": "Summons healing rains and cleansing waves. Allies fight longer when a Brinecaller watches over them.",
+  "modelName": "Jawbite",
   "primaryColor": [
    80,
    160,
    240
   ],
+  "modelDisplaySize": 10,
+  "modelScaleMultiplier": 1.5,
   "evolvesFrom": "jawby",
   "health": 110,
   "attack": 50,
@@ -1857,12 +2026,15 @@
   "baseIncome": 20,
   "captureTime": 2.5,
   "description": "Commands storm surges and lightning-struck seas. Its tidal blasts devastate entire shorelines.",
+  "modelName": "Clawqueen",
   "primaryColor": [
    50,
    100,
    200
   ],
   "spawnPointType": "dungeon",
+  "modelDisplaySize": 12,
+  "modelScaleMultiplier": 1.5,
   "evolvesFrom": "clawkid",
   "health": 90,
   "attack": 162,
@@ -1880,6 +2052,7 @@
   "baseIncome": 20,
   "captureTime": 2.5,
   "description": "A massive yeti-like creature of compacted snow. It ignores most threats, but when provoked, nothing stops it.",
+  "modelName": "Ceesteed",
   "primaryColor": [
    180,
    210,
@@ -1887,6 +2060,8 @@
   ],
   "spawnPointType": "dungeon",
   "evolvesFrom": "ceehorcee",
+  "modelDisplaySize": 8.0,
+  "modelScaleMultiplier": 2.0,
   "health": 162,
   "attack": 79,
   "defense": 122,
@@ -1903,12 +2078,15 @@
   "baseIncome": 50,
   "captureTime": 3.5,
   "description": "The sovereign of the darkest depths. Abyssalking controls pressure, cold, and crushing darkness. Few who dive deep ever return.",
+  "modelName": "Conchious",
   "primaryColor": [
    20,
    50,
    120
   ],
   "spawnPointType": "boss",
+  "modelDisplaySize": 13,
+  "modelScaleMultiplier": 1.5,
   "health": 107,
   "attack": 205,
   "defense": 52,
@@ -1925,6 +2103,7 @@
   "baseIncome": 1,
   "captureTime": 0.5,
   "description": "A radiant placeholder Siegeling. Full Light roster coming soon.",
+  "modelName": "Egg",
   "primaryColor": [
    255,
    250,
@@ -1947,6 +2126,7 @@
   "baseIncome": 3,
   "captureTime": 1.1,
   "description": "Brighter placeholder form on the Light evolve path.",
+  "modelName": "Egg",
   "primaryColor": [
    255,
    248,
@@ -1970,6 +2150,7 @@
   "baseIncome": 8,
   "captureTime": 1.8,
   "description": "Rare capstone of the Light stand-in line.",
+  "modelName": "Egg",
   "primaryColor": [
    255,
    245,
@@ -1993,6 +2174,7 @@
   "baseIncome": 1,
   "captureTime": 0.5,
   "description": "A mind-touched placeholder Siegeling. Full Psychic roster coming soon.",
+  "modelName": "Mentaroo",
   "primaryColor": [
    200,
    150,
@@ -2014,6 +2196,7 @@
   "baseIncome": 1,
   "captureTime": 0.5,
   "description": "A mind-touched placeholder Siegeling. Full Psychic roster coming soon.",
+  "modelName": "Luvy",
   "primaryColor": [
    195,
    145,
@@ -2036,6 +2219,7 @@
   "baseIncome": 1,
   "captureTime": 0.5,
   "description": "A mind-touched placeholder Siegeling. Full Psychic roster coming soon.",
+  "modelName": "papap",
   "primaryColor": [
    205,
    160,
@@ -2057,6 +2241,7 @@
   "baseIncome": 1,
   "captureTime": 0.5,
   "description": "A mind-touched placeholder Siegeling. Full Psychic roster coming soon.",
+  "modelName": "Ragguette",
   "primaryColor": [
    190,
    140,
@@ -2078,6 +2263,7 @@
   "baseIncome": 3,
   "captureTime": 1.1,
   "description": "A mind-touched placeholder Siegeling. Full Psychic roster coming soon.",
+  "modelName": "LuvySore",
   "primaryColor": [
    205,
    155,
@@ -2085,6 +2271,8 @@
   ],
   "evolvesFrom": "luvy",
   "evolvesTo": "luvyduvysore",
+  "modelDisplaySize": 4,
+  "modelScaleMultiplier": 1.5,
   "health": 51,
   "attack": 20,
   "defense": 25,
@@ -2101,12 +2289,15 @@
   "baseIncome": 8,
   "captureTime": 1.8,
   "description": "A mind-touched placeholder Siegeling. Full Psychic roster coming soon.",
+  "modelName": "mentarak",
   "primaryColor": [
    210,
    165,
    255
   ],
   "spawnPointType": "dungeon",
+  "modelDisplaySize": 8,
+  "modelScaleMultiplier": 1.5,
   "evolvesFrom": "mentaroo",
   "health": 55,
   "attack": 111,
@@ -2124,6 +2315,7 @@
   "baseIncome": 20,
   "captureTime": 2.5,
   "description": "A powerful placeholder Siegeling. Full Psychic roster coming soon.",
+  "modelName": "LuvyDuvySore",
   "primaryColor": [
    220,
    175,
@@ -2131,6 +2323,8 @@
   ],
   "spawnPointType": "dungeon",
   "evolvesFrom": "luvysore",
+  "modelDisplaySize": 8,
+  "modelScaleMultiplier": 1.5,
   "health": 71,
   "attack": 149,
   "defense": 57,
@@ -2147,6 +2341,7 @@
   "baseIncome": 50,
   "captureTime": 3.5,
   "description": "A sovereign placeholder Siegeling. Full Psychic roster coming soon.",
+  "modelName": "mentaroo",
   "primaryColor": [
    230,
    185,
@@ -2169,6 +2364,7 @@
   "baseIncome": 1,
   "captureTime": 0.5,
   "description": "A metallic placeholder Siegeling. Full Metal roster coming soon.",
+  "modelName": "Bearby",
   "primaryColor": [
    160,
    170,
@@ -2191,6 +2387,7 @@
   "baseIncome": 1,
   "captureTime": 0.5,
   "description": "A metallic placeholder Siegeling. Full Metal roster coming soon.",
+  "modelName": "Drillbo",
   "primaryColor": [
    160,
    170,
@@ -2212,11 +2409,14 @@
   "baseIncome": 3,
   "captureTime": 1.1,
   "description": "A metallic placeholder Siegeling. Full Metal roster coming soon.",
+  "modelName": "Bearnade",
   "primaryColor": [
    170,
    180,
    190
   ],
+  "modelDisplaySize": 5,
+  "modelScaleMultiplier": 1.5,
   "evolvesFrom": "bearby",
   "evolvesTo": "bearzooka",
   "health": 60,
@@ -2235,6 +2435,7 @@
   "baseIncome": 8,
   "captureTime": 1.8,
   "description": "A reinforced placeholder Siegeling. Full Metal roster coming soon.",
+  "modelName": "Bearzooka",
   "primaryColor": [
    175,
    185,
@@ -2242,6 +2443,8 @@
   ],
   "spawnPointType": "dungeon",
   "evolvesFrom": "bearnade",
+  "modelDisplaySize": 12,
+  "modelScaleMultiplier": 1.5,
   "health": 121,
   "attack": 49,
   "defense": 102,
@@ -2258,6 +2461,7 @@
   "baseIncome": 20,
   "captureTime": 2.5,
   "description": "A hardened placeholder Siegeling. Full Metal roster coming soon.",
+  "modelName": "Egg",
   "primaryColor": [
    180,
    190,
@@ -2280,6 +2484,7 @@
   "baseIncome": 50,
   "captureTime": 3.5,
   "description": "An indomitable placeholder Siegeling. Full Metal roster coming soon.",
+  "modelName": "Egg",
   "primaryColor": [
    190,
    200,
@@ -2302,11 +2507,14 @@
   "baseIncome": 1,
   "captureTime": 0.5,
   "description": "A toxic placeholder Siegeling. Full Poison roster coming soon.",
+  "modelName": "Toxleaf",
   "primaryColor": [
    120,
    220,
    80
   ],
+  "modelDisplaySize": 8,
+  "modelScaleMultiplier": 1.5,
   "health": 17,
   "attack": 29,
   "defense": 21,
@@ -2323,6 +2531,7 @@
   "baseIncome": 3,
   "captureTime": 1.1,
   "description": "Uncommon step on the Poison stand-in evolve path.",
+  "modelName": "Egg",
   "primaryColor": [
    125,
    225,
@@ -2345,6 +2554,7 @@
   "baseIncome": 8,
   "captureTime": 1.8,
   "description": "Rare capstone of the Poison stand-in line.",
+  "modelName": "Egg",
   "primaryColor": [
    115,
    220,
@@ -2368,6 +2578,7 @@
   "baseIncome": 1,
   "captureTime": 0.5,
   "description": "An undead placeholder Siegeling. Full Undead roster coming soon.",
+  "modelName": "Spookyweed",
   "primaryColor": [
    140,
    120,
@@ -2390,6 +2601,7 @@
   "baseIncome": 3,
   "captureTime": 1.1,
   "description": "Uncommon step on the Undead stand-in evolve path.",
+  "modelName": "Livingwood",
   "primaryColor": [
    135,
    115,
@@ -2412,12 +2624,15 @@
   "baseIncome": 8,
   "captureTime": 1.8,
   "description": "Rare capstone of the Undead stand-in line.",
+  "modelName": "Golor",
   "primaryColor": [
    100,
    85,
    120
   ],
   "spawnPointType": "dungeon",
+  "modelDisplaySize": 5,
+  "modelScaleMultiplier": 2.0,
   "health": 111,
   "attack": 58,
   "defense": 103,
@@ -2434,12 +2649,15 @@
   "baseIncome": 8,
   "captureTime": 1.8,
   "description": "Rare capstone of the Undead stand-in line.",
+  "modelName": "Sheenx",
   "primaryColor": [
    100,
    85,
    120
   ],
   "spawnPointType": "dungeon",
+  "modelDisplaySize": 7,
+  "modelScaleMultiplier": 2.0,
   "health": 148,
   "attack": 78,
   "defense": 137,

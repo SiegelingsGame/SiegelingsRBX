@@ -84,6 +84,23 @@ You can assign from the inventory, the Base Core, or by walking up to a pad on y
 | `src/hub.js` | Arena Hub with the Curator, Siege Master and Broker |
 | `src/ui.js`, `src/portraits.js` | HUD, minimap and panels; 3D creature portraits |
 
-## Swapping in real assets
+## Mobile
 
-All creature visuals go through `buildCreatureModel(def, opts)` in `src/creatureModel.js`. To use real models, load a glTF keyed by `def.modelName` there and return the same `{ root, inner, legs, wings, height, radius, hover, animate }` shape. Nothing else needs to change.
+Phones and tablets get touch controls automatically:
+- **Left thumb:** drag anywhere on the left side to move. Push the stick all the way to sprint.
+- **Right thumb:** drag to look around.
+- **Action buttons:** ⚔️ attack (hold), ⤒ jump, 👊 melee, 🎯 aim toggle.
+- **Interact:** tap the on-screen prompt to interact or capture.
+- **Menu row:** 🎒 Siegelings, 🏰 Base Core, 🗺️ map, 🏠 home.
+
+On touch devices the attack button locks onto the nearest creature in front of you. Phones also use a lighter render setup: lower resolution, a smaller shadow map and a shorter view distance. In portrait you see a "turn sideways" hint that you can dismiss.
+
+## Real Siegelings models
+
+Drop `.glb`/`.gltf` files into `web/public/models/`, named after each creature's `modelName` from `CreatureData.lua` (e.g. `Firsky.glb`). See `web/public/models/README.md` for details.
+- Creatures with a file use it everywhere: in the wild, as your companion, on base pads, and in the UI portraits.
+- Every other creature keeps its stand-in.
+- Sizing follows the Roblox rule in `CreatureModelLoader`: the largest dimension equals `modelDisplaySize` (default 5 studs) × `modelScaleMultiplier`. `modelRotationY` and `modelStandUpAngles` are also applied.
+- Clips named `idle` and `walk`/`run` play automatically.
+
+`src/models.js` holds the loader. `buildCreatureModel` in `src/creatureModel.js` swaps the real model in once it has loaded.

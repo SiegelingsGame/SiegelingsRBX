@@ -5,6 +5,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { ELEMENT_COLORS } from './config.js';
 import { hashStr, mulberry32 } from './util.js';
 import { tint } from './world.js';
+import { modelUrlFor, getLoaded, loadModel, instantiate } from './models.js';
 
 const RARITY_SCALE = { Common: 1, Uncommon: 1.12, Rare: 1.3, Epic: 1.5, Legendary: 1.85 };
 const VARIANT_EMISSIVE = { Normal: 0x000000, Silver: 0x1c2026, Gold: 0x3a2800, Legend: 0x3a0838 };
@@ -194,7 +195,9 @@ function getGeometry(def, variant) {
   return geoCache.get(key);
 }
 
-// Returns { root, inner, legs[], wings[], height, radius, setFaint(), animate() }
+// Returns { root, inner, legs[], wings[], height, radius, hover, animate(t, speed) }.
+// If a real model exists for the creature (see models.js) it replaces the stand-in, immediately when
+// already loaded, otherwise as soon as it finishes loading.
 export function buildCreatureModel(def, { variant = 'Normal', shiny = false, scale = 1 } = {}) {
   const g = getGeometry(def, variant);
   const mat = creatureMaterial(variant, shiny);
@@ -219,22 +222,60 @@ export function buildCreatureModel(def, { variant = 'Normal', shiny = false, sca
     return m;
   });
   const s = (RARITY_SCALE[def.rarity] || 1) * scale;
-  inner.scale.setScalar(def.crawling ? s : s);
+  inner.scale.setScalar(s);
   if (def.crawling) inner.scale.set(s * 1.1, s * 0.7, s * 1.25);
-  const height = g.headY * inner.scale.y + (def.flying ? 1.5 : 0);
-  const radius = 1.4 * s;
   const hover = def.flying || def.class === 'Mage' ? (def.flying ? 2.2 : 0.4) * s : 0;
   inner.position.y = hover;
   const phase = Math.random() * 10;
-  return {
-    root, inner, legs, wings, height: height + hover, radius, hover, scale: s,
+  const model = {
+    root, inner, legs, wings, height: g.headY * inner.scale.y + hover + (def.flying ? 1.5 : 0), radius: 1.4 * s, hover, scale: s,
+    real: null, baseScaleY: inner.scale.y, lastT: null,
     animate(t, speed) {
       const moving = Math.min(1, speed / 6);
       const f = 6 + speed * 0.6;
+      if (model.real && model.real.mixer) {
+        const dt = model.lastT === null ? 0 : Math.min(0.1, Math.max(0, t - model.lastT));
+        model.lastT = t;
+        const { idle, walk } = model.real;
+        if (walk) {
+          const wantWalk = speed > 1.5;
+          if (wantWalk !== model.walking) {
+            model.walking = wantWalk;
+            const from = wantWalk ? idle : walk, to = wantWalk ? walk : idle;
+            to.reset().play(); from.crossFadeTo(to, 0.25, false);
+          }
+          walk.timeScale = Math.max(0.6, speed / 8);
+        }
+        model.real.mixer.update(dt);
+      }
       legs.forEach((l, i) => { l.rotation.x = Math.sin(t * f + phase + (i % 2 ? Math.PI : 0) + (i > 1 ? Math.PI / 2 : 0)) * 0.6 * moving; });
       wings.forEach((w) => { w.rotation.z = Math.sin(t * 10 + phase) * 0.55 * w.userData.side; });
-      inner.position.y = hover + Math.abs(Math.sin(t * f * 0.5 + phase)) * 0.15 * moving * s + (hover ? Math.sin(t * 2 + phase) * 0.3 : 0);
-      if (!moving) inner.scale.y = (def.crawling ? s * 0.7 : s) * (1 + Math.sin(t * 2.2 + phase) * 0.025);
+      const bob = model.real && model.real.mixer ? 0 : Math.abs(Math.sin(t * f * 0.5 + phase)) * 0.15 * moving * s;
+      inner.position.y = model.hover + bob + (model.hover ? Math.sin(t * 2 + phase) * 0.3 : 0);
+      if (!moving && !(model.real && model.real.mixer)) inner.scale.y = model.baseScaleY * (1 + Math.sin(t * 2.2 + phase) * 0.025);
     },
   };
+
+  const url = modelUrlFor(def);
+  if (url) {
+    const swap = (gltf) => {
+      if (!gltf || model.real) return;
+      // same rule as CreatureModelLoader.applyModelTransform in Roblox: largest dimension =
+      // (modelDisplaySize or 5 studs) x modelScaleMultiplier x size multiplier (e.g. bosses)
+      const targetSize = (def.modelDisplaySize || 5) * (def.modelScaleMultiplier || 1) * scale;
+      const real = instantiate(gltf, def, { targetSize, variant, shiny });
+      inner.clear();
+      inner.scale.set(1, 1, 1);
+      model.baseScaleY = 1;
+      legs.length = 0; wings.length = 0;
+      inner.add(real.pivot);
+      model.real = real;
+      model.hover = def.flying ? 2.2 * s : 0;
+      model.height = real.height + model.hover;
+      model.radius = Math.max(0.8, real.radius);
+    };
+    const ready = getLoaded(url);
+    if (ready) swap(ready); else loadModel(url).then(swap);
+  }
+  return model;
 }

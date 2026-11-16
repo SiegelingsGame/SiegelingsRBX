@@ -8,7 +8,10 @@
     "build": "vite build",
     "preview": "vite preview",
     "export-data": "python3 ../tools/export_creatures_web.py",
-    "build:single": "vite build && node scripts/build-single.mjs"
+    "build:single": "npm run build && node scripts/build-single.mjs",
+    "models": "node scripts/build-model-manifest.mjs",
+    "predev": "node scripts/build-model-manifest.mjs",
+    "prebuild": "node scripts/build-model-manifest.mjs"
   },
   "dependencies": {
     "three": "^0.170.0"

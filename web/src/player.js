@@ -97,10 +97,14 @@ export class Player {
     if (input.down('KeyS')) move.sub(fwd);
     if (input.down('KeyD')) move.add(right);
     if (input.down('KeyA')) move.sub(right);
-    const sprint = input.down('ShiftLeft') || input.down('ShiftRight');
+    // analog stick (touch): direction and how far it is pushed
+    const an = input.analog ? input.analog() : null;
+    let analogMag = 1;
+    if (an && an.mag > 0.08) { move.addScaledVector(fwd, an.y).addScaledVector(right, an.x); analogMag = Math.max(0.35, an.mag); }
+    const sprint = input.down('ShiftLeft') || input.down('ShiftRight') || !!(an && an.sprint);
     const inWater = this.world.isWater(this.pos.x, this.pos.z);
     let speed = (sprint && !cam.aiming ? CFG.SprintSpeed : CFG.WalkSpeed) * (inWater ? 0.6 : 1) * (cam.aiming ? 0.7 : 1);
-    if (move.lengthSq() > 0) move.normalize().multiplyScalar(speed);
+    if (move.lengthSq() > 0) move.normalize().multiplyScalar(speed * analogMag);
     const accel = this.onGround ? 12 : 3;
     this.vel.x += (move.x - this.vel.x) * Math.min(1, dt * accel);
     this.vel.z += (move.z - this.vel.z) * Math.min(1, dt * accel);
@@ -156,7 +160,17 @@ export class Player {
     this.rangedCD = CFG.PlayerRangedCooldown;
     this.attackAnim = 0.35;
     const from = this.handPos();
-    const aim = cam.aimPoint(ctx, CFG.PlayerRangedRange);
+    const aim = cam.aimPoint(ctx, CFG.PlayerRangedRange, ctx.touch ? 2.6 : 1);
+    if (!aim.target && ctx.touch) { // phones: lock onto the nearest creature roughly in front
+      const f = cam.forward().setY(0).normalize();
+      let best = null, bd = CFG.PlayerRangedRange;
+      for (const c of ctx.creatures.list) {
+        if (c.fainted || !c.model.root.visible) continue;
+        const to = c.pos.clone().sub(this.pos).setY(0); const d = to.length();
+        if (d < bd && to.normalize().dot(f) > 0.6) { bd = d; best = c; }
+      }
+      if (best) { aim.target = best; aim.point = best.hitCenter(); }
+    }
     const dir = aim.point.clone().sub(from);
     const dmg = CFG.PlayerRangedDamage * this.damageScale(ctx.playerLevel());
     this.fx.shoot({
@@ -225,7 +239,7 @@ export class ShoulderCamera {
     this.cam.updateProjectionMatrix();
   }
   // Ray from screen centre: returns nearest creature hit (with slight aim assist) or a point at range.
-  aimPoint(ctx, range) {
+  aimPoint(ctx, range, assistMult = 1) {
     const origin = this.cam.position.clone();
     const dir = new THREE.Vector3(); this.cam.getWorldDirection(dir);
     let best = null, bestT = Infinity;
@@ -236,7 +250,7 @@ export class ShoulderCamera {
       if (t < 0 || t > range + this.curDist + 10) continue;
       const closest = origin.clone().addScaledVector(dir, t);
       const miss = closest.distanceTo(cc);
-      const assist = c.hitRadius() + t * 0.035;
+      const assist = (c.hitRadius() + t * 0.035) * assistMult;
       if (miss < assist && t < bestT) { bestT = t; best = c; }
     }
     if (best) return { point: best.hitCenter(), target: best };

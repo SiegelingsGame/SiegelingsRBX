@@ -12,6 +12,10 @@ import { PlayerBase, buildOtherPlots } from './base.js';
 import { Hub } from './hub.js';
 import { UI } from './ui.js';
 import { randInt, clamp, lerp } from './util.js';
+import { TouchControls, isTouchDevice } from './touch.js';
+import { initModels } from './models.js';
+
+const TOUCH = isTouchDevice();
 
 // ── input ──────────────────────────────────────────────────────
 class Input {
@@ -52,7 +56,8 @@ class Input {
     setTimeout(useFallback, 400); // some sandboxes silently ignore the request
   }
   releasePointer() { this.fallback = false; this.buttons.clear(); if (document.pointerLockElement) document.exitPointerLock(); }
-  get active() { return this.locked || this.fallback; }
+  get active() { return this.locked || this.fallback || !!this.touch; }
+  analog() { return this.touch ? this.touch.analog() : null; }
   down(code) { return this.keys.has(code); }
   pressed(code) { return this.pressedSet.has(code); }
   mouseDown(b) { return this.buttons.has(b); }
@@ -91,14 +96,16 @@ class Game {
   constructor() {
     State.load();
     const canvas = document.getElementById('game');
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+    // phones get a lighter render setup (lower resolution, smaller shadow map, shorter view distance)
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !TOUCH, powerPreference: 'high-performance' });
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, TOUCH ? 1.25 : 1.5));
     this.renderer.setSize(innerWidth, innerHeight);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.Fog(0xcfe8ff, 180, 760);
+    this.scene.fog = new THREE.Fog(0xcfe8ff, TOUCH ? 140 : 180, TOUCH ? 520 : 760);
+    if (TOUCH) CFG.CreatureActiveRadius = 190;
     this.camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.3, 3000);
     addEventListener('resize', () => {
       this.camera.aspect = innerWidth / innerHeight; this.camera.updateProjectionMatrix();
@@ -109,7 +116,7 @@ class Game {
     this.scene.add(this.hemi);
     this.sun = new THREE.DirectionalLight(0xfff2d8, 2.4);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.mapSize.set(TOUCH ? 1024 : 2048, TOUCH ? 1024 : 2048);
     const sc = this.sun.shadow.camera; sc.left = -90; sc.right = 90; sc.top = 90; sc.bottom = -90; sc.near = 10; sc.far = 500;
     this.sun.shadow.bias = -0.0005; this.sun.shadow.normalBias = 0.6;
     this.scene.add(this.sun, this.sun.target);
@@ -124,6 +131,7 @@ class Game {
     this.cam = new ShoulderCamera(this.camera, this.world);
     this.companion = new Companion(this.scene, this.world, this.fx);
     this.input = new Input(canvas, (dx, dy) => { if (!this.ui.open) this.cam.onMouse(dx, dy); });
+    if (TOUCH) this.input.touch = new TouchControls(this.input, (dx, dy) => { if (!this.ui.open) this.cam.onMouse(dx, dy); });
     this.creatures = new CreatureManager(this.scene, this.world, {
       isNight: () => this.isNight(),
       onDamaged: (c, dmg, attacker) => {
@@ -163,6 +171,7 @@ class Game {
       friendlyTargets: () => [this.player, ...(this.companion.alive ? [this.companion] : [])],
       healAll: () => { this.player.hp = this.player.maxHp; this.companion.heal(); this.fx.burst(this.player.hitCenter(), 0x8affd8, 30, 5, 0.9, 3); this.ui.notify('Healed at the fountain', 'good'); },
       blockers: this.hub.blockers,
+      touch: TOUCH,
     };
 
     if (State.data.starterChosen) this.player.teleport(this.base.homePosition(), this.base.homeYaw());
@@ -176,6 +185,7 @@ class Game {
       document.getElementById('lock').style.display = !this.input.active && !this.ui.open && !this.bigMap ? 'flex' : 'none';
     };
     document.getElementById('lock').addEventListener('click', () => this.input.capturePointer());
+    document.getElementById('rotate-dismiss').addEventListener('click', () => document.body.classList.add('portrait-ok'));
     document.getElementById('help-btn').addEventListener('click', (e) => { e.stopPropagation(); this.ui.openHelp(); });
     if (!State.data.starterChosen) this.ui.openStarter();
     addEventListener('beforeunload', () => State.save());
@@ -374,4 +384,5 @@ class Game {
   }
 }
 
-window.__game = new Game();
+// load the list of real creature models first so creatures can use them from the first frame
+initModels().finally(() => { window.__game = new Game(); });

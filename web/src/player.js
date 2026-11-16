@@ -61,6 +61,7 @@ export class Player {
 
   takeDamage(dmg) {
     if (!this.alive || this.inSafeZone) return;
+    dmg *= this.damageTakenMult ?? 1;
     this.hp -= dmg;
     this.hurtFlash = 0.3;
     this.onHurt && this.onHurt(dmg);
@@ -87,7 +88,7 @@ export class Player {
       return;
     }
     if (this.inSafeZone && this.hp < this.maxHp) this.hp = Math.min(this.maxHp, this.hp + 25 * dt);
-    else if (this.hp < this.maxHp) this.hp = Math.min(this.maxHp, this.hp + 1.5 * dt);
+    else if (this.hp < this.maxHp) this.hp = Math.min(this.maxHp, this.hp + (this.regen ?? 1.5) * dt);
 
     // movement relative to camera yaw
     const fwd = new THREE.Vector3(-Math.sin(cam.yaw), 0, -Math.cos(cam.yaw));
@@ -101,9 +102,9 @@ export class Player {
     const an = input.analog ? input.analog() : null;
     let analogMag = 1;
     if (an && an.mag > 0.08) { move.addScaledVector(fwd, an.y).addScaledVector(right, an.x); analogMag = Math.max(0.35, an.mag); }
-    const sprint = input.down('ShiftLeft') || input.down('ShiftRight') || !!(an && an.sprint);
+    const sprint = !this.noSprint && (input.down('ShiftLeft') || input.down('ShiftRight') || !!(an && an.sprint));
     const inWater = this.world.isWater(this.pos.x, this.pos.z);
-    let speed = (sprint && !cam.aiming ? CFG.SprintSpeed : CFG.WalkSpeed) * (inWater ? 0.6 : 1) * (cam.aiming ? 0.7 : 1);
+    let speed = (sprint && !cam.aiming ? CFG.SprintSpeed : CFG.WalkSpeed) * (inWater ? 0.6 : 1) * (cam.aiming ? 0.7 : 1) * (this.speedMult ?? 1);
     if (move.lengthSq() > 0) move.normalize().multiplyScalar(speed * analogMag);
     const accel = this.onGround ? 12 : 3;
     this.vel.x += (move.x - this.vel.x) * Math.min(1, dt * accel);
@@ -136,8 +137,7 @@ export class Player {
 
     // combat
     this.rangedCD -= dt; this.meleeCD -= dt; this.attackAnim -= dt; this.hurtFlash -= dt;
-    if (input.mouseDown(0) && this.rangedCD <= 0 && !this.inSafeZone) this.shoot(cam, ctx);
-    if (input.pressed('KeyF') && this.meleeCD <= 0 && !this.inSafeZone) this.melee(ctx);
+    // no manual attacks: in a run your Siegelings do the fighting
 
     // animation
     this.walkT += dt * horiz * 0.55;

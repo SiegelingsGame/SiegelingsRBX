@@ -80,7 +80,12 @@ def fetch_cards(path):
         with urllib.request.urlopen(LIVE_URL, timeout=60) as r:
             data = json.load(r)
     data = data.get("data", data)
-    return [c for c in data["cards"] if c.get("type") == "SIEGLING"]
+    moves = {m["id"]: m.get("name") for m in data.get("moves", [])}
+    cards = [c for c in data["cards"] if c.get("type") == "SIEGLING"]
+    for c in cards:  # first TCG move names the creature's attack in the web game
+        names = [moves[m] for m in (c.get("moveIds") or []) if moves.get(m)]
+        c["_move"] = names[0] if names else None
+    return cards
 
 
 def avg_color(im):
@@ -148,7 +153,7 @@ def main():
             c["spawnPointType"] = "boss"
         c["evolvesFrom"] = card.get("evolvesFromId") or None
         c["tcg"] = {"health": card.get("health"), "speed": card.get("speed"),
-                    "starter": bool(card.get("expeditionStarter"))}
+                    "starter": bool(card.get("expeditionStarter")), "move": card.get("_move")}
         art, aspect, avg = process_art(card, args.skip_art)
         if art:
             c["art"], c["artAspect"] = art, aspect

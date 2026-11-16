@@ -205,3 +205,41 @@ body.touch .help table.keys { display: none; }
 #t-menu, #t-actions { z-index: 3; }
 #panel { z-index: 10; }
 #toasts { z-index: 12; }
+
+/* ── survival run ───────────────────────────────────────────── */
+#run-hud { display: none; position: fixed; inset: 0; pointer-events: none; flex-direction: column; align-items: center; }
+#run-xpbar { width: 100%; height: 8px; background: rgba(0,0,0,0.5); }
+#run-xpbar i { display: block; height: 100%; background: linear-gradient(90deg, #4ac8ff, #9fe8ff); transition: width .15s; }
+.run-top { display: flex; gap: 18px; align-items: baseline; margin-top: 6px; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 4px 16px; font-variant-numeric: tabular-nums; }
+#run-timer { font-size: 24px; color: var(--gold); }
+#run-boss { display: none; position: relative; width: min(520px, 70vw); height: 14px; margin-top: 8px; background: rgba(0,0,0,0.6); border: 1px solid var(--gold); border-radius: 8px; overflow: hidden; }
+#run-boss i { display: block; height: 100%; background: linear-gradient(90deg, #ff3b5a, #ffb36a); }
+#run-boss::after { content: attr(data-name); position: absolute; inset: 0; text-align: center; font: 700 11px/13px system-ui; text-shadow: 0 1px 2px #000; }
+#run-chest { display: none; position: fixed; left: 50%; top: 58%; width: 140px; height: 10px; transform: translateX(-50%); background: rgba(0,0,0,0.6); border: 1px solid var(--gold); border-radius: 6px; overflow: hidden; }
+#run-chest i { display: block; height: 100%; background: var(--gold); }
+.run-rows { position: fixed; left: 50%; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: flex; flex-direction: column; gap: 5px; }
+.run-row { display: flex; gap: 5px; justify-content: center; }
+.rs { position: relative; width: 46px; height: 46px; border-radius: 9px; background: var(--bg); border: 1px solid var(--line); display: grid; place-items: center; }
+.rs.empty { border-style: dashed; opacity: 0.45; }
+.rs img { width: 40px; height: 40px; object-fit: contain; }
+.rs span { font-size: 22px; }
+.rs i { position: absolute; right: -3px; bottom: -3px; min-width: 16px; padding: 0 3px; border-radius: 8px; background: var(--gold); color: #1a1426; font: 800 10px/16px system-ui; text-align: center; }
+#run-items .rs { width: 36px; height: 36px; } #run-items .rs span { font-size: 17px; }
+body.in-run #hotbar, body.in-run #companion, body.in-run #crosshair, body.in-run #t-menu, body.in-run #hud-tl .row, body.in-run #hud-tl .bar-wrap:nth-child(2) { display: none !important; }
+body.in-run #hud-tl { top: 50px; }
+#t-attack, #t-melee, #t-aim { display: none !important; }
+#t-jump { right: 10px !important; bottom: 10px !important; width: 84px !important; height: 84px !important; font-size: 34px !important; }
+body.touch .run-rows { transform: translateX(-50%) scale(0.85); transform-origin: bottom center; }
+.choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+#panel-body .choice { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px; border-radius: 14px; border: 2px solid var(--rc); text-align: center; min-height: 220px; }
+#panel-body .choice img { width: 110px; height: 110px; object-fit: contain; }
+#panel-body .choice .ico { font-size: 60px; line-height: 110px; }
+#panel-body .choice b { font-size: 17px; color: var(--gold); }
+#panel-body .choice em { font-style: normal; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+#panel-body .choice p { margin: 4px 0 0; font-size: 12px; color: #d8d2ee; }
+.card .atk { font-size: 11px; color: #cfc8ea; margin: 3px 0; }
+.card .atk b { color: var(--gold); }
+.card img, .slot img, .starter img { object-fit: contain; }
+.minis { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.mini { display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.05); border-radius: 10px; padding: 6px; }
+.mini img { width: 56px; height: 56px; object-fit: contain; }

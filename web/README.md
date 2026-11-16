@@ -17,6 +17,18 @@ If the browser blocks mouse lock (e.g. inside a sandboxed frame), hold a mouse b
 
 Progress is saved to the browser's `localStorage`. To start over, open Help and choose **Reset save**.
 
+## The game loop
+
+**Runs.** Walk into the Expedition Gate in front of your base, pick a stage (one per biome) and a starting Siegeling from your collection. Wild Siegelings of that biome's elements swarm you. You only move and jump; your team attacks automatically.
+- **Team of 6.** Each Siegeling is a weapon with its own attack pattern (15 patterns such as homing bolts, chains, orbiting orbs, ground slams, dashes, beams, mortars, traps and auras). Its element adds an on-hit effect (burn, slow, knockback, poison, life steal...) and uses the TCG weakness chart for bonus damage. Two Siegelings on one team never share a pattern.
+- **Chests** appear over time and drop from elites. Stand next to one to open it and choose 1 of 3 Siegelings to recruit.
+- **Level-ups** come from XP gems: upgrade a Siegeling (it evolves along its TCG line at levels 3 and 6) or take one of up to **6 items** (attack speed, damage, movement speed, max HP, regen, armor, pickup range, crit, area, coins, and a damage core per element).
+- Survive 5 minutes, then beat the biome's Legendary boss.
+
+**Base.** Between runs you return to your base with the coins you earned. Recruited Siegelings join your collection and can be stationed on income pads or the Battle Team grid, and coins buy new floors.
+
+The code for runs is in `src/run.js`. Sections below about roaming wild creatures, capturing and raids describe the earlier open-world version; that code is still present but no longer used.
+
 ## Controls
 
 | Input | Action |

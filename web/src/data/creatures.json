@@ -14,7 +14,8 @@
   "tcg": {
    "health": 30,
    "speed": 20,
-   "starter": false
+   "starter": false,
+   "move": "Everdawn"
   },
   "art": "art/iternity.webp",
   "artAspect": 0.807,
@@ -43,7 +44,8 @@
   "tcg": {
    "health": 25,
    "speed": 10,
-   "starter": false
+   "starter": false,
+   "move": "Wraithlord Bolt"
   },
   "art": "art/mors.webp",
   "artAspect": 0.838,
@@ -72,7 +74,8 @@
   "tcg": {
    "health": 20,
    "speed": 15,
-   "starter": false
+   "starter": false,
+   "move": "Penance"
   },
   "art": "art/penitence.webp",
   "artAspect": 0.84,
@@ -101,7 +104,8 @@
   "tcg": {
    "health": 15,
    "speed": 20,
-   "starter": false
+   "starter": false,
+   "move": "Glare"
   },
   "art": "art/patience.webp",
   "artAspect": 0.83,
@@ -130,7 +134,8 @@
   "tcg": {
    "health": 20,
    "speed": 5,
-   "starter": false
+   "starter": false,
+   "move": "Aegis Array"
   },
   "art": "art/steamy.webp",
   "artAspect": 0.633,
@@ -159,7 +164,8 @@
   "tcg": {
    "health": 10,
    "speed": 10,
-   "starter": false
+   "starter": false,
+   "move": "Psychic Spark"
   },
   "art": "art/thinky.webp",
   "artAspect": 0.598,
@@ -188,7 +194,8 @@
   "tcg": {
    "health": 10,
    "speed": 20,
-   "starter": false
+   "starter": false,
+   "move": "Ball Lightning"
   },
   "art": "art/zappy.webp",
   "artAspect": 0.617,
@@ -217,7 +224,8 @@
   "tcg": {
    "health": 10,
    "speed": 5,
-   "starter": false
+   "starter": false,
+   "move": "Doomshield Dusk Carapace"
   },
   "art": "art/umbry.webp",
   "artAspect": 0.654,
@@ -245,7 +253,8 @@
   "tcg": {
    "health": 15,
    "speed": 8,
-   "starter": true
+   "starter": true,
+   "move": "Glare"
   },
   "art": "art/glowbear.webp",
   "artAspect": 0.881,
@@ -274,7 +283,8 @@
   "tcg": {
    "health": 10,
    "speed": 5,
-   "starter": false
+   "starter": false,
+   "move": "Glare"
   },
   "art": "art/glowy.webp",
   "artAspect": 0.617,
@@ -310,7 +320,8 @@
   "tcg": {
    "health": 20,
    "speed": 13,
-   "starter": false
+   "starter": false,
+   "move": "Sludge"
   },
   "art": "art/toxsleaf.webp",
   "artAspect": 0.668,
@@ -334,7 +345,8 @@
   "tcg": {
    "health": 10,
    "speed": 5,
-   "starter": false
+   "starter": false,
+   "move": "Sludge"
   },
   "art": "art/slimy.webp",
   "artAspect": 0.562,
@@ -364,7 +376,8 @@
   "tcg": {
    "health": 10,
    "speed": 5,
-   "starter": false
+   "starter": false,
+   "move": "Sludge"
   },
   "art": "art/sland-king-dom.webp",
   "artAspect": 1.524,
@@ -394,7 +407,8 @@
   "tcg": {
    "health": 10,
    "speed": 5,
-   "starter": false
+   "starter": false,
+   "move": "Sludge"
   },
   "art": "art/slandcastle.webp",
   "artAspect": 1.524,
@@ -423,7 +437,8 @@
   "tcg": {
    "health": 10,
    "speed": 5,
-   "starter": false
+   "starter": false,
+   "move": "Sludge"
   },
   "art": "art/slandy.webp",
   "artAspect": 1.467,
@@ -453,7 +468,8 @@
   "tcg": {
    "health": 22,
    "speed": 7,
-   "starter": false
+   "starter": false,
+   "move": "Wispshade Rally"
   },
   "art": "art/bony.webp",
   "artAspect": 0.564,
@@ -488,7 +504,8 @@
   "tcg": {
    "health": 16,
    "speed": 4,
-   "starter": false
+   "starter": false,
+   "move": "Banshee Bolt"
   },
   "art": "art/livingwood.webp",
   "artAspect": 0.758,
@@ -517,7 +534,8 @@
   "tcg": {
    "health": 10,
    "speed": 6,
-   "starter": false
+   "starter": false,
+   "move": "Banshee Bolt"
   },
   "art": "art/spookweed.webp",
   "artAspect": 0.941,
@@ -542,7 +560,8 @@
   "tcg": {
    "health": 10,
    "speed": 15,
-   "starter": false
+   "starter": false,
+   "move": "Psionic Needle"
   },
   "art": "art/prantis.webp",
   "artAspect": 0.783,
@@ -579,7 +598,8 @@
   "tcg": {
    "health": 20,
    "speed": 5,
-   "starter": false
+   "starter": false,
+   "move": "Psychic Spark"
   },
   "art": "art/golork.webp",
   "artAspect": 0.693,
@@ -608,7 +628,8 @@
   "tcg": {
    "health": 10,
    "speed": 11,
-   "starter": false
+   "starter": false,
+   "move": "Wispshade Rally"
   },
   "art": "art/ragguette.webp",
   "artAspect": 0.645,
@@ -639,7 +660,8 @@
   "tcg": {
    "health": 18,
    "speed": 12,
-   "starter": false
+   "starter": false,
+   "move": "Doomshield Dusk Carapace"
   },
   "art": "art/voidmaw.webp",
   "artAspect": 1.407,
@@ -664,7 +686,8 @@
   "tcg": {
    "health": 10,
    "speed": 5,
-   "starter": false
+   "starter": false,
+   "move": "Doomshield Dusk Carapace"
   },
   "art": "art/Voiboy.webp",
   "artAspect": 1.333,
@@ -693,7 +716,8 @@
   "tcg": {
    "health": 10,
    "speed": 5,
-   "starter": false
+   "starter": false,
+   "move": "Doomshield Dusk Carapace"
   },
   "art": "art/Voib.webp",
   "artAspect": 1.501,
@@ -723,7 +747,8 @@
   "tcg": {
    "health": 10,
    "speed": 10,
-   "starter": false
+   "starter": false,
+   "move": "Wraithlord Bolt"
   },
   "art": "art/Skulldugger.webp",
   "artAspect": 1.48,
@@ -752,7 +777,8 @@
   "tcg": {
    "health": 15,
    "speed": 12,
-   "starter": false
+   "starter": false,
+   "move": "Rivet Shot"
   },
   "art": "art/new-siegling-4.webp",
   "artAspect": 0.824,
@@ -781,7 +807,8 @@
   "tcg": {
    "health": 10,
    "speed": 5,
-   "starter": false
+   "starter": false,
+   "move": "Siren Song"
   },
   "art": "art/moisty.webp",
   "artAspect": 0.67,
@@ -810,7 +837,8 @@
   "tcg": {
    "health": 18,
    "speed": 5,
-   "starter": false
+   "starter": false,
+   "move": "Hammer Blow"
   },
   "art": "art/new-siegling-2.webp",
   "artAspect": 1.056,
@@ -840,7 +868,8 @@
   "tcg": {
    "health": 20,
    "speed": 20,
-   "starter": false
+   "starter": false,
+   "move": "Hammer Blow"
   },
   "art": "art/new-siegling.webp",
   "artAspect": 0.875,
@@ -869,7 +898,8 @@
   "tcg": {
    "health": 10,
    "speed": 10,
-   "starter": false
+   "starter": false,
+   "move": "Astral Bolt"
   },
   "art": "art/gos.webp",
   "artAspect": 0.809,
@@ -898,7 +928,8 @@
   "tcg": {
    "health": 17,
    "speed": 17,
-   "starter": false
+   "starter": false,
+   "move": "Ball Lightning"
   },
   "art": "art/new-siegli.webp",
   "artAspect": 0.789,
@@ -936,7 +967,8 @@
   "tcg": {
    "health": 17,
    "speed": 6,
-   "starter": false
+   "starter": false,
+   "move": "Ignite"
   },
   "art": "art/bearzooka.webp",
   "artAspect": 0.744,
@@ -968,7 +1000,8 @@
   "tcg": {
    "health": 14,
    "speed": 5,
-   "starter": false
+   "starter": false,
+   "move": "Spark"
   },
   "art": "art/bearnade.webp",
   "artAspect": 0.488,
@@ -998,7 +1031,8 @@
   "tcg": {
    "health": 11,
    "speed": 3,
-   "starter": false
+   "starter": false,
+   "move": "Spark"
   },
   "art": "art/bearby.webp",
   "artAspect": 0.814,
@@ -1028,7 +1062,8 @@
   "tcg": {
    "health": 16,
    "speed": 8,
-   "starter": true
+   "starter": true,
+   "move": "Share Berries"
   },
   "art": "art/applehead.webp",
   "artAspect": 0.756,
@@ -1063,7 +1098,8 @@
   "tcg": {
    "health": 15,
    "speed": 8,
-   "starter": false
+   "starter": false,
+   "move": "Sproutspray"
   },
   "art": "art/cacty.webp",
   "artAspect": 0.709,
@@ -1098,7 +1134,8 @@
   "tcg": {
    "health": 14,
    "speed": 9,
-   "starter": false
+   "starter": false,
+   "move": "Banabite"
   },
   "art": "art/pylme.webp",
   "artAspect": 1.213,
@@ -1130,7 +1167,8 @@
   "tcg": {
    "health": 12,
    "speed": 10,
-   "starter": false
+   "starter": false,
+   "move": "Sproutspray"
   },
   "art": "art/sleaf.webp",
   "artAspect": 0.721,
@@ -1160,7 +1198,8 @@
   "tcg": {
    "health": 12,
    "speed": 6,
-   "starter": true
+   "starter": true,
+   "move": "Guardian"
   },
   "art": "art/squirebud.webp",
   "artAspect": 0.572,
@@ -1193,7 +1232,8 @@
   "tcg": {
    "health": 16,
    "speed": 10,
-   "starter": false
+   "starter": false,
+   "move": "Fruit Fight"
   },
   "art": "art/bonoblade.webp",
   "artAspect": 0.902,
@@ -1226,7 +1266,8 @@
   "tcg": {
    "health": 16,
    "speed": 5,
-   "starter": false
+   "starter": false,
+   "move": "Oaken Guardian"
   },
   "art": "art/floraknight.webp",
   "artAspect": 0.668,
@@ -1259,7 +1300,8 @@
   "tcg": {
    "health": 17,
    "speed": 7,
-   "starter": false
+   "starter": false,
+   "move": "Fruit Fight"
   },
   "art": "art/jackedty.webp",
   "artAspect": 0.918,
@@ -1284,7 +1326,8 @@
   "tcg": {
    "health": 18,
    "speed": 5,
-   "starter": false
+   "starter": false,
+   "move": "Uproot"
   },
   "art": "art/mossy.webp",
   "artAspect": 0.645,
@@ -1323,7 +1366,8 @@
   "tcg": {
    "health": 19,
    "speed": 5,
-   "starter": false
+   "starter": false,
+   "move": "Branch Brawl"
   },
   "art": "art/cactyjacked-ty.webp",
   "artAspect": 0.768,
@@ -1357,7 +1401,8 @@
   "tcg": {
    "health": 16,
    "speed": 12,
-   "starter": false
+   "starter": false,
+   "move": "Uproot"
   },
   "art": "art/dracosleaf.webp",
   "artAspect": 0.871,
@@ -1389,7 +1434,8 @@
   "tcg": {
    "health": 21,
    "speed": 4,
-   "starter": false
+   "starter": false,
+   "move": "Tectonic"
   },
   "art": "art/generoot.webp",
   "artAspect": 0.762,
@@ -1422,7 +1468,8 @@
   "tcg": {
    "health": 21,
    "speed": 8,
-   "starter": false
+   "starter": false,
+   "move": "Banabite"
   },
   "art": "art/guerilla.webp",
   "artAspect": 0.879,
@@ -1456,7 +1503,8 @@
   "tcg": {
    "health": 18,
    "speed": 11,
-   "starter": false
+   "starter": false,
+   "move": "Uproot"
   },
   "art": "art/sleafwyrm.webp",
   "artAspect": 0.594,
@@ -1489,7 +1537,8 @@
   "tcg": {
    "health": 30,
    "speed": 1,
-   "starter": false
+   "starter": false,
+   "move": "Fruit Fight"
   },
   "art": "art/gymstone.webp",
   "artAspect": 0.682,
@@ -1518,7 +1567,8 @@
   "tcg": {
    "health": 12,
    "speed": 8,
-   "starter": false
+   "starter": false,
+   "move": "Statik"
   },
   "art": "art/blinky.webp",
   "artAspect": 0.662,
@@ -1547,7 +1597,8 @@
   "tcg": {
    "health": 10,
    "speed": 10,
-   "starter": true
+   "starter": true,
+   "move": "Statik"
   },
   "art": "art/monkwatt.webp",
   "artAspect": 1.03,
@@ -1581,7 +1632,8 @@
   "tcg": {
    "health": 11,
    "speed": 8,
-   "starter": false
+   "starter": false,
+   "move": "Battery"
   },
   "art": "art/newt.webp",
   "artAspect": 0.885,
@@ -1611,7 +1663,8 @@
   "tcg": {
    "health": 11,
    "speed": 8,
-   "starter": true
+   "starter": true,
+   "move": "Electro Spark"
   },
   "art": "art/staticap.webp",
   "artAspect": 0.828,
@@ -1644,7 +1697,8 @@
   "tcg": {
    "health": 15,
    "speed": 11,
-   "starter": false
+   "starter": false,
+   "move": "Electro Spark"
   },
   "art": "art/joltram.webp",
   "artAspect": 0.836,
@@ -1681,7 +1735,8 @@
   "tcg": {
    "health": 13,
    "speed": 11,
-   "starter": false
+   "starter": false,
+   "move": "Statik"
   },
   "art": "art/simicircuit.webp",
   "artAspect": 0.936,
@@ -1715,7 +1770,8 @@
   "tcg": {
    "health": 15,
    "speed": 7,
-   "starter": false
+   "starter": false,
+   "move": "Statik"
   },
   "art": "art/kilokong.webp",
   "artAspect": 1.316,
@@ -1747,7 +1803,8 @@
   "tcg": {
    "health": 18,
    "speed": 10,
-   "starter": false
+   "starter": false,
+   "move": "Electro Therapy"
   },
   "art": "art/newton.webp",
   "artAspect": 0.816,
@@ -1779,7 +1836,8 @@
   "tcg": {
    "health": 21,
    "speed": 12,
-   "starter": false
+   "starter": false,
+   "move": "Electro Spark"
   },
   "art": "art/bleetstrike.webp",
   "artAspect": 0.512,
@@ -1812,7 +1870,8 @@
   "tcg": {
    "health": 9,
    "speed": 8,
-   "starter": true
+   "starter": true,
+   "move": "Embers"
   },
   "health": 26,
   "attack": 31,
@@ -1840,7 +1899,8 @@
   "tcg": {
    "health": 10,
    "speed": 8,
-   "starter": false
+   "starter": false,
+   "move": "Campfire"
   },
   "art": "art/emberfox.webp",
   "artAspect": 0.867,
@@ -1869,7 +1929,8 @@
   "tcg": {
    "health": 10,
    "speed": 5,
-   "starter": false
+   "starter": false,
+   "move": "Embers"
   },
   "art": "art/firsky.webp",
   "artAspect": 0.838,
@@ -1899,7 +1960,8 @@
   "tcg": {
    "health": 8,
    "speed": 12,
-   "starter": false
+   "starter": false,
+   "move": "Campfire"
   },
   "art": "art/pylook.webp",
   "artAspect": 0.646,
@@ -1930,7 +1992,8 @@
   "tcg": {
    "health": 9,
    "speed": 4,
-   "starter": true
+   "starter": true,
+   "move": "Embers"
   },
   "art": "art/sundile.webp",
   "artAspect": 1.0,
@@ -1961,7 +2024,8 @@
   "tcg": {
    "health": 8,
    "speed": 8,
-   "starter": false
+   "starter": false,
+   "move": "Spark"
   },
   "art": "art/emberfin.webp",
   "artAspect": 1.463,
@@ -1986,7 +2050,8 @@
   "tcg": {
    "health": 13,
    "speed": 5,
-   "starter": false
+   "starter": false,
+   "move": "Campfire"
   },
   "art": "art/hotty.webp",
   "artAspect": 0.594,
@@ -2024,7 +2089,8 @@
   "tcg": {
    "health": 15,
    "speed": 8,
-   "starter": false
+   "starter": false,
+   "move": "Embers"
   },
   "art": "art/raydile.webp",
   "artAspect": 1.067,
@@ -2057,7 +2123,8 @@
   "tcg": {
    "health": 17,
    "speed": 10,
-   "starter": false
+   "starter": false,
+   "move": "Campfire"
   },
   "art": "art/cindergil.webp",
   "artAspect": 1.533,
@@ -2090,7 +2157,8 @@
   "tcg": {
    "health": 16,
    "speed": 12,
-   "starter": false
+   "starter": false,
+   "move": "Embers"
   },
   "art": "art/dracoil.webp",
   "artAspect": 1.237,
@@ -2124,7 +2192,8 @@
   "tcg": {
    "health": 16,
    "speed": 7,
-   "starter": false
+   "starter": false,
+   "move": "Bonfire"
   },
   "art": "art/pyleer.webp",
   "artAspect": 0.768,
@@ -2158,7 +2227,8 @@
   "tcg": {
    "health": 18,
    "speed": 6,
-   "starter": false
+   "starter": false,
+   "move": "Embers"
   },
   "art": "art/solgator.webp",
   "artAspect": 1.096,
@@ -2189,7 +2259,8 @@
   "tcg": {
    "health": 20,
    "speed": 6,
-   "starter": false
+   "starter": false,
+   "move": "Lord of Flame"
   },
   "art": "art/pylord.webp",
   "artAspect": 0.797,
@@ -2224,7 +2295,8 @@
   "tcg": {
    "health": 12,
    "speed": 6,
-   "starter": false
+   "starter": false,
+   "move": "Chill Pill"
   },
   "art": "art/cozycub.webp",
   "artAspect": 0.885,
@@ -2255,7 +2327,8 @@
   "tcg": {
    "health": 8,
    "speed": 6,
-   "starter": false
+   "starter": false,
+   "move": "Frostbite"
   },
   "art": "art/falcool.webp",
   "artAspect": 0.908,
@@ -2285,7 +2358,8 @@
   "tcg": {
    "health": 7,
    "speed": 4,
-   "starter": true
+   "starter": true,
+   "move": "Frozen Fist"
   },
   "art": "art/fawny.webp",
   "artAspect": 0.68,
@@ -2317,7 +2391,8 @@
   "tcg": {
    "health": 6,
    "speed": 8,
-   "starter": true
+   "starter": true,
+   "move": "Chill Pill"
   },
   "art": "art/frostfly.webp",
   "artAspect": 1.103,
@@ -2346,7 +2421,8 @@
   "tcg": {
    "health": 9,
    "speed": 7,
-   "starter": false
+   "starter": false,
+   "move": "Frostbite"
   },
   "art": "art/icewee.webp",
   "artAspect": 0.803,
@@ -2383,7 +2459,8 @@
   "tcg": {
    "health": 10,
    "speed": 5,
-   "starter": false
+   "starter": false,
+   "move": "Frozen Fist"
   },
   "art": "art/chilldoe.webp",
   "artAspect": 0.662,
@@ -2416,7 +2493,8 @@
   "tcg": {
    "health": 10,
    "speed": 8,
-   "starter": false
+   "starter": false,
+   "move": "Chill Pill"
   },
   "art": "art/falcoat.webp",
   "artAspect": 0.984,
@@ -2441,7 +2519,8 @@
   "tcg": {
    "health": 12,
    "speed": 6,
-   "starter": false
+   "starter": false,
+   "move": "Glacier Gloves"
   },
   "art": "art/frosty.webp",
   "artAspect": 0.709,
@@ -2476,7 +2555,8 @@
   "tcg": {
    "health": 14,
    "speed": 8,
-   "starter": false
+   "starter": false,
+   "move": "Chill Pill"
   },
   "art": "art/icecuewee.webp",
   "artAspect": 0.961,
@@ -2509,7 +2589,8 @@
   "tcg": {
    "health": 13,
    "speed": 9,
-   "starter": false
+   "starter": false,
+   "move": "Glacier Gloves"
   },
   "art": "art/frostag.webp",
   "artAspect": 0.582,
@@ -2540,7 +2621,8 @@
   "tcg": {
    "health": 7,
    "speed": 8,
-   "starter": false
+   "starter": false,
+   "move": "Chill Pill"
   },
   "art": "art/lumina.webp",
   "artAspect": 0.932,
@@ -2573,7 +2655,8 @@
   "tcg": {
    "health": 15,
    "speed": 10,
-   "starter": false
+   "starter": false,
+   "move": "Chill Pill"
   },
   "art": "art/peatbeak.webp",
   "artAspect": 0.861,
@@ -2604,7 +2687,8 @@
   "tcg": {
    "health": 18,
    "speed": 7,
-   "starter": false
+   "starter": false,
+   "move": "Chill Pill"
   },
   "art": "art/glaciemperor.webp",
   "artAspect": 1.111,
@@ -2633,7 +2717,8 @@
   "tcg": {
    "health": 12,
    "speed": 3,
-   "starter": false
+   "starter": false,
+   "move": "Rivet Shot"
   },
   "art": "art/drillbo.webp",
   "artAspect": 0.686,
@@ -2658,7 +2743,8 @@
   "tcg": {
    "health": 16,
    "speed": 4,
-   "starter": false
+   "starter": false,
+   "move": "Hammer Blow"
   },
   "art": "art/blastro.webp",
   "artAspect": 0.799,
@@ -2687,7 +2773,8 @@
   "tcg": {
    "health": 15,
    "speed": 15,
-   "starter": false
+   "starter": false,
+   "move": "Rivet Shot"
   },
   "art": "art/constructo.webp",
   "artAspect": 0.811,
@@ -2717,7 +2804,8 @@
   "tcg": {
    "health": 25,
    "speed": 25,
-   "starter": false
+   "starter": false,
+   "move": "Piledriver"
   },
   "art": "art/siegebot.webp",
   "artAspect": 0.791,
@@ -2751,7 +2839,8 @@
   "tcg": {
    "health": 12,
    "speed": 3,
-   "starter": false
+   "starter": false,
+   "move": "Psychic Spark"
   },
   "art": "art/mentaroo.webp",
   "artAspect": 0.402,
@@ -2781,7 +2870,8 @@
   "tcg": {
    "health": 10,
    "speed": 7,
-   "starter": false
+   "starter": false,
+   "move": "Psychic Spark"
   },
   "art": "art/luvy.webp",
   "artAspect": 0.729,
@@ -2811,7 +2901,8 @@
   "tcg": {
    "health": 10,
    "speed": 5,
-   "starter": false
+   "starter": false,
+   "move": "Psionic Needle"
   },
   "art": "art/papapa.webp",
   "artAspect": 0.756,
@@ -2843,7 +2934,8 @@
   "tcg": {
    "health": 15,
    "speed": 7,
-   "starter": false
+   "starter": false,
+   "move": "Psychic Spark"
   },
   "art": "art/luvysore.webp",
   "artAspect": 0.582,
@@ -2877,7 +2969,8 @@
   "tcg": {
    "health": 19,
    "speed": 8,
-   "starter": false
+   "starter": false,
+   "move": "Psychic Spark"
   },
   "art": "art/mentarak.webp",
   "artAspect": 0.77,
@@ -2910,7 +3003,8 @@
   "tcg": {
    "health": 18,
    "speed": 7,
-   "starter": false
+   "starter": false,
+   "move": "Psychic Spark"
   },
   "art": "art/luvyduvysore.webp",
   "artAspect": 0.619,
@@ -2942,7 +3036,8 @@
   "tcg": {
    "health": 14,
    "speed": 9,
-   "starter": false
+   "starter": false,
+   "move": "Psionic Needle"
   },
   "art": "art/sheenx.webp",
   "artAspect": 0.602,
@@ -2966,7 +3061,8 @@
   "tcg": {
    "health": 25,
    "speed": 10,
-   "starter": false
+   "starter": false,
+   "move": "Cosmic Oracle Bolt"
   },
   "art": "art/cosmicoracle.webp",
   "artAspect": 0.922,
@@ -3004,7 +3100,8 @@
   "tcg": {
    "health": 11,
    "speed": 7,
-   "starter": false
+   "starter": false,
+   "move": "Echo Ambush"
   },
   "art": "art/echo.webp",
   "artAspect": 0.65,
@@ -3028,7 +3125,8 @@
   "tcg": {
    "health": 14,
    "speed": 5,
-   "starter": false
+   "starter": false,
+   "move": "Dreadmeow Night Hunt"
   },
   "art": "art/dreadmeow.webp",
   "artAspect": 0.666,
@@ -3063,7 +3161,8 @@
   "tcg": {
    "health": 15,
    "speed": 8,
-   "starter": false
+   "starter": false,
+   "move": "Echo Ambush"
   },
   "art": "art/echowing.webp",
   "artAspect": 0.768,
@@ -3095,7 +3194,8 @@
   "tcg": {
    "health": 19,
    "speed": 9,
-   "starter": false
+   "starter": false,
+   "move": "Echo Ambush"
   },
   "art": "art/echolustrious.webp",
   "artAspect": 0.693,
@@ -3129,7 +3229,8 @@
   "tcg": {
    "health": 12,
    "speed": 10,
-   "starter": true
+   "starter": true,
+   "move": "Drench"
   },
   "art": "art/ceeponee.webp",
   "artAspect": 0.701,
@@ -3159,7 +3260,8 @@
   "tcg": {
    "health": 13,
    "speed": 9,
-   "starter": false
+   "starter": false,
+   "move": "Splash"
   },
   "art": "art/jawby.webp",
   "artAspect": 1.313,
@@ -3189,7 +3291,8 @@
   "tcg": {
    "health": 14,
    "speed": 6,
-   "starter": true
+   "starter": true,
+   "move": "Bubble Blast"
   },
   "art": "art/shellpack.webp",
   "artAspect": 1.216,
@@ -3219,7 +3322,8 @@
   "tcg": {
    "health": 12,
    "speed": 7,
-   "starter": false
+   "starter": false,
+   "move": "Bubble Blast"
   },
   "art": "art/spoutyl.webp",
   "artAspect": 0.92,
@@ -3253,7 +3357,8 @@
   "tcg": {
    "health": 15,
    "speed": 12,
-   "starter": false
+   "starter": false,
+   "move": "Drench"
   },
   "art": "art/ceehorcee.webp",
   "artAspect": 1.028,
@@ -3285,7 +3390,8 @@
   "tcg": {
    "health": 12,
    "speed": 8,
-   "starter": false
+   "starter": false,
+   "move": "Tide Caller"
   },
   "art": "art/clawkid.webp",
   "artAspect": 1.196,
@@ -3318,7 +3424,8 @@
   "tcg": {
    "health": 15,
    "speed": 9,
-   "starter": false
+   "starter": false,
+   "move": "Splash"
   },
   "art": "art/droxyl.webp",
   "artAspect": 0.713,
@@ -3352,7 +3459,8 @@
   "tcg": {
    "health": 16,
    "speed": 8,
-   "starter": false
+   "starter": false,
+   "move": "Splash"
   },
   "art": "art/torqlander.webp",
   "artAspect": 0.762,
@@ -3386,7 +3494,8 @@
   "tcg": {
    "health": 21,
    "speed": 13,
-   "starter": false
+   "starter": false,
+   "move": "Super Drench"
   },
   "art": "art/ceesteed.webp",
   "artAspect": 0.965,
@@ -3419,7 +3528,8 @@
   "tcg": {
    "health": 17,
    "speed": 10,
-   "starter": false
+   "starter": false,
+   "move": "Tide Caller"
   },
   "art": "art/clawqueen.webp",
   "artAspect": 0.652,
@@ -3452,7 +3562,8 @@
   "tcg": {
    "health": 19,
    "speed": 11,
-   "starter": false
+   "starter": false,
+   "move": "Splash"
   },
   "art": "art/hydroxyl.webp",
   "artAspect": 1.264,
@@ -3484,7 +3595,8 @@
   "tcg": {
    "health": 18,
    "speed": 12,
-   "starter": false
+   "starter": false,
+   "move": "Splash"
   },
   "art": "art/jawbite.webp",
   "artAspect": 1.258,
@@ -3517,7 +3629,8 @@
   "tcg": {
    "health": 22,
    "speed": 8,
-   "starter": false
+   "starter": false,
+   "move": "Splash"
   },
   "art": "art/shellnaut.webp",
   "artAspect": 1.12,
@@ -3549,7 +3662,8 @@
   "tcg": {
    "health": 19,
    "speed": 10,
-   "starter": false
+   "starter": false,
+   "move": "Splash"
   },
   "art": "art/conchious.webp",
   "artAspect": 0.732,
@@ -3585,7 +3699,8 @@
   "tcg": {
    "health": 6,
    "speed": 9,
-   "starter": true
+   "starter": true,
+   "move": "Gust Giver"
   },
   "art": "art/breezee.webp",
   "artAspect": 1.316,
@@ -3616,7 +3731,8 @@
   "tcg": {
    "health": 7,
    "speed": 10,
-   "starter": false
+   "starter": false,
+   "move": "Slipsteam"
   },
   "art": "art/cloudpuff.webp",
   "artAspect": 0.797,
@@ -3646,7 +3762,8 @@
   "tcg": {
    "health": 9,
    "speed": 8,
-   "starter": true
+   "starter": true,
+   "move": "Updrift"
   },
   "art": "art/pursula.webp",
   "artAspect": 0.664,
@@ -3677,7 +3794,8 @@
   "tcg": {
    "health": 9,
    "speed": 13,
-   "starter": false
+   "starter": false,
+   "move": "Slipsteam"
   },
   "art": "art/cloudwisp.webp",
   "artAspect": 0.547,
@@ -3711,7 +3829,8 @@
   "tcg": {
    "health": 8,
    "speed": 12,
-   "starter": false
+   "starter": false,
+   "move": "Coreolis"
   },
   "art": "art/gagglestand.webp",
   "artAspect": 0.744,
@@ -3736,7 +3855,8 @@
   "tcg": {
    "health": 10,
    "speed": 15,
-   "starter": false
+   "starter": false,
+   "move": "Winds of Life"
   },
   "art": "art/lofty.webp",
   "artAspect": 0.594,
@@ -3774,7 +3894,8 @@
   "tcg": {
    "health": 12,
    "speed": 11,
-   "starter": false
+   "starter": false,
+   "move": "Updrift"
   },
   "art": "art/purseus.webp",
   "artAspect": 0.734,
@@ -3808,7 +3929,8 @@
   "tcg": {
    "health": 14,
    "speed": 6,
-   "starter": false
+   "starter": false,
+   "move": "Draftstream"
   },
   "art": "art/shellshock.webp",
   "artAspect": 1.701,
@@ -3841,7 +3963,8 @@
   "tcg": {
    "health": 15,
    "speed": 12,
-   "starter": false
+   "starter": false,
+   "move": "Great Draftstream"
   },
   "art": "art/skydon.webp",
   "artAspect": 0.668,
@@ -3874,7 +3997,8 @@
   "tcg": {
    "health": 17,
    "speed": 17,
-   "starter": false
+   "starter": false,
+   "move": "Great Draftstream"
   },
   "art": "art/strikehawk.webp",
   "artAspect": 1.646,
@@ -3908,7 +4032,8 @@
   "tcg": {
    "health": 14,
    "speed": 15,
-   "starter": false
+   "starter": false,
+   "move": "Great Slipstream"
   },
   "art": "art/cloudsprite.webp",
   "artAspect": 0.545,
@@ -3942,7 +4067,8 @@
   "tcg": {
    "health": 14,
    "speed": 16,
-   "starter": false
+   "starter": false,
+   "move": "Northern Winds"
   },
   "art": "art/hurricrane.webp",
   "artAspect": 1.06,
@@ -3975,7 +4101,8 @@
   "tcg": {
    "health": 15,
    "speed": 14,
-   "starter": false
+   "starter": false,
+   "move": "Updrift"
   },
   "art": "art/pursephone.webp",
   "artAspect": 0.688,
@@ -4007,7 +4134,8 @@
   "tcg": {
    "health": 20,
    "speed": 20,
-   "starter": false
+   "starter": false,
+   "move": "Aerostream"
   },
   "art": "art/aerovane.webp",
   "artAspect": 0.932,

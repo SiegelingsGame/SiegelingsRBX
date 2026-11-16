@@ -6,10 +6,13 @@ import { calculateSynergies, getCreature, effectiveStats, xpForLevel, playerXPFo
 import { BIOMES, biomeAt, plotCenter, PLOT_SIZE, WORLD_R, HUB_R, ROADS, RING_ROAD_R } from './world.js';
 import { portrait } from './portraits.js';
 import { fmt, pick } from './util.js';
+import { attackFor, MAX_TEAM, MAX_ITEMS } from './run.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const ELEMENT_EMOJI = { Fire: '🔥', Ice: '❄️', Wind: '🌪️', Earth: '🌿', Shadow: '🌑', Light: '✨', Lightning: '⚡', Water: '💧', Psychic: '🔮', Metal: '⚙️', Poison: '☠️', Undead: '💀', Neutral: '✴️' };
+
+const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
 const SIEGE_FOOD = [
   { id: 'snack', name: 'Ember Biscuit', desc: '+60 XP to one creature', xp: 60, cost: 40, icon: '🍪' },
@@ -75,6 +78,7 @@ export class UI {
     } else cw.style.display = 'none';
     $('#hurt').style.opacity = g.player.hurtFlash > 0 ? g.player.hurtFlash * 2 : 0;
     $('#crosshair').classList.toggle('aim', g.cam.aiming);
+    this.updateRunHUD();
   }
 
   setPrompt(text) {
@@ -256,10 +260,12 @@ export class UI {
   }
 
   drawMarkers(ctx, tx, tz, s, center = null, range = Infinity) {
-    for (const c of this.g.creatures.list) {
+    const run = this.g.run;
+    if (run.active) for (const ch of run.chests) { ctx.fillStyle = '#ffd76a'; ctx.fillRect(tx(ch.pos.x) - 3 * s, tz(ch.pos.z) - 3 * s, 6 * s, 6 * s); }
+    for (const c of (run.active ? run.enemies : this.g.creatures.list)) {
       if (center && Math.hypot(c.pos.x - center.x, c.pos.z - center.z) > range) continue;
       if (!center && !c.isBoss && !c.isRaider) continue;
-      ctx.fillStyle = c.isRaider ? '#ff3b3b' : c.fainted ? '#ffffff' : RARITY_COLORS[c.def.rarity];
+      ctx.fillStyle = c.isBoss ? '#ffb800' : c.tier === 'elite' ? '#b450ff' : c.isRaider ? '#ff3b3b' : c.fainted ? '#ffffff' : RARITY_COLORS[c.def.rarity];
       ctx.beginPath(); ctx.arc(tx(c.pos.x), tz(c.pos.z), (c.isBoss ? 3.2 : 1.8) * s, 0, Math.PI * 2); ctx.fill();
     }
     const comp = this.g.companion;
@@ -275,9 +281,11 @@ export class UI {
     this.panelTitle.textContent = title;
     this.panelBody.innerHTML = html;
     this.panel.style.display = 'flex';
+    document.getElementById('panel-close').style.visibility = 'visible';
     this.g.input.releasePointer();
   }
   close() {
+    if (this.open === 'runchoice') return; // a run choice must be picked
     this.open = null;
     this.panel.style.display = 'none';
     this.ctxData = null;
@@ -293,6 +301,7 @@ export class UI {
     else if (k === 'broker') this.openBroker();
     else if (k === 'curator') this.openCurator();
     else if (k === 'starter') this.openStarter();
+    else if (k === 'runsetup') this.openRunSetup();
   }
 
   creatureCard(e, buttons = '', extra = '') {
@@ -309,6 +318,7 @@ export class UI {
         <div class="meta"><span style="color:${RARITY_COLORS[def.rarity]}">${def.rarity}</span> · ${ELEMENT_EMOJI[def.element] || ''} ${def.element} · ${def.class} ${where}</div>
         <div class="xp"><i style="width:${e.level >= max ? 100 : Math.min(100, (e.xp / need) * 100)}%"></i></div>
         <div class="stats">❤️ ${st.health} ⚔️ ${st.attack} 🛡 ${st.defense} 💨 ${st.speed} · 🪙 +${creatureIncome(e)}/tick${isNightElement(def.element) ? ' · 🌙' : ''}</div>
+        <div class="atk">⚔ <b>${esc(attackFor(def).name)}</b> — ${esc(attackFor(def).desc)}</div>
         ${extra}
         <div class="btns">${buttons}</div>
       </div></div>`;
@@ -459,30 +469,83 @@ export class UI {
     this.show('broker', 'The Broker', `<p class="hint">"I'll take them off your hands… for a price." Selling removes the creature permanently.</p><div class="grid">${list.map((e) => this.creatureCard(e, `<button class="danger" data-act="sell" data-uid="${e.uid}">Sell · ${fmt(sellValue(e))} 🪙</button>`)).join('') || '<p class="empty">Nothing to sell.</p>'}</div>`);
   }
 
+  // ── survival runs ────────────────────────────────────────────
+  openRunSetup() {
+    const stage = this.runStage || 'forest';
+    const d = State.data;
+    const stages = Object.entries(BIOMES).filter(([id]) => id !== 'hub').map(([id, b]) =>
+      `<button class="tab ${stage === id ? 'on' : ''}" data-act="runstage" data-k="${id}">${b.elements.map((e) => ELEMENT_EMOJI[e] || '').join('')} ${esc(b.name)}</button>`).join('');
+    const list = [...d.inventory].sort((a, b) => RARITY_ORDER[getCreature(b.id).rarity] - RARITY_ORDER[getCreature(a.id).rarity]);
+    const cards = list.map((e) => this.creatureCard(e, `<button data-act="runstart" data-uid="${e.uid}">Start run with ${esc(getCreature(e.id).displayName)}</button>`)).join('');
+    this.show('runsetup', 'Expedition Gate', `
+      <div class="summary big">Runs ${d.stats.runs || 0} · Wins ${d.stats.wins || 0} · Best time ${fmtTime(d.stats.bestTime || 0)}</div>
+      <p class="hint">Survive the swarm for 5 minutes, then beat the boss. Your Siegelings attack on their own. Open chests to recruit up to ${MAX_TEAM} Siegelings and level up to collect up to ${MAX_ITEMS} items. Siegelings you recruit join your collection after the run.</p>
+      <h3>1. Choose a stage <small>enemies are ${BIOMES[stage].elements.join(' & ')}</small></h3><div class="tabs">${stages}</div>
+      <h3>2. Choose your starting Siegeling</h3><div class="grid">${cards}</div>`);
+  }
+
+  openRunChoice(title, options) {
+    this.runOptions = options;
+    const html = options.map((o, i) => `<button class="choice" data-act="runpick" data-i="${i}" style="--rc:${RARITY_COLORS[o.rarity] || '#6a5aa0'}">
+      ${o.img ? `<img src="${o.img}" alt="">` : `<span class="ico">${o.icon || '⭐'}</span>`}
+      <b>${esc(o.title)}</b><em>${esc(o.tag || '')}</em><p>${esc(o.desc)}</p></button>`).join('');
+    this.show('runchoice', title, `<div class="choices">${html}</div>`);
+    document.getElementById('panel-close').style.visibility = 'hidden';
+  }
+
+  openRunResults(r) {
+    const team = r.team.map((m) => `<div class="mini"><img src="${portrait(m.id)}" alt=""><small>Lv ${m.level}</small></div>`).join('');
+    this.show('runresults', r.victory ? '🏆 Victory!' : 'Run over', `
+      <div class="summary big">${r.victory ? 'You beat the boss!' : 'Your team was overwhelmed.'} Survived <b>${fmtTime(r.time)}</b> · <b>${r.kills}</b> defeated · reached level <b>${r.level}</b> · earned <b>${fmt(r.coins)}</b> 🪙</div>
+      <h3>Your team</h3><div class="minis">${team}</div>
+      ${r.joined.length ? `<p>Joined your collection: <b>${r.joined.map(esc).join(', ')}</b></p>` : ''}
+      <div class="btns wide"><button data-act="close">Back to base</button></div>`);
+  }
+
+  updateRunHUD() {
+    const run = this.g.run, el = document.getElementById('run-hud');
+    if (!run.active) { if (el.style.display !== 'none') el.style.display = 'none'; return; }
+    el.style.display = 'flex';
+    const left = Math.max(0, 300 - run.time);
+    document.getElementById('run-timer').textContent = run.bossSpawned ? 'BOSS' : fmtTime(left);
+    document.getElementById('run-kills').textContent = `☠ ${run.kills}`;
+    document.getElementById('run-level').textContent = `Lv ${run.level}`;
+    document.getElementById('run-xp').style.width = `${Math.min(100, run.xp / run.xpNeed() * 100)}%`;
+    const boss = document.getElementById('run-boss');
+    if (run.boss && run.boss.hp > 0) { boss.style.display = 'block'; boss.firstElementChild.style.width = `${run.boss.hp / run.boss.maxHp * 100}%`; boss.dataset.name = run.boss.def.displayName; } else boss.style.display = 'none';
+    const chest = document.getElementById('run-chest');
+    chest.style.display = run.chestProgress > 0.02 ? 'block' : 'none';
+    chest.firstElementChild.style.width = `${run.chestProgress * 100}%`;
+    const key = run.team.map((m) => m.def.id + m.level).join() + '|' + run.itemList().map((i) => i.id + i.level).join();
+    if (key !== this.runKey) {
+      this.runKey = key;
+      const slots = (arr, max, fn) => Array.from({ length: max }, (_, i) => arr[i] ? fn(arr[i]) : '<div class="rs empty"></div>').join('');
+      document.getElementById('run-team').innerHTML = slots(run.team, MAX_TEAM, (m) => `<div class="rs" title="${esc(m.attack.name)}"><img src="${portrait(m.def.id)}" alt=""><i>${m.level}</i></div>`);
+      document.getElementById('run-items').innerHTML = slots(run.itemList(), MAX_ITEMS, (it) => `<div class="rs" title="${esc(it.name)}"><span>${it.icon}</span><i>${it.level}</i></div>`);
+    }
+  }
+
   openHelp() {
     this.show('help', 'How to play', `
       <div class="help">
-      <p><b>Goal:</b> capture Siegelings in the wild, station them at your base to earn coins, and upgrade your base with new floors.</p>
+      <p><b>Goal:</b> survive runs with a team of Siegelings as your weapons, and grow your base between runs.</p>
       ${this.g.ctx.touch ? `<table>
       <tr><td><b>Left thumb</b></td><td>Drag anywhere on the left side to move · push all the way to sprint</td></tr>
       <tr><td><b>Right thumb</b></td><td>Drag to look around</td></tr>
-      <tr><td>⚔️</td><td>Hold to fire energy orbs (locks onto the nearest creature in front)</td></tr>
-      <tr><td>⤒ 👊 🎯</td><td>Jump · melee swing · aim toggle</td></tr>
+            <tr><td>⤒</td><td>Jump</td></tr>
       <tr><td><b>TAP prompt</b></td><td>Interact / capture a fainted creature</td></tr>
       <tr><td>🎒 🏰 🗺️ 🏠</td><td>Siegelings · Base Core · map · teleport home</td></tr>
       </table>` : ''}
       <table class="keys">
       <tr><td><kbd>W A S D</kbd></td><td>Move · <kbd>Shift</kbd> sprint · <kbd>Space</kbd> jump</td></tr>
       <tr><td><kbd>Mouse</kbd></td><td>Look (over-the-shoulder camera) · <kbd>Q</kbd> swap shoulder</td></tr>
-      <tr><td><kbd>Left click</kbd></td><td>Fire energy orb · <kbd>Right click</kbd> hold to aim · <kbd>F</kbd> melee</td></tr>
-      <tr><td><kbd>E</kbd></td><td>Interact / capture a fainted creature</td></tr>
+            <tr><td><kbd>E</kbd></td><td>Interact / capture a fainted creature</td></tr>
       <tr><td><kbd>Tab</kbd> / <kbd>I</kbd></td><td>Siegelings inventory &amp; assignment</td></tr>
       <tr><td><kbd>B</kbd></td><td>Base Core (upgrades &amp; slots)</td></tr>
       <tr><td><kbd>M</kbd></td><td>World map · <kbd>H</kbd> go home · <kbd>?</kbd> this help</td></tr>
       </table>
-      <p><b>Capturing:</b> knock a creature's HP to zero to make it faint (10s), then press <kbd>E</kbd> to throw a capture card. Costs coins by rarity (Common 10 → Legendary 400).</p>
-      <p><b>Base:</b> Income pads earn each creature's base income every ${CFG.IncomeTickSeconds}s. At night only Shadow & Lightning creatures work. Defense pads shoot raiders. Buy Floors 2–4 at the Base Core for 6 more of each slot.</p>
-      <p><b>Arena Hub:</b> safe zone with a healing fountain, The Curator (rare stock), Siege Master (XP food) and The Broker (sell).</p>
+      <p><b>Runs:</b> walk into the <b>Expedition Gate</b> in front of your base, pick a stage and a starting Siegeling. Wild Siegelings swarm you — your team attacks automatically, each with its own attack. Collect the blue XP gems to level up (upgrade a Siegeling or take an item, up to ${MAX_ITEMS}). Stand next to a <b>chest</b> to open it and recruit a new Siegeling (up to ${MAX_TEAM}). Survive 5 minutes, then defeat the boss.</p>
+      <p><b>Base:</b> between runs, spend coins at the Base Core on new floors and station Siegelings on income pads. Siegelings you recruit in a run join your collection.</p>
       <p class="hint"><button class="ghost" data-act="reset">Reset save</button></p>
       </div>`);
   }
@@ -493,6 +556,9 @@ export class UI {
     const a = b.dataset.act, g = this.g;
     switch (a) {
       case 'close': this.close(); break;
+      case 'runpick': { const o = this.runOptions[+b.dataset.i]; this.open = null; this.close(); o.pick(); break; }
+      case 'runstage': this.runStage = b.dataset.k; this.openRunSetup(); break;
+      case 'runstart': { const e = State.get(b.dataset.uid); this.close(); g.run.start(e, this.runStage || 'forest'); break; }
       case 'filter': this.inventoryFilter = b.dataset.k; this.openInventory(); break;
       case 'assign': { const r = State.assign(b.dataset.uid, b.dataset.type); this.notify(r.msg, r.ok ? 'good' : 'warn'); break; }
       case 'assign-close': { const r = State.assign(b.dataset.uid, b.dataset.type); this.notify(r.msg, r.ok ? 'good' : 'warn'); if (r.ok) this.close(); break; }
@@ -506,7 +572,8 @@ export class UI {
         State.assign(e.uid, 'companion');
         State.save();
         this.notify(`${getCreature(e.id).displayName} joined you!`, 'good');
-        setTimeout(() => this.notify('Your base is the 🏠 gold plot on the minimap — press H to teleport home', 'info'), 1200);
+        setTimeout(() => this.notify('Walk into the Expedition Gate in front of your base to start a run', 'info'), 1200);
+        g.player.teleport(g.base.homePosition(), g.base.homeYaw()); g.cam.yaw = g.base.homeYaw() + Math.PI;
         this.close();
         break;
       }

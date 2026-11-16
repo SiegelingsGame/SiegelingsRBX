@@ -18,6 +18,7 @@ for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) BATTLE_GRID.push([(c - 1
 const TELEPORTER = [0, 4];
 const CORE = [0, -18];
 const HOME_SPOT = [0, 16];
+const GATE = [0, 40];
 
 function floorY(f) { return f === 0 ? 0.6 : f * CFG.FloorHeight + 0.8; }
 
@@ -161,12 +162,22 @@ export class PlayerBase {
     const archMat = new THREE.MeshLambertMaterial({ color: 0x5a4f78 });
     for (const sx of [-1, 1]) { const p = new THREE.Mesh(new THREE.BoxGeometry(1.4, 8, 1.4), archMat); p.position.set(sx * 7, 4, PLOT_SIZE / 2 - 1); p.castShadow = true; this.group.add(p); }
     const top = new THREE.Mesh(new THREE.BoxGeometry(16, 1.4, 1.6), archMat); top.position.set(0, 8.4, PLOT_SIZE / 2 - 1); this.group.add(top);
+    // Expedition Gate: start a survival run from here
+    const gate = new THREE.Group();
+    const gm = new THREE.MeshLambertMaterial({ color: 0x3b3550 });
+    for (const sx of [-1, 1]) { const p = new THREE.Mesh(new THREE.BoxGeometry(1.6, 11, 1.6), gm); p.position.set(sx * 5, 5.5, 0); p.castShadow = true; gate.add(p); }
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(12.5, 1.6, 1.8), gm); lintel.position.y = 11.5; gate.add(lintel);
+    this.portal = new THREE.Mesh(new THREE.PlaneGeometry(8.4, 10.4), new THREE.MeshBasicMaterial({ color: 0x8a5cff, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false }));
+    this.portal.position.y = 5.4; gate.add(this.portal);
+    const gl = labelSprite('EXPEDITION GATE', 'Start a survival run', '#c9a6ff', 12); gl.position.y = 15; gate.add(gl);
+    gate.position.set(GATE[0], 0.1, GATE[1]);
+    this.group.add(gate);
     this.rebuildFloors();
   }
 
   toWorld(x, y, z) { return this.group.localToWorld(new THREE.Vector3(x, y, z)); }
   homePosition() { return this.toWorld(HOME_SPOT[0], floorY(0), HOME_SPOT[1]); }
-  homeYaw() { return this.rot + Math.PI; } // face into the base, toward the core
+  homeYaw() { return this.rot; } // face the Expedition Gate
 
   rebuildFloors() {
     for (const fg of this.floorGroups) this.group.remove(fg);
@@ -274,6 +285,7 @@ export class PlayerBase {
   interactables(ctx) {
     const list = [];
     const coreW = this.toWorld(CORE[0], floorY(0), CORE[1]);
+    list.push({ pos: this.toWorld(GATE[0], 0, GATE[1]), radius: 8, label: () => 'Enter the Expedition Gate (start a run)', action: () => ctx.ui.openRunSetup() });
     list.push({ pos: coreW, radius: 6, label: () => 'Open Base Core (upgrades & slots)', action: () => ctx.ui.openBase() });
     for (const tp of this.teleporters) {
       const owned = this.teleporters.length;
@@ -312,6 +324,7 @@ export class PlayerBase {
     this.time += dt;
     const t = this.time;
     this.core.userData.holo.rotation.y += dt;
+    this.portal.material.opacity = 0.45 + Math.sin(t * 2.5) * 0.15;
     this.core.userData.core.rotation.y -= dt * 2;
     this.core.userData.holo.position.y = 7 + Math.sin(t * 2) * 0.3;
     for (const tp of this.teleporters) tp.mesh.userData.glow.material.opacity = 0.14 + Math.sin(t * 3) * 0.06;

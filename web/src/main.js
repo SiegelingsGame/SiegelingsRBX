@@ -8,7 +8,8 @@ import { FX } from './fx.js';
 import { CreatureManager } from './creatures.js';
 import { Player, ShoulderCamera } from './player.js';
 import { Companion } from './companion.js';
-import { PlayerBase, buildOtherPlots } from './base.js';
+import { PlayerBase } from './base.js';
+import { Run } from './run.js';
 import { Hub } from './hub.js';
 import { UI } from './ui.js';
 import { randInt, clamp, lerp } from './util.js';
@@ -127,7 +128,6 @@ class Game {
     this.fx = new FX(this.scene);
     this.hub = new Hub(this.scene);
     this.base = new PlayerBase(this.scene, this.world, this.fx, 0);
-    this.rivalModels = buildOtherPlots(this.scene, this.world, 0);
     this.player = new Player(this.scene, this.world, this.fx);
     this.cam = new ShoulderCamera(this.camera, this.world);
     setBillboardCamera(this.camera);
@@ -155,7 +155,7 @@ class Game {
     });
     this.ui = new UI(this);
     this.State = State; // handy for debugging from the console
-    this.creatures.init();
+    this.run = new Run(this); // wild Siegelings now only appear inside survival runs
 
     this.player.onHurt = (d) => this.ui.floatText(this.player.hitCenter().add(new THREE.Vector3(0, 2, 0)), `-${Math.round(d)}`, '#ff6a6a');
     this.player.onDeath = () => this.ui.notify('You fainted!', 'bad');
@@ -333,20 +333,20 @@ class Game {
 
   handleKeys() {
     const i = this.input, ui = this.ui;
-    if (i.pressed('Escape') && ui.open && ui.open !== 'starter') ui.close();
+    if (i.pressed('Escape') && ui.open && ui.open !== 'starter' && ui.open !== 'runchoice') ui.close();
     else if (i.pressed('Escape') && i.fallback) i.releasePointer();
     if (!State.data.starterChosen) return;
     const toggle = (kind, fn) => { if (ui.open === kind) ui.close(); else if (!ui.open || ui.open !== 'starter') fn(); };
     if (i.pressed('Tab') || i.pressed('KeyI')) toggle('inventory', () => ui.openInventory());
-    if (i.pressed('KeyB')) toggle('base', () => ui.openBase());
+    if (i.pressed('KeyB') && !this.run.active) toggle('base', () => ui.openBase());
     if (i.pressed('Slash') || i.pressed('F1')) toggle('help', () => ui.openHelp());
     if (ui.open) return;
     if (i.pressed('KeyM')) {
       this.bigMap = !this.bigMap;
       document.getElementById('bigmap-wrap').style.display = this.bigMap ? 'flex' : 'none';
     }
-    if (i.pressed('KeyQ')) this.cam.side *= -1;
-    if (i.pressed('KeyH')) {
+    if (i.pressed('KeyQ') && !this.run.active) this.cam.side *= -1;
+    if (i.pressed('KeyH') && !this.run.active) {
       this.player.teleport(this.base.homePosition(), this.base.homeYaw());
       this.cam.yaw = this.base.homeYaw() + Math.PI;
       this.fx.burst(this.player.hitCenter(), 0x6fd8ff, 30, 8, 0.8, 3);
@@ -357,25 +357,25 @@ class Game {
   loop() {
     requestAnimationFrame(() => this.loop());
     const dt = Math.min(0.05, this.clock.getDelta());
+    this.player.noSprint = this.run.active;
     this.handleKeys();
     const playing = !this.ui.open;
     if (playing) this.player.update(dt, this.input, this.cam, this.ctx);
     else this.player.update(dt, { down: () => false, pressed: () => false, mouseDown: () => false }, this.cam, this.ctx);
     this.cam.update(dt, this.player, playing ? this.input : { mouseDown: () => false });
-    this.companion.update(dt, this.ctx);
+    if (this.run.active) this.companion.despawn(); else this.companion.update(dt, this.ctx);
+    if (playing) this.run.update(dt);
     this.creatures.update(dt, this.ctx);
     this.base.update(dt, this.ctx);
     this.hub.update(dt);
-    for (const m of this.rivalModels) m.animate(this.clock.elapsedTime, 0);
     this.fx.update(dt, this.world);
     this.world.waterMat.opacity = 0.7 + Math.sin(this.clock.elapsedTime) * 0.04;
     this.updateSky(dt);
-    if (playing) this.handleInteraction(); else this.ui.setPrompt(null);
+    if (playing && !this.run.active) this.handleInteraction(); else this.ui.setPrompt(null);
 
     this.incomeTimer -= dt;
     if (this.incomeTimer <= 0) { this.incomeTimer += CFG.IncomeTickSeconds; this.tickIncome(); }
     this.raidTimer -= dt;
-    if (this.raidTimer <= 0) { this.raidTimer = CFG.AIRaidInterval; this.tickRaid(); }
 
     this.renderer.render(this.scene, this.camera);
     this.ui.updateHUD();

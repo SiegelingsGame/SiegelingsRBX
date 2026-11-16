@@ -7,7 +7,7 @@ import { Creatures, getCreature, creaturesForElements } from './data.js';
 import { buildCreatureModel } from './creatureModel.js';
 import { State } from './state.js';
 import { BIOMES } from './world.js';
-import { hashStr, rand, pick, clamp } from './util.js';
+import { hashStr, rand, pick, clamp, mulberry32 } from './util.js';
 
 export const MAX_TEAM = 6, MAX_ITEMS = 6, MAX_MEMBER_LEVEL = 8, MAX_ITEM_LEVEL = 5;
 const RUN_LENGTH = 300;      // seconds until the boss arrives
@@ -103,6 +103,7 @@ export class Run {
     this.gemMesh.frustumCulled = false; this.gemMesh.count = 0;
     this.group.add(this.gemMesh);
     this.gems = [];
+    this.pads = []; this.tops = [];
   }
 
   item(id) { return this.items[id] || 0; }
@@ -125,6 +126,7 @@ export class Run {
     const ring = new THREE.Mesh(new THREE.TorusGeometry(ARENA_R, 0.6, 6, 96).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffd76a, transparent: true, opacity: 0.7 }));
     ring.position.copy(this.center).y += 1.5;
     this.group.add(ring); this.ring = ring;
+    this.buildArena();
     this.addMember(getCreature(entry.id), true);
     document.body.classList.add('in-run');
     g.ui.notify(`${BIOMES[biomeId].name}: survive ${RUN_LENGTH / 60} minutes, then defeat the boss. Open chests to find Siegelings!`, 'info');
@@ -138,6 +140,8 @@ export class Run {
     for (const h of this.hazards) this.group.remove(h.mesh);
     for (const c of this.chests) this.group.remove(c.mesh);
     if (this.ring) this.group.remove(this.ring);
+    if (this.arena) { this.group.remove(this.arena); this.arena = null; }
+    this.g.world.removeOwned(this); this.pads = []; this.tops = [];
     this.enemies = []; this.team = []; this.shots = []; this.hazards = []; this.chests = []; this.gems = []; this.gemMesh.count = 0;
   }
 
@@ -373,6 +377,7 @@ export class Run {
     if (this.chests.length >= 4) return;
     const p = this.g.player.pos;
     let x, z;
+    if (!at && this.tops.length && Math.random() < 0.45) { const t = pick(this.tops); at = { x: t.x, z: t.z }; } // high-ground chest
     if (at) { x = at.x; z = at.z; } else {
       const a = Math.random() * Math.PI * 2, r = rand(22, 38);
       x = p.x + Math.cos(a) * r; z = p.z + Math.sin(a) * r;
@@ -559,6 +564,14 @@ export class Run {
     if (this.won) return this.end(true);
     this.time += dt;
 
+    // jump pads launch you onto the high ground
+    for (const pad of this.pads) {
+      pad.mesh.children[1].rotation.y += dt * 3;
+      if (p.onGround && Math.hypot(pp.x - pad.x, pp.z - pad.z) < 2.6 && Math.abs(pp.y - pad.y) < 2) {
+        p.vel.y = 46; p.onGround = false; pp.y += 0.7;
+        g.fx.ring(new THREE.Vector3(pad.x, pad.y, pad.z), 0x6fd8ff, 6, 0.5);
+      }
+    }
     // keep the player inside the arena
     const dc = Math.hypot(pp.x - this.center.x, pp.z - this.center.z);
     if (dc > ARENA_R) { pp.x = this.center.x + (pp.x - this.center.x) * ARENA_R / dc; pp.z = this.center.z + (pp.z - this.center.z) * ARENA_R / dc; }
@@ -583,6 +596,7 @@ export class Run {
       const dx = pp.x - e.pos.x, dz = pp.z - e.pos.z, d = Math.hypot(dx, dz) || 1;
       let sp = st.stun > 0 ? 0 : e.speed * (st.slow > 0 ? 0.5 : 1);
       if (d > 110) { this.disposeModel(e.model); this.enemies.splice(this.enemies.indexOf(e), 1); continue; }
+      if (e.climbing) sp *= 0.3;
       if (d > e.r + 1.2) { e.pos.x += (dx / d) * sp * dt; e.pos.z += (dz / d) * sp * dt; } else sp = 0;
       const cell = grid.get(`${Math.floor(e.pos.x / 4)},${Math.floor(e.pos.z / 4)}`);
       if (cell) for (const o of cell) {
@@ -590,7 +604,11 @@ export class Run {
         const ox = e.pos.x - o.pos.x, oz = e.pos.z - o.pos.z, od = Math.hypot(ox, oz), min = (e.r + o.r) * 0.8;
         if (od < min && od > 0.001) { const f = (min - od) * 0.5 / od; e.pos.x += ox * f; e.pos.z += oz * f; }
       }
-      e.pos.y = g.world.groundAt(e.pos.x, e.pos.z, e.pos.y + 3);
+      // enemies scale ledges instead of walking through them: slow climb up, quick drop down
+      const gy = g.world.groundAt(e.pos.x, e.pos.z);
+      if (gy > e.pos.y + 1.5) e.climbing = true;
+      if (e.climbing) { e.pos.y = Math.min(gy, e.pos.y + (e.def.flying ? 14 : 6.5) * dt); if (e.pos.y >= gy) e.climbing = false; }
+      else e.pos.y = Math.max(gy, e.pos.y - 40 * dt);
       e.hitCD -= dt;
       if (d < e.r + 2 && e.hitCD <= 0 && Math.abs(pp.y - e.pos.y) < 4) { e.hitCD = 0.8; p.takeDamage(e.dmg * (st.weak > 0 ? 0.6 : 1)); }
       e.t += dt;
@@ -676,7 +694,7 @@ export class Run {
     // chests: stand next to one to open it
     for (let i = this.chests.length - 1; i >= 0; i--) {
       const c = this.chests[i];
-      const near = Math.hypot(pp.x - c.pos.x, pp.z - c.pos.z) < 4.5;
+      const near = Math.hypot(pp.x - c.pos.x, pp.z - c.pos.z) < 4.5 && Math.abs(pp.y - c.pos.y) < 3;
       c.open = near ? c.open + dt : Math.max(0, c.open - dt * 2);
       c.lid.rotation.x = -c.open * 0.9; c.lid.position.y = 2 + c.open * 0.4;
       if (c.open >= 1.2) { this.group.remove(c.mesh); this.chests.splice(i, 1); this.pendingChests++; g.fx.burst(c.pos.clone().setY(c.pos.y + 2), 0xffd76a, 40, 9, 0.9, 5); }
@@ -687,6 +705,73 @@ export class Run {
       if (this.pendingChests > 0) { this.pendingChests--; this.offerChest(); }
       else if (this.pendingLevels > 0) { this.pendingLevels--; this.offerLevelUp(); }
     }
+  }
+
+  // Vertical level design: tiered plateaus (each tier is one jump high), a tall spire, and jump pads.
+  buildArena() {
+    const g = this.g, w = g.world, rng = mulberry32(hashStr(this.biome) + 7);
+    const base = new THREE.Color(BIOMES[this.biome].color);
+    const wallMat = new THREE.MeshLambertMaterial({ color: base.clone().lerp(new THREE.Color(0x4a4458), 0.6).multiplyScalar(0.8), flatShading: true });
+    const topMat = new THREE.MeshLambertMaterial({ color: base.clone().lerp(new THREE.Color(0xffe9b0), 0.55) });
+    const arena = new THREE.Group();
+    this.arena = arena; this.pads = []; this.tops = [];
+    const TIER = 3.6; // just under jump height (about 4)
+    const addTier = (x, z, rot, size, bottom, top) => {
+      const h = top - bottom + 8; // extends below ground on slopes
+      const m = new THREE.Mesh(new THREE.BoxGeometry(size, h, size), wallMat);
+      m.position.set(x, top - h / 2, z); m.rotation.y = -rot; m.castShadow = true; m.receiveShadow = true;
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(size + 0.6, 0.5, size + 0.6), topMat);
+      cap.position.set(x, top - 0.24, z); cap.rotation.y = -rot; cap.receiveShadow = true;
+      arena.add(m, cap);
+      w.addBlock(x, z, rot, size + 0.6, size + 0.6, top, this);
+    };
+    const spots = [];
+    const place = (minR, maxR, clear) => {
+      for (let i = 0; i < 60; i++) {
+        const a = rng() * Math.PI * 2, r = minR + rng() * (maxR - minR);
+        const x = this.center.x + Math.cos(a) * r, z = this.center.z + Math.sin(a) * r;
+        if (spots.every((s) => Math.hypot(s.x - x, s.z - z) > s.c + clear)) { spots.push({ x, z, c: clear }); return { x, z }; }
+      }
+      return null;
+    };
+    spots.push({ x: this.center.x, z: this.center.z, c: 12 }); // keep the start clear
+    // tiered plateaus: 1 to 3 tiers, each tier reachable with a jump from the one below
+    for (let i = 0; i < 7; i++) {
+      const size = 20 + rng() * 10, p = place(26, ARENA_R - 22, size * 0.75);
+      if (!p) continue;
+      const rot = rng() * Math.PI, gy = w.terrainHeight(p.x, p.z), tiers = 1 + Math.floor(rng() * 3);
+      let s = size, ox = 0, oz = 0;
+      for (let t = 1; t <= tiers; t++) {
+        addTier(p.x + ox, p.z + oz, rot, s, gy, gy + TIER * t);
+        if (t === tiers) this.tops.push({ x: p.x + ox, z: p.z + oz, y: gy + TIER * t });
+        const inset = s * 0.2; s *= 0.6;
+        const dx = (rng() - 0.5) * 2 * inset, dz = (rng() - 0.5) * 2 * inset; // offset upper tiers so they form steps
+        ox += dx * Math.cos(rot) - dz * Math.sin(rot); oz += dx * Math.sin(rot) + dz * Math.cos(rot);
+      }
+    }
+    // spires: too tall to jump, reached by the jump pad at their foot
+    const padGeo = new THREE.CylinderGeometry(2.4, 2.7, 0.5, 20), arrowGeo = new THREE.ConeGeometry(0.9, 1.6, 4);
+    const addPad = (x, z) => {
+      const y = w.groundAt(x, z, w.terrainHeight(x, z) + 0.5);
+      const mesh = new THREE.Group();
+      mesh.add(new THREE.Mesh(padGeo, new THREE.MeshLambertMaterial({ color: 0x24324a })), new THREE.Mesh(arrowGeo, new THREE.MeshBasicMaterial({ color: 0x6fd8ff })));
+      mesh.children[1].position.y = 1.6;
+      mesh.position.set(x, y + 0.25, z);
+      arena.add(mesh);
+      this.pads.push({ x, z, y, mesh });
+    };
+    for (let i = 0; i < 2; i++) {
+      const p = place(34, ARENA_R - 30, 16);
+      if (!p) continue;
+      const gy = w.terrainHeight(p.x, p.z), top = gy + 13;
+      addTier(p.x, p.z, rng() * Math.PI, 11, gy, top);
+      this.tops.push({ x: p.x, z: p.z, y: top });
+      const a = Math.atan2(this.center.z - p.z, this.center.x - p.x); // pad on the side facing the centre
+      spots.push({ x: p.x + Math.cos(a) * 9.5, z: p.z + Math.sin(a) * 9.5, c: 4 });
+      addPad(p.x + Math.cos(a) * 9.5, p.z + Math.sin(a) * 9.5);
+    }
+    for (let i = 0; i < 3; i++) { const p = place(18, ARENA_R - 15, 6); if (p) addPad(p.x, p.z); }
+    this.group.add(arena);
   }
 
   xpNeed() { return Math.floor(5 + this.level * 3.5 + this.level * this.level * 0.35); }

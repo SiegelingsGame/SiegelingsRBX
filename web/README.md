@@ -23,6 +23,7 @@ Progress is saved to the browser's `localStorage`. To start over, open Help and 
 - **Team of 6.** Each Siegeling is a weapon with its own attack pattern (15 patterns such as homing bolts, chains, orbiting orbs, ground slams, dashes, beams, mortars, traps and auras). Its element adds an on-hit effect (burn, slow, knockback, poison, life steal...) and uses the TCG weakness chart for bonus damage. Two Siegelings on one team never share a pattern.
 - **Chests** appear over time and drop from elites. Stand next to one to open it and choose 1 of 3 Siegelings to recruit.
 - **Level-ups** come from XP gems: upgrade a Siegeling (it evolves along its TCG line at levels 3 and 6) or take one of up to **6 items** (attack speed, damage, movement speed, max HP, regen, armor, pickup range, crit, area, coins, and a damage core per element).
+- **High ground.** Each arena has tiered plateaus (every tier is one jump high), tall spires and jump pads that launch you onto them. Enemies have to climb ledges slowly, so height buys you time, and nearly half of the timed chests appear on top of a structure.
 - Survive 5 minutes, then beat the biome's Legendary boss.
 
 **Base.** Between runs you return to your base with the coins you earned. Recruited Siegelings join your collection and can be stationed on income pads or the Battle Team grid, and coins buy new floors.

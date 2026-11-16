@@ -116,6 +116,7 @@ export class World {
   constructor(scene) {
     this.scene = scene;
     this.surfaces = []; // walkable platforms {cx, cz, rot, hx, hz, y}
+    this.blocks = [];
     this.colliderGrid = new Map();
     this.spawnPoints = [];
     this.heights = new Float32Array((SEG + 1) * (SEG + 1));
@@ -189,6 +190,30 @@ export class World {
 
   isWater(x, z) {
     return biomeAt(x, z) === 'ocean' && this.terrainHeight(x, z) < WATER_Y - 0.3;
+  }
+
+  // Solid blocks (run arena plateaus): walkable on top via a matching surface, solid from the side.
+  addBlock(cx, cz, rot, w, d, top, owner) {
+    this.blocks.push({ cx, cz, cos: Math.cos(rot), sin: Math.sin(rot), hx: w / 2, hz: d / 2, top, owner });
+    this.addSurface(cx, cz, rot, w, d, top);
+    this.surfaces[this.surfaces.length - 1].owner = owner;
+  }
+  removeOwned(owner) {
+    this.blocks = this.blocks.filter((b) => b.owner !== owner);
+    this.surfaces = this.surfaces.filter((s) => s.owner !== owner);
+  }
+  // Push a circle out of any block whose top is too high to step onto from height y.
+  resolveBlocks(x, z, y, radius, step = 1.25) {
+    for (const b of this.blocks) {
+      if (y >= b.top - step) continue;
+      const dx = x - b.cx, dz = z - b.cz;
+      let lx = dx * b.cos + dz * b.sin, lz = -dx * b.sin + dz * b.cos;
+      const px = b.hx + radius - Math.abs(lx), pz = b.hz + radius - Math.abs(lz);
+      if (px <= 0 || pz <= 0) continue;
+      if (px < pz) lx += Math.sign(lx || 1) * px; else lz += Math.sign(lz || 1) * pz;
+      x = b.cx + lx * b.cos - lz * b.sin; z = b.cz + lx * b.sin + lz * b.cos;
+    }
+    return [x, z];
   }
 
   addSurface(cx, cz, rot, w, d, y) {

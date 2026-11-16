@@ -365,7 +365,6 @@ class Game {
     this.cam.update(dt, this.player, playing ? this.input : { mouseDown: () => false });
     if (this.run.active) this.companion.despawn(); else this.companion.update(dt, this.ctx);
     if (playing) this.run.update(dt);
-    this.creatures.update(dt, this.ctx);
     this.base.update(dt, this.ctx);
     this.hub.update(dt);
     this.fx.update(dt, this.world);

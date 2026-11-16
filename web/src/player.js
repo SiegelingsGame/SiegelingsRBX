@@ -114,6 +114,7 @@ export class Player {
 
     let nx = this.pos.x + this.vel.x * dt, nz = this.pos.z + this.vel.z * dt;
     [nx, nz] = this.world.resolveCollision(nx, nz, 1.0);
+    [nx, nz] = this.world.resolveBlocks(nx, nz, this.pos.y, 1.0);
     for (const b of ctx.blockers) { // simple circle blockers (NPC stalls, fountain)
       const dx = nx - b.x, dz = nz - b.z, d = Math.hypot(dx, dz);
       if (d < b.r + 1 && d > 0) { nx = b.x + (dx / d) * (b.r + 1); nz = b.z + (dz / d) * (b.r + 1); }

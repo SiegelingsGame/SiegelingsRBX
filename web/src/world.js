@@ -46,7 +46,13 @@ export function plotCenter(i) {
 }
 export function plotAngle(i) { return (22.5 + 45 * i) * D2R; }
 
+// Run arenas live in their own heightfield far from the base world (see arenaGen.js).
+let ARENA = null;
+export function setArenaRegion(a) { ARENA = a; }
+export function inArena(x, z) { return !!ARENA && Math.abs(x - ARENA.cx) < ARENA.half && Math.abs(z - ARENA.cz) < ARENA.half; }
+
 export function biomeAt(x, z) {
+  if (inArena(x, z)) return ARENA.biome;
   const r = Math.hypot(x, z);
   if (r < HUB_R + 4) return 'hub';
   for (const [id, b] of OUTER_LIST) {
@@ -166,6 +172,7 @@ export class World {
   }
 
   terrainHeight(x, z) {
+    if (inArena(x, z)) return ARENA.height(x, z);
     const N = SEG + 1, step = SIZE / SEG;
     const fx = clamp((x + SIZE / 2) / step, 0, SEG - 0.0001), fz = clamp((z + SIZE / 2) / step, 0, SEG - 0.0001);
     const i = Math.floor(fx), j = Math.floor(fz), tx = fx - i, tz = fz - j;
@@ -177,10 +184,12 @@ export class World {
   }
 
   // Highest walkable height under (x,z) not more than `step` above y.
-  groundAt(x, z, y = Infinity, step = 1.2) {
+  // ceilings=false ignores cave roofs (enemies use that to find the floor under them).
+  groundAt(x, z, y = Infinity, step = 1.2, ceilings = true) {
     let g = this.terrainHeight(x, z);
-    if (this.isWater(x, z)) g = Math.max(g, WATER_Y - 2.4);
+    if (this.isWater(x, z)) g = Math.max(g, (inArena(x, z) ? ARENA.waterY : WATER_Y) - 2.4);
     for (const s of this.surfaces) {
+      if (s.ceiling && !ceilings) continue;
       const dx = x - s.cx, dz = z - s.cz;
       const lx = dx * s.cos + dz * s.sin, lz = -dx * s.sin + dz * s.cos;
       if (Math.abs(lx) <= s.hx && Math.abs(lz) <= s.hz && s.y <= y + step && s.y > g) g = s.y;
@@ -189,6 +198,7 @@ export class World {
   }
 
   isWater(x, z) {
+    if (inArena(x, z)) return ARENA.waterY !== null && ARENA.height(x, z) < ARENA.waterY - 0.3;
     return biomeAt(x, z) === 'ocean' && this.terrainHeight(x, z) < WATER_Y - 0.3;
   }
 
@@ -388,6 +398,13 @@ export class World {
         if (d < min && d > 0.0001) { x = c.x + (dx / d) * min; z = c.z + (dz / d) * min; }
       }
     }
+    if (inArena(x, z)) {
+      for (const c of ARENA.nearColliders(x, z)) {
+        const dx = x - c.x, dz = z - c.z, d = Math.hypot(dx, dz), min = c.r + radius;
+        if (d < min && d > 0.0001) { x = c.x + (dx / d) * min; z = c.z + (dz / d) * min; }
+      }
+      return [x, z];
+    }
     const r = Math.hypot(x, z);
     if (r > WORLD_R - 8) { x *= (WORLD_R - 8) / r; z *= (WORLD_R - 8) / r; }
     return [x, z];
@@ -443,7 +460,7 @@ export function tint(geo, hex) {
   return g;
 }
 
-function makePropGeometries() {
+export function makePropGeometries() {
   const lam = (opts = {}) => new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, ...opts });
   const std = lam();
   const T = THREE;

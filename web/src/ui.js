@@ -218,22 +218,26 @@ export class UI {
     const ctx = big ? cv.getContext('2d') : this.miniCtx;
     const W = cv.width, H = cv.height;
     const g = this.g, p = g.player.pos;
-    const S = this.mapImg.width, sc = this.mapScale;
+    // the base world map, or the current run's arena map; tx/tz turn world x/z into map pixels
+    const arena = g.run.active && g.run.gen ? g.run.gen.map : null;
+    const img = arena ? arena.img : this.mapImg, S = img.width;
+    const sc = arena ? arena.scale : this.mapScale, ox = arena ? arena.ox : -S / 2 / sc, oz = arena ? arena.oz : -S / 2 / sc;
+    const tx = (x) => (x - ox) * sc, tz = (z) => (z - oz) * sc;
     ctx.clearRect(0, 0, W, H);
     ctx.save();
     if (big) {
       const k = Math.min(W, H) / S;
       ctx.translate(W / 2, H / 2); ctx.scale(k, k); ctx.translate(-S / 2, -S / 2);
-      ctx.drawImage(this.mapImg, 0, 0);
+      ctx.drawImage(img, 0, 0);
       ctx.font = 'bold 13px system-ui'; ctx.textAlign = 'center';
-      for (const [id, b] of Object.entries(BIOMES)) {
+      if (!arena) for (const [id, b] of Object.entries(BIOMES)) {
         let x, z;
         if (id === 'hub') { x = 0; z = 0; } else if (b.outer) { x = b.center.x; z = b.center.y; } else { const a = b.angle * Math.PI / 180; x = Math.cos(a) * 330; z = Math.sin(a) * 330; }
         ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillText(b.name, x * sc + S / 2 + 1, z * sc + S / 2 + 1);
         ctx.fillStyle = '#fff'; ctx.fillText(b.name, x * sc + S / 2, z * sc + S / 2);
       }
-      this.drawMarkers(ctx, (x) => x * sc + S / 2, (z) => z * sc + S / 2, 1.6);
-      ctx.translate(p.x * sc + S / 2, p.z * sc + S / 2);
+      this.drawMarkers(ctx, tx, tz, 1.6);
+      ctx.translate(tx(p.x), tz(p.z));
       ctx.rotate(-g.cam.yaw);
     } else {
       const zoom = 2.3;
@@ -242,9 +246,9 @@ export class UI {
       ctx.translate(W / 2, H / 2);
       ctx.rotate(g.cam.yaw);
       ctx.scale(zoom, zoom);
-      ctx.translate(-(p.x * sc + S / 2), -(p.z * sc + S / 2));
-      ctx.drawImage(this.mapImg, 0, 0);
-      this.drawMarkers(ctx, (x) => x * sc + S / 2, (z) => z * sc + S / 2, 1 / zoom * 2.2, p, 90);
+      ctx.translate(-tx(p.x), -tz(p.z));
+      ctx.drawImage(img, 0, 0);
+      this.drawMarkers(ctx, tx, tz, 1 / zoom * 2.2 * (arena ? 0.6 : 1), p, 90);
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.translate(W / 2, H / 2);
     }

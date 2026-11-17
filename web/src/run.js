@@ -8,6 +8,7 @@ import { buildCreatureModel } from './creatureModel.js';
 import { State } from './state.js';
 import { BIOMES } from './world.js';
 import { hashStr, rand, pick, clamp, mulberry32 } from './util.js';
+import { generateArena, ARENA_R } from './arenaGen.js';
 
 const PROJ = (el) => `${(el || 'Neutral').toLowerCase()}_proj`, BIT = (el) => `${(el || 'Neutral').toLowerCase()}_bit`; // atlas frames per element
 const STRIKE_FRAME = { Rockfall: 'boulder', Eruption: 'comet', 'Icicle fall': 'icicle', Lightning: 'bolt_strike', Stalactite: 'boulder', Geyser: 'geyser', Sunstrike: 'sunburst', 'Gale burst': 'wind_bit' };
@@ -115,13 +116,6 @@ export const ITEMS = [
 ];
 const itemById = Object.fromEntries(ITEMS.map((i) => [i.id, i]));
 
-export function arenaCenter(biomeId) {
-  const b = BIOMES[biomeId];
-  if (b.outer) return new THREE.Vector3(b.center.x, 0, b.center.y);
-  const a = b.angle * D2R; // far out along the wedge's diagonal, where the biome is widest
-  return new THREE.Vector3(Math.cos(a) * 470, 0, Math.sin(a) * 470);
-}
-
 export class Run {
   constructor(game) {
     this.g = game;
@@ -147,8 +141,9 @@ export class Run {
     this.clear();
     this.active = true;
     this.biome = biomeId;
-    this.center = arenaCenter(biomeId);
-    this.R = BIOMES[biomeId].outer ? 182 : 205; // arena radius
+    this.gen = generateArena(g.scene, biomeId); // a fresh element-themed arena, far from the base world
+    this.center = this.gen.center.clone();
+    this.R = ARENA_R; // arena radius (was 182-205 on the shared map)
     this.pendingTotems = 0; this.strikeAt = 12; this.hazAcc = 0; this.hazTick = 0; this.baseSpeed = 1;
     this.time = 0; this.kills = 0; this.level = 1; this.xp = 0; this.pendingLevels = 0; this.pendingChests = 0;
     this.spawnAcc = 0; this.eliteAt = 45; this.chestAt = 20; this.bossSpawned = false; this.boss = null; this.won = false;
@@ -157,9 +152,6 @@ export class Run {
     g.player.teleport(this.center.clone());
     g.player.hp = g.player.maxHp = 100;
     g.cam.dist = 22; g.cam.pitch = -0.72; g.cam.side = 0; // high, centred camera so the swarm is readable
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(this.R, 0.6, 6, 96).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffd76a, transparent: true, opacity: 0.7 }));
-    ring.position.copy(this.center).y += 1.5;
-    this.group.add(ring); this.ring = ring;
     this.buildArena();
     this.addMember(getCreature(entry.id), true);
     document.body.classList.add('in-run');
@@ -176,7 +168,8 @@ export class Run {
     for (const st of this.strikes || []) this.group.remove(st.mark, st.fill);
     if (this.ring) this.group.remove(this.ring);
     if (this.arena) { this.group.remove(this.arena); this.arena = null; }
-    this.g.world.removeOwned(this); this.pads = []; this.tops = []; this.zones = []; this.movers = []; this.totems = []; this.strikes = [];
+    this.g.world.removeOwned(this);
+    if (this.gen) { this.gen.dispose(); this.gen = null; } this.pads = []; this.tops = []; this.zones = []; this.movers = []; this.totems = []; this.strikes = [];
     this.enemies = []; this.team = []; this.shots = []; this.hazards = []; this.chests = []; this.gems = []; this.gemMesh.count = 0;
   }
 
@@ -718,7 +711,7 @@ export class Run {
         if (od < min && od > 0.001) { const f = (min - od) * 0.5 / od; e.pos.x += ox * f; e.pos.z += oz * f; }
       }
       // enemies scale ledges instead of walking through them: slow climb up, quick drop down
-      const gy = g.world.groundAt(e.pos.x, e.pos.z);
+      const gy = g.world.groundAt(e.pos.x, e.pos.z, Infinity, 1.2, false);
       if (gy > e.pos.y + 1.5) e.climbing = true;
       if (e.climbing) { e.pos.y = Math.min(gy, e.pos.y + (e.def.flying ? 14 : 6.5) * dt); if (e.pos.y >= gy) e.climbing = false; }
       else e.pos.y = Math.max(gy, e.pos.y - 40 * dt);
@@ -847,6 +840,12 @@ export class Run {
     }
     this.chestProgress = prog;
     this.updateHazards(dt);
+    for (const r of this.gen.roofs) { // see-through roof while you're inside the cave
+      const dx = pp.x - r.x, dz = pp.z - r.z, lx = dx * r.cos + dz * r.sin, lz = -dx * r.sin + dz * r.cos;
+      const inside = Math.abs(lx) < r.hx + 4 && Math.abs(lz) < r.hz + 4 && pp.y < r.y;
+      r.mat.opacity += ((inside ? 0.18 : 1) - r.mat.opacity) * Math.min(1, dt * 8);
+      r.mat.depthWrite = r.mat.opacity > 0.9;
+    }
 
     if (!g.ui.open) {
       if (this.pendingTotems > 0) { this.pendingTotems--; this.offerChest(true); }
@@ -859,8 +858,8 @@ export class Run {
   buildArena() {
     const g = this.g, w = g.world, rng = mulberry32(hashStr(this.biome) + 7);
     const base = new THREE.Color(BIOMES[this.biome].color);
-    const wallMat = new THREE.MeshLambertMaterial({ color: base.clone().lerp(new THREE.Color(0x4a4458), 0.6).multiplyScalar(0.8), flatShading: true });
-    const topMat = new THREE.MeshLambertMaterial({ color: base.clone().lerp(new THREE.Color(0xffe9b0), 0.55) });
+    const wallMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(this.gen.palette.rock), flatShading: true }); // the arena's own rock colour
+    const topMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(this.gen.palette.high).lerp(new THREE.Color(this.gen.palette.mid), 0.4) });
     const arena = new THREE.Group();
     this.arena = arena; this.pads = []; this.tops = [];
     const TIER = 3.6; // just under jump height (about 4)
@@ -883,8 +882,19 @@ export class Run {
       return null;
     };
     spots.push({ x: this.center.x, z: this.center.z, c: 12 }); // keep the start clear
+    for (const k of this.gen.keepOut) spots.push(k); // caves, pools, cones, lake, columns
+    // cave walls are solid from the side and walkable on top; roofs are ceilings you walk under
+    for (const b of this.gen.blocks) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(b.w, b.top - b.bottom, b.d), wallMat);
+      m.position.set(b.x, (b.top + b.bottom) / 2, b.z); m.rotation.y = b.rot; m.castShadow = true;
+      arena.add(m);
+      w.addBlock(b.x, b.z, -b.rot, b.w, b.d, b.top, this);
+    }
+    for (const r of this.gen.roofs) {
+      w.surfaces.push({ cx: r.x, cz: r.z, cos: r.cos, sin: r.sin, hx: r.hx, hz: r.hz, y: r.y + 3, owner: this, ceiling: true });
+    }
     // tiered plateaus: 1 to 3 tiers, each tier reachable with a jump from the one below
-    for (let i = 0; i < 18; i++) {
+    for (let i = 0; i < (this.biome === 'ocean' ? 6 : 16); i++) {
       const size = 20 + rng() * 12, p = place(26, this.R - 22, size * 0.75);
       if (!p) continue;
       const rot = rng() * Math.PI, gy = w.terrainHeight(p.x, p.z), tiers = 1 + Math.floor(rng() * 3);
@@ -941,7 +951,13 @@ export class Run {
       const dx = p.x - b.cx, dz = p.z - b.cz;
       return Math.abs(dx * b.cos + dz * b.sin) < b.hx + 2 && Math.abs(-dx * b.sin + dz * b.cos) < b.hz + 2;
     });
-    if (cfg.zone) for (let i = 0; i < cfg.zone.n; i++) {
+    // lava pools are carved into the volcanic terrain; black ice sits on the frozen lake
+    if (cfg.zone && this.biome === 'volcanic') for (const pool of this.gen.pools) this.zones.push({ ...cfg.zone, x: pool.x, z: pool.z, r: pool.r });
+    if (cfg.zone && this.gen.lake) for (let i = 0; i < 7; i++) {
+      const L = this.gen.lake, a = rng() * Math.PI * 2, d = Math.sqrt(rng()) * (L.r - 12), r = 7 + rng() * 6, x = L.x + Math.cos(a) * d, z = L.z + Math.sin(a) * d;
+      arena.add(this.groundDisc(x, z, r, cfg.zone.color, 0.7)); this.zones.push({ ...cfg.zone, x, z, r });
+    }
+    if (cfg.zone && this.biome !== 'volcanic') for (let i = 0; i < cfg.zone.n; i++) {
       const r = 6 + rng() * 5, p = place(20, this.R - 10, r + 2);
       if (!onGround(p)) continue;
       const mesh = this.groundDisc(p.x, p.z, r, cfg.zone.color, 0.72);
@@ -960,7 +976,7 @@ export class Run {
       this.movers.push({ ...cfg.mover, x: this.center.x + Math.cos(a) * r, z: this.center.z + Math.sin(a) * r, dir: rng() * Math.PI * 2, mesh, cd: 0, tick: 0 });
     }
     // totems: 6 per arena, well away from the start
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 8; i++) {
       const p = place(55, this.R - 18, 16);
       if (!onGround(p)) continue;
       const y = w.terrainHeight(p.x, p.z);

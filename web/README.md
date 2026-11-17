@@ -40,6 +40,20 @@ Progress is saved to the browser's `localStorage`. To start over, open Help and 
   - **Utility:** Lodestone (pickup range), Coin Charm (coins).
 - **Pace.** Runs start slow: you move at 78% speed, attacks fire 30% slower, and shots fly slower. Trail Boots (+12% speed each), Swift Claw and the class boosts speed things back up. Enemies are a little slower to match.
 - **Hit feedback.** Every hit shows a damage number (gold for crits, green when the element is strong against the target), a flash, element particles and a small shove. Shots use swept collision so they can't skip through enemies at low frame rates, and attacks don't reach through ledges. After an enemy hits you, you get 0.3 seconds before another contact hit can land.
+- **Arenas** are generated per element in `src/arenaGen.js`, 300 studs in radius, on their own terrain away from the base world:
+
+  | Biome | Terrain |
+  |---|---|
+  | Earth Forest | Rolling hills and river valleys, dense trees |
+  | Volcanic Wastes | Rough basalt with glowing cracks, three volcano cones with lava craters, 14 lava pools (they burn), lava-tube caves |
+  | Frozen Tundra | Snow hills and ice ridges, a frozen lake covered in black ice, ice caves |
+  | Wind Highlands | Terraced mesas cut by winding gorges, floating rocks, twisters |
+  | Electric Peaks | Stepped crystal terraces and canyons, tall crystal spires |
+  | Shadow Caverns | Sunken caverns, a forest of stalagmite columns, six tunnels |
+  | Ocean Shallows | An archipelago of islands in shallow water |
+  | Sunscorch Desert | Dune fields, a dry canyon, ruined pillar circles, quicksand |
+
+  Caves are tunnels with solid walls and a rock roof that turns see-through while you're inside. A cliff rim surrounds each arena.
 - **High ground.** Each arena has tiered plateaus (every tier is one jump high), tall spires and jump pads that launch you onto them. Enemies have to climb ledges slowly, so height buys you time, and nearly half of the timed chests appear on top of a structure.
 - Survive 5 minutes, then beat the biome's Legendary boss.
 

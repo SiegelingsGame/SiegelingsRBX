@@ -98,13 +98,16 @@ export const ITEMS = [
   { id: 'amp_aura', cls: 'aura', icon: '🔔', name: 'Resonance Bell', desc: (l) => `Aura attacks: +${20 * l}% damage, +${12 * l}% radius, +${8 * l}% speed` },
   { id: 'amp_random', cls: 'random', icon: '🌩️', name: 'Storm Totem', desc: (l) => `Random strikes: +${20 * l}% damage${l >= 2 ? `, +${Math.floor(l / 2)} strike${l >= 4 ? 's' : ''}` : ''}, +${8 * l}% speed` },
   { id: 'amp_chain', cls: 'chain', icon: '🌀', name: 'Conductor Coil', desc: (l) => `Chain attacks: +${20 * l}% damage, +${l} jump${l > 1 ? 's' : ''}, +${8 * l}% speed` },
-  { id: 'banner', icon: '🚩', name: 'Siege Banner', desc: (l) => `+${10 * l}% damage` },
+  { id: 'banner', icon: '🚩', name: 'Siege Banner', desc: (l) => `+${12 * l}% attack damage for every Siegeling` },
   { id: 'boots', icon: '🥾', name: 'Trail Boots', desc: (l) => `+${12 * l}% movement speed` },
-  { id: 'heartroot', icon: '❤️', name: 'Heartroot', desc: (l) => `+${20 * l} max HP` },
-  { id: 'moss', icon: '🌱', name: 'Regen Moss', desc: (l) => `Regenerate ${(0.6 * l).toFixed(1)} HP per second` },
+  { id: 'heartroot', icon: '❤️', name: 'Heartroot', desc: (l) => `+${25 * l} max HP` },
+  { id: 'moss', icon: '🌱', name: 'Regen Moss', desc: (l) => `Regenerate ${(0.8 * l).toFixed(1)} HP per second` },
   { id: 'plate', icon: '🛡️', name: 'Guard Plate', desc: (l) => `Take ${8 * l}% less damage` },
   { id: 'lodestone', icon: '🧲', name: 'Lodestone', desc: (l) => `+${30 * l}% pickup range` },
   { id: 'fang', icon: '🦷', name: 'Lucky Fang', desc: (l) => `+${8 * l}% critical hit chance` },
+  { id: 'edge', icon: '🗡️', name: 'Keen Edge', desc: (l) => `Critical hits deal ${200 + 30 * l}% damage (base 200%)` },
+  { id: 'springs', icon: '🦘', name: 'Spring Heels', desc: (l) => `+${15 * l}% jump height` },
+  { id: 'wings', icon: '🪽', name: 'Wing Charm', max: 3, desc: (l) => `+${l} mid-air jump${l > 1 ? 's' : ''}` },
   { id: 'seal', icon: '🔆', name: "Giant's Seal", desc: (l) => `+${12 * l}% attack area` },
   { id: 'charm', icon: '🪙', name: 'Coin Charm', desc: (l) => `+${20 * l}% coins from the run` },
   ...['Fire', 'Ice', 'Wind', 'Earth', 'Water', 'Lightning', 'Metal', 'Poison', 'Psychic', 'Undead', 'Light', 'Shadow'].map((el) => (
@@ -200,7 +203,7 @@ export class Run {
     this.clear();
     document.body.classList.remove('in-run');
     const p = g.player;
-    p.alive = true; p.maxHp = 100; p.hp = 100; p.speedMult = 1; p.damageTakenMult = 1; p.regen = undefined; p.avatar.root.rotation.x = 0;
+    p.alive = true; p.maxHp = 100; p.hp = 100; p.speedMult = 1; p.damageTakenMult = 1; p.regen = undefined; p.jumpMult = 1; p.extraJumps = 0; p.avatar.root.rotation.x = 0;
     g.cam.dist = 9; g.cam.side = 1;
     p.teleport(g.base.homePosition(), g.base.homeYaw());
     g.cam.yaw = g.base.homeYaw() + Math.PI; g.cam.pitch = -0.2;
@@ -239,7 +242,7 @@ export class Run {
     if (k.cls === 'random') count += Math.floor(amp / 2);
     if (k.cls === 'chain') count += amp;
     return {
-      dmg: a.dmg * (1 + 0.25 * (m.level - 1)) * evo * (1 + 0.1 * this.item('banner')) * (1 + 0.25 * this.item(`core_${a.element}`)) * (1 + 0.2 * amp) * (a.element === 'Neutral' ? 1.2 : 1),
+      dmg: a.dmg * (1 + 0.25 * (m.level - 1)) * evo * (1 + 0.12 * this.item('banner')) * (1 + 0.25 * this.item(`core_${a.element}`)) * (1 + 0.2 * amp) * (a.element === 'Neutral' ? 1.2 : 1),
       cd: a.cd * Math.pow(0.96, m.level - 1) / ((1 + 0.12 * this.item('swiftclaw')) * (1 + 0.08 * amp)),
       count,
       area: a.area * (1 + 0.12 * this.item('seal')) * (1 + 0.04 * (m.level - 1)) * (k.cls === 'melee' ? 1 + 0.1 * amp : k.cls === 'aura' ? 1 + 0.12 * amp : 1),
@@ -249,13 +252,15 @@ export class Run {
 
   applyItems() {
     const p = this.g.player;
-    const maxHp = 100 + 20 * this.item('heartroot');
+    const maxHp = 100 + 25 * this.item('heartroot');
     if (maxHp > p.maxHp) p.hp += maxHp - p.maxHp;
     p.maxHp = maxHp;
     this.baseSpeed = 0.78 * (1 + 0.12 * this.item('boots')); // slower start; Trail Boots bring it back up
     p.speedMult = this.baseSpeed;
     p.damageTakenMult = 1 - 0.08 * this.item('plate');
-    p.regen = 0.6 * this.item('moss');
+    p.regen = 0.8 * this.item('moss');
+    p.jumpMult = Math.sqrt(1 + 0.15 * this.item('springs')); // height grows with speed squared, so this gives exactly +15% height per level
+    p.extraJumps = this.item('wings');
   }
 
   // ── choices (level-ups and chests) ───────────────────────────
@@ -385,7 +390,7 @@ export class Run {
     if ((BEATS[el] || []).includes(e.def.element)) dmg *= 1.5;
     if (e.st.shred > 0) dmg *= 1.25;
     const crit = Math.random() < 0.05 + 0.08 * this.item('fang') + (el === 'Shadow' ? 0.15 : 0);
-    if (crit) dmg *= 2;
+    if (crit) dmg *= 2 + 0.3 * this.item('edge');
     e.hp -= dmg;
     e.flash = 0.12; e.punch = 0.14;
     if (!secondary) {

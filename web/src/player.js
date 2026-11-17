@@ -109,7 +109,15 @@ export class Player {
     const accel = this.onGround ? 12 : 3;
     this.vel.x += (move.x - this.vel.x) * Math.min(1, dt * accel);
     this.vel.z += (move.z - this.vel.z) * Math.min(1, dt * accel);
-    if (this.onGround && input.pressed('Space')) { this.vel.y = CFG.JumpPower; this.onGround = false; }
+    // Jump height and mid-air jumps come from run items (jumpMult, extraJumps); both reset after a run.
+    if (input.pressed('Space')) {
+      if (this.onGround) { this.vel.y = CFG.JumpPower * (this.jumpMult ?? 1); this.onGround = false; this.airJumps = 0; }
+      else if ((this.airJumps || 0) < (this.extraJumps || 0)) {
+        this.airJumps = (this.airJumps || 0) + 1;
+        this.vel.y = CFG.JumpPower * (this.jumpMult ?? 1) * 0.9;
+        this.fx.burst(this.pos.clone().setY(this.pos.y + 0.5), 0xd8f4ff, 12, 4, 0.4, -1);
+      }
+    }
     this.vel.y -= CFG.Gravity * dt;
 
     let nx = this.pos.x + this.vel.x * dt, nz = this.pos.z + this.vel.z * dt;
@@ -127,7 +135,7 @@ export class Player {
     this.pos.y += this.vel.y * dt;
     const g = this.world.groundAt(this.pos.x, this.pos.z, this.pos.y);
     if (this.pos.y <= g + (this.onGround ? 0.6 : 0)) {
-      if (this.vel.y <= 0) { this.pos.y = g; this.vel.y = 0; this.onGround = true; }
+      if (this.vel.y <= 0) { this.pos.y = g; this.vel.y = 0; this.onGround = true; this.airJumps = 0; }
     } else this.onGround = false;
     if (this.pos.y < g - 5) this.pos.y = g;
 

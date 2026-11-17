@@ -34,7 +34,10 @@ Progress is saved to the browser's `localStorage`. To start over, open Help and 
 - **Level-ups** come from XP gems: upgrade a Siegeling (it evolves along its TCG line at levels 3 and 6) or take one of up to **6 items**:
   - **Class boosts**, offered only when your team has that class: Brawler's Knuckle (melee), Fletcher's Quiver (projectile), Resonance Bell (aura), Storm Totem (random strike; extra strikes), Conductor Coil (chain; extra jumps).
   - **Splitting Prism:** +1 projectile, orb, trap or strike per level (max 3) for attacks that fire more than one.
-  - **General:** attack speed, damage, movement speed, max HP, regen, armor, pickup range, crit, area, coins, and a damage core per element.
+  - **Attack:** Siege Banner (+12% damage per level), Swift Claw (+12% attack speed), Lucky Fang (+8% crit chance), Keen Edge (+30% crit damage on top of the base 200%), Giant's Seal (+12% area), and a damage core per element.
+  - **Movement:** Trail Boots (+12% speed), Spring Heels (+15% jump height), Wing Charm (+1 mid-air jump per level, max 3).
+  - **Survival:** Heartroot (+25 max HP), Regen Moss (+0.8 HP per second), Guard Plate (8% less damage taken).
+  - **Utility:** Lodestone (pickup range), Coin Charm (coins).
 - **Pace.** Runs start slow: you move at 78% speed, attacks fire 30% slower, and shots fly slower. Trail Boots (+12% speed each), Swift Claw and the class boosts speed things back up. Enemies are a little slower to match.
 - **Hit feedback.** Every hit shows a damage number (gold for crits, green when the element is strong against the target), a flash, element particles and a small shove. Shots use swept collision so they can't skip through enemies at low frame rates, and attacks don't reach through ledges. After an enemy hits you, you get 0.3 seconds before another contact hit can land.
 - **High ground.** Each arena has tiered plateaus (every tier is one jump high), tall spires and jump pads that launch you onto them. Enemies have to climb ledges slowly, so height buys you time, and nearly half of the timed chests appear on top of a structure.

@@ -56,7 +56,7 @@ export class UI {
     $('#hp-text').textContent = `${Math.ceil(g.player.hp)} / ${g.player.maxHp}`;
     const b = biomeAt(g.player.pos.x, g.player.pos.z);
     const onBase = g.base.isInside(g.player.pos, 2);
-    $('#biome').textContent = onBase ? 'Your Base' : BIOMES[b].name;
+    $('#biome').textContent = document.body.classList.contains('underground') ? 'Underground' : onBase ? 'Your Base' : BIOMES[b].name;
     const h = d.timeOfDay;
     const hh = Math.floor(h), mm = Math.floor((h - hh) * 60);
     $('#clock').textContent = `${g.isNight() ? '🌙' : '☀️'} ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;

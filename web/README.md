@@ -38,6 +38,7 @@ Progress is saved to the browser's `localStorage`. To start over, open Help and 
   - **Movement:** Trail Boots (+12% speed), Spring Heels (+15% jump height), Wing Charm (+1 mid-air jump per level, max 3).
   - **Survival:** Heartroot (+25 max HP), Regen Moss (+0.8 HP per second), Guard Plate (8% less damage taken).
   - **Utility:** Lodestone (pickup range), Coin Charm (coins).
+- **Swarm ramp.** The first minute is calm: about 4 enemies in the first 15 seconds and 28 by 1:00. After that the spawn rate climbs steeply (about 1.8 a second at 2:00, 4 at 3:00, 7 at 4:00 and 11 by the boss), enemy health grows faster each minute, and a swarm surge arrives every minute from 1:30. The first elite appears at 1:15. Without the right upgrades it becomes overwhelming.
 - **Pace.** Runs start slow: you move at 78% speed, attacks fire 30% slower, and shots fly slower. Trail Boots (+12% speed each), Swift Claw and the class boosts speed things back up. Enemies are a little slower to match.
 - **Hit feedback.** Every hit shows a damage number (gold for crits, green when the element is strong against the target), a flash, element particles and a small shove. Shots use swept collision so they can't skip through enemies at low frame rates, and attacks don't reach through ledges. After an enemy hits you, you get 0.3 seconds before another contact hit can land.
 - **Arenas** are generated per element in `src/arenaGen.js`, 300 studs in radius, on their own terrain away from the base world:
@@ -53,7 +54,7 @@ Progress is saved to the browser's `localStorage`. To start over, open Help and 
   | Ocean Shallows | An archipelago of islands in shallow water |
   | Sunscorch Desert | Dune fields, a dry canyon, ruined pillar circles, quicksand |
 
-  Caves are tunnels with solid walls and a rock roof that turns see-through while you're inside. A cliff rim surrounds each arena.
+  Caves are real underground tunnels: a ramp leads down at each end into a covered section about 10 studs below the surface, with a roof flush with the ground above, so you can also walk across the top. Inside, the camera moves in close behind you, stays under the ceiling and turns to look along the tunnel; a dark vignette and an "Underground" label show where you are, and glowing crystals light the walls. A cliff rim surrounds each arena.
 - **High ground.** Each arena has tiered plateaus (every tier is one jump high), tall spires and jump pads that launch you onto them. Enemies have to climb ledges slowly, so height buys you time, and nearly half of the timed chests appear on top of a structure.
 - Survive 5 minutes, then beat the biome's Legendary boss.
 

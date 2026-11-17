@@ -119,12 +119,19 @@ export function generateArena(scene, biome) {
     F.canyon = [{ x: Math.cos(a) * (R - 20), z: Math.sin(a) * (R - 20) }, { x: Math.cos(a + Math.PI) * (R - 20) + 40, z: Math.sin(a + Math.PI) * (R - 20) }]; // segDist takes {x, z}
     for (let i = 0; i < 5; i++) F.ruins.push(ringPos(60, R - 40));
   }
-  const caveCount = { volcanic: 3, frozen: 2, caves: 6, electric: 2, highlands: 1, forest: 1, desert: 1, ocean: 0 }[biome] || 0;
+  // Underground tunnels: a ramp down at each end, a covered section below the surface, and a
+  // roof flush with the ground above so the surface stays walkable.
+  const caveCount = { volcanic: 3, frozen: 2, caves: 6, electric: 2, highlands: 1, forest: 2, desert: 2, ocean: 0 }[biome] || 0;
   for (let i = 0; i < caveCount; i++) {
-    const p = ringPos(70, R - 60), a = rng() * Math.PI, len = rnd(36, 60);
-    F.caves.push({ a: { u: p.u - Math.cos(a) * len / 2, v: p.v - Math.sin(a) * len / 2 }, b: { u: p.u + Math.cos(a) * len / 2, v: p.v + Math.sin(a) * len / 2 }, w: 11, h: 8, mid: p, ang: a, len });
+    const p = ringPos(80, R - 75), a = rng() * Math.PI, len = rnd(44, 72);
+    F.caves.push({ a: { u: p.u - Math.cos(a) * len / 2, v: p.v - Math.sin(a) * len / 2 }, b: { u: p.u + Math.cos(a) * len / 2, v: p.v + Math.sin(a) * len / 2 }, w: 12, depth: 10, ramp: 22, mid: p, ang: a, len });
   }
-  for (const c of F.caves) c.floor = baseHeight(biome, c.mid.u, c.mid.v, F);
+  for (const c of F.caves) {
+    const dir = { u: Math.cos(c.ang), v: Math.sin(c.ang) }, reach = c.len / 2 + c.ramp;
+    let top = -1e9;
+    for (let t = -reach; t <= reach; t += 6) top = Math.max(top, baseHeight(biome, c.mid.u + dir.u * t, c.mid.v + dir.v * t, F));
+    c.surface = top; c.floor = top - c.depth; c.dir = dir;
+  }
   for (const p of F.pools) p.floor = baseHeight(biome, p.u, p.v, F) - p.depth;
 
   // ── heightfield ──
@@ -134,11 +141,17 @@ export function generateArena(scene, biome) {
     let h = baseHeight(biome, u, v, F);
     if (F.lake) { const k = 1 - smoothstep(F.lake.r - 6, F.lake.r + 14, Math.hypot(u - F.lake.u, v - F.lake.v)); h = lerp(h, -1.5, k); }
     for (const p of F.pools) { const k = 1 - smoothstep(p.r * 0.6, p.r + 4, Math.hypot(u - p.u, v - p.v)); h = lerp(h, Math.min(h, p.floor), k); }
-    for (const c of F.caves) { // flat tunnel floor with a short ramp at each mouth
-      const dd = segDist(u, v, { x: c.a.u, z: c.a.v }, { x: c.b.u, z: c.b.v });
-      const ends = Math.min(Math.hypot(u - c.a.u, v - c.a.v), Math.hypot(u - c.b.u, v - c.b.v));
-      const k = (1 - smoothstep(c.w / 2, c.w / 2 + 8, dd)) * (dd < c.w / 2 + 8 ? 1 : 0);
-      h = lerp(h, c.floor, k * (ends < 4 ? 0.7 : 1));
+    for (const c of F.caves) {
+      const du = u - c.mid.u, dv = v - c.mid.v, along = Math.abs(du * c.dir.u + dv * c.dir.v), perp = Math.abs(-du * c.dir.v + dv * c.dir.u);
+      const reach = c.len / 2 + c.ramp;
+      if (along > reach + 8 || perp > c.w / 2 + 12) continue;
+      // level the ground around the tunnel to the roof height, then cut the trench and ramps
+      const band = (1 - smoothstep(c.w / 2 + 6, c.w / 2 + 12, perp)) * (1 - smoothstep(reach, reach + 8, along));
+      h = lerp(h, c.surface, band);
+      if (perp < c.w / 2 + 1 && along <= reach) {
+        const floorAt = along <= c.len / 2 ? c.floor : lerp(c.floor, c.surface, (along - c.len / 2) / c.ramp);
+        h = lerp(h, floorAt, 1 - smoothstep(c.w / 2 - 0.5, c.w / 2 + 1, perp));
+      }
     }
     h = lerp(h, 0, 1 - smoothstep(16, 40, d)); // clear, level start
     if (d > R + 4) h += Math.pow((d - R - 4) * 0.14, 2) * 2.4 + (fbm(u * 0.03, v * 0.03) - 0.5) * 18 * smoothstep(R, R + 50, d); // rim cliffs
@@ -193,7 +206,7 @@ export function generateArena(scene, biome) {
     for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) { const l = grid.get(`${gx + i},${gz + j}`); if (l) out.push(...l); }
     return out;
   };
-  const region = { cx, cz, half, biome, height, waterY, colliders: [], nearColliders };
+  const region = { cx, cz, half, biome, height, waterY, colliders: [], nearColliders, underground: () => null };
   setArenaRegion(region);
 
   // ── water, lava, ice ──
@@ -212,24 +225,50 @@ export function generateArena(scene, biome) {
   }
   if (F.lake) disc(F.lake.u, F.lake.v, F.lake.r + 6, 0xbfe6ff, -1.2, { opacity: 0.85 });
 
-  // ── caves: solid walls with a roof you can walk under (the roof fades when you're inside) ──
+  // ── underground tunnels: a ground-coloured roof over the covered section, lit inside ──
   const blocks = [], roofs = [];
-  const rockMat = new THREE.MeshLambertMaterial({ color: pal.rock, flatShading: true });
+  const roofMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(pal.mid).multiplyScalar(0.92), flatShading: true });
+  const lipMat = new THREE.MeshLambertMaterial({ color: pal.rock, flatShading: true });
+  const glowMat = new THREE.MeshBasicMaterial({ color: pal.extra });
   for (const cv of F.caves) {
-    const mx = cx + cv.mid.u, mz = cz + cv.mid.v, rot = cv.ang, along = new THREE.Vector2(Math.cos(rot), Math.sin(rot)), side = new THREE.Vector2(-along.y, along.x);
-    for (const sgn of [-1, 1]) {
-      const wx = mx + side.x * sgn * (cv.w / 2 + 1.5), wz = mz + side.y * sgn * (cv.w / 2 + 1.5);
-      blocks.push({ x: wx, z: wz, rot: -rot, w: cv.len, d: 3, bottom: cv.floor - 4, top: cv.floor + cv.h });
-    }
-    const roofMat = new THREE.MeshLambertMaterial({ color: pal.rock, flatShading: true, transparent: true, opacity: 1 });
-    const roof = new THREE.Mesh(new THREE.BoxGeometry(cv.len, 3, cv.w + 6), roofMat);
-    roof.position.set(mx, cv.floor + cv.h + 1.5, mz); roof.rotation.y = -rot; roof.castShadow = true;
-    // a lumpy crown so it reads as rock, not a slab
-    for (let k = 0; k < 5; k++) { const lump = new THREE.Mesh(new THREE.DodecahedronGeometry(rnd(3, 5), 0), roofMat); lump.position.set(rnd(-cv.len / 2.4, cv.len / 2.4), rnd(1, 2.5), rnd(-2, 2)); roof.add(lump); }
+    const mx = cx + cv.mid.u, mz = cz + cv.mid.v, rot = cv.ang, top = cv.surface + 0.3, thick = 2.6;
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(cv.len, thick, cv.w + 12), roofMat);
+    roof.position.set(mx, top - thick / 2, mz); roof.rotation.y = -rot; roof.castShadow = true; roof.receiveShadow = true;
     group.add(roof);
-    roofs.push({ mesh: roof, mat: roofMat, x: mx, z: mz, cos: Math.cos(rot), sin: Math.sin(rot), hx: cv.len / 2, hz: cv.w / 2 + 3, y: cv.floor + cv.h });
-    const glow = new THREE.PointLight(new THREE.Color(pal.extra), 60, 30, 1.8); glow.position.set(mx, cv.floor + 4, mz); group.add(glow);
+    for (const end of [-1, 1]) { // a rocky lip over each mouth so it reads as a cave entrance
+      for (let k = 0; k < 4; k++) {
+        const lump = new THREE.Mesh(new THREE.DodecahedronGeometry(rnd(2.2, 3.6), 0), lipMat);
+        lump.position.set(end * cv.len / 2, rnd(0.2, 1.6), (k / 3 - 0.5) * (cv.w + 4));
+        roof.add(lump);
+      }
+    }
+    // glowing crystals along the walls and warm lights inside
+    for (let t = -cv.len / 2 + 7; t < cv.len / 2 - 4; t += 14) {
+      const lx = mx + Math.cos(rot) * t, lz = mz + Math.sin(rot) * t;
+      const light = new THREE.PointLight(new THREE.Color(pal.extra).lerp(new THREE.Color(0xffffff), 0.4), 45, 24, 1.6);
+      light.position.set(lx, cv.floor + 6.5, lz); group.add(light);
+      for (const sgn of [-1, 1]) {
+        const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.7, 0).scale(0.7, 1.6, 0.7), glowMat);
+        gem.position.set(lx - Math.sin(rot) * sgn * (cv.w / 2 - 0.6), cv.floor + 2.5 + rnd(0, 3), lz + Math.cos(rot) * sgn * (cv.w / 2 - 0.6));
+        group.add(gem);
+      }
+    }
+    roofs.push({ x: mx, z: mz, cos: Math.cos(rot), sin: Math.sin(rot), hx: cv.len / 2, hz: cv.w / 2 + 6, w: cv.w, top, ceil: top - thick, floor: cv.floor, ang: rot });
+    // solid side walls along the covered section and both ramps (the terrain alone can be climbed a step at a time)
+    const reach = cv.len / 2 + cv.ramp;
+    for (const sgn of [-1, 1]) {
+      const off = cv.w / 2 + 1;
+      blocks.push({ x: mx - Math.sin(rot) * sgn * off, z: mz + Math.cos(rot) * sgn * off, rot: -rot, w: reach * 2, d: 2, bottom: cv.floor - 2, top: cv.surface, hidden: true });
+    }
   }
+  // Is (x, z, y) inside a covered tunnel? Returns that tunnel (for the interior camera) or null.
+  const underground = (x, z, y) => {
+    for (const r of roofs) {
+      const dx = x - r.x, dz = z - r.z, lx = dx * r.cos + dz * r.sin, lz = -dx * r.sin + dz * r.cos;
+      if (Math.abs(lx) <= r.hx + 1 && Math.abs(lz) <= r.w / 2 + 1 && y < r.ceil - 1) return r;
+    }
+    return null;
+  };
   // biome columns: caves stalagmite pillars, desert ruins, electric crystal spires
   const columns = [];
   if (biome === 'caves') for (let i = 0; i < 26; i++) columns.push({ ...ringPos(30, R - 10), r: rnd(2.5, 5), h: rnd(16, 34), color: 0x4a4452, kind: 'cone' });
@@ -253,7 +292,7 @@ export function generateArena(scene, biome) {
   // ── scattered props ──
   const P = makePropGeometries();
   const placements = {};
-  const blocked = (u, v) => Math.hypot(u, v) < 30 || F.caves.some((cv) => segDist(u, v, { x: cv.a.u, z: cv.a.v }, { x: cv.b.u, z: cv.b.v }) < cv.w / 2 + 6)
+  const blocked = (u, v) => Math.hypot(u, v) < 30 || F.caves.some((cv) => segDist(u, v, { x: cv.a.u - cv.dir.u * cv.ramp, z: cv.a.v - cv.dir.v * cv.ramp }, { x: cv.b.u + cv.dir.u * cv.ramp, z: cv.b.v + cv.dir.v * cv.ramp }) < cv.w / 2 + 8)
     || F.pools.some((p) => Math.hypot(u - p.u, v - p.v) < p.r + 3) || (F.lake && Math.hypot(u - F.lake.u, v - F.lake.v) < F.lake.r + 4);
   const spacing = 9;
   for (let gu = -R; gu < R; gu += spacing) for (let gv = -R; gv < R; gv += spacing) {
@@ -294,16 +333,16 @@ export function generateArena(scene, biome) {
   }
   mctx.putImageData(img, 0, 0);
   mctx.fillStyle = 'rgba(20,16,28,0.75)';
-  for (const cv of F.caves) { mctx.save(); mctx.translate((cv.mid.u / size + 0.5) * MS, (cv.mid.v / size + 0.5) * MS); mctx.rotate(cv.ang); mctx.fillRect(-cv.len / size * MS / 2, -cv.w / size * MS / 2, cv.len / size * MS, cv.w / size * MS); mctx.restore(); }
+  for (const cv of F.caves) { mctx.save(); mctx.translate((cv.mid.u / size + 0.5) * MS, (cv.mid.v / size + 0.5) * MS); mctx.rotate(cv.ang); mctx.fillRect(-cv.len / size * MS / 2, -cv.w / size * MS / 2, cv.len / size * MS, cv.w / size * MS); mctx.fillStyle = 'rgba(20,16,28,0.4)'; mctx.fillRect(-(cv.len / 2 + cv.ramp) / size * MS, -cv.w / size * MS / 2, (cv.len + cv.ramp * 2) / size * MS, cv.w / size * MS); mctx.fillStyle = 'rgba(20,16,28,0.75)'; mctx.restore(); }
 
   return {
-    group, region, features: F, blocks, roofs, R, palette: pal, center: new THREE.Vector3(cx, 0, cz),
+    group, region, features: F, blocks, roofs, underground, R, palette: pal, center: new THREE.Vector3(cx, 0, cz),
     map: { img: mc, scale: MS / size, ox: cx - half, oz: cz - half },
     // world-space feature positions for hazards and level layout
     pools: F.pools.map((p) => ({ x: cx + p.u, z: cz + p.v, r: p.r })),
     lake: F.lake && { x: cx + F.lake.u, z: cz + F.lake.v, r: F.lake.r },
     keepOut: [
-      ...F.caves.map((cv) => ({ x: cx + cv.mid.u, z: cz + cv.mid.v, c: cv.len / 2 + 8 })),
+      ...F.caves.map((cv) => ({ x: cx + cv.mid.u, z: cz + cv.mid.v, c: cv.len / 2 + cv.ramp + 6 })),
       ...F.pools.map((p) => ({ x: cx + p.u, z: cz + p.v, c: p.r + 4 })),
       ...F.cones.map((k) => ({ x: cx + k.u, z: cz + k.v, c: k.r * 0.7 })),
       ...(F.lake ? [{ x: cx + F.lake.u, z: cz + F.lake.v, c: F.lake.r }] : []),

@@ -226,10 +226,23 @@ export class ShoulderCamera {
   update(dt, player, input) {
     this.aiming = input.mouseDown(2);
     this.sideLerp += (this.side - this.sideLerp) * Math.min(1, dt * 8);
-    const want = this.aiming ? 4.2 : this.dist;
-    const fwd = this.forward();
+    // Interior mode (set by a run while you're in a tunnel): close, level, under the ceiling,
+    // and eased to look along the tunnel so the walls don't block the view.
+    const tunnel = this.interior;
+    this.inK = (this.inK || 0) + ((tunnel ? 1 : 0) - (this.inK || 0)) * Math.min(1, dt * 5);
+    const k = this.inK;
+    if (tunnel) {
+      // forward is (-sin yaw, -cos yaw); this yaw points it along the tunnel axis (cos ang, sin ang)
+      let want = Math.atan2(-Math.cos(tunnel.ang), -Math.sin(tunnel.ang));
+      const diff = (a) => Math.atan2(Math.sin(a - this.yaw), Math.cos(a - this.yaw));
+      if (Math.abs(diff(want + Math.PI)) < Math.abs(diff(want))) want += Math.PI;
+      this.yaw += diff(want) * Math.min(1, dt * 2.5);
+    }
+    const want = THREE.MathUtils.lerp(this.aiming ? 4.2 : this.dist, 6.5, k);
+    const pitch = THREE.MathUtils.lerp(this.pitch, -0.12, k);
+    const fwd = new THREE.Vector3(-Math.sin(this.yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(this.yaw) * Math.cos(pitch));
     const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
-    const pivot = player.pos.clone().add(new THREE.Vector3(0, 4.6, 0)).addScaledVector(right, (this.aiming ? 1.7 : 2.0) * this.sideLerp);
+    const pivot = player.pos.clone().add(new THREE.Vector3(0, THREE.MathUtils.lerp(4.6, 3.6, k), 0)).addScaledVector(right, (this.aiming ? 1.7 : 2.0) * this.sideLerp * (1 - k));
     // pull in if terrain blocks the view
     let d = want;
     for (let i = 1; i <= 8; i++) {
@@ -241,6 +254,7 @@ export class ShoulderCamera {
     const pos = pivot.clone().addScaledVector(fwd, -this.curDist);
     const g = this.world.terrainHeight(pos.x, pos.z) + 0.8;
     if (pos.y < g) pos.y = g;
+    if (tunnel && pos.y > tunnel.ceil - 0.8) pos.y = Math.max(g, tunnel.ceil - 0.8);
     this.cam.position.copy(pos);
     this.cam.lookAt(pivot.clone().addScaledVector(fwd, 30));
     const fov = this.aiming ? 50 : 70;

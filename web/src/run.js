@@ -146,7 +146,7 @@ export class Run {
     this.R = ARENA_R; // arena radius (was 182-205 on the shared map)
     this.pendingTotems = 0; this.strikeAt = 12; this.hazAcc = 0; this.hazTick = 0; this.baseSpeed = 1;
     this.time = 0; this.kills = 0; this.level = 1; this.xp = 0; this.pendingLevels = 0; this.pendingChests = 0;
-    this.spawnAcc = 0; this.eliteAt = 45; this.chestAt = 20; this.bossSpawned = false; this.boss = null; this.won = false;
+    this.spawnAcc = 0; this.eliteAt = 75; this.surgeAt = 90; this.chestAt = 20; this.bossSpawned = false; this.boss = null; this.won = false;
     this.items = {}; this.found = [];
     this.center.y = g.world.groundAt(this.center.x, this.center.z);
     g.player.teleport(this.center.clone());
@@ -169,6 +169,7 @@ export class Run {
     if (this.ring) this.group.remove(this.ring);
     if (this.arena) { this.group.remove(this.arena); this.arena = null; }
     this.g.world.removeOwned(this);
+    this.g.cam.interior = null; document.body.classList.remove('underground');
     if (this.gen) { this.gen.dispose(); this.gen = null; } this.pads = []; this.tops = []; this.zones = []; this.movers = []; this.totems = []; this.strikes = [];
     this.enemies = []; this.team = []; this.shots = []; this.hazards = []; this.chests = []; this.gems = []; this.gemMesh.count = 0;
   }
@@ -345,12 +346,12 @@ export class Run {
       x = p.x + Math.cos(a) * r; z = p.z + Math.sin(a) * r;
       if (Math.hypot(x - this.center.x, z - this.center.z) < this.R + 25) break;
     }
-    const k = 1 + this.time / 60 * 0.55;
+    const mins = this.time / 60, k = 1 + 0.35 * mins + 0.12 * mins * mins; // tougher every minute, faster after the first
     const mult = tier === 'boss' ? 140 : tier === 'elite' ? 14 : def.rarity === 'Uncommon' ? 1.6 : 1;
     const e = {
       def, tier, isBoss: tier === 'boss', isRaider: true, fainted: false,
       pos: new THREE.Vector3(x, 0, z), hp: 14 * k * mult, speed: (tier === 'boss' ? 8.5 : tier === 'elite' ? 7 : rand(5.5, 8)) + Math.min(2.5, this.time / 140),
-      dmg: (4 + this.time / 50) * (tier === 'boss' ? 3 : tier === 'elite' ? 1.8 : 1), hitCD: 0, st: {}, t: Math.random() * 10,
+      dmg: (4 + Math.max(0, this.time - 30) / 40) * (tier === 'boss' ? 3 : tier === 'elite' ? 1.8 : 1), hitCD: 0, st: {}, t: Math.random() * 10,
     };
     e.maxHp = e.hp;
     e.model = buildCreatureModel(def, { scale: tier === 'boss' ? 1.5 : tier === 'elite' ? 1.15 : 0.8 });
@@ -683,9 +684,18 @@ export class Run {
     if (dc > this.R) { pp.x = this.center.x + (pp.x - this.center.x) * this.R / dc; pp.z = this.center.z + (pp.z - this.center.z) * this.R / dc; }
 
     // spawning
-    const rate = this.bossSpawned ? 2 : 0.8 + this.time / 45;
+    // A calm first minute (a trickle growing to ~0.7/s), then a steep climb: ~1.8/s at 2:00, ~4/s at 3:00,
+    // ~7/s at 4:00 and ~11/s by the boss. Without the right upgrades it becomes overwhelming.
+    const t = this.time;
+    const rate = this.bossSpawned ? 2.5 : t < 60 ? 0.25 + 0.45 * (t / 60) : 0.7 + 1.1 * Math.pow((t - 60) / 60, 1.6);
     this.spawnAcc += dt * rate;
-    while (this.spawnAcc >= 1) { this.spawnAcc -= 1; if (this.enemies.length < (g.ctx.touch ? 90 : 150)) this.spawnEnemy(); }
+    while (this.spawnAcc >= 1) { this.spawnAcc -= 1; if (this.enemies.length < (g.ctx.touch ? 100 : 170)) this.spawnEnemy(); }
+    if (this.time >= this.surgeAt && !this.bossSpawned) { // a surge every minute after the first
+      const n = Math.round(8 + (this.time / 60) * 6);
+      this.surgeAt += 60;
+      for (let i = 0; i < n && this.enemies.length < (g.ctx.touch ? 120 : 200); i++) this.spawnEnemy();
+      g.ui.notify(`A swarm surge! ${n} Siegelings close in`, 'warn');
+    }
     if (this.time >= this.eliteAt && !this.bossSpawned) { this.eliteAt += 45; this.spawnEnemy('elite'); g.ui.notify('An elite Siegeling appears — defeat it for a chest!', 'warn'); }
     if (this.time >= this.chestAt) { this.chestAt += 30; this.spawnChest(); }
     if (this.time >= RUN_LENGTH && !this.bossSpawned) { this.bossSpawned = true; this.boss = this.spawnEnemy('boss'); g.ui.notify(`⚠️ Boss: ${this.boss.def.displayName}!`, 'bad'); }
@@ -840,12 +850,10 @@ export class Run {
     }
     this.chestProgress = prog;
     this.updateHazards(dt);
-    for (const r of this.gen.roofs) { // see-through roof while you're inside the cave
-      const dx = pp.x - r.x, dz = pp.z - r.z, lx = dx * r.cos + dz * r.sin, lz = -dx * r.sin + dz * r.cos;
-      const inside = Math.abs(lx) < r.hx + 4 && Math.abs(lz) < r.hz + 4 && pp.y < r.y;
-      r.mat.opacity += ((inside ? 0.18 : 1) - r.mat.opacity) * Math.min(1, dt * 8);
-      r.mat.depthWrite = r.mat.opacity > 0.9;
-    }
+    // underground: the camera follows you into the tunnel and stays under the ceiling
+    const tunnel = this.gen.underground(pp.x, pp.z, pp.y);
+    g.cam.interior = tunnel ? { ceil: tunnel.ceil, ang: tunnel.ang } : null;
+    document.body.classList.toggle('underground', !!tunnel);
 
     if (!g.ui.open) {
       if (this.pendingTotems > 0) { this.pendingTotems--; this.offerChest(true); }
@@ -885,13 +893,14 @@ export class Run {
     for (const k of this.gen.keepOut) spots.push(k); // caves, pools, cones, lake, columns
     // cave walls are solid from the side and walkable on top; roofs are ceilings you walk under
     for (const b of this.gen.blocks) {
+      if (b.hidden) { w.addBlock(b.x, b.z, -b.rot, b.w, b.d, b.top, this); continue; } // collision only; the terrain is the visible wall
       const m = new THREE.Mesh(new THREE.BoxGeometry(b.w, b.top - b.bottom, b.d), wallMat);
       m.position.set(b.x, (b.top + b.bottom) / 2, b.z); m.rotation.y = b.rot; m.castShadow = true;
       arena.add(m);
       w.addBlock(b.x, b.z, -b.rot, b.w, b.d, b.top, this);
     }
     for (const r of this.gen.roofs) {
-      w.surfaces.push({ cx: r.x, cz: r.z, cos: r.cos, sin: r.sin, hx: r.hx, hz: r.hz, y: r.y + 3, owner: this, ceiling: true });
+      w.surfaces.push({ cx: r.x, cz: r.z, cos: r.cos, sin: r.sin, hx: r.hx, hz: r.hz, y: r.top, owner: this, ceiling: true }); // walk over the tunnel
     }
     // tiered plateaus: 1 to 3 tiers, each tier reachable with a jump from the one below
     for (let i = 0; i < (this.biome === 'ocean' ? 6 : 16); i++) {

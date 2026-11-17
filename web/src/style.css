@@ -250,3 +250,7 @@ body.touch #hub-link { top: calc(150px + env(safe-area-inset-top, 0px)); left: c
 /* pan only (no pinch or double-tap zoom) so menus can still scroll; the 3D view itself takes no browser gestures */
 html, body { touch-action: pan-x pan-y; }
 #game, #touch-zone, #touch-ui button { touch-action: none; }
+
+/* underground: a dark vignette while you're in a tunnel */
+#underground { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .5s; background: radial-gradient(ellipse at center, transparent 45%, rgba(6, 4, 12, 0.75) 100%); }
+body.underground #underground { opacity: 1; }

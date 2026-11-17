@@ -31,6 +31,7 @@ export class TouchControls {
     const opts = { passive: false };
     zone.addEventListener('touchstart', (e) => {
       e.preventDefault();
+      this.dropStale(e.touches);
       for (const t of e.changedTouches) {
         const leftSide = t.clientX < innerWidth * 0.42;
         if (leftSide && this.stickId === null) {
@@ -67,6 +68,17 @@ export class TouchControls {
     };
     zone.addEventListener('touchend', end);
     zone.addEventListener('touchcancel', end);
+  }
+
+  // A finger the browser stopped reporting without a touchend (e.g. an iOS system gesture)
+  // would otherwise keep the stick pushed or block a new look finger.
+  dropStale(touches) {
+    const live = new Set([...touches].map((t) => t.identifier));
+    if (this.stickId !== null && !live.has(this.stickId)) {
+      this.stickId = null; this.move = { x: 0, y: 0, mag: 0, sprint: false };
+      this.stickBase.classList.remove('on'); this.knob.style.transform = 'translate(-50%, -50%)';
+    }
+    if (this.lookId !== null && !live.has(this.lookId)) this.lookId = null;
   }
 
   updateStick(t) {

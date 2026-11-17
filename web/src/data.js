@@ -1,6 +1,8 @@
 import CREATURES from './data/creatures.json';
 import { CFG } from './config.js';
 
+const BASE = import.meta.env.BASE_URL; // './' standalone, '/swarm/' inside the TCG site
+for (const c of CREATURES) if (c.art && !c.art.startsWith(BASE)) c.art = BASE + c.art;
 export const Creatures = CREATURES.filter((c) => !c.npcOnly);
 const byId = new Map(Creatures.map((c) => [c.id, c]));
 export const getCreature = (id) => byId.get(id);

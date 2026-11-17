@@ -148,7 +148,7 @@ kbd { display: inline-block; padding: 1px 6px; border-radius: 5px; background: #
 
 /* ── touch / mobile ─────────────────────────────────────────── */
 #touch-ui, #rotate-hint { display: none; }
-body.touch { touch-action: none; overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+body.touch { overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 body.touch #touch-ui { display: block; }
 body.touch #hotbar, body.touch #crosshair { display: none; }
 #touch-zone { position: fixed; inset: 0; touch-action: none; }
@@ -243,3 +243,10 @@ body.touch .run-rows { transform: translateX(-50%) scale(0.85); transform-origin
 .minis { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 .mini { display: flex; flex-direction: column; align-items: center; background: rgba(255,255,255,0.05); border-radius: 10px; padding: 6px; }
 .mini img { width: 56px; height: 56px; object-fit: contain; }
+
+#hub-link { position: fixed; left: calc(16px + env(safe-area-inset-left, 0px)); top: calc(118px + env(safe-area-inset-top, 0px)); z-index: 4; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; color: var(--gold); font-size: 13px; font-weight: 700; text-decoration: none; }
+#hub-link[hidden], body.in-run #hub-link { display: none; }
+body.touch #hub-link { top: calc(150px + env(safe-area-inset-top, 0px)); left: calc(12px + env(safe-area-inset-left, 0px)); }
+/* pan only (no pinch or double-tap zoom) so menus can still scroll; the 3D view itself takes no browser gestures */
+html, body { touch-action: pan-x pan-y; }
+#game, #touch-zone, #touch-ui button { touch-action: none; }

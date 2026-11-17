@@ -8,7 +8,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
-const BASE = 'models/';
+const BASE = import.meta.env.BASE_URL + 'models/';
 let manifest = {};          // lowercased name -> file name
 const pending = new Map();  // url -> Promise<gltf>
 const loaded = new Map();   // url -> gltf (once resolved)

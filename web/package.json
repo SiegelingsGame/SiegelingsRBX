@@ -11,7 +11,8 @@
     "models": "node scripts/build-model-manifest.mjs",
     "predev": "node scripts/build-model-manifest.mjs",
     "prebuild": "node scripts/build-model-manifest.mjs",
-    "sync-tcg": "cd ../tools && python3 sync_tcg_roster.py"
+    "sync-tcg": "cd ../tools && python3 sync_tcg_roster.py",
+    "build:tcg": "node scripts/build-tcg.mjs"
   },
   "dependencies": {
     "three": "^0.170.0"

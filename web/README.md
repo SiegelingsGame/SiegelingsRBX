@@ -15,6 +15,8 @@ npm run build      # static build in web/dist (open with `npm run preview`)
 `npm run build:single` also writes `web/dist/siegelings.html`, a single self-contained file (used for the hosted page).
 If the browser blocks mouse lock (e.g. inside a sandboxed frame), hold a mouse button and drag to look.
 
+`npm run build:tcg -- /path/to/SiegelingTCG` builds the game as the TCG site's **Swarm** test mode (served at `/swarm`, opened from the shield menu) and copies it into that repo's `src/main/resources/static/swarm/`.
+
 Progress is saved to the browser's `localStorage`. To start over, open Help and choose **Reset save**.
 
 ## The game loop

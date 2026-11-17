@@ -190,6 +190,8 @@ class Game {
     document.getElementById('lock').addEventListener('click', () => this.input.capturePointer());
     document.getElementById('rotate-dismiss').addEventListener('click', () => document.body.classList.add('portrait-ok'));
     document.getElementById('help-btn').addEventListener('click', (e) => { e.stopPropagation(); this.ui.openHelp(); });
+    // inside the TCG site: a way back to the hub, and the mode is labelled as a test
+    if (import.meta.env.VITE_TCG) { document.getElementById('hub-link').hidden = false; document.title = 'Siegelings · Swarm (test mode)'; }
     if (!State.data.starterChosen) this.ui.openStarter();
     addEventListener('beforeunload', () => State.save());
     this.loop();

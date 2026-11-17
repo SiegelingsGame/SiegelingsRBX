@@ -9,6 +9,9 @@ import { State } from './state.js';
 import { BIOMES } from './world.js';
 import { hashStr, rand, pick, clamp, mulberry32 } from './util.js';
 
+const PROJ = (el) => `${(el || 'Neutral').toLowerCase()}_proj`, BIT = (el) => `${(el || 'Neutral').toLowerCase()}_bit`; // atlas frames per element
+const STRIKE_FRAME = { Rockfall: 'boulder', Eruption: 'comet', 'Icicle fall': 'icicle', Lightning: 'bolt_strike', Stalactite: 'boulder', Geyser: 'geyser', Sunstrike: 'sunburst', 'Gale burst': 'wind_bit' };
+
 export const MAX_TEAM = 6, MAX_ITEMS = 6, MAX_MEMBER_LEVEL = 8, MAX_ITEM_LEVEL = 5;
 const RUN_LENGTH = 300;      // seconds until the boss arrives
 // Per-biome environmental hazards: static zones, telegraphed strikes and wandering twisters.
@@ -344,9 +347,10 @@ export class Run {
     }
     return best;
   }
-  inRadius(pos, r) {
+  // Enemies whose body overlaps a circle on the ground; yTol stops hits through floors and ledges.
+  inRadius(pos, r, yTol = 7) {
     const out = [];
-    for (const e of this.enemies) if ((e.pos.x - pos.x) ** 2 + (e.pos.z - pos.z) ** 2 < (r + e.r) ** 2) out.push(e);
+    for (const e of this.enemies) if ((e.pos.x - pos.x) ** 2 + (e.pos.z - pos.z) ** 2 < (r + e.r) ** 2 && Math.abs(e.pos.y - pos.y) < yTol + e.model.height) out.push(e);
     return out;
   }
 
@@ -359,7 +363,7 @@ export class Run {
     const crit = Math.random() < 0.05 + 0.08 * this.item('fang') + (el === 'Shadow' ? 0.15 : 0);
     if (crit) dmg *= 2;
     e.hp -= dmg;
-    e.flash = 0.12;
+    e.flash = 0.12; e.punch = 0.14;
     if (!secondary) {
       switch (el) {
         case 'Fire': e.st.burn = 3; e.st.burnDps = Math.max(e.st.burnDps || 0, base * 0.3); e.st.src = m; break;
@@ -374,7 +378,21 @@ export class Run {
         case 'Undead': p.hp = Math.min(p.maxHp, p.hp + dmg * 0.02); break;
       }
     }
-    if (crit && this.g.ui.floats.length < 24) this.g.ui.floatText(e.pos.clone().setY(e.pos.y + e.model.height), `${Math.round(dmg)}!`, '#ffd76a');
+    // impact feedback: element sprites, a flash, a damage number and a small shove
+    const strong = (BEATS[el] || []).includes(e.def.element);
+    if (this.fxBudget > 0) {
+      this.fxBudget--;
+      const at = e.pos.clone(); at.y += e.model.height * 0.5;
+      const fx = this.g.fx, color = ELEMENT_COLORS[el] || 0xffffff;
+      fx.burst(at, color, secondary ? 2 : 4, 4, 0.28, 1, 0.9);
+      if (!secondary) {
+        fx.sprites(at, BIT(el), { count: 2, speed: 5, life: 0.45, up: 3, size: 1.2 });
+        fx.sprites(at, crit ? 'hit_hot' : 'hit', { count: 1, speed: 0, life: 0.16, up: 0, size: crit ? 3.4 : 2.2, gravity: 0, spin: 0, grow: 0.6 });
+        if (crit) fx.sprites(at, 'crit', { count: 3, speed: 6, life: 0.5, up: 4, size: 1.3 });
+      }
+      if (!secondary && this.g.ui.floats.length < 36) this.g.ui.floatText(e.pos.clone().setY(e.pos.y + e.model.height + 0.5), `${Math.round(dmg)}${crit ? '!' : ''}`, crit ? '#ffd76a' : strong ? '#9fffc0' : '#ffffff');
+    }
+    if (!secondary && !e.isBoss && el !== 'Wind') this.push(e, 0.35);
     if (e.hp <= 0) this.kill(e, el);
   }
 
@@ -388,7 +406,9 @@ export class Run {
     const g = this.g;
     this.kills++;
     if (el === 'Light') g.player.hp = Math.min(g.player.maxHp, g.player.hp + 1);
-    g.fx.burst(e.pos.clone().setY(e.pos.y + 1.5), ELEMENT_COLORS[e.def.element] || 0xffffff, e.tier === 'normal' ? 8 : 40, 6, 0.6, 2);
+    const kp = e.pos.clone().setY(e.pos.y + 1.5);
+    g.fx.burst(kp, ELEMENT_COLORS[e.def.element] || 0xffffff, e.tier === 'normal' ? 8 : 40, 6, 0.6, 2);
+    g.fx.sprites(kp, BIT(e.def.element), { count: e.tier === 'normal' ? 4 : 18, speed: 7, life: 0.7, up: 5, size: 1.4 });
     const n = e.tier === 'boss' ? 40 : e.tier === 'elite' ? 10 : 1;
     for (let i = 0; i < n && this.gems.length < 480; i++) this.gems.push({ x: e.pos.x + rand(-1, 1) * Math.sqrt(n), z: e.pos.z + rand(-1, 1) * Math.sqrt(n), y: e.pos.y + 0.8, v: e.def.rarity === 'Uncommon' ? 2 : 1 });
     if (e.tier === 'elite') this.spawnChest(e.pos);
@@ -421,15 +441,21 @@ export class Run {
     this.chests.push({ mesh, pos: mesh.position, lid, open: 0 });
   }
 
-  zap(a, b, color) {
-    const n = 6;
-    for (let i = 0; i <= n; i++) this.g.fx.burst(new THREE.Vector3().lerpVectors(a, b, i / n).setY(a.y + 1.5 + rand(-0.4, 0.4)), color, 1, 0.5, 0.25, 0);
+  // A line of sprites and glow between two points (chains, dashes, arcs).
+  zap(a, b, color, frame = 'lightning_bit') {
+    const n = Math.max(3, Math.min(10, Math.round(a.distanceTo(b) / 2.5))), fx = this.g.fx;
+    for (let i = 0; i <= n; i++) {
+      const p = new THREE.Vector3().lerpVectors(a, b, i / n); p.y = a.y + 1.5 + rand(-0.5, 0.5); p.x += rand(-0.4, 0.4); p.z += rand(-0.4, 0.4);
+      fx.burst(p, color, 1, 0.5, 0.25, 0, 1.2);
+      if (i % 2 === 0) fx.sprites(p, frame, { count: 1, speed: 0.5, life: 0.3, up: 0, size: 1.5, gravity: 0, spin: 0 });
+    }
   }
 
   shoot(m, from, dir, opt) {
     const color = ELEMENT_COLORS[m.attack.element] || 0xffffff;
-    const mesh = new THREE.Mesh(this.g.fx.projGeo, this.g.fx.projMat(color));
-    mesh.scale.setScalar(opt.size || 1);
+    const mesh = new THREE.Sprite(this.g.fx.spriteMaterial(PROJ(m.attack.element)));
+    mesh.scale.setScalar(2.3 * (opt.size || 1));
+    if (opt.boomerang) mesh.material = mesh.material.clone(); // spins on its own
     mesh.position.copy(from);
     this.group.add(mesh);
     this.shots.push({ mesh, m, vel: dir.clone().setY(0).normalize().multiplyScalar(opt.speed || 45), life: opt.life || 1.6, dmg: opt.dmg, pierce: opt.pierce || 0, r: (opt.size || 1) * 0.6 + 0.4, target: opt.target || null, boomerang: opt.boomerang || false, hit: new Set(), age: 0, color });
@@ -460,6 +486,7 @@ export class Run {
         const r = 7 * s.area;
         m.lunge = { to: target.pos.clone(), t: 0.3 };
         g.fx.ring(target.pos, color, r, 0.45);
+        g.fx.sprites(target.pos.clone().setY(target.pos.y + 1), BIT(a.element), { count: 12, speed: 10, up: 7, life: 0.7, size: 1.6 });
         for (const e of this.inRadius(target.pos, r)) this.hit(e, s.dmg, m);
         break;
       }
@@ -471,7 +498,7 @@ export class Run {
           const rel = e.pos.clone().sub(m.pos).setY(0), along = clamp(rel.dot(dir), 0, len);
           if (rel.addScaledVector(dir, -along).length() < 2.6 * s.area + e.r) this.hit(e, s.dmg, m);
         }
-        this.zap(m.pos, end, color);
+        this.zap(m.pos, end, color, PROJ(a.element));
         break;
       }
       case 'beam': {
@@ -480,6 +507,7 @@ export class Run {
         beam.position.copy(from).addScaledVector(dir, len / 2);
         beam.rotation.y = Math.atan2(dir.x, dir.z);
         this.group.add(beam);
+        for (let i = 2; i < len; i += 4) g.fx.sprites(from.clone().addScaledVector(dir, i), BIT(a.element), { count: 1, speed: 2, life: 0.4, up: 1, size: 1.3 });
         g.fx.tween(0.25, (t) => { beam.material.opacity = 0.85 * (1 - t); beam.scale.x = 1 - t * 0.7; }, () => { this.group.remove(beam); beam.geometry.dispose(); beam.material.dispose(); });
         for (const e of [...this.enemies]) {
           const rel = e.pos.clone().sub(m.pos).setY(0), along = rel.dot(dir);
@@ -490,6 +518,7 @@ export class Run {
       case 'nova': {
         const r = 15 * s.area;
         g.fx.ring(p, color, r, 0.6);
+        for (let i = 0; i < 20; i++) { const an = (i / 20) * Math.PI * 2; g.fx.sprites(p.clone().setY(p.y + 1.2), BIT(a.element), { count: 1, speed: 0, up: 0, gravity: 0, life: 0.5, size: 1.5, vel: new THREE.Vector3(Math.cos(an) * r * 1.8, 0, Math.sin(an) * r * 1.8) }); }
         for (const e of this.inRadius(p, r)) { this.hit(e, s.dmg, m); if (e.hp > 0) this.push(e, 2.5); }
         break;
       }
@@ -502,10 +531,15 @@ export class Run {
           const mark = new THREE.Mesh(new THREE.RingGeometry(r - 0.4, r, 28).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false }));
           mark.position.copy(at).y += 0.3;
           this.group.add(mark);
-          g.fx.tween(0.7, () => {}, () => {
-            this.group.remove(mark); mark.geometry.dispose(); mark.material.dispose();
+          const shell = new THREE.Sprite(g.fx.spriteMaterial(PROJ(a.element))); shell.scale.setScalar(3);
+          this.group.add(shell);
+          const start = from.clone();
+          g.fx.tween(0.7, (k) => { shell.position.lerpVectors(start, at, k); shell.position.y += Math.sin(k * Math.PI) * 14 + 1; }, () => {
+            this.group.remove(mark, shell); mark.geometry.dispose(); mark.material.dispose();
             if (!this.active) return;
             g.fx.burst(at.clone().setY(at.y + 1), color, 26, 9, 0.6, 3);
+            g.fx.sprites(at.clone().setY(at.y + 1), BIT(a.element), { count: 12, speed: 10, up: 6, life: 0.7, size: 1.6 });
+            g.fx.sprites(at.clone().setY(at.y + 1.5), 'hit_hot', { count: 1, speed: 0, up: 0, gravity: 0, spin: 0, life: 0.22, size: 6, grow: 0.8 });
             for (const e of this.inRadius(at, r)) this.hit(e, s.dmg, m);
           });
         }
@@ -520,7 +554,11 @@ export class Run {
         }
         break;
       }
-      case 'aura': { for (const e of this.inRadius(p, 9 * s.area)) this.hit(e, s.dmg, m); break; }
+      case 'aura': {
+        for (let i = 0; i < 3; i++) { const an = Math.random() * Math.PI * 2, rr = 9 * s.area * rand(0.5, 1); g.fx.sprites(new THREE.Vector3(p.x + Math.cos(an) * rr, p.y + 0.5, p.z + Math.sin(an) * rr), BIT(a.element), { count: 1, speed: 0.5, up: 3, gravity: -1, life: 0.7, size: 1.1 }); }
+        for (const e of this.inRadius(p, 9 * s.area)) this.hit(e, s.dmg, m);
+        break;
+      }
       case 'boomerang': {
         const base = Math.atan2(toT.x, toT.z);
         for (let i = 0; i < s.count; i++) { const ang = base + (i - (s.count - 1) / 2) * 0.5; this.shoot(m, from, new THREE.Vector3(Math.sin(ang), 0, Math.cos(ang)), { dmg: s.dmg, speed: 38, pierce: 99, life: 1.5, size: 1.6 * s.area, boomerang: true }); }
@@ -528,25 +566,31 @@ export class Run {
       }
       case 'mines': {
         if (this.hazards.length > 14) return false;
-        const mesh = new THREE.Mesh(new THREE.OctahedronGeometry(0.9, 0), new THREE.MeshBasicMaterial({ color }));
+        const mesh = new THREE.Sprite(this.g.fx.spriteMaterial(PROJ(a.element))); mesh.scale.setScalar(2.4);
         mesh.position.copy(p).y += 0.9;
         this.group.add(mesh);
-        this.hazards.push({ mesh, pos: mesh.position, life: 12, r: 5.5 * s.area, dmg: s.dmg, m, arm: 0.5 });
+        this.hazards.push({ mesh, color, pos: mesh.position, life: 12, r: 5.5 * s.area, dmg: s.dmg, m, arm: 0.5 });
         break;
       }
       case 'rain': {
         const a2 = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * 26;
         const t = Math.random() < 0.6 && target ? target.pos : new THREE.Vector3(p.x + Math.cos(a2) * rr, p.y, p.z + Math.sin(a2) * rr);
         const at = t.clone(); at.y = g.world.groundAt(at.x, at.z);
-        for (let i = 0; i < 5; i++) g.fx.burst(at.clone().setY(at.y + i * 2.5), color, 3, 2, 0.35, 0);
-        g.fx.ring(at, color, 4 * s.area, 0.3);
-        for (const e of this.inRadius(at, 4.5 * s.area)) this.hit(e, s.dmg, m);
+        const drop = new THREE.Sprite(g.fx.spriteMaterial(PROJ(a.element))); drop.scale.setScalar(3.2);
+        this.group.add(drop);
+        g.fx.tween(0.28, (k) => { drop.position.set(at.x, at.y + 24 * (1 - k) + 1, at.z); if (Math.random() < 0.6) g.fx.burst(drop.position, color, 1, 0.5, 0.25, 0); }, () => {
+          this.group.remove(drop);
+          if (!this.active) return;
+          g.fx.ring(at, color, 4 * s.area, 0.3);
+          g.fx.sprites(at.clone().setY(at.y + 0.8), BIT(a.element), { count: 6, speed: 7, up: 5, life: 0.5, size: 1.3 });
+          for (const e of this.inRadius(at, 4.5 * s.area)) this.hit(e, s.dmg, m);
+        });
         break;
       }
       case 'cone': {
         const dir = toT.clone().normalize(), range = 17 * s.area;
         if (toT.length() > range + 4) return false;
-        for (let i = 0; i < 16; i++) { const ang = Math.atan2(dir.x, dir.z) + rand(-0.5, 0.5), d = rand(2, range); g.fx.burst(new THREE.Vector3(m.pos.x + Math.sin(ang) * d, m.pos.y + 1.4, m.pos.z + Math.cos(ang) * d), color, 1, 2, 0.4, 0.5); }
+        for (let i = 0; i < 16; i++) { const ang = Math.atan2(dir.x, dir.z) + rand(-0.5, 0.5), sp = range / 0.45 * rand(0.6, 1); const v = new THREE.Vector3(Math.sin(ang) * sp, rand(-1, 2), Math.cos(ang) * sp); g.fx.sprites(from, i % 2 ? BIT(a.element) : PROJ(a.element), { count: 1, speed: 0, up: 0, gravity: 0, life: 0.45, size: 1.5, vel: v }); if (i % 2) g.fx.burst(from.clone().addScaledVector(v, 0.15), color, 1, 1, 0.35, 0, 1.3); }
         for (const e of [...this.enemies]) {
           const rel = e.pos.clone().sub(m.pos).setY(0), d = rel.length();
           if (d < range + e.r && rel.normalize().dot(dir) > 0.8) this.hit(e, s.dmg, m);
@@ -558,6 +602,7 @@ export class Run {
         pl.hp = Math.min(pl.maxHp, pl.hp + 6 + 2 * m.level);
         g.fx.ring(p, 0x8affd8, 10 * s.area, 0.6);
         g.fx.burst(pl.hitCenter(), 0x8affd8, 14, 4, 0.7, 3);
+        g.fx.sprites(pl.hitCenter(), 'heal', { count: 6, speed: 3, up: 5, gravity: -2, spin: 0, life: 0.9, size: 1.5 });
         for (const e of this.inRadius(p, 10 * s.area)) { this.hit(e, s.dmg, m); if (e.hp > 0) this.push(e, 6); }
         break;
       }
@@ -568,7 +613,7 @@ export class Run {
   updateOrbit(m, dt) {
     const s = this.memberStats(m), p = this.g.player.pos, color = ELEMENT_COLORS[m.attack.element] || 0xffffff;
     m.orbs = m.orbs || [];
-    while (m.orbs.length < s.count) { const o = new THREE.Mesh(this.g.fx.projGeo, this.g.fx.projMat(color)); o.scale.setScalar(2); o.userData.cd = new Map(); this.group.add(o); m.orbs.push(o); }
+    while (m.orbs.length < s.count) { const o = new THREE.Sprite(this.g.fx.spriteMaterial(PROJ(m.attack.element))); o.scale.setScalar(3); o.userData.cd = new Map(); this.group.add(o); m.orbs.push(o); }
     m.orbs.forEach((o, i) => {
       const ang = m.t * 2.6 + (i / m.orbs.length) * Math.PI * 2, r = 8.5 * s.area;
       o.position.set(p.x + Math.cos(ang) * r, p.y + 2, p.z + Math.sin(ang) * r);
@@ -587,6 +632,7 @@ export class Run {
     if (!p.alive) return this.end(false);
     if (this.won) return this.end(true);
     this.time += dt;
+    this.fxBudget = 28; this.iframes = Math.max(0, (this.iframes || 0) - dt);
 
     // jump pads launch you onto the high ground
     for (const pad of this.pads) {
@@ -634,7 +680,8 @@ export class Run {
       if (e.climbing) { e.pos.y = Math.min(gy, e.pos.y + (e.def.flying ? 14 : 6.5) * dt); if (e.pos.y >= gy) e.climbing = false; }
       else e.pos.y = Math.max(gy, e.pos.y - 40 * dt);
       e.hitCD -= dt;
-      if (d < e.r + 2 && e.hitCD <= 0 && Math.abs(pp.y - e.pos.y) < 4) { e.hitCD = 0.8; p.takeDamage(e.dmg * (st.weak > 0 ? 0.6 : 1)); }
+      if (d < e.r + 1.6 && e.hitCD <= 0 && this.iframes <= 0 && Math.abs(pp.y - e.pos.y) < 3.5) { e.hitCD = 0.8; this.iframes = 0.3; p.takeDamage(e.dmg * (st.weak > 0 ? 0.6 : 1)); }
+      if (e.punch > 0) { e.punch -= dt; e.model.root.scale.setScalar(1 + Math.max(0, e.punch) * 1.6); }
       e.t += dt;
       e.model.root.position.copy(e.pos);
       e.model.root.rotation.y = Math.atan2(dx, dz);
@@ -681,14 +728,27 @@ export class Run {
       if (s.target && s.target.hp > 0) { const want = s.target.pos.clone().sub(s.mesh.position).setY(0).normalize().multiplyScalar(s.vel.length()); s.vel.lerp(want, Math.min(1, dt * 10)); }
       if (s.boomerang && s.age > 0.6 && !s.back) { s.back = true; s.hit.clear(); }
       if (s.back) { const want = pp.clone().sub(s.mesh.position).setY(0).normalize().multiplyScalar(48); s.vel.lerp(want, Math.min(1, dt * 8)); if (s.mesh.position.distanceTo(pp) < 3) s.life = 0; else s.life = Math.max(s.life, 0.1); if (s.age > 4) s.life = 0; }
+      const prev = s.mesh.position.clone();
       s.mesh.position.addScaledVector(s.vel, dt);
       s.mesh.position.y = g.world.groundAt(s.mesh.position.x, s.mesh.position.z, s.mesh.position.y + 3) + 1.6;
-      if (s.boomerang) s.mesh.rotation.y += dt * 14;
+      if (s.boomerang) s.mesh.material.rotation += dt * 14;
+      if (Math.random() < 0.8) g.fx.burst(s.mesh.position, s.color, 1, 0.6, 0.3, 0, 0.9);
+      if (Math.random() < 0.25) g.fx.sprites(s.mesh.position, BIT(s.m.attack.element), { count: 1, speed: 1, life: 0.35, up: 0.5, size: 0.9 });
       let dead = s.life <= 0;
-      if (!dead) for (const e of this.inRadius(s.mesh.position, s.r)) {
-        if (s.hit.has(e)) continue;
-        s.hit.add(e); this.hit(e, s.dmg, s.m);
-        if (s.pierce-- <= 0) { dead = true; break; }
+      if (!dead) {
+        // swept test: everything the shot passed through this frame, nearest first (no tunnelling at low frame rates)
+        const seg = s.mesh.position.clone().sub(prev).setY(0), len = seg.length() || 0.0001, dirN = seg.clone().divideScalar(len), hits = [];
+        for (const e of this.enemies) {
+          if (s.hit.has(e) || Math.abs(e.pos.y - (prev.y - 1.6)) > 6 + e.model.height) continue;
+          const rx = e.pos.x - prev.x, rz = e.pos.z - prev.z, along = clamp(rx * dirN.x + rz * dirN.z, 0, len);
+          const px = rx - dirN.x * along, pz = rz - dirN.z * along, rr = s.r + e.r;
+          if (px * px + pz * pz < rr * rr) hits.push([along, e]);
+        }
+        hits.sort((x, y) => x[0] - y[0]);
+        for (const [, e] of hits) {
+          s.hit.add(e); this.hit(e, s.dmg, s.m);
+          if (s.pierce-- <= 0) { dead = true; s.mesh.position.set(e.pos.x, s.mesh.position.y, e.pos.z); break; }
+        }
       }
       if (dead) { g.fx.burst(s.mesh.position, s.color, 5, 3, 0.3, 1); this.group.remove(s.mesh); this.shots.splice(i, 1); }
     }
@@ -696,10 +756,10 @@ export class Run {
     // traps
     for (let i = this.hazards.length - 1; i >= 0; i--) {
       const h = this.hazards[i];
-      h.life -= dt; h.arm -= dt; h.mesh.rotation.y += dt * 3;
+      h.life -= dt; h.arm -= dt; h.mesh.position.y += Math.sin(this.time * 5 + i) * dt * 0.6;
       const trig = h.arm <= 0 && this.inRadius(h.pos, 2).length > 0;
-      if (trig) { g.fx.ring(h.pos, h.mesh.material.color.getHex(), h.r, 0.4); g.fx.burst(h.pos, h.mesh.material.color.getHex(), 20, 8, 0.5, 2); for (const e of this.inRadius(h.pos, h.r)) this.hit(e, h.dmg, h.m); }
-      if (trig || h.life <= 0) { this.group.remove(h.mesh); h.mesh.geometry.dispose(); this.hazards.splice(i, 1); }
+      if (trig) { g.fx.ring(h.pos, h.color, h.r, 0.4); g.fx.burst(h.pos, h.color, 20, 8, 0.5, 2); g.fx.sprites(h.pos, BIT(h.m.attack.element), { count: 10, speed: 9, up: 5, life: 0.6, size: 1.5 }); for (const e of this.inRadius(h.pos, h.r)) this.hit(e, h.dmg, h.m); }
+      if (trig || h.life <= 0) { this.group.remove(h.mesh); this.hazards.splice(i, 1); }
     }
 
     // XP gems
@@ -893,7 +953,7 @@ export class Run {
       m.mesh.children.forEach((c, k) => { c.rotation.y += dt * (9 - k); c.position.x = Math.sin(this.time * 3 + k) * 0.5 * k; });
       m.cd -= dt; m.tick -= dt;
       if (m.cd <= 0 && grounded && Math.hypot(pp.x - m.x, pp.z - m.z) < 5) { m.cd = 1.5; p.vel.y = 30; p.onGround = false; pp.y += 0.6; p.takeDamage(5); }
-      if (m.tick <= 0) { m.tick = 0.4; for (const e of this.inRadius(new THREE.Vector3(m.x, 0, m.z), 5)) { this.hit(e, 6 + this.time / 20, this.env, true); if (e.hp > 0) this.push(e, 3); } }
+      if (m.tick <= 0) { m.tick = 0.4; for (const e of this.inRadius(new THREE.Vector3(m.x, 0, m.z), 5, 1e9)) { this.hit(e, 6 + this.time / 20, this.env, true); if (e.hp > 0) this.push(e, 3); } }
     }
 
     // telegraphed strikes land near you: step out of the circle (and lure enemies into it)
@@ -915,6 +975,7 @@ export class Run {
       if (s.t > 0) continue;
       const at = new THREE.Vector3(s.x, s.y, s.z);
       for (let k = 0; k < 6; k++) g.fx.burst(at.clone().setY(s.y + k * 3), s.cfg.color, 6, 5, 0.5, 1);
+      g.fx.sprites(at.clone().setY(s.y + 1), STRIKE_FRAME[s.cfg.name] || 'hit', { count: 10, speed: 10, up: 8, life: 0.8, size: 2 });
       g.fx.ring(at, s.cfg.color, s.r, 0.4);
       if (Math.hypot(pp.x - s.x, pp.z - s.z) < s.r && Math.abs(pp.y - s.y) < 5) {
         p.takeDamage(16 + this.time / 20);

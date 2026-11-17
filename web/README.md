@@ -26,6 +26,7 @@ Progress is saved to the browser's `localStorage`. To start over, open Help and 
 - **Hazards** are themed per biome: static zones (lava, thorns, black ice, quicksand, whirlpools, static fields, shadow pools), telegraphed strikes that land near you and also hurt enemies, and wandering twisters that throw you into the air. Jumping or standing on high ground avoids ground zones.
 - **Arenas** are about 2.5 times larger in area than before (radius 182 to 205 studs), with more plateaus, spires and jump pads to match.
 - **Level-ups** come from XP gems: upgrade a Siegeling (it evolves along its TCG line at levels 3 and 6) or take one of up to **6 items** (attack speed, damage, movement speed, max HP, regen, armor, pickup range, crit, area, coins, and a damage core per element).
+- **Hit feedback.** Every hit shows a damage number (gold for crits, green when the element is strong against the target), a flash, element particles and a small shove. Shots use swept collision so they can't skip through enemies at low frame rates, and attacks don't reach through ledges. After an enemy hits you, you get 0.3 seconds before another contact hit can land.
 - **High ground.** Each arena has tiered plateaus (every tier is one jump high), tall spires and jump pads that launch you onto them. Enemies have to climb ledges slowly, so height buys you time, and nearly half of the timed chests appear on top of a structure.
 - Survive 5 minutes, then beat the biome's Legendary boss.
 
@@ -146,3 +147,7 @@ A real 3D model takes priority over the card art. Drop `.glb`/`.gltf` files into
 - Clips named `idle` and `walk`/`run` play automatically.
 
 `src/models.js` holds the loader. `buildCreatureModel` in `src/creatureModel.js` swaps the real model in once it has loaded.
+
+## Credits
+
+Particle sprites come from [Pixel Art Atlas 1.4M](https://huggingface.co/datasets/Angais/pixel-art-atlas-1.4m) by Angais, released under CC0 1.0. `tools/build_fx_atlas.py` picks the sprites and writes `src/fxAtlas.js`.

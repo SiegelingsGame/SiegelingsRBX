@@ -126,6 +126,7 @@ class Game {
 
     this.world = new World(this.scene);
     this.fx = new FX(this.scene);
+    this.fx.view = { renderer: this.renderer, camera: this.camera };
     this.hub = new Hub(this.scene);
     this.base = new PlayerBase(this.scene, this.world, this.fx, 0);
     this.player = new Player(this.scene, this.world, this.fx);

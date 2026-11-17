@@ -1,25 +1,70 @@
 // Projectiles, particles, capture-card animation and other transient effects.
 import * as THREE from 'three';
 import { ELEMENT_COLORS } from './config.js';
+import { ATLAS_URL, ATLAS_GRID, FRAMES } from './fxAtlas.js';
 
-const MAX_PARTICLES = 2500;
+const VERT = `attribute vec3 color; attribute vec4 info; uniform float uScale; varying vec3 vColor; varying vec3 vInfo;
+  void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv; gl_PointSize = info.x * uScale / max(0.1, -mv.z); vColor = color; vInfo = info.yzw; }`;
+const FRAG = `uniform sampler2D map; uniform float grid; varying vec3 vColor; varying vec3 vInfo;
+  void main() { vec2 pc = gl_PointCoord - 0.5; float cs = cos(vInfo.z), sn = sin(vInfo.z); pc = vec2(pc.x * cs - pc.y * sn, pc.x * sn + pc.y * cs) + 0.5;
+    if (pc.x < 0.0 || pc.x > 1.0 || pc.y < 0.0 || pc.y > 1.0) discard; pc = clamp(pc, 0.02, 0.98);
+    float f = floor(vInfo.x + 0.5); vec2 cell = vec2(mod(f, grid), floor(f / grid));
+    vec4 t = texture2D(map, vec2((cell.x + pc.x) / grid, 1.0 - (cell.y + pc.y) / grid));
+    float a = t.a * vInfo.y; if (a < 0.03) discard; gl_FragColor = vec4(t.rgb * vColor, a);
+    #include <colorspace_fragment>
+  }`;
+
+class ParticleLayer {
+  constructor(scene, tex, blending, max) {
+    this.max = max; this.list = [];
+    this.pos = new Float32Array(max * 3); this.col = new Float32Array(max * 3); this.info = new Float32Array(max * 4);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(this.col, 3));
+    geo.setAttribute('info', new THREE.BufferAttribute(this.info, 4));
+    this.geo = geo;
+    this.mat = new THREE.ShaderMaterial({ uniforms: { map: { value: tex }, grid: { value: ATLAS_GRID }, uScale: { value: 600 } }, vertexShader: VERT, fragmentShader: FRAG, transparent: true, depthWrite: false, blending });
+    this.points = new THREE.Points(geo, this.mat);
+    this.points.frustumCulled = false;
+    scene.add(this.points);
+  }
+  add(p) { if (this.list.length >= this.max) this.list.shift(); this.list.push(p); }
+  update(dt, uScale) {
+    this.mat.uniforms.uScale.value = uScale;
+    const L = this.list;
+    let n = 0;
+    for (let i = 0; i < L.length; i++) {
+      const p = L[i];
+      p.life -= dt;
+      if (p.life <= 0) continue;
+      p.v.y -= p.g * dt; p.p.addScaledVector(p.v, dt); p.rot += p.spin * dt;
+      const k = p.life / p.max;
+      this.pos[n * 3] = p.p.x; this.pos[n * 3 + 1] = p.p.y; this.pos[n * 3 + 2] = p.p.z;
+      this.col[n * 3] = p.c.r; this.col[n * 3 + 1] = p.c.g; this.col[n * 3 + 2] = p.c.b;
+      this.info[n * 4] = p.size * (1 + (p.grow || 0) * (1 - k)); this.info[n * 4 + 1] = p.frame; this.info[n * 4 + 2] = Math.min(1, k * 2.2); this.info[n * 4 + 3] = p.rot;
+      L[n++] = p;
+    }
+    L.length = n;
+    this.geo.setDrawRange(0, n);
+    this.geo.attributes.position.needsUpdate = true; this.geo.attributes.color.needsUpdate = true; this.geo.attributes.info.needsUpdate = true;
+  }
+}
+
 
 export class FX {
   constructor(scene) {
     this.scene = scene;
     this.projectiles = [];
     this.tweens = [];
-    // particle pool rendered as one Points object
-    const geo = new THREE.BufferGeometry();
-    this.pPos = new Float32Array(MAX_PARTICLES * 3);
-    this.pCol = new Float32Array(MAX_PARTICLES * 3);
-    geo.setAttribute('position', new THREE.BufferAttribute(this.pPos, 3));
-    geo.setAttribute('color', new THREE.BufferAttribute(this.pCol, 3));
-    this.pGeo = geo;
-    this.points = new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.55, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
-    this.points.frustumCulled = false;
-    scene.add(this.points);
-    this.particles = [];
+    this.spriteMats = new Map();
+    // two particle layers sharing one sprite atlas: additive glows and normal-blended pixel sprites
+    const tex = new THREE.TextureLoader().load(ATLAS_URL, () => { for (const m of this.spriteMats.values()) m.map.needsUpdate = true; });
+    tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    this.atlas = tex;
+    this.glow = new ParticleLayer(scene, tex, THREE.AdditiveBlending, 2200);
+    this.pix = new ParticleLayer(scene, tex, THREE.NormalBlending, 1800);
+    this.view = null; // { renderer, camera } for point sizing
     this.projGeo = new THREE.IcosahedronGeometry(0.45, 1);
     this.projMats = new Map();
   }
@@ -38,14 +83,37 @@ export class FX {
     this.projectiles.push({ mesh, vel: dir.clone().normalize().multiplyScalar(speed), speed, travelled: 0, range, color: new THREE.Color(color), radius, damage, owner, targets, onHit, homing });
   }
 
-  burst(pos, color = 0xffffff, count = 14, speed = 6, life = 0.6, up = 2) {
+  // Soft glowing motes (additive).
+  burst(pos, color = 0xffffff, count = 14, speed = 6, life = 0.6, up = 2, size = 1.0) {
     const c = new THREE.Color(color);
     for (let i = 0; i < count; i++) {
-      if (this.particles.length >= MAX_PARTICLES) this.particles.shift();
       const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8 + 0.1, Math.random() - 0.5).normalize().multiplyScalar(speed * (0.4 + Math.random() * 0.6));
       v.y += up;
-      this.particles.push({ p: pos.clone(), v, life, max: life, c });
+      this.glow.add({ p: pos.clone(), v, life, max: life, c, size: size * (0.7 + Math.random() * 0.6), frame: 0, g: 9, spin: 0, rot: 0 });
     }
+  }
+
+  // Pixel-art sprites from the atlas (frame = name in FRAMES). opts.vel aims them; otherwise they scatter.
+  sprites(pos, frame, { count = 4, speed = 5, life = 0.6, up = 2, size = 1.6, gravity = 9, spin = 5, spread = 1, vel = null, tint = 0xffffff, grow = 0 } = {}) {
+    const f = FRAMES[frame] ?? 0, c = new THREE.Color(tint);
+    for (let i = 0; i < count; i++) {
+      const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8 + 0.1, Math.random() - 0.5).normalize().multiplyScalar(speed * (0.4 + Math.random() * 0.6) * spread);
+      v.y += up;
+      if (vel) v.add(vel);
+      this.pix.add({ p: pos.clone(), v, life: life * (0.8 + Math.random() * 0.4), max: life, c, size: size * (0.8 + Math.random() * 0.4), frame: f, g: gravity, spin: (Math.random() - 0.5) * spin, rot: spin ? Math.random() * 6.28 : 0, grow });
+    }
+  }
+
+  // Material for a THREE.Sprite showing one atlas frame (projectiles, orbs, traps).
+  spriteMaterial(frame) {
+    if (!this.spriteMats.has(frame)) {
+      const f = FRAMES[frame] ?? 0, t = this.atlas.clone();
+      t.repeat.set(1 / ATLAS_GRID, 1 / ATLAS_GRID);
+      t.offset.set((f % ATLAS_GRID) / ATLAS_GRID, 1 - (Math.floor(f / ATLAS_GRID) + 1) / ATLAS_GRID);
+      if (this.atlas.image) t.needsUpdate = true; // otherwise flagged when the atlas finishes loading
+      this.spriteMats.set(frame, new THREE.SpriteMaterial({ map: t, alphaTest: 0.3, fog: false }));
+    }
+    return this.spriteMats.get(frame);
   }
 
   ring(pos, color = 0xffe066, radius = 4, life = 0.8) {
@@ -133,23 +201,10 @@ export class FX {
       }
     }
     // particles
-    let n = 0;
-    for (let i = this.particles.length - 1; i >= 0; i--) {
-      const p = this.particles[i];
-      p.life -= dt;
-      if (p.life <= 0) { this.particles.splice(i, 1); continue; }
-      p.v.y -= 9 * dt;
-      p.p.addScaledVector(p.v, dt);
-    }
-    for (const p of this.particles) {
-      const k = p.life / p.max;
-      this.pPos[n * 3] = p.p.x; this.pPos[n * 3 + 1] = p.p.y; this.pPos[n * 3 + 2] = p.p.z;
-      this.pCol[n * 3] = p.c.r * k; this.pCol[n * 3 + 1] = p.c.g * k; this.pCol[n * 3 + 2] = p.c.b * k;
-      n++;
-    }
-    this.pGeo.setDrawRange(0, n);
-    this.pGeo.attributes.position.needsUpdate = true;
-    this.pGeo.attributes.color.needsUpdate = true;
+    let uScale = 600;
+    if (this.view) uScale = this.view.renderer.domElement.height / (2 * Math.tan(THREE.MathUtils.degToRad(this.view.camera.fov) / 2));
+    this.glow.update(dt, uScale);
+    this.pix.update(dt, uScale);
     // tweens
     for (let i = this.tweens.length - 1; i >= 0; i--) {
       const tw = this.tweens[i];

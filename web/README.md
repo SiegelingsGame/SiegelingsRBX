@@ -22,12 +22,20 @@ Progress is saved to the browser's `localStorage`. To start over, open Help and 
 ## The game loop
 
 **Runs.** Walk into the Expedition Gate in front of your base, pick a stage (one per biome) and a starting Siegeling from your collection. Wild Siegelings of that biome's elements swarm you. You only move and jump; your team attacks automatically.
-- **Team of 6.** Each Siegeling is a weapon with its own attack pattern (15 patterns such as homing bolts, chains, orbiting orbs, ground slams, dashes, beams, mortars, traps and auras). Its element adds an on-hit effect (burn, slow, knockback, poison, life steal...) and uses the TCG weakness chart for bonus damage. Two Siegelings on one team never share a pattern.
+- **Team of 6.** Each Siegeling is a weapon with its own attack pattern. There are 16 patterns in five classes:
+  - **Melee:** ground slam, dash, breath cone.
+  - **Projectile:** homing bolts, shot fan, returning discs, piercing beam.
+  - **Aura:** damaging aura, orbiting orbs, shockwave, heal pulse, traps.
+  - **Random strike:** strikes on random nearby enemies, lobbed mortar shells.
+  - **Chain:** jumping strikes, ricochet shot.
+
+  Its element adds an on-hit effect (burn, slow, knockback, poison, life steal...) and uses the TCG weakness chart for bonus damage. Two Siegelings on one team never share a pattern.
 - **Chests** appear over time and drop from elites. They open the moment you touch them and offer 1 of 3 Siegelings to recruit.
-- **Totems** (6 per arena, purple diamonds on the minimap) need you to stand beside them for 5 seconds. They give better loot: Rare and Epic recruits, or +2 levels on a Siegeling or item, plus a 25 HP heal.
-- **Hazards** are themed per biome: static zones (lava, thorns, black ice, quicksand, whirlpools, static fields, shadow pools), telegraphed strikes that land near you and also hurt enemies, and wandering twisters that throw you into the air. Jumping or standing on high ground avoids ground zones.
-- **Arenas** are about 2.5 times larger in area than before (radius 182 to 205 studs), with more plateaus, spires and jump pads to match.
-- **Level-ups** come from XP gems: upgrade a Siegeling (it evolves along its TCG line at levels 3 and 6) or take one of up to **6 items** (attack speed, damage, movement speed, max HP, regen, armor, pickup range, crit, area, coins, and a damage core per element).
+- **Level-ups** come from XP gems: upgrade a Siegeling (it evolves along its TCG line at levels 3 and 6) or take one of up to **6 items**:
+  - **Class boosts**, offered only when your team has that class: Brawler's Knuckle (melee), Fletcher's Quiver (projectile), Resonance Bell (aura), Storm Totem (random strike; extra strikes), Conductor Coil (chain; extra jumps).
+  - **Splitting Prism:** +1 projectile, orb, trap or strike per level (max 3) for attacks that fire more than one.
+  - **General:** attack speed, damage, movement speed, max HP, regen, armor, pickup range, crit, area, coins, and a damage core per element.
+- **Pace.** Runs start slow: you move at 78% speed, attacks fire 30% slower, and shots fly slower. Trail Boots (+12% speed each), Swift Claw and the class boosts speed things back up. Enemies are a little slower to match.
 - **Hit feedback.** Every hit shows a damage number (gold for crits, green when the element is strong against the target), a flash, element particles and a small shove. Shots use swept collision so they can't skip through enemies at low frame rates, and attacks don't reach through ledges. After an enemy hits you, you get 0.3 seconds before another contact hit can land.
 - **High ground.** Each arena has tiered plateaus (every tier is one jump high), tall spires and jump pads that launch you onto them. Enemies have to climb ledges slowly, so height buys you time, and nearly half of the timed chests appear on top of a structure.
 - Survive 5 minutes, then beat the biome's Legendary boss.

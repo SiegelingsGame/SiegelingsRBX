@@ -42,26 +42,34 @@ const RARITY_DMG = { Common: 1, Uncommon: 1.2, Rare: 1.5, Epic: 1.9, Legendary: 
 
 // Attack patterns. Every Siegeling gets one from its class pool; its element adds an on-hit effect
 // and its id varies count / area / cooldown, so no two Siegelings attack quite the same way.
+// Five attack classes; each has a boost item (amp_<class>) that powers up every attack of that class.
+export const CLASSES = {
+  melee: { label: 'Melee', icon: '🥊' }, projectile: { label: 'Projectile', icon: '🏹' }, aura: { label: 'Aura', icon: '🔔' },
+  random: { label: 'Random strike', icon: '🌩️' }, chain: { label: 'Chain', icon: '🌀' },
+};
+const ATTACK_PACE = 1.3; // all cooldowns are this much slower than the original tuning; items speed them back up
+// count: base shots / strikes / jumps. multi: whether extra projectiles (Splitting Prism) add to it.
 const KINDS = {
-  bolt:      { cd: 0.9, dmg: 10, count: 1, text: (a) => `Fires ${a.count} homing bolt${a.count > 1 ? 's' : ''} at the nearest enemy` },
-  spread:    { cd: 1.5, dmg: 7,  count: 3, text: (a) => `Fires a fan of ${a.count} shots` },
-  orbit:     { cd: 0.35, dmg: 6, count: 2, text: (a) => `${a.count} orbs circle you, hitting anything they touch` },
-  slam:      { cd: 2.2, dmg: 18, count: 1, text: () => 'Slams the ground, damaging everything around it' },
-  dash:      { cd: 1.7, dmg: 16, count: 1, text: () => 'Dashes through the nearest enemies' },
-  beam:      { cd: 2.0, dmg: 14, count: 1, text: () => 'Fires a beam that pierces a whole line of enemies' },
-  nova:      { cd: 3.0, dmg: 12, count: 1, text: () => 'Sends a shockwave out from you in every direction' },
-  mortar:    { cd: 2.4, dmg: 22, count: 1, text: (a) => `Lobs ${a.count} explosive shot${a.count > 1 ? 's' : ''} onto enemy groups` },
-  chain:     { cd: 1.6, dmg: 9,  count: 4, text: (a) => `Strikes that chain between ${a.count} enemies` },
-  aura:      { cd: 0.5, dmg: 4,  count: 1, text: () => 'A constant damaging aura around you' },
-  boomerang: { cd: 2.0, dmg: 11, count: 1, text: (a) => `Throws ${a.count} piercing disc${a.count > 1 ? 's that return' : ' that returns'}` },
-  mines:     { cd: 1.6, dmg: 20, count: 1, text: () => 'Leaves traps behind you that explode on contact' },
-  rain:      { cd: 0.5, dmg: 12, count: 1, text: () => 'Calls down random strikes around you' },
-  cone:      { cd: 1.5, dmg: 13, count: 1, text: () => 'Breathes a cone toward the nearest enemy' },
-  mend:      { cd: 5.0, dmg: 6,  count: 1, text: () => 'Heals you and pushes nearby enemies back' },
+  bolt:      { cls: 'projectile', multi: true, cd: 0.9, dmg: 10, count: 1, text: (a) => `Fires ${a.count} homing bolt${a.count > 1 ? 's' : ''} at the nearest enemy` },
+  spread:    { cls: 'projectile', multi: true, cd: 1.5, dmg: 7,  count: 3, text: (a) => `Fires a fan of ${a.count} shots` },
+  boomerang: { cls: 'projectile', multi: true, cd: 2.0, dmg: 11, count: 1, text: (a) => `Throws ${a.count} piercing disc${a.count > 1 ? 's that return' : ' that returns'}` },
+  beam:      { cls: 'projectile', cd: 2.0, dmg: 14, count: 1, text: () => 'Fires a beam that pierces a whole line of enemies' },
+  slam:      { cls: 'melee', cd: 2.2, dmg: 18, count: 1, text: () => 'Leaps in and slams the ground, damaging everything around it' },
+  dash:      { cls: 'melee', cd: 1.7, dmg: 16, count: 1, text: () => 'Dashes through the nearest enemies' },
+  cone:      { cls: 'melee', cd: 1.5, dmg: 13, count: 1, text: () => 'Breathes a cone toward the nearest enemy' },
+  aura:      { cls: 'aura', cd: 0.5, dmg: 4,  count: 1, text: () => 'A constant damaging aura around you' },
+  orbit:     { cls: 'aura', multi: true, cd: 0.35, dmg: 6, count: 2, text: (a) => `${a.count} orbs circle you, hitting anything they touch` },
+  nova:      { cls: 'aura', cd: 3.0, dmg: 12, count: 1, text: () => 'Sends a shockwave out from you in every direction' },
+  mend:      { cls: 'aura', cd: 5.0, dmg: 6,  count: 1, text: () => 'Heals you and pushes nearby enemies back' },
+  mines:     { cls: 'aura', multi: true, cd: 1.6, dmg: 20, count: 1, text: (a) => `Leaves ${a.count > 1 ? a.count + ' traps' : 'a trap'} behind you that explode on contact` },
+  rain:      { cls: 'random', multi: true, cd: 0.9, dmg: 14, count: 1, text: (a) => `Calls down ${a.count > 1 ? a.count + ' strikes' : 'a strike'} on random enemies nearby` },
+  mortar:    { cls: 'random', multi: true, cd: 2.4, dmg: 22, count: 1, text: (a) => `Lobs ${a.count} explosive shell${a.count > 1 ? 's' : ''} onto random enemy groups` },
+  chain:     { cls: 'chain', cd: 1.6, dmg: 9,  count: 4, text: (a) => `Strikes that jump between ${a.count} enemies` },
+  ricochet:  { cls: 'chain', cd: 1.8, dmg: 10, count: 3, text: (a) => `Throws a shot that ricochets between ${a.count + 1} enemies` },
 };
 const CLASS_POOL = {
   Bruiser: ['slam', 'dash', 'boomerang', 'cone'], Mage: ['bolt', 'beam', 'mortar', 'rain', 'chain'],
-  Guardian: ['orbit', 'aura', 'nova', 'mines'], Assassin: ['dash', 'spread', 'chain', 'boomerang'], Support: ['mend', 'nova', 'orbit', 'rain'],
+  Guardian: ['orbit', 'aura', 'nova', 'mines'], Assassin: ['dash', 'spread', 'chain', 'boomerang', 'ricochet'], Support: ['mend', 'nova', 'orbit', 'rain', 'ricochet'],
 };
 
 export function attackFor(def) {
@@ -70,22 +78,28 @@ export function attackFor(def) {
   const kind = pool[h % pool.length];
   const k = KINDS[kind];
   const a = {
-    kind, element: def.element,
+    kind, cls: k.cls, element: def.element,
     name: (def.tcg && def.tcg.move) || `${def.displayName} Strike`,
-    cd: k.cd * (0.9 + ((h >> 5) % 5) * 0.05),
+    cd: k.cd * ATTACK_PACE * (0.9 + ((h >> 5) % 5) * 0.05),
     dmg: k.dmg * (RARITY_DMG[def.rarity] || 1),
     count: k.count + ((h >> 3) % 2),
     area: 0.9 + ((h >> 8) % 5) * 0.06,
   };
   if (['slam', 'dash', 'beam', 'nova', 'aura', 'mines', 'rain', 'cone', 'mend'].includes(kind)) a.count = 1;
-  a.desc = `${k.text(a)}. ${def.element}: ${ELEMENT_EFFECT[def.element] || 'no extra effect'}.`;
+  a.desc = `[${CLASSES[k.cls].label}] ${k.text(a)}. ${def.element}: ${ELEMENT_EFFECT[def.element] || 'no extra effect'}.`;
   return a;
 }
 
 export const ITEMS = [
-  { id: 'swiftclaw', icon: '🪶', name: 'Swift Claw', desc: (l) => `+${12 * l}% attack speed` },
+  { id: 'swiftclaw', icon: '🪶', name: 'Swift Claw', desc: (l) => `+${12 * l}% attack speed for every Siegeling` },
+  { id: 'prism', icon: '🔱', name: 'Splitting Prism', max: 3, desc: (l) => `+${l} extra projectile${l > 1 ? 's' : ''}, orb, trap or strike for attacks that fire more than one` },
+  { id: 'amp_melee', cls: 'melee', icon: '🥊', name: "Brawler's Knuckle", desc: (l) => `Melee attacks: +${20 * l}% damage, +${10 * l}% area, +${8 * l}% speed` },
+  { id: 'amp_projectile', cls: 'projectile', icon: '🏹', name: "Fletcher's Quiver", desc: (l) => `Projectile attacks: +${20 * l}% damage, +${15 * l}% shot speed, +${8 * l}% attack speed` },
+  { id: 'amp_aura', cls: 'aura', icon: '🔔', name: 'Resonance Bell', desc: (l) => `Aura attacks: +${20 * l}% damage, +${12 * l}% radius, +${8 * l}% speed` },
+  { id: 'amp_random', cls: 'random', icon: '🌩️', name: 'Storm Totem', desc: (l) => `Random strikes: +${20 * l}% damage${l >= 2 ? `, +${Math.floor(l / 2)} strike${l >= 4 ? 's' : ''}` : ''}, +${8 * l}% speed` },
+  { id: 'amp_chain', cls: 'chain', icon: '🌀', name: 'Conductor Coil', desc: (l) => `Chain attacks: +${20 * l}% damage, +${l} jump${l > 1 ? 's' : ''}, +${8 * l}% speed` },
   { id: 'banner', icon: '🚩', name: 'Siege Banner', desc: (l) => `+${10 * l}% damage` },
-  { id: 'boots', icon: '🥾', name: 'Trail Boots', desc: (l) => `+${8 * l}% movement speed` },
+  { id: 'boots', icon: '🥾', name: 'Trail Boots', desc: (l) => `+${12 * l}% movement speed` },
   { id: 'heartroot', icon: '❤️', name: 'Heartroot', desc: (l) => `+${20 * l} max HP` },
   { id: 'moss', icon: '🌱', name: 'Regen Moss', desc: (l) => `Regenerate ${(0.6 * l).toFixed(1)} HP per second` },
   { id: 'plate', icon: '🛡️', name: 'Guard Plate', desc: (l) => `Take ${8 * l}% less damage` },
@@ -219,12 +233,17 @@ export class Run {
   }
 
   memberStats(m) {
-    const a = m.attack, evo = m.def !== m.baseDef ? (getCreature(m.baseDef.evolvesTo) === m.def ? 1.35 : 1.8) : 1;
+    const a = m.attack, k = KINDS[a.kind], evo = m.def !== m.baseDef ? (getCreature(m.baseDef.evolvesTo) === m.def ? 1.35 : 1.8) : 1;
+    const amp = this.item(`amp_${k.cls}`);
+    let count = a.count + (k.multi ? Math.floor((m.level - 1) / 3) + this.item('prism') : 0);
+    if (k.cls === 'random') count += Math.floor(amp / 2);
+    if (k.cls === 'chain') count += amp;
     return {
-      dmg: a.dmg * (1 + 0.25 * (m.level - 1)) * evo * (1 + 0.1 * this.item('banner')) * (1 + 0.25 * this.item(`core_${a.element}`)) * (a.element === 'Neutral' ? 1.2 : 1),
-      cd: a.cd * Math.pow(0.96, m.level - 1) / (1 + 0.12 * this.item('swiftclaw')),
-      count: a.count + Math.floor((m.level - 1) / 3),
-      area: a.area * (1 + 0.12 * this.item('seal')) * (1 + 0.04 * (m.level - 1)),
+      dmg: a.dmg * (1 + 0.25 * (m.level - 1)) * evo * (1 + 0.1 * this.item('banner')) * (1 + 0.25 * this.item(`core_${a.element}`)) * (1 + 0.2 * amp) * (a.element === 'Neutral' ? 1.2 : 1),
+      cd: a.cd * Math.pow(0.96, m.level - 1) / ((1 + 0.12 * this.item('swiftclaw')) * (1 + 0.08 * amp)),
+      count,
+      area: a.area * (1 + 0.12 * this.item('seal')) * (1 + 0.04 * (m.level - 1)) * (k.cls === 'melee' ? 1 + 0.1 * amp : k.cls === 'aura' ? 1 + 0.12 * amp : 1),
+      shotSpeed: k.cls === 'projectile' ? 1 + 0.15 * amp : 1,
     };
   }
 
@@ -233,7 +252,7 @@ export class Run {
     const maxHp = 100 + 20 * this.item('heartroot');
     if (maxHp > p.maxHp) p.hp += maxHp - p.maxHp;
     p.maxHp = maxHp;
-    this.baseSpeed = 1 + 0.08 * this.item('boots');
+    this.baseSpeed = 0.78 * (1 + 0.12 * this.item('boots')); // slower start; Trail Boots bring it back up
     p.speedMult = this.baseSpeed;
     p.damageTakenMult = 1 - 0.08 * this.item('plate');
     p.regen = 0.6 * this.item('moss');
@@ -252,10 +271,15 @@ export class Run {
       });
     }
     const teamEls = new Set(this.team.map((m) => m.attack.element));
+    const teamCls = new Set(this.team.map((m) => m.attack.cls));
+    const hasMulti = this.team.some((m) => KINDS[m.attack.kind].multi);
     for (const it of ITEMS) {
       const l = this.item(it.id);
       if (l >= MAX_ITEM_LEVEL || (!l && this.itemCount >= MAX_ITEMS)) continue;
       if (it.element && !teamEls.has(it.element)) continue;
+      if (it.cls && !teamCls.has(it.cls)) continue;
+      if (it.id === 'prism' && !hasMulti) continue;
+      if (l >= (it.max || MAX_ITEM_LEVEL)) continue;
       opts.push({ icon: it.icon, title: l ? `${it.name} Lv ${l + 1}` : it.name, tag: l ? 'Item upgrade' : 'New item', desc: it.desc(l + 1), pick: () => { this.items[it.id] = l + 1; this.applyItems(); } });
     }
     return opts;
@@ -291,14 +315,14 @@ export class Run {
         while ((r -= ws[idx]) > 0) idx++;
         const c = cands[idx]; taken.add(c.id); taken.add(attackFor(c).kind);
         const a = attackFor(c);
-        opts.push({ img: c.art, title: c.displayName, tag: `${c.rarity} · ${c.element} · joins your team`, rarity: c.rarity, desc: `${a.name}: ${a.desc}`, pick: () => this.addMember(c) });
+        opts.push({ img: c.art, title: c.displayName, tag: `${c.rarity} · ${c.element} · ${CLASSES[a.cls].label}`, rarity: c.rarity, desc: `${a.name}: ${a.desc}`, pick: () => this.addMember(c) });
       }
     }
     if (better) {
       // totem rewards: double upgrades alongside the rarer recruits
       const big = [];
       for (const m of this.team) if (m.level < MAX_MEMBER_LEVEL) big.push({ img: m.def.art, title: `${m.def.displayName} +2 levels`, tag: 'Greater upgrade', desc: `${m.attack.name} grows two levels at once.`, pick: () => { for (let k = 0; k < 2 && m.level < MAX_MEMBER_LEVEL; k++) this.levelMember(m); } });
-      for (const it of ITEMS) { const l = this.item(it.id); if (l > 0 && l < MAX_ITEM_LEVEL) big.push({ icon: it.icon, title: `${it.name} +2 levels`, tag: 'Greater upgrade', desc: it.desc(Math.min(MAX_ITEM_LEVEL, l + 2)), pick: () => { this.items[it.id] = Math.min(MAX_ITEM_LEVEL, l + 2); this.applyItems(); } }); }
+      for (const it of ITEMS) { const l = this.item(it.id); if (l > 0 && l < (it.max || MAX_ITEM_LEVEL)) big.push({ icon: it.icon, title: `${it.name} +2 levels`, tag: 'Greater upgrade', desc: it.desc(Math.min(it.max || MAX_ITEM_LEVEL, l + 2)), pick: () => { this.items[it.id] = Math.min(it.max || MAX_ITEM_LEVEL, l + 2); this.applyItems(); } }); }
       opts = opts.concat(this.pickN(big, 3 - opts.length));
       this.g.player.hp = Math.min(this.g.player.maxHp, this.g.player.hp + 25);
     }
@@ -327,7 +351,7 @@ export class Run {
     const mult = tier === 'boss' ? 140 : tier === 'elite' ? 14 : def.rarity === 'Uncommon' ? 1.6 : 1;
     const e = {
       def, tier, isBoss: tier === 'boss', isRaider: true, fainted: false,
-      pos: new THREE.Vector3(x, 0, z), hp: 14 * k * mult, speed: (tier === 'boss' ? 9.5 : tier === 'elite' ? 8 : rand(6.5, 9.5)) + Math.min(3, this.time / 120),
+      pos: new THREE.Vector3(x, 0, z), hp: 14 * k * mult, speed: (tier === 'boss' ? 8.5 : tier === 'elite' ? 7 : rand(5.5, 8)) + Math.min(2.5, this.time / 140),
       dmg: (4 + this.time / 50) * (tier === 'boss' ? 3 : tier === 'elite' ? 1.8 : 1), hitCD: 0, st: {}, t: Math.random() * 10,
     };
     e.maxHp = e.hp;
@@ -458,7 +482,7 @@ export class Run {
     if (opt.boomerang) mesh.material = mesh.material.clone(); // spins on its own
     mesh.position.copy(from);
     this.group.add(mesh);
-    this.shots.push({ mesh, m, vel: dir.clone().setY(0).normalize().multiplyScalar(opt.speed || 45), life: opt.life || 1.6, dmg: opt.dmg, pierce: opt.pierce || 0, r: (opt.size || 1) * 0.6 + 0.4, target: opt.target || null, boomerang: opt.boomerang || false, hit: new Set(), age: 0, color });
+    this.shots.push({ mesh, m, vel: dir.clone().setY(0).normalize().multiplyScalar(opt.speed || 45), life: opt.life || 1.6, dmg: opt.dmg, pierce: opt.pierce || 0, bounces: opt.bounces || 0, r: (opt.size || 1) * 0.6 + 0.4, target: opt.target || null, boomerang: opt.boomerang || false, hit: new Set(), age: 0, color });
   }
 
   // ── attacks ──────────────────────────────────────────────────
@@ -473,18 +497,18 @@ export class Run {
     switch (a.kind) {
       case 'bolt': {
         const skip = new Set();
-        for (let i = 0; i < s.count; i++) { const t = this.nearest(p, 55, skip) || target; skip.add(t); this.shoot(m, from, t.pos.clone().sub(m.pos), { dmg: s.dmg, target: t, speed: 50 }); }
+        for (let i = 0; i < s.count; i++) { const t = this.nearest(p, 55, skip) || target; skip.add(t); this.shoot(m, from, t.pos.clone().sub(m.pos), { dmg: s.dmg, target: t, speed: 32 * s.shotSpeed, life: 2.4 }); }
         break;
       }
       case 'spread': {
         const base = Math.atan2(toT.x, toT.z);
-        for (let i = 0; i < s.count; i++) { const ang = base + (i - (s.count - 1) / 2) * 0.22; this.shoot(m, from, new THREE.Vector3(Math.sin(ang), 0, Math.cos(ang)), { dmg: s.dmg, speed: 55, pierce: 1, life: 1 }); }
+        for (let i = 0; i < s.count; i++) { const ang = base + (i - (s.count - 1) / 2) * 0.22; this.shoot(m, from, new THREE.Vector3(Math.sin(ang), 0, Math.cos(ang)), { dmg: s.dmg, speed: 36 * s.shotSpeed, pierce: 1, life: 1.5 }); }
         break;
       }
       case 'slam': {
         if (toT.length() > 14) return false;
         const r = 7 * s.area;
-        m.lunge = { to: target.pos.clone(), t: 0.3 };
+        m.lunge = { to: target.pos.clone(), t: 0.45 };
         g.fx.ring(target.pos, color, r, 0.45);
         g.fx.sprites(target.pos.clone().setY(target.pos.y + 1), BIT(a.element), { count: 12, speed: 10, up: 7, life: 0.7, size: 1.6 });
         for (const e of this.inRadius(target.pos, r)) this.hit(e, s.dmg, m);
@@ -493,7 +517,7 @@ export class Run {
       case 'dash': {
         const dir = toT.clone().normalize(), len = Math.min(26, toT.length() + 8);
         const end = m.pos.clone().addScaledVector(dir, len);
-        m.lunge = { to: end, t: 0.35 };
+        m.lunge = { to: end, t: 0.5 };
         for (const e of [...this.enemies]) {
           const rel = e.pos.clone().sub(m.pos).setY(0), along = clamp(rel.dot(dir), 0, len);
           if (rel.addScaledVector(dir, -along).length() < 2.6 * s.area + e.r) this.hit(e, s.dmg, m);
@@ -508,7 +532,7 @@ export class Run {
         beam.rotation.y = Math.atan2(dir.x, dir.z);
         this.group.add(beam);
         for (let i = 2; i < len; i += 4) g.fx.sprites(from.clone().addScaledVector(dir, i), BIT(a.element), { count: 1, speed: 2, life: 0.4, up: 1, size: 1.3 });
-        g.fx.tween(0.25, (t) => { beam.material.opacity = 0.85 * (1 - t); beam.scale.x = 1 - t * 0.7; }, () => { this.group.remove(beam); beam.geometry.dispose(); beam.material.dispose(); });
+        g.fx.tween(0.45, (t) => { beam.material.opacity = 0.85 * (1 - t); beam.scale.x = 1 - t * 0.7; }, () => { this.group.remove(beam); beam.geometry.dispose(); beam.material.dispose(); });
         for (const e of [...this.enemies]) {
           const rel = e.pos.clone().sub(m.pos).setY(0), along = rel.dot(dir);
           if (along > 0 && along < len && rel.addScaledVector(dir, -along).length() < 1.6 * s.area + e.r) this.hit(e, s.dmg, m);
@@ -534,7 +558,7 @@ export class Run {
           const shell = new THREE.Sprite(g.fx.spriteMaterial(PROJ(a.element))); shell.scale.setScalar(3);
           this.group.add(shell);
           const start = from.clone();
-          g.fx.tween(0.7, (k) => { shell.position.lerpVectors(start, at, k); shell.position.y += Math.sin(k * Math.PI) * 14 + 1; }, () => {
+          g.fx.tween(1.0, (k) => { shell.position.lerpVectors(start, at, k); shell.position.y += Math.sin(k * Math.PI) * 14 + 1; }, () => {
             this.group.remove(mark, shell); mark.geometry.dispose(); mark.material.dispose();
             if (!this.active) return;
             g.fx.burst(at.clone().setY(at.y + 1), color, 26, 9, 0.6, 3);
@@ -561,30 +585,44 @@ export class Run {
       }
       case 'boomerang': {
         const base = Math.atan2(toT.x, toT.z);
-        for (let i = 0; i < s.count; i++) { const ang = base + (i - (s.count - 1) / 2) * 0.5; this.shoot(m, from, new THREE.Vector3(Math.sin(ang), 0, Math.cos(ang)), { dmg: s.dmg, speed: 38, pierce: 99, life: 1.5, size: 1.6 * s.area, boomerang: true }); }
+        for (let i = 0; i < s.count; i++) { const ang = base + (i - (s.count - 1) / 2) * 0.5; this.shoot(m, from, new THREE.Vector3(Math.sin(ang), 0, Math.cos(ang)), { dmg: s.dmg, speed: 27 * s.shotSpeed, pierce: 99, life: 2.2, size: 1.6 * s.area, boomerang: true }); }
         break;
       }
       case 'mines': {
-        if (this.hazards.length > 14) return false;
-        const mesh = new THREE.Sprite(this.g.fx.spriteMaterial(PROJ(a.element))); mesh.scale.setScalar(2.4);
-        mesh.position.copy(p).y += 0.9;
-        this.group.add(mesh);
-        this.hazards.push({ mesh, color, pos: mesh.position, life: 12, r: 5.5 * s.area, dmg: s.dmg, m, arm: 0.5 });
+        if (this.hazards.length > 18) return false;
+        for (let n = 0; n < s.count; n++) {
+          const mesh = new THREE.Sprite(this.g.fx.spriteMaterial(PROJ(a.element))); mesh.scale.setScalar(2.4);
+          const an = (n / s.count) * Math.PI * 2, off = s.count > 1 ? 4 : 0;
+          mesh.position.set(p.x + Math.cos(an) * off, g.world.groundAt(p.x + Math.cos(an) * off, p.z + Math.sin(an) * off, p.y + 2) + 0.9, p.z + Math.sin(an) * off);
+          this.group.add(mesh);
+          this.hazards.push({ mesh, color, pos: mesh.position, life: 12, r: 5.5 * s.area, dmg: s.dmg, m, arm: 0.5 });
+        }
         break;
       }
       case 'rain': {
-        const a2 = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * 26;
-        const t = Math.random() < 0.6 && target ? target.pos : new THREE.Vector3(p.x + Math.cos(a2) * rr, p.y, p.z + Math.sin(a2) * rr);
-        const at = t.clone(); at.y = g.world.groundAt(at.x, at.z);
-        const drop = new THREE.Sprite(g.fx.spriteMaterial(PROJ(a.element))); drop.scale.setScalar(3.2);
-        this.group.add(drop);
-        g.fx.tween(0.28, (k) => { drop.position.set(at.x, at.y + 24 * (1 - k) + 1, at.z); if (Math.random() < 0.6) g.fx.burst(drop.position, color, 1, 0.5, 0.25, 0); }, () => {
-          this.group.remove(drop);
-          if (!this.active) return;
-          g.fx.ring(at, color, 4 * s.area, 0.3);
-          g.fx.sprites(at.clone().setY(at.y + 0.8), BIT(a.element), { count: 6, speed: 7, up: 5, life: 0.5, size: 1.3 });
-          for (const e of this.inRadius(at, 4.5 * s.area)) this.hit(e, s.dmg, m);
-        });
+        // random enemies within reach (or open ground if there are none), one strike each
+        const pool = this.enemies.filter((e) => (e.pos.x - p.x) ** 2 + (e.pos.z - p.z) ** 2 < 45 * 45);
+        for (let n = 0; n < s.count; n++) {
+          let at;
+          if (pool.length) { const e = pool.splice(Math.floor(Math.random() * pool.length), 1)[0]; at = e.pos.clone(); }
+          else { const a2 = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * 26; at = new THREE.Vector3(p.x + Math.cos(a2) * rr, 0, p.z + Math.sin(a2) * rr); }
+          at.y = g.world.groundAt(at.x, at.z);
+          const drop = new THREE.Sprite(g.fx.spriteMaterial(PROJ(a.element))); drop.scale.setScalar(3.2);
+          this.group.add(drop);
+          const mark = new THREE.Mesh(new THREE.RingGeometry(4 * s.area - 0.3, 4 * s.area, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false }));
+          mark.position.copy(at).y += 0.3; this.group.add(mark);
+          g.fx.tween(0.5 + n * 0.08, (k) => { drop.position.set(at.x, at.y + 26 * (1 - k * k) + 1, at.z); if (Math.random() < 0.6) g.fx.burst(drop.position, color, 1, 0.5, 0.25, 0); }, () => {
+            this.group.remove(drop, mark); mark.geometry.dispose(); mark.material.dispose();
+            if (!this.active) return;
+            g.fx.ring(at, color, 4 * s.area, 0.35);
+            g.fx.sprites(at.clone().setY(at.y + 0.8), BIT(a.element), { count: 6, speed: 7, up: 5, life: 0.5, size: 1.3 });
+            for (const e of this.inRadius(at, 4.5 * s.area)) this.hit(e, s.dmg, m);
+          });
+        }
+        break;
+      }
+      case 'ricochet': {
+        this.shoot(m, from, target.pos.clone().sub(m.pos), { dmg: s.dmg, target, speed: 30, life: 3, bounces: s.count, size: 1.2 });
         break;
       }
       case 'cone': {
@@ -647,7 +685,7 @@ export class Run {
     if (dc > this.R) { pp.x = this.center.x + (pp.x - this.center.x) * this.R / dc; pp.z = this.center.z + (pp.z - this.center.z) * this.R / dc; }
 
     // spawning
-    const rate = this.bossSpawned ? 2.2 : 0.9 + this.time / 40;
+    const rate = this.bossSpawned ? 2 : 0.8 + this.time / 45;
     this.spawnAcc += dt * rate;
     while (this.spawnAcc >= 1) { this.spawnAcc -= 1; if (this.enemies.length < (g.ctx.touch ? 90 : 150)) this.spawnEnemy(); }
     if (this.time >= this.eliteAt && !this.bossSpawned) { this.eliteAt += 45; this.spawnEnemy('elite'); g.ui.notify('An elite Siegeling appears — defeat it for a chest!', 'warn'); }
@@ -700,7 +738,7 @@ export class Run {
       let speed = 0;
       if (m.lunge) {
         m.lunge.t -= dt;
-        m.pos.lerp(m.lunge.to, Math.min(1, dt * 14)); speed = 12;
+        m.pos.lerp(m.lunge.to, Math.min(1, dt * 8)); speed = 10;
         if (m.lunge.t <= 0) m.lunge = null;
       } else {
         const d = Math.hypot(home.x - m.pos.x, home.z - m.pos.z);
@@ -726,8 +764,8 @@ export class Run {
       const s = this.shots[i];
       s.age += dt; s.life -= dt;
       if (s.target && s.target.hp > 0) { const want = s.target.pos.clone().sub(s.mesh.position).setY(0).normalize().multiplyScalar(s.vel.length()); s.vel.lerp(want, Math.min(1, dt * 10)); }
-      if (s.boomerang && s.age > 0.6 && !s.back) { s.back = true; s.hit.clear(); }
-      if (s.back) { const want = pp.clone().sub(s.mesh.position).setY(0).normalize().multiplyScalar(48); s.vel.lerp(want, Math.min(1, dt * 8)); if (s.mesh.position.distanceTo(pp) < 3) s.life = 0; else s.life = Math.max(s.life, 0.1); if (s.age > 4) s.life = 0; }
+      if (s.boomerang && s.age > 0.85 && !s.back) { s.back = true; s.hit.clear(); }
+      if (s.back) { const want = pp.clone().sub(s.mesh.position).setY(0).normalize().multiplyScalar(34); s.vel.lerp(want, Math.min(1, dt * 6)); if (s.mesh.position.distanceTo(pp) < 3) s.life = 0; else s.life = Math.max(s.life, 0.1); if (s.age > 5) s.life = 0; }
       const prev = s.mesh.position.clone();
       s.mesh.position.addScaledVector(s.vel, dt);
       s.mesh.position.y = g.world.groundAt(s.mesh.position.x, s.mesh.position.z, s.mesh.position.y + 3) + 1.6;
@@ -747,6 +785,10 @@ export class Run {
         hits.sort((x, y) => x[0] - y[0]);
         for (const [, e] of hits) {
           s.hit.add(e); this.hit(e, s.dmg, s.m);
+          if (s.bounces > 0) { // ricochet: turn toward the nearest enemy it hasn't hit yet
+            const next = this.nearest(e.pos, 18, s.hit);
+            if (next) { s.bounces--; s.target = next; s.dmg *= 0.9; s.life = Math.max(s.life, 1.2); s.vel.copy(next.pos.clone().sub(e.pos).setY(0).normalize().multiplyScalar(s.vel.length())); this.zap(e.pos, next.pos, s.color, BIT(s.m.attack.element)); break; }
+          }
           if (s.pierce-- <= 0) { dead = true; s.mesh.position.set(e.pos.x, s.mesh.position.y, e.pos.z); break; }
         }
       }

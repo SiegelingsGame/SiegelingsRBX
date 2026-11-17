@@ -545,7 +545,7 @@ export class UI {
       <tr><td><kbd>B</kbd></td><td>Base Core (upgrades &amp; slots)</td></tr>
       <tr><td><kbd>M</kbd></td><td>World map · <kbd>H</kbd> go home · <kbd>?</kbd> this help</td></tr>
       </table>
-      <p><b>Runs:</b> walk into the <b>Expedition Gate</b> in front of your base, pick a stage and a starting Siegeling. Wild Siegelings swarm you — your team attacks automatically, each with its own attack. Collect the blue XP gems to level up (upgrade a Siegeling or take an item, up to ${MAX_ITEMS}). Stand next to a <b>chest</b> to open it and recruit a new Siegeling (up to ${MAX_TEAM}). Survive 5 minutes, then defeat the boss.</p>
+      <p><b>Runs:</b> walk into the <b>Expedition Gate</b> in front of your base, pick a stage and a starting Siegeling. Wild Siegelings swarm you — your team attacks automatically, each with its own attack. Collect the blue XP gems to level up (upgrade a Siegeling or take an item, up to ${MAX_ITEMS}). Attacks come in five classes — Melee, Projectile, Aura, Random strike and Chain — and each class has a boost item; the Splitting Prism adds extra projectiles. Stand next to a <b>chest</b> to open it and recruit a new Siegeling (up to ${MAX_TEAM}). Survive 5 minutes, then defeat the boss.</p>
       <p><b>Base:</b> between runs, spend coins at the Base Core on new floors and station Siegelings on income pads. Siegelings you recruit in a run join your collection.</p>
       <p class="hint"><button class="ghost" data-act="reset">Reset save</button></p>
       </div>`);

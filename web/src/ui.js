@@ -261,6 +261,7 @@ export class UI {
 
   drawMarkers(ctx, tx, tz, s, center = null, range = Infinity) {
     const run = this.g.run;
+    if (run.active) for (const t of run.totems) { if (t.done) continue; ctx.fillStyle = '#c9a6ff'; ctx.beginPath(); ctx.moveTo(tx(t.x), tz(t.z) - 5 * s); ctx.lineTo(tx(t.x) + 4 * s, tz(t.z)); ctx.lineTo(tx(t.x), tz(t.z) + 5 * s); ctx.lineTo(tx(t.x) - 4 * s, tz(t.z)); ctx.fill(); }
     if (run.active) for (const ch of run.chests) { ctx.fillStyle = '#ffd76a'; ctx.fillRect(tx(ch.pos.x) - 3 * s, tz(ch.pos.z) - 3 * s, 6 * s, 6 * s); }
     for (const c of (run.active ? run.enemies : this.g.creatures.list)) {
       if (center && Math.hypot(c.pos.x - center.x, c.pos.z - center.z) > range) continue;

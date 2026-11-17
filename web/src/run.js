@@ -11,7 +11,18 @@ import { hashStr, rand, pick, clamp, mulberry32 } from './util.js';
 
 export const MAX_TEAM = 6, MAX_ITEMS = 6, MAX_MEMBER_LEVEL = 8, MAX_ITEM_LEVEL = 5;
 const RUN_LENGTH = 300;      // seconds until the boss arrives
-const ARENA_R = 125;
+// Per-biome environmental hazards: static zones, telegraphed strikes and wandering twisters.
+const HAZARDS = {
+  forest:    { zone: { name: 'Thorn patch', color: 0x2f5a1a, dps: 5, slow: 0.7, n: 18 }, strike: { name: 'Rockfall', every: 9, color: 0x9a8a6a } },
+  volcanic:  { zone: { name: 'Lava pool', color: 0xffc23a, dps: 14, n: 20 }, strike: { name: 'Eruption', every: 5, color: 0xff7a1a } },
+  frozen:    { zone: { name: 'Black ice', color: 0x9fdcff, slow: 0.5, n: 20 }, strike: { name: 'Icicle fall', every: 7, color: 0xbfeaff } },
+  highlands: { mover: { name: 'Twister', color: 0xd8ffe8, n: 7 }, strike: { name: 'Gale burst', every: 10, color: 0xffffff } },
+  electric:  { zone: { name: 'Static field', color: 0xffe63c, dps: 7, n: 12 }, strike: { name: 'Lightning', every: 3.2, delay: 0.8, color: 0xffe63c } },
+  caves:     { zone: { name: 'Shadow pool', color: 0x5a2a8a, dps: 8, n: 14 }, strike: { name: 'Stalactite', every: 5, color: 0xb0a0c0 } },
+  ocean:     { zone: { name: 'Whirlpool', color: 0x1f5fae, dps: 4, pull: 9, n: 12 }, strike: { name: 'Geyser', every: 8, color: 0x8fd8ff, launch: true } },
+  desert:    { zone: { name: 'Quicksand', color: 0x9a7436, slow: 0.45, n: 18 }, mover: { name: 'Dust devil', color: 0xe8cf9a, n: 4 }, strike: { name: 'Sunstrike', every: 9, color: 0xffd76a } },
+};
+const TOTEM_TIME = 5; // seconds standing by a totem to claim it
 const D2R = Math.PI / 180;
 
 // TCG weakness chart: attacker element -> elements it is strong against
@@ -86,9 +97,9 @@ const itemById = Object.fromEntries(ITEMS.map((i) => [i.id, i]));
 
 export function arenaCenter(biomeId) {
   const b = BIOMES[biomeId];
-  if (b.outer) return new THREE.Vector3(b.center.x * 0.86, 0, b.center.y * 0.86);
-  const a = (b.angle + 22) * D2R;
-  return new THREE.Vector3(Math.cos(a) * 300, 0, Math.sin(a) * 300);
+  if (b.outer) return new THREE.Vector3(b.center.x, 0, b.center.y);
+  const a = b.angle * D2R; // far out along the wedge's diagonal, where the biome is widest
+  return new THREE.Vector3(Math.cos(a) * 470, 0, Math.sin(a) * 470);
 }
 
 export class Run {
@@ -103,7 +114,8 @@ export class Run {
     this.gemMesh.frustumCulled = false; this.gemMesh.count = 0;
     this.group.add(this.gemMesh);
     this.gems = [];
-    this.pads = []; this.tops = [];
+    this.pads = []; this.tops = []; this.zones = []; this.movers = []; this.totems = []; this.strikes = [];
+    this.env = { attack: { element: 'Neutral' } }; // damage source for hazards hitting enemies
   }
 
   item(id) { return this.items[id] || 0; }
@@ -116,6 +128,8 @@ export class Run {
     this.active = true;
     this.biome = biomeId;
     this.center = arenaCenter(biomeId);
+    this.R = BIOMES[biomeId].outer ? 182 : 205; // arena radius
+    this.pendingTotems = 0; this.strikeAt = 12; this.hazAcc = 0; this.hazTick = 0; this.baseSpeed = 1;
     this.time = 0; this.kills = 0; this.level = 1; this.xp = 0; this.pendingLevels = 0; this.pendingChests = 0;
     this.spawnAcc = 0; this.eliteAt = 45; this.chestAt = 20; this.bossSpawned = false; this.boss = null; this.won = false;
     this.items = {}; this.found = [];
@@ -123,7 +137,7 @@ export class Run {
     g.player.teleport(this.center.clone());
     g.player.hp = g.player.maxHp = 100;
     g.cam.dist = 22; g.cam.pitch = -0.72; g.cam.side = 0; // high, centred camera so the swarm is readable
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(ARENA_R, 0.6, 6, 96).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffd76a, transparent: true, opacity: 0.7 }));
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(this.R, 0.6, 6, 96).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffd76a, transparent: true, opacity: 0.7 }));
     ring.position.copy(this.center).y += 1.5;
     this.group.add(ring); this.ring = ring;
     this.buildArena();
@@ -139,9 +153,10 @@ export class Run {
     for (const s of this.shots) this.group.remove(s.mesh);
     for (const h of this.hazards) this.group.remove(h.mesh);
     for (const c of this.chests) this.group.remove(c.mesh);
+    for (const st of this.strikes || []) this.group.remove(st.mark, st.fill);
     if (this.ring) this.group.remove(this.ring);
     if (this.arena) { this.group.remove(this.arena); this.arena = null; }
-    this.g.world.removeOwned(this); this.pads = []; this.tops = [];
+    this.g.world.removeOwned(this); this.pads = []; this.tops = []; this.zones = []; this.movers = []; this.totems = []; this.strikes = [];
     this.enemies = []; this.team = []; this.shots = []; this.hazards = []; this.chests = []; this.gems = []; this.gemMesh.count = 0;
   }
 
@@ -215,7 +230,8 @@ export class Run {
     const maxHp = 100 + 20 * this.item('heartroot');
     if (maxHp > p.maxHp) p.hp += maxHp - p.maxHp;
     p.maxHp = maxHp;
-    p.speedMult = 1 + 0.08 * this.item('boots');
+    this.baseSpeed = 1 + 0.08 * this.item('boots');
+    p.speedMult = this.baseSpeed;
     p.damageTakenMult = 1 - 0.08 * this.item('plate');
     p.regen = 0.6 * this.item('moss');
   }
@@ -254,17 +270,17 @@ export class Run {
     this.g.ui.openRunChoice(`Level ${this.level}! Choose one`, opts);
   }
 
-  offerChest() {
+  offerChest(better = false) {
     let opts = [];
     if (this.team.length < MAX_TEAM) {
       const usedKinds = new Set(this.team.map((m) => m.attack.kind));
       const usedIds = new Set(this.team.map((m) => m.baseDef.id));
       const stageEls = BIOMES[this.biome].elements;
       const t = this.time / RUN_LENGTH;
-      const w = { Common: 60 - 30 * t, Uncommon: 28, Rare: 8 + 14 * t, Epic: 2 + 8 * t, Legendary: t > 0.6 ? 2 : 0 };
-      const cands = Creatures.filter((c) => !c.evolvesFrom && c.art && !usedIds.has(c.id) && !usedKinds.has(attackFor(c).kind));
+      const w = better ? { Common: 0, Uncommon: 12, Rare: 45, Epic: 32, Legendary: 6 } : { Common: 60 - 30 * t, Uncommon: 28, Rare: 8 + 14 * t, Epic: 2 + 8 * t, Legendary: t > 0.6 ? 2 : 0 };
+      const cands = Creatures.filter((c) => (better ? RARITY_DMG[c.rarity] >= 1.2 : !c.evolvesFrom) && c.art && !usedIds.has(c.id) && !usedKinds.has(attackFor(c).kind));
       const taken = new Set();
-      for (let i = 0; i < 3 && cands.length; i++) {
+      for (let i = 0; i < (better ? 2 : 3) && cands.length; i++) {
         let total = 0;
         const ws = cands.map((c) => { const v = taken.has(attackFor(c).kind) || taken.has(c.id) ? 0 : (w[c.rarity] || 1) * (stageEls.includes(c.element) ? 3 : 1); total += v; return v; });
         if (total <= 0) break;
@@ -275,9 +291,17 @@ export class Run {
         opts.push({ img: c.art, title: c.displayName, tag: `${c.rarity} · ${c.element} · joins your team`, rarity: c.rarity, desc: `${a.name}: ${a.desc}`, pick: () => this.addMember(c) });
       }
     }
-    if (!opts.length) opts = this.pickN(this.upgradeOptions(), 3);
+    if (better) {
+      // totem rewards: double upgrades alongside the rarer recruits
+      const big = [];
+      for (const m of this.team) if (m.level < MAX_MEMBER_LEVEL) big.push({ img: m.def.art, title: `${m.def.displayName} +2 levels`, tag: 'Greater upgrade', desc: `${m.attack.name} grows two levels at once.`, pick: () => { for (let k = 0; k < 2 && m.level < MAX_MEMBER_LEVEL; k++) this.levelMember(m); } });
+      for (const it of ITEMS) { const l = this.item(it.id); if (l > 0 && l < MAX_ITEM_LEVEL) big.push({ icon: it.icon, title: `${it.name} +2 levels`, tag: 'Greater upgrade', desc: it.desc(Math.min(MAX_ITEM_LEVEL, l + 2)), pick: () => { this.items[it.id] = Math.min(MAX_ITEM_LEVEL, l + 2); this.applyItems(); } }); }
+      opts = opts.concat(this.pickN(big, 3 - opts.length));
+      this.g.player.hp = Math.min(this.g.player.maxHp, this.g.player.hp + 25);
+    }
+    if (opts.length < 3) opts = opts.concat(this.pickN(this.upgradeOptions(), 3 - opts.length));
     if (!opts.length) return;
-    this.g.ui.openRunChoice(this.team.length < MAX_TEAM ? 'Chest opened! A Siegeling wants to join' : 'Chest opened! Choose a reward', opts);
+    this.g.ui.openRunChoice(better ? 'Totem claimed! Choose a greater reward' : this.team.length < MAX_TEAM ? 'Chest opened! A Siegeling wants to join' : 'Chest opened! Choose a reward', opts);
   }
 
   // ── enemies ──────────────────────────────────────────────────
@@ -294,7 +318,7 @@ export class Run {
     for (let i = 0; i < 8; i++) {
       const a = Math.random() * Math.PI * 2, r = rand(48, 62);
       x = p.x + Math.cos(a) * r; z = p.z + Math.sin(a) * r;
-      if (Math.hypot(x - this.center.x, z - this.center.z) < ARENA_R + 25) break;
+      if (Math.hypot(x - this.center.x, z - this.center.z) < this.R + 25) break;
     }
     const k = 1 + this.time / 60 * 0.55;
     const mult = tier === 'boss' ? 140 : tier === 'elite' ? 14 : def.rarity === 'Uncommon' ? 1.6 : 1;
@@ -374,7 +398,7 @@ export class Run {
   }
 
   spawnChest(at = null) {
-    if (this.chests.length >= 4) return;
+    if (this.chests.length >= 6) return;
     const p = this.g.player.pos;
     let x, z;
     if (!at && this.tops.length && Math.random() < 0.45) { const t = pick(this.tops); at = { x: t.x, z: t.z }; } // high-ground chest
@@ -382,7 +406,7 @@ export class Run {
       const a = Math.random() * Math.PI * 2, r = rand(22, 38);
       x = p.x + Math.cos(a) * r; z = p.z + Math.sin(a) * r;
       const dc = Math.hypot(x - this.center.x, z - this.center.z);
-      if (dc > ARENA_R - 8) { x = this.center.x + (x - this.center.x) * (ARENA_R - 8) / dc; z = this.center.z + (z - this.center.z) * (ARENA_R - 8) / dc; }
+      if (dc > this.R - 8) { x = this.center.x + (x - this.center.x) * (this.R - 8) / dc; z = this.center.z + (z - this.center.z) * (this.R - 8) / dc; }
     }
     const mesh = new THREE.Group();
     const box = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.8, 1.8), new THREE.MeshLambertMaterial({ color: 0x8a5a2a }));
@@ -574,14 +598,14 @@ export class Run {
     }
     // keep the player inside the arena
     const dc = Math.hypot(pp.x - this.center.x, pp.z - this.center.z);
-    if (dc > ARENA_R) { pp.x = this.center.x + (pp.x - this.center.x) * ARENA_R / dc; pp.z = this.center.z + (pp.z - this.center.z) * ARENA_R / dc; }
+    if (dc > this.R) { pp.x = this.center.x + (pp.x - this.center.x) * this.R / dc; pp.z = this.center.z + (pp.z - this.center.z) * this.R / dc; }
 
     // spawning
     const rate = this.bossSpawned ? 2.2 : 0.9 + this.time / 40;
     this.spawnAcc += dt * rate;
     while (this.spawnAcc >= 1) { this.spawnAcc -= 1; if (this.enemies.length < (g.ctx.touch ? 90 : 150)) this.spawnEnemy(); }
     if (this.time >= this.eliteAt && !this.bossSpawned) { this.eliteAt += 45; this.spawnEnemy('elite'); g.ui.notify('An elite Siegeling appears — defeat it for a chest!', 'warn'); }
-    if (this.time >= this.chestAt) { this.chestAt += 38; this.spawnChest(); }
+    if (this.time >= this.chestAt) { this.chestAt += 30; this.spawnChest(); }
     if (this.time >= RUN_LENGTH && !this.bossSpawned) { this.bossSpawned = true; this.boss = this.spawnEnemy('boss'); g.ui.notify(`⚠️ Boss: ${this.boss.def.displayName}!`, 'bad'); }
 
     // enemies: chase, separate, contact damage, status effects
@@ -691,18 +715,35 @@ export class Run {
     this.gemMesh.count = this.gems.length;
     this.gemMesh.instanceMatrix.needsUpdate = true;
 
-    // chests: stand next to one to open it
+    // chests open the moment you touch them
     for (let i = this.chests.length - 1; i >= 0; i--) {
       const c = this.chests[i];
-      const near = Math.hypot(pp.x - c.pos.x, pp.z - c.pos.z) < 4.5 && Math.abs(pp.y - c.pos.y) < 3;
-      c.open = near ? c.open + dt : Math.max(0, c.open - dt * 2);
-      c.lid.rotation.x = -c.open * 0.9; c.lid.position.y = 2 + c.open * 0.4;
-      if (c.open >= 1.2) { this.group.remove(c.mesh); this.chests.splice(i, 1); this.pendingChests++; g.fx.burst(c.pos.clone().setY(c.pos.y + 2), 0xffd76a, 40, 9, 0.9, 5); }
+      if (Math.hypot(pp.x - c.pos.x, pp.z - c.pos.z) < 3.4 && Math.abs(pp.y - c.pos.y) < 3) {
+        this.group.remove(c.mesh); this.chests.splice(i, 1); this.pendingChests++;
+        g.fx.burst(c.pos.clone().setY(c.pos.y + 2), 0xffd76a, 40, 9, 0.9, 5);
+      }
     }
-    this.chestProgress = Math.max(0, ...this.chests.map((c) => c.open / 1.2));
+    // totems: hold your ground beside one to claim better loot
+    let prog = 0;
+    for (const t of this.totems) {
+      if (t.done) continue;
+      const near = Math.hypot(pp.x - t.x, pp.z - t.z) < t.r && Math.abs(pp.y - t.y) < 4;
+      t.charge = near ? t.charge + dt : Math.max(0, t.charge - dt * 0.5);
+      t.gem.rotation.y += dt * (1 + t.charge * 2); t.gem.position.y = 9 + Math.sin(this.time * 2) * 0.4;
+      t.ring.material.opacity = 0.35 + 0.5 * (t.charge / TOTEM_TIME);
+      prog = Math.max(prog, t.charge / TOTEM_TIME);
+      if (t.charge >= TOTEM_TIME) {
+        t.done = true; this.pendingTotems++;
+        t.gem.visible = false; t.ring.visible = false;
+        g.fx.ring(new THREE.Vector3(t.x, t.y, t.z), 0xc9a6ff, 14, 1); g.fx.burst(new THREE.Vector3(t.x, t.y + 8, t.z), 0xc9a6ff, 70, 12, 1.2, 6);
+      }
+    }
+    this.chestProgress = prog;
+    this.updateHazards(dt);
 
     if (!g.ui.open) {
-      if (this.pendingChests > 0) { this.pendingChests--; this.offerChest(); }
+      if (this.pendingTotems > 0) { this.pendingTotems--; this.offerChest(true); }
+      else if (this.pendingChests > 0) { this.pendingChests--; this.offerChest(); }
       else if (this.pendingLevels > 0) { this.pendingLevels--; this.offerLevelUp(); }
     }
   }
@@ -736,8 +777,8 @@ export class Run {
     };
     spots.push({ x: this.center.x, z: this.center.z, c: 12 }); // keep the start clear
     // tiered plateaus: 1 to 3 tiers, each tier reachable with a jump from the one below
-    for (let i = 0; i < 7; i++) {
-      const size = 20 + rng() * 10, p = place(26, ARENA_R - 22, size * 0.75);
+    for (let i = 0; i < 18; i++) {
+      const size = 20 + rng() * 12, p = place(26, this.R - 22, size * 0.75);
       if (!p) continue;
       const rot = rng() * Math.PI, gy = w.terrainHeight(p.x, p.z), tiers = 1 + Math.floor(rng() * 3);
       let s = size, ox = 0, oz = 0;
@@ -760,8 +801,8 @@ export class Run {
       arena.add(mesh);
       this.pads.push({ x, z, y, mesh });
     };
-    for (let i = 0; i < 2; i++) {
-      const p = place(34, ARENA_R - 30, 16);
+    for (let i = 0; i < 5; i++) {
+      const p = place(34, this.R - 30, 16);
       if (!p) continue;
       const gy = w.terrainHeight(p.x, p.z), top = gy + 13;
       addTier(p.x, p.z, rng() * Math.PI, 11, gy, top);
@@ -770,8 +811,119 @@ export class Run {
       spots.push({ x: p.x + Math.cos(a) * 9.5, z: p.z + Math.sin(a) * 9.5, c: 4 });
       addPad(p.x + Math.cos(a) * 9.5, p.z + Math.sin(a) * 9.5);
     }
-    for (let i = 0; i < 3; i++) { const p = place(18, ARENA_R - 15, 6); if (p) addPad(p.x, p.z); }
+    for (let i = 0; i < 9; i++) { const p = place(18, this.R - 15, 6); if (p) addPad(p.x, p.z); }
+    this.buildHazardsAndTotems(arena, place, rng);
     this.group.add(arena);
+  }
+
+  // A flat disc draped over the terrain.
+  groundDisc(x, z, r, color, opacity, inner = 0) {
+    const w = this.g.world, y0 = w.terrainHeight(x, z);
+    const geo = inner ? new THREE.RingGeometry(inner, r, 28, 1) : new THREE.CircleGeometry(r, 24);
+    geo.rotateX(-Math.PI / 2);
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) pos.setY(i, w.terrainHeight(x + pos.getX(i), z + pos.getZ(i)) - y0 + 0.3);
+    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2 }));
+    m.position.set(x, y0, z);
+    return m;
+  }
+
+  buildHazardsAndTotems(arena, place, rng) {
+    const w = this.g.world, cfg = HAZARDS[this.biome] || {};
+    const onGround = (p) => p && !w.blocks.some((b) => { // not on top of a plateau or spire
+      const dx = p.x - b.cx, dz = p.z - b.cz;
+      return Math.abs(dx * b.cos + dz * b.sin) < b.hx + 2 && Math.abs(-dx * b.sin + dz * b.cos) < b.hz + 2;
+    });
+    if (cfg.zone) for (let i = 0; i < cfg.zone.n; i++) {
+      const r = 6 + rng() * 5, p = place(20, this.R - 10, r + 2);
+      if (!onGround(p)) continue;
+      const mesh = this.groundDisc(p.x, p.z, r, cfg.zone.color, 0.72);
+      arena.add(this.groundDisc(p.x, p.z, r + 0.5, 0x000000, 0.35, r - 0.2)); // dark rim so the zone reads on any ground
+      arena.add(mesh);
+      this.zones.push({ ...cfg.zone, x: p.x, z: p.z, r, mesh });
+    }
+    if (cfg.mover) for (let i = 0; i < cfg.mover.n; i++) {
+      const a = rng() * Math.PI * 2, r = 30 + rng() * (this.R - 45);
+      const mesh = new THREE.Group();
+      for (let k = 0; k < 4; k++) {
+        const cone = new THREE.Mesh(new THREE.ConeGeometry(1.2 + k * 1.1, 3.4, 10, 1, true).rotateX(Math.PI), new THREE.MeshBasicMaterial({ color: cfg.mover.color, transparent: true, opacity: 0.38, side: THREE.DoubleSide, depthWrite: false }));
+        cone.position.y = 1.7 + k * 3; mesh.add(cone);
+      }
+      arena.add(mesh);
+      this.movers.push({ ...cfg.mover, x: this.center.x + Math.cos(a) * r, z: this.center.z + Math.sin(a) * r, dir: rng() * Math.PI * 2, mesh, cd: 0, tick: 0 });
+    }
+    // totems: 6 per arena, well away from the start
+    for (let i = 0; i < 6; i++) {
+      const p = place(55, this.R - 18, 16);
+      if (!onGround(p)) continue;
+      const y = w.terrainHeight(p.x, p.z);
+      const mesh = new THREE.Group();
+      const stone = new THREE.MeshLambertMaterial({ color: 0x4a3f5a, flatShading: true });
+      const pillar = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.6, 7, 6), stone); pillar.position.y = 3.5; pillar.castShadow = true;
+      const head = new THREE.Mesh(new THREE.BoxGeometry(3.2, 1.2, 3.2), stone); head.position.y = 7.2;
+      const gem = new THREE.Mesh(new THREE.OctahedronGeometry(1.1, 0), new THREE.MeshBasicMaterial({ color: 0xc9a6ff })); gem.position.y = 9;
+      mesh.add(pillar, head, gem); mesh.position.set(p.x, y, p.z);
+      const ring = this.groundDisc(p.x, p.z, 7.5, 0xc9a6ff, 0.35, 6.6);
+      arena.add(mesh, ring);
+      this.totems.push({ x: p.x, z: p.z, y, r: 7.5, charge: 0, done: false, gem, ring });
+    }
+  }
+
+  updateHazards(dt) {
+    const g = this.g, p = g.player, pp = p.pos, cfg = HAZARDS[this.biome] || {};
+    const grounded = pp.y - g.world.terrainHeight(pp.x, pp.z) < 1.2; // jumping or standing on high ground avoids zones
+    let slow = 1;
+    if (grounded) for (const z of this.zones) {
+      const dx = z.x - pp.x, dz = z.z - pp.z, d = Math.hypot(dx, dz);
+      if (d > z.r) continue;
+      if (z.slow) slow = Math.min(slow, z.slow);
+      if (z.dps) this.hazAcc += z.dps * dt;
+      if (z.pull && d > 0.5) { pp.x += (dx / d) * z.pull * dt; pp.z += (dz / d) * z.pull * dt; }
+    }
+    p.speedMult = this.baseSpeed * slow;
+    this.hazTick += dt;
+    if (this.hazTick >= 0.5) { this.hazTick = 0; if (this.hazAcc > 0) { p.takeDamage(this.hazAcc); this.hazAcc = 0; } }
+
+    for (const m of this.movers) {
+      m.dir += (Math.random() - 0.5) * dt * 2;
+      m.x += Math.cos(m.dir) * 9 * dt; m.z += Math.sin(m.dir) * 9 * dt;
+      const dc = Math.hypot(m.x - this.center.x, m.z - this.center.z);
+      if (dc > this.R - 6) m.dir = Math.atan2(this.center.z - m.z, this.center.x - m.x);
+      m.mesh.position.set(m.x, g.world.terrainHeight(m.x, m.z), m.z);
+      m.mesh.children.forEach((c, k) => { c.rotation.y += dt * (9 - k); c.position.x = Math.sin(this.time * 3 + k) * 0.5 * k; });
+      m.cd -= dt; m.tick -= dt;
+      if (m.cd <= 0 && grounded && Math.hypot(pp.x - m.x, pp.z - m.z) < 5) { m.cd = 1.5; p.vel.y = 30; p.onGround = false; pp.y += 0.6; p.takeDamage(5); }
+      if (m.tick <= 0) { m.tick = 0.4; for (const e of this.inRadius(new THREE.Vector3(m.x, 0, m.z), 5)) { this.hit(e, 6 + this.time / 20, this.env, true); if (e.hp > 0) this.push(e, 3); } }
+    }
+
+    // telegraphed strikes land near you: step out of the circle (and lure enemies into it)
+    if (cfg.strike && this.time >= this.strikeAt) {
+      this.strikeAt = this.time + cfg.strike.every * (0.7 + Math.random() * 0.6);
+      const a = Math.random() * Math.PI * 2, d = Math.random() * 14;
+      const x = pp.x + p.vel.x * 0.6 + Math.cos(a) * d, z = pp.z + p.vel.z * 0.6 + Math.sin(a) * d, r = 7;
+      const y = g.world.groundAt(x, z);
+      const mark = new THREE.Mesh(new THREE.RingGeometry(r - 0.5, r, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: cfg.strike.color, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
+      const fill = new THREE.Mesh(new THREE.CircleGeometry(r, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: cfg.strike.color, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false }));
+      mark.position.set(x, y + 0.5, z); fill.position.set(x, y + 0.45, z); fill.scale.setScalar(0.05);
+      this.group.add(mark, fill);
+      this.strikes.push({ x, y, z, r, t: cfg.strike.delay || 1.3, max: cfg.strike.delay || 1.3, mark, fill, cfg: cfg.strike });
+    }
+    for (let i = this.strikes.length - 1; i >= 0; i--) {
+      const s = this.strikes[i];
+      s.t -= dt;
+      s.fill.scale.setScalar(Math.max(0.05, 1 - s.t / s.max));
+      if (s.t > 0) continue;
+      const at = new THREE.Vector3(s.x, s.y, s.z);
+      for (let k = 0; k < 6; k++) g.fx.burst(at.clone().setY(s.y + k * 3), s.cfg.color, 6, 5, 0.5, 1);
+      g.fx.ring(at, s.cfg.color, s.r, 0.4);
+      if (Math.hypot(pp.x - s.x, pp.z - s.z) < s.r && Math.abs(pp.y - s.y) < 5) {
+        p.takeDamage(16 + this.time / 20);
+        if (s.cfg.launch) { p.vel.y = 34; p.onGround = false; pp.y += 0.6; }
+      }
+      for (const e of this.inRadius(at, s.r)) this.hit(e, 40 * (1 + this.time / 60), this.env, true);
+      this.group.remove(s.mark, s.fill); s.mark.geometry.dispose(); s.fill.geometry.dispose();
+      this.strikes.splice(i, 1);
+    }
   }
 
   xpNeed() { return Math.floor(5 + this.level * 3.5 + this.level * this.level * 0.35); }

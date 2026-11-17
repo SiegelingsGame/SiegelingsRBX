@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Siegelings</title>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="labels"></div>
+  <div id="hurt"></div>
+  <div id="underground"></div>
+  <div id="crosshair"><i></i></div>
+
+  <div id="hud-tl">
+    <div class="row"><div id="coins-box" class="pill gold">🪙 <b id="coins">0</b><small id="income"></small></div></div>
+    <div class="bar-wrap"><span class="lvl">Lv <b id="plevel">1</b></span><div class="bar xp"><i id="pxp-fill"></i><em id="pxp-text"></em></div></div>
+    <div class="bar-wrap"><span class="lvl">❤️</span><div class="bar hp"><i id="hp-fill"></i><em id="hp-text"></em></div></div>
+  </div>
+
+  <div id="hud-tr">
+    <canvas id="minimap" width="200" height="200"></canvas>
+    <div id="biome">Arena Hub</div>
+    <div id="clock"></div>
+  </div>
+
+  <div id="companion"><img id="comp-img" alt=""><div><b id="comp-name"></b><div class="bar hp small"><i id="comp-hp"></i></div><small id="comp-state"></small></div></div>
+
+  <div id="hotbar">
+    <span><kbd>WASD</kbd> Move</span><span><kbd>Space</kbd> Jump</span><span><kbd>E</kbd> Interact</span>
+    <span><kbd>Tab</kbd> Siegelings <b id="inv-count"></b></span><span><kbd>B</kbd> Base</span><span><kbd>M</kbd> Map</span><span><kbd>H</kbd> Home</span>
+    <button id="help-btn">? Help</button>
+  </div>
+
+  <div id="run-hud">
+    <div id="run-xpbar"><i id="run-xp"></i></div>
+    <div class="run-top"><b id="run-level">Lv 1</b><b id="run-timer">5:00</b><b id="run-kills">☠ 0</b></div>
+    <div id="run-boss"><i></i></div>
+    <div id="run-chest"><i></i></div>
+    <div class="run-rows"><div id="run-team" class="run-row"></div><div id="run-items" class="run-row"></div></div>
+  </div>
+  <a id="hub-link" href="/home" hidden>← Hub</a>
+  <div id="prompt"></div>
+
+  <div id="touch-ui">
+    <div id="touch-zone"></div>
+    <div id="stick"><div id="stick-knob"></div></div>
+    <div id="t-menu">
+      <button id="t-bag" aria-label="Siegelings">🎒</button>
+      <button id="t-base" aria-label="Base">🏰</button>
+      <button id="t-map" aria-label="Map">🗺️</button>
+      <button id="t-home" aria-label="Home">🏠</button>
+      <button id="t-help" aria-label="Help">?</button>
+    </div>
+    <div id="t-actions">
+      <button id="t-attack" aria-label="Attack">⚔️</button>
+      <button id="t-jump" aria-label="Jump">⤒</button>
+      <button id="t-melee" aria-label="Melee">👊</button>
+      <button id="t-aim" aria-label="Aim">🎯</button>
+    </div>
+  </div>
+  <div id="rotate-hint"><div><b>Turn your phone sideways</b><p>Siegelings plays best in landscape.</p><button id="rotate-dismiss">Play anyway</button></div></div>
+  <div id="toasts"></div>
+
+  <div id="bigmap-wrap"><canvas id="bigmap" width="760" height="760"></canvas><small>Press M to close</small></div>
+
+  <div id="lock">
+    <div class="lock-card">
+      <h1>SIEGELINGS</h1>
+      <p>Click to play</p>
+      <small>WASD move · Mouse look · your Siegelings attack on their own · E interact · Tab Siegelings · ? help</small>
+    </div>
+  </div>
+
+  <div id="panel"><div class="panel-inner">
+    <header><h2 id="panel-title"></h2><button id="panel-close" aria-label="Close">✕</button></header>
+    <div id="panel-body"></div>
+  </div></div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
